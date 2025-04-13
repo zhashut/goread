@@ -20,6 +20,14 @@ import (
 type MainWindow struct {
 	app    fyne.App    // 应用实例
 	window fyne.Window // 主窗口实例
+
+	// 控制按钮
+	searchButton *widget.Button
+	moreButton   *widget.Button
+
+	// 阅读器
+	booker     *bass.Booker
+	recentView *RecentBooksView
 }
 
 func NewMainWindow() *MainWindow {
@@ -27,8 +35,13 @@ func NewMainWindow() *MainWindow {
 
 	a := app.NewWithID(bass.PACKAGE)
 	w := a.NewWindow(bass.APPNAME)
-	splitContainer := container.NewBorder(mw.controls(), nil, nil, nil, nil)
-	w.SetContent(splitContainer)
+
+	// 初始化阅读器和视图
+	// 加载示例数据
+	mw.booker = bass.NewBooker(bass.BookerCallback{})
+	mw.booker.LoadSampleBooks()
+	mw.recentView = NewRecentBooksView(mw.booker)
+
 	mw.app = a
 	mw.window = w
 	w.Resize(fyne.Size{
@@ -41,23 +54,14 @@ func NewMainWindow() *MainWindow {
 
 func (mw *MainWindow) controls() fyne.CanvasObject {
 	// 创建无背景的搜索按钮和更多选项按钮
-	searchButton := &widget.Button{
-		Icon:       theme.SearchIcon(),
-		OnTapped:   func() {},
-		Importance: widget.LowImportance,
-	}
+	mw.searchButton = &widget.Button{Icon: theme.SearchIcon(), OnTapped: func() {}, Importance: widget.LowImportance}
+	mw.moreButton = &widget.Button{Icon: theme.MoreVerticalIcon(), OnTapped: func() {}, Importance: widget.LowImportance}
 
-	moreButton := &widget.Button{
-		Icon:       theme.MoreVerticalIcon(),
-		OnTapped:   func() {},
-		Importance: widget.LowImportance,
-	}
-
-	buttons := container.NewHBox(searchButton, moreButton)
+	buttons := container.NewHBox(mw.searchButton, mw.moreButton)
 
 	// 创建标签页
 	tabs := NewTabContainer(
-		NewTabItem("最近", widget.NewLabel("最近内容")),
+		NewTabItem("最近", mw.recentView.GetView()),
 		NewTabItem("全部", widget.NewLabel("全部内容")),
 	)
 
@@ -65,5 +69,7 @@ func (mw *MainWindow) controls() fyne.CanvasObject {
 }
 
 func (mw *MainWindow) ShowAndRun() {
+	splitContainer := container.NewBorder(mw.controls(), nil, nil, nil, nil)
+	mw.window.SetContent(splitContainer)
 	mw.window.ShowAndRun()
 }
