@@ -38,7 +38,7 @@ func NewRecentBooksView(booker *bass.Booker) *RecentBooksView {
 
 // GetView 获取视图对象
 func (r *RecentBooksView) GetView() fyne.CanvasObject {
-	return container.NewPadded(r.container)
+	return r.container
 }
 
 // Refresh 刷新视图
@@ -97,7 +97,7 @@ func (r *RecentBooksView) createBookCard(book bass.BookMeta) fyne.CanvasObject {
 	}
 	clickable.ExtendBaseWidget(clickable)
 
-	return clickable
+	return container.NewPadded(clickable)
 }
 
 // UpdateBook 更新单本书籍信息
@@ -123,11 +123,4 @@ func (c *clickableCard) Tapped(*fyne.PointEvent) {
 	if err := c.booker.OpenBook(c.filePath); err != nil {
 		// TODO: 处理错误
 	}
-}
-
-// SetPadding 设置内边距
-func (r *RecentBooksView) SetPadding(padding float32) {
-	newContainer := container.NewGridWrap(fyne.NewSize(160+padding, 240+padding))
-	newContainer.Objects = r.container.Objects
-	r.container = newContainer
 }

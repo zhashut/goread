@@ -65,11 +65,15 @@ func (mw *MainWindow) controls() fyne.CanvasObject {
 		NewTabItem("全部", widget.NewLabel("全部内容")),
 	)
 
-	return container.NewBorder(nil, nil, nil, buttons, tabs)
+	// 创建顶部工具栏，只包含标签页头部和按钮
+	toolbar := container.NewBorder(nil, nil, nil, buttons, tabs.buttonBox)
+
+	// 返回包含工具栏和内容的垂直布局
+	return container.NewBorder(toolbar, nil, nil, nil, tabs.content)
 }
 
 func (mw *MainWindow) ShowAndRun() {
-	splitContainer := container.NewBorder(mw.controls(), nil, nil, nil, nil)
-	mw.window.SetContent(splitContainer)
+	content := mw.controls()
+	mw.window.SetContent(content)
 	mw.window.ShowAndRun()
 }

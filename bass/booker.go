@@ -8,6 +8,7 @@ package bass
  */
 
 import (
+	"fmt"
 	"sort"
 	"time"
 )
@@ -81,6 +82,7 @@ func NewBooker(callback BookerCallback) *Booker {
 
 // OpenBook 打开书籍
 func (b *Booker) OpenBook(filePath string) error {
+	fmt.Printf("openBook start filePath: %v\n", filePath)
 	// 更新状态为加载中
 	b.setStatus(StatusLoading)
 

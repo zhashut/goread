@@ -258,7 +258,7 @@ func (tc *TabContainer) setSelectedTab(index int) {
 // CreateRenderer 创建容器的渲染器
 func (tc *TabContainer) CreateRenderer() fyne.WidgetRenderer {
 	if tc.content == nil {
-		tc.content = container.NewMax()
+		tc.content = container.NewStack()
 	}
 	return &tabContainerRenderer{
 		container: tc,

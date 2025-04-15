@@ -12,8 +12,8 @@ import "image/color"
 // 应用程序常量
 const (
 	APPNAME string  = "goread"                         // 应用程序名称
-	HEIGHT  float32 = 990                              // 默认窗口高度
-	WIDTH   float32 = 538                              // 默认窗口宽度
+	HEIGHT  float32 = 752                              // 默认窗口高度
+	WIDTH   float32 = 417                              // 默认窗口宽度
 	PACKAGE string  = "com.zhashut.goread.preferences" // 首选项包名
 )
 
@@ -21,7 +21,7 @@ const (
 var (
 	// PrimaryColor 主题主色调（红色）
 	PrimaryColor     = color.NRGBA{R: 209, G: 81, B: 88, A: 255}
-	ConverW, ConverH = float32(130), float32(210)
+	ConverW, ConverH = float32(130), float32(180)
 )
 
 // ReaderStatus 阅读器状态
