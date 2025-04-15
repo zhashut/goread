@@ -42,7 +42,7 @@ type TabContainer struct {
 func NewTabContainer(items ...*TabItem) *TabContainer {
 	tc := &TabContainer{
 		Items:   items,
-		content: container.NewMax(),
+		content: container.NewStack(),
 	}
 	tc.ExtendBaseWidget(tc)
 	tc.createButtons()
@@ -85,7 +85,8 @@ func newTabButton(text string, icon fyne.Resource, container *TabContainer, inde
 	btn.Importance = widget.LowImportance
 
 	// 创建文本标签
-	btn.label = canvas.NewText(text, theme.ForegroundColor())
+	btn.label = canvas.NewText(text, theme.Color(theme.ColorNameForeground))
+	btn.label.TextSize = theme.TextSize()
 
 	// 创建底部指示器
 	btn.indicator = canvas.NewRectangle(bass.PrimaryColor)
@@ -109,8 +110,6 @@ func newTabButton(text string, icon fyne.Resource, container *TabContainer, inde
 				btn.indicator.Show()
 				opacity := uint8(255 * progress)
 				btn.indicator.FillColor = color.NRGBA{R: bass.PrimaryColor.R, G: bass.PrimaryColor.G, B: bass.PrimaryColor.B, A: opacity}
-				// 文本颜色渐变到黑色
-				btn.label.Color = color.NRGBA{A: uint8(255 * progress)}
 			} else {
 				// 取消选中时的动画
 				opacity := uint8(255 * (1 - progress))
@@ -118,13 +117,10 @@ func newTabButton(text string, icon fyne.Resource, container *TabContainer, inde
 				if progress == 1 {
 					btn.indicator.Hide()
 				}
-				// 文本颜色渐变回默认颜色
-				btn.label.Color = theme.ForegroundColor()
 			}
 
 			btn.indicator.Move(fyne.NewPos(targetX, size.Height-2))
 			btn.indicator.Refresh()
-			btn.label.Refresh()
 		},
 	)
 
@@ -137,6 +133,14 @@ func (t *tabButton) setSelected(selected bool) {
 		return
 	}
 	t.isSelected = selected
+
+	// 直接设置文本颜色，不使用动画
+	if selected {
+		t.label.Color = color.Black
+	} else {
+		t.label.Color = theme.Color(theme.ColorNameForeground)
+	}
+	t.label.Refresh()
 
 	if t.animation != nil {
 		t.animation.Stop()
@@ -154,9 +158,7 @@ func (t *tabButton) setSelected(selected bool) {
 // CreateRenderer 创建按钮的渲染器
 func (t *tabButton) CreateRenderer() fyne.WidgetRenderer {
 	rend := t.Button.CreateRenderer()
-	objects := rend.Objects()
-	objects = append(objects, t.indicator)
-	objects = append(objects, t.label)
+	objects := []fyne.CanvasObject{t.label, t.indicator} // 直接创建新的对象数组，确保文本在最上层
 
 	return &tabButtonRenderer{
 		button:         t,
@@ -182,6 +184,7 @@ func (r *tabButtonRenderer) Layout(size fyne.Size) {
 		x := (size.Width - textSize.Width) / 2
 		y := (size.Height - textSize.Height) / 2
 		r.button.label.Move(fyne.NewPos(x, y))
+		r.button.label.Refresh() // 确保文本刷新
 	}
 
 	// 设置指示器位置
