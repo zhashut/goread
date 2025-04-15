@@ -61,8 +61,8 @@ func (mw *MainWindow) controls() fyne.CanvasObject {
 
 	// 创建标签页
 	tabs := NewTabContainer(
-		NewTabItem("最近", mw.recentView.GetView()),
-		NewTabItem("全部", widget.NewLabel("全部内容")),
+		NewTabItem("最近", container.NewVScroll(mw.recentView.GetView())),
+		NewTabItem("全部", container.NewVScroll(widget.NewLabel("全部内容"))),
 	)
 
 	// 创建顶部工具栏，只包含标签页头部和按钮
