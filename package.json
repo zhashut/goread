@@ -1,0 +1,30 @@
+{
+  "name": "read-tauri",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "copy-worker": "copyfiles -f ./node_modules/pdfjs-dist/build/pdf.worker.min.js ./public/",
+    "build": "npm run copy-worker && tsc && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.9.0",
+    "@tauri-apps/plugin-dialog": "^2.4.2",
+    "@tauri-apps/plugin-fs": "^2.4.4",
+    "pdfjs-dist": "^4.8.69",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.9.2",
+    "@types/react": "^18.2.15",
+    "@types/react-dom": "^18.2.7",
+    "@vitejs/plugin-react": "^4.2.1",
+    "copyfiles": "^2.4.1",
+    "typescript": "^5.0.2",
+    "vite": "^5.0.0"
+  }
+}
