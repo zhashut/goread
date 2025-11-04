@@ -24,6 +24,6 @@ dist-ssr
 *.sw?
 
 
-*.target
+target
 
 项目概述整合.md
