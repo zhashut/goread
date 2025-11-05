@@ -1,12 +1,10 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { open } from "@tauri-apps/plugin-dialog";
-import { readFile } from "@tauri-apps/plugin-fs";
 import * as pdfjs from "pdfjs-dist";
 // 通过 Vite 将 worker 打包为可用 URL，并告知 PDF.js
 // 这样就不需要手动禁用 worker，性能也更好
 // @ts-ignore
-import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { IBook } from "../types";
 import { bookService } from "../services";
 
@@ -16,20 +14,24 @@ interface BookCardProps {
 }
 
 const BookCard: React.FC<BookCardProps> = ({ book, onClick }) => {
+  const progress =
+    book.total_pages > 0
+      ? Math.min(
+          100,
+          Math.round((book.current_page / book.total_pages) * 1000) / 10
+        )
+      : 0;
+
   return (
     <div
       className="book-card"
       onClick={onClick}
       style={{
         width: "160px",
-        height: "240px",
-        margin: "10px",
-        borderRadius: "8px",
-        overflow: "hidden",
-        boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+        margin: "12px",
         cursor: "pointer",
         transition: "transform 0.2s ease",
-        backgroundColor: "#fff",
+        backgroundColor: "transparent",
       }}
       onMouseEnter={(e) => {
         e.currentTarget.style.transform = "translateY(-4px)";
@@ -41,12 +43,16 @@ const BookCard: React.FC<BookCardProps> = ({ book, onClick }) => {
       <div
         style={{
           width: "100%",
-          height: "200px",
-          backgroundColor: "#f5f5f5",
+          height: "230px",
+          backgroundColor: "#fff",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           position: "relative",
+          border: "1px solid #e5e5e5",
+          borderRadius: "4px",
+          boxShadow: "0 2px 6px rgba(0,0,0,0.06)",
+          overflow: "hidden",
         }}
       >
         {book.cover_image ? (
@@ -71,26 +77,31 @@ const BookCard: React.FC<BookCardProps> = ({ book, onClick }) => {
           </div>
         )}
       </div>
-      <div
-        style={{
-          padding: "12px",
-          height: "40px",
-          display: "flex",
-          alignItems: "center",
-        }}
-      >
+      <div style={{ marginTop: "8px" }}>
         <div
           style={{
             fontSize: "14px",
-            fontWeight: "500",
+            fontWeight: 500,
             color: "#333",
+            lineHeight: 1.5,
+            display: "-webkit-box",
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: "vertical" as any,
             overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-            width: "100%",
+            textAlign: "left",
           }}
         >
           {book.title}
+        </div>
+        <div
+          style={{
+            marginTop: "4px",
+            fontSize: "12px",
+            color: "#888",
+            textAlign: "left",
+          }}
+        >
+          已读 {progress}%
         </div>
       </div>
     </div>
@@ -132,7 +143,7 @@ export const Bookshelf: React.FC = () => {
       // 动态导入Tauri插件
       const [{ open }, { readFile }] = await Promise.all([
         import("@tauri-apps/plugin-dialog"),
-        import("@tauri-apps/plugin-fs")
+        import("@tauri-apps/plugin-fs"),
       ]);
 
       const selected = await open({
@@ -146,9 +157,13 @@ export const Bookshelf: React.FC = () => {
       });
 
       if (selected && !Array.isArray(selected)) {
-        const filePath = typeof selected === 'string' ? selected : (selected as any).path;
-        const fileName = typeof selected === 'string' ? selected.split('\\').pop()?.split('/').pop() : (selected as any).name;
-        
+        const filePath =
+          typeof selected === "string" ? selected : (selected as any).path;
+        const fileName =
+          typeof selected === "string"
+            ? selected.split("\\").pop()?.split("/").pop()
+            : (selected as any).name;
+
         const fileData = await readFile(filePath);
 
         // 使用PDF.js解析PDF信息
@@ -159,9 +174,12 @@ export const Bookshelf: React.FC = () => {
           pdf = await (pdfjs as any).getDocument({ data: fileData }).promise;
         } catch (e: any) {
           const msg = String(e?.message || e);
-          if (msg.includes('GlobalWorkerOptions.workerSrc')) {
+          if (msg.includes("GlobalWorkerOptions.workerSrc")) {
             // 兜底：禁用 worker 再试一次
-            pdf = await (pdfjs as any).getDocument({ data: fileData, disableWorker: true }).promise;
+            pdf = await (pdfjs as any).getDocument({
+              data: fileData,
+              disableWorker: true,
+            }).promise;
           } else {
             throw e;
           }
@@ -184,22 +202,18 @@ export const Bookshelf: React.FC = () => {
         const coverImage = canvas.toDataURL("image/jpeg", 0.8).split(",")[1];
 
         // 添加书籍到数据库
-        const title = fileName?.replace(/\.pdf$/i, "") || 'Unknown';
-        await bookService.addBook(
-          filePath,
-          title,
-          coverImage,
-          pdf.numPages
-        );
+        const title = fileName?.replace(/\.pdf$/i, "") || "Unknown";
+        await bookService.addBook(filePath, title, coverImage, pdf.numPages);
 
         // 重新加载书籍列表
         await loadBooks();
-        
+
         alert(`成功导入书籍: ${title}`);
       }
     } catch (error: any) {
       console.error("Failed to import book:", error);
-      const msg = typeof error?.message === 'string' ? error.message : String(error);
+      const msg =
+        typeof error?.message === "string" ? error.message : String(error);
       alert(`导入书籍失败，请重试\n\n原因：${msg}`);
     }
   };
