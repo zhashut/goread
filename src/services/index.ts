@@ -1,19 +1,39 @@
-// 动态加载Tauri API的函数
+// 动态解析 Tauri invoke（兼容 v1 / v2 / 浏览器预览）
 const loadTauriAPI = async () => {
-  try {
-    const tauri = await import('@tauri-apps/api');
-    console.log('Tauri API loaded successfully');
-    return (await import('@tauri-apps/api/core')).invoke;
-  } catch (error) {
-    console.error('Failed to load Tauri API:', error);
-    // 提供mock实现用于开发环境
-    return async (cmd: string, args?: any) => {
-      console.log('Mock invoke:', cmd, args);
-      if (cmd === 'get_all_books') return [];
-      if (cmd === 'init_database') return;
-      return null;
-    };
+  // 1) 先用 window.__TAURI__ 注入的 invoke（WebView 环境最稳）
+  const tauriAny = (window as any).__TAURI__;
+  const v1Invoke = tauriAny?.invoke;
+  if (typeof v1Invoke === 'function') {
+    return v1Invoke as (cmd: string, args?: any) => Promise<any>;
   }
+  const v2Invoke = tauriAny?.core?.invoke;
+  if (typeof v2Invoke === 'function') {
+    return v2Invoke as (cmd: string, args?: any) => Promise<any>;
+  }
+
+  // 2) 再尝试按包导入（开发者可能安装了 v1 或 v2 的包）
+  try {
+    const apiMod = await import('@tauri-apps/api').catch(() => null as any);
+    if (apiMod && typeof (apiMod as any).invoke === 'function') {
+      return (apiMod as any).invoke as (cmd: string, args?: any) => Promise<any>;
+    }
+  } catch {}
+
+  try {
+    const coreMod = await import('@tauri-apps/api/core').catch(() => null as any);
+    if (coreMod && typeof (coreMod as any).invoke === 'function') {
+      return (coreMod as any).invoke as (cmd: string, args?: any) => Promise<any>;
+    }
+  } catch {}
+
+  // 3) 浏览器预览环境：返回 mock，避免页面因未找到 invoke 而报错
+  console.warn('Tauri invoke not available, using mock for browser preview');
+  return async (cmd: string, args?: any) => {
+    console.log('Mock invoke:', cmd, args);
+    if (cmd === 'get_all_books') return [];
+    if (cmd === 'init_database') return;
+    return null;
+  };
 };
 
 // 延迟加载invoke函数

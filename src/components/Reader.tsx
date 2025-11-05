@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { IBook } from '../types';
+// @ts-ignore
+import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { bookService } from '../services';
 
 export const Reader: React.FC = () => {
@@ -12,6 +14,7 @@ export const Reader: React.FC = () => {
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [pdf, setPdf] = useState<any>(null);
+  const [toc, setToc] = useState<Array<{ title: string; page?: number }>>([]);
 
   useEffect(() => {
     loadBook();
@@ -38,11 +41,53 @@ export const Reader: React.FC = () => {
       const fileData = await fs.readFile(targetBook.file_path);
       
       const pdfjs = await import('pdfjs-dist');
-      const loadedPdf = await pdfjs.getDocument({ data: fileData }).promise;
+      // 设置 workerSrc，避免 "No GlobalWorkerOptions.workerSrc specified" 报错
+      (pdfjs as any).GlobalWorkerOptions.workerSrc = workerUrl;
+      let loadedPdf: any;
+      try {
+        loadedPdf = await (pdfjs as any).getDocument({ data: fileData }).promise;
+      } catch (e: any) {
+        const msg = String(e?.message || e);
+        if (msg.includes('GlobalWorkerOptions.workerSrc')) {
+          loadedPdf = await (pdfjs as any).getDocument({ data: fileData, disableWorker: true }).promise;
+        } else {
+          throw e;
+        }
+      }
       setPdf(loadedPdf);
 
       // 渲染当前页面
       await renderPage(targetBook.current_page, loadedPdf);
+
+      // 加载目录（Outline）
+      try {
+        const outline = await loadedPdf.getOutline();
+        if (outline && Array.isArray(outline)) {
+          const items: Array<{ title: string; page?: number }> = [];
+          for (const item of outline) {
+            const title: string = item.title || '无标题';
+            let pageNum: number | undefined;
+            if (item.dest) {
+              try {
+                const dest = await loadedPdf.getDestination(item.dest);
+                const ref = dest && dest[0];
+                if (ref) {
+                  pageNum = (await loadedPdf.getPageIndex(ref)) + 1;
+                }
+              } catch (e) {
+                console.warn('解析目录目标失败', e);
+              }
+            }
+            items.push({ title, page: pageNum });
+          }
+          setToc(items);
+        } else {
+          setToc([]);
+        }
+      } catch (e) {
+        console.warn('获取PDF目录失败', e);
+        setToc([]);
+      }
     } catch (error) {
       console.error('Failed to load book:', error);
       alert('加载书籍失败');
@@ -143,23 +188,68 @@ export const Reader: React.FC = () => {
         </div>
       </div>
 
-      {/* PDF渲染区域 */}
+      {/* 主体区域：左侧目录 + 中间渲染区 */}
       <div style={{
         flex: 1,
         display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        overflow: 'auto',
-        padding: '20px'
+        overflow: 'hidden'
       }}>
-        <canvas
-          ref={canvasRef}
-          style={{
-            maxWidth: '100%',
-            maxHeight: '100%',
-            boxShadow: '0 8px 32px rgba(0,0,0,0.5)'
-          }}
-        />
+        {/* 左侧目录 */}
+        <div style={{
+          width: '280px',
+          backgroundColor: '#1f1f1f',
+          color: 'white',
+          overflowY: 'auto',
+          padding: '12px 8px',
+          borderRight: '1px solid #333'
+        }}>
+          <div style={{ fontSize: '14px', marginBottom: '8px', opacity: 0.8 }}>目录</div>
+          {toc.length === 0 ? (
+            <div style={{ fontSize: '13px', opacity: 0.6 }}>无目录信息</div>
+          ) : (
+            toc.map((item, idx) => (
+              <div
+                key={idx}
+                onClick={() => item.page && goToPage(item.page)}
+                style={{
+                  padding: '8px',
+                  borderRadius: '6px',
+                  cursor: item.page ? 'pointer' : 'default',
+                  backgroundColor: 'transparent'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.backgroundColor = '#2a2a2a';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.backgroundColor = 'transparent';
+                }}
+              >
+                <div style={{ fontSize: '13px' }}>{item.title}</div>
+                {item.page && (
+                  <div style={{ fontSize: '12px', opacity: 0.7 }}>第 {item.page} 页</div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+        {/* 中间渲染区 */}
+        <div style={{
+          flex: 1,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          overflow: 'auto',
+          padding: '20px'
+        }}>
+          <canvas
+            ref={canvasRef}
+            style={{
+              maxWidth: '100%',
+              maxHeight: '100%',
+              boxShadow: '0 8px 32px rgba(0,0,0,0.5)'
+            }}
+          />
+        </div>
       </div>
 
       {/* 底部控制栏 */}

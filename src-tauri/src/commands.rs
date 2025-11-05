@@ -100,8 +100,9 @@ pub async fn add_book(
 ) -> Result<Book, Error> {
     let pool = db.lock().await;
     
+    // 尝试插入，如果已存在则查询已有记录
     let result = sqlx::query(
-        "INSERT INTO books (title, file_path, cover_image, total_pages) VALUES (?, ?, ?, ?)"
+        "INSERT OR IGNORE INTO books (title, file_path, cover_image, total_pages) VALUES (?, ?, ?, ?)"
     )
     .bind(&title)
     .bind(&path)
@@ -109,13 +110,21 @@ pub async fn add_book(
     .bind(total_pages as i64)
     .execute(&*pool).await?;
 
-    let book_id = result.last_insert_rowid();
-    
-    let book = sqlx::query_as::<_, Book>(
-        "SELECT * FROM books WHERE id = ?"
-    )
-    .bind(book_id)
-    .fetch_one(&*pool).await?;
+    let book = if result.rows_affected() == 0 {
+        // 已存在，直接按路径查询
+        sqlx::query_as::<_, Book>(
+            "SELECT * FROM books WHERE file_path = ?"
+        )
+        .bind(&path)
+        .fetch_one(&*pool).await?
+    } else {
+        let book_id = result.last_insert_rowid();
+        sqlx::query_as::<_, Book>(
+            "SELECT * FROM books WHERE id = ?"
+        )
+        .bind(book_id)
+        .fetch_one(&*pool).await?
+    };
 
     Ok(book)
 }

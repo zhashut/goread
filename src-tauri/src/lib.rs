@@ -3,6 +3,8 @@ mod models;
 
 use commands::*;
 use sqlx::SqlitePool;
+use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
+use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tauri::Manager;
@@ -19,9 +21,14 @@ pub fn run() {
                 let app_data_dir = app.path().app_data_dir().unwrap();
                 std::fs::create_dir_all(&app_data_dir).unwrap();
                 let db_path = app_data_dir.join("goread.db");
-                
-                let database_url = format!("sqlite:{}", db_path.display());
-                let pool = SqlitePool::connect(&database_url).await.unwrap();
+                // sqlx 对 SQLite 推荐使用 sqlite:// 前缀，并使用正斜杠路径格式
+                let db_path_str = db_path.to_string_lossy().replace('\\', "/");
+                let database_url = format!("sqlite://{}?mode=rwc", db_path_str);
+                let opts = SqliteConnectOptions::from_str(&database_url)
+                    .unwrap()
+                    .journal_mode(SqliteJournalMode::Wal)
+                    .create_if_missing(true);
+                let pool = SqlitePool::connect_with(opts).await.unwrap();
                 
                 // 存储数据库连接池
                 app.manage(Arc::new(Mutex::new(pool)));

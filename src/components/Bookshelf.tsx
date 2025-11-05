@@ -3,6 +3,10 @@ import { useNavigate } from "react-router-dom";
 import { open } from "@tauri-apps/plugin-dialog";
 import { readFile } from "@tauri-apps/plugin-fs";
 import * as pdfjs from "pdfjs-dist";
+// 通过 Vite 将 worker 打包为可用 URL，并告知 PDF.js
+// 这样就不需要手动禁用 worker，性能也更好
+// @ts-ignore
+import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { IBook } from "../types";
 import { bookService } from "../services";
 
@@ -148,8 +152,20 @@ export const Bookshelf: React.FC = () => {
         const fileData = await readFile(filePath);
 
         // 使用PDF.js解析PDF信息
-        const pdfjs = await import("pdfjs-dist");
-        const pdf = await pdfjs.getDocument({ data: fileData }).promise;
+        // 设置 workerSrc，避免 "No GlobalWorkerOptions.workerSrc specified" 报错
+        (pdfjs as any).GlobalWorkerOptions.workerSrc = workerUrl;
+        let pdf: any;
+        try {
+          pdf = await (pdfjs as any).getDocument({ data: fileData }).promise;
+        } catch (e: any) {
+          const msg = String(e?.message || e);
+          if (msg.includes('GlobalWorkerOptions.workerSrc')) {
+            // 兜底：禁用 worker 再试一次
+            pdf = await (pdfjs as any).getDocument({ data: fileData, disableWorker: true }).promise;
+          } else {
+            throw e;
+          }
+        }
 
         // 生成封面（第一页）
         const page = await pdf.getPage(1);
@@ -181,9 +197,10 @@ export const Bookshelf: React.FC = () => {
         
         alert(`成功导入书籍: ${title}`);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to import book:", error);
-      alert("导入书籍失败，请重试");
+      const msg = typeof error?.message === 'string' ? error.message : String(error);
+      alert(`导入书籍失败，请重试\n\n原因：${msg}`);
     }
   };
 
