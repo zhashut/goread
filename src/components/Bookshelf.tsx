@@ -11,9 +11,10 @@ import { bookService } from "../services";
 interface BookCardProps {
   book: IBook;
   onClick: () => void;
+  onDelete: () => void;
 }
 
-const BookCard: React.FC<BookCardProps> = ({ book, onClick }) => {
+const BookCard: React.FC<BookCardProps> = ({ book, onClick, onDelete }) => {
   const progress =
     book.total_pages > 0
       ? Math.min(
@@ -55,6 +56,27 @@ const BookCard: React.FC<BookCardProps> = ({ book, onClick }) => {
           overflow: "hidden",
         }}
       >
+        {/* 删除按钮 */}
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+          title="删除书籍"
+          style={{
+            position: 'absolute',
+            top: '6px',
+            right: '6px',
+            background: 'rgba(0,0,0,0.6)',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '4px',
+            padding: '4px 6px',
+            fontSize: '12px',
+            cursor: 'pointer'
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.8)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.6)'; }}
+        >
+          删除
+        </button>
         {book.cover_image ? (
           <img
             src={`data:image/jpeg;base64,${book.cover_image}`}
@@ -218,6 +240,27 @@ export const Bookshelf: React.FC = () => {
     }
   };
 
+  const handleDeleteBook = async (book: IBook) => {
+    try {
+      // 优先使用 Tauri 异步确认对话框
+      let ok: boolean = false;
+      try {
+        const { confirm } = await import('@tauri-apps/plugin-dialog');
+        ok = await confirm(`确认删除该书籍及其书签?`, { title: 'goread' });
+      } catch {
+        ok = window.confirm('确认删除该书籍及其书签?');
+      }
+      if (!ok) return;
+
+      await bookService.deleteBook(book.id);
+      await loadBooks();
+    } catch (error: any) {
+      console.error('删除书籍失败:', error);
+      const msg = typeof error?.message === 'string' ? error.message : String(error);
+      alert(`删除书籍失败，请重试\n\n原因：${msg}`);
+    }
+  };
+
   if (loading) {
     return (
       <div
@@ -314,6 +357,7 @@ export const Bookshelf: React.FC = () => {
               key={book.id}
               book={book}
               onClick={() => handleBookClick(book)}
+              onDelete={() => handleDeleteBook(book)}
             />
           ))}
         </div>
