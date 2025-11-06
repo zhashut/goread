@@ -15,6 +15,10 @@ export const Reader: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [pdf, setPdf] = useState<any>(null);
   const [toc, setToc] = useState<Array<{ title: string; page?: number }>>([]);
+  // UI 可见与进度滑动状态
+  const [uiVisible, setUiVisible] = useState(false);
+  const [isSeeking, setIsSeeking] = useState(false);
+  const [seekPage, setSeekPage] = useState<number | null>(null);
 
   useEffect(() => {
     loadBook();
@@ -233,14 +237,28 @@ export const Reader: React.FC = () => {
           )}
         </div>
         {/* 中间渲染区 */}
-        <div style={{
-          flex: 1,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          overflow: 'auto',
-          padding: '20px'
-        }}>
+        <div
+          onClick={(e) => {
+            const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            if (x < rect.width * 0.3) {
+              prevPage();
+            } else if (x > rect.width * 0.7) {
+              nextPage();
+            } else {
+              setUiVisible((v) => !v);
+            }
+          }}
+          style={{
+            flex: 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            overflow: 'auto',
+            padding: '20px',
+            position: 'relative'
+          }}
+        >
           <canvas
             ref={canvasRef}
             style={{
@@ -249,55 +267,106 @@ export const Reader: React.FC = () => {
               boxShadow: '0 8px 32px rgba(0,0,0,0.5)'
             }}
           />
+
+          {/* 拖动预览气泡，仅在拖动时显示 */}
+          {isSeeking && seekPage !== null && (
+            <div
+              style={{
+                position: 'absolute',
+                top: '12px',
+                left: '12px',
+                padding: '6px 10px',
+                borderRadius: '14px',
+                backgroundColor: 'rgba(0,0,0,0.65)',
+                color: '#fff',
+                fontSize: '12px'
+              }}
+            >
+              {seekPage} / {totalPages}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* 底部控制栏 */}
-      <div style={{
-        height: '80px',
-        backgroundColor: '#1a1a1a',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: '20px',
-        color: 'white'
-      }}>
-        <button
-          onClick={prevPage}
-          disabled={currentPage <= 1}
+      {/* 底部控制栏：中央点击时显示；滑动时始终显示进度条 */}
+      {(uiVisible || isSeeking) && (
+        <div
           style={{
-            padding: '10px 20px',
-            backgroundColor: currentPage <= 1 ? '#555' : '#d15158',
+            height: '100px',
+            backgroundColor: '#1a1a1a',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '20px',
             color: 'white',
-            border: 'none',
-            borderRadius: '6px',
-            cursor: currentPage <= 1 ? 'not-allowed' : 'pointer',
-            fontSize: '14px'
+            position: 'relative'
           }}
         >
-          上一页
-        </button>
-        
-        <div style={{ fontSize: '16px', minWidth: '100px', textAlign: 'center' }}>
-          第 {currentPage} 页，共 {totalPages} 页
+          <button
+            onClick={prevPage}
+            disabled={currentPage <= 1}
+            style={{
+              padding: '10px 16px',
+              backgroundColor: currentPage <= 1 ? '#555' : '#d15158',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: currentPage <= 1 ? 'not-allowed' : 'pointer',
+              fontSize: '14px'
+            }}
+          >
+            上一页
+          </button>
+
+          {/* 进度滑条 */}
+          <div style={{ width: '55%', display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}>
+            <input
+              type="range"
+              min={1}
+              max={totalPages}
+              value={isSeeking && seekPage !== null ? seekPage : currentPage}
+              onMouseDown={() => setIsSeeking(true)}
+              onTouchStart={() => setIsSeeking(true)}
+              onInput={(e) => {
+                const v = Number((e.target as HTMLInputElement).value);
+                setSeekPage(v);
+              }}
+              onMouseUp={async (e) => {
+                const v = Number((e.target as HTMLInputElement).value);
+                setIsSeeking(false);
+                setSeekPage(null);
+                await goToPage(v);
+              }}
+              onTouchEnd={async (e) => {
+                const v = Number((e.target as HTMLInputElement).value);
+                setIsSeeking(false);
+                setSeekPage(null);
+                await goToPage(v);
+              }}
+              style={{ width: '100%' }}
+            />
+            <div style={{ marginTop: '6px', fontSize: '12px', textAlign: 'center', opacity: 0.85 }}>
+              {isSeeking && seekPage !== null ? `预览：${seekPage} / ${totalPages}` : `第 ${currentPage} 页 / 共 ${totalPages} 页`}
+            </div>
+          </div>
+
+          <button
+            onClick={nextPage}
+            disabled={currentPage >= totalPages}
+            style={{
+              padding: '10px 16px',
+              backgroundColor: currentPage >= totalPages ? '#555' : '#d15158',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer',
+              fontSize: '14px'
+            }}
+          >
+            下一页
+          </button>
         </div>
-        
-        <button
-          onClick={nextPage}
-          disabled={currentPage >= totalPages}
-          style={{
-            padding: '10px 20px',
-            backgroundColor: currentPage >= totalPages ? '#555' : '#d15158',
-            color: 'white',
-            border: 'none',
-            borderRadius: '6px',
-            cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer',
-            fontSize: '14px'
-          }}
-        >
-          下一页
-        </button>
-      </div>
+      )}
     </div>
   );
 };
