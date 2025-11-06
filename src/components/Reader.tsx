@@ -162,7 +162,7 @@ export const Reader: React.FC = () => {
       height: '100vh',
       backgroundColor: '#2c2c2c'
     }}>
-      {/* 顶部工具栏 */}
+      {/* 顶部工具栏：仅显示返回与书名 */}
       <div style={{
         height: '60px',
         backgroundColor: '#1a1a1a',
@@ -187,9 +187,7 @@ export const Reader: React.FC = () => {
         <div style={{ fontSize: '18px', fontWeight: '500' }}>
           {book?.title}
         </div>
-        <div style={{ fontSize: '14px' }}>
-          {currentPage} / {totalPages}
-        </div>
+        <div style={{ width: '80px' }} />
       </div>
 
       {/* 主体区域：左侧目录 + 中间渲染区 */}
@@ -268,21 +266,22 @@ export const Reader: React.FC = () => {
             }}
           />
 
-          {/* 拖动预览气泡，仅在拖动时显示 */}
-          {isSeeking && seekPage !== null && (
+          {/* 顶部左侧页码气泡：中央点击显示时常驻；拖动时显示预览 */}
+          {(uiVisible || isSeeking) && (
             <div
               style={{
                 position: 'absolute',
-                top: '12px',
-                left: '12px',
-                padding: '6px 10px',
-                borderRadius: '14px',
-                backgroundColor: 'rgba(0,0,0,0.65)',
+                top: '10px',
+                left: '10px',
+                padding: '6px 12px',
+                borderRadius: '18px',
+                backgroundColor: 'rgba(0,0,0,0.75)',
                 color: '#fff',
-                fontSize: '12px'
+                fontSize: '12px',
+                boxShadow: '0 2px 6px rgba(0,0,0,0.25)'
               }}
             >
-              {seekPage} / {totalPages}
+              {(isSeeking && seekPage !== null ? seekPage : currentPage)} / {totalPages}
             </div>
           )}
         </div>
@@ -345,9 +344,7 @@ export const Reader: React.FC = () => {
               }}
               style={{ width: '100%' }}
             />
-            <div style={{ marginTop: '6px', fontSize: '12px', textAlign: 'center', opacity: 0.85 }}>
-              {isSeeking && seekPage !== null ? `预览：${seekPage} / ${totalPages}` : `第 ${currentPage} 页 / 共 ${totalPages} 页`}
-            </div>
+            {/* 底部不再显示页码说明，页码在顶部左侧预览气泡里显示 */}
           </div>
 
           <button
