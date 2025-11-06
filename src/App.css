@@ -142,3 +142,17 @@ button {
     background-color: #0f0f0f69;
   }
 }
+
+/* 隐藏滚动条但保持滚动能力（目录弹层使用） */
+.no-scrollbar {
+  /* Firefox */
+  scrollbar-width: none;
+  /* IE 10+ */
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  /* Chrome / Safari */
+  width: 0;
+  height: 0;
+  display: none;
+}

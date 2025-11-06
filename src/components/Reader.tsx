@@ -23,6 +23,8 @@ export const Reader: React.FC = () => {
   const [isSeeking, setIsSeeking] = useState(false);
   const [seekPage, setSeekPage] = useState<number | null>(null);
   const [leftTab, setLeftTab] = useState<'toc' | 'bookmark'>('toc');
+  // 目录弹层开关
+  const [tocOverlayOpen, setTocOverlayOpen] = useState(false);
   // 书签提示气泡
   const [bookmarkToastVisible, setBookmarkToastVisible] = useState(false);
   const [bookmarkToastText, setBookmarkToastText] = useState('');
@@ -255,6 +257,7 @@ export const Reader: React.FC = () => {
               }
               if (typeof node.page === 'number') {
                 goToPage(node.page);
+                setTocOverlayOpen(false);
               }
             }}
             ref={(el) => {
@@ -305,111 +308,12 @@ export const Reader: React.FC = () => {
       height: '100vh',
       backgroundColor: '#2c2c2c'
     }}>
-      {/* 顶部工具栏：仅显示返回与书名 */}
-      <div style={{
-        height: '60px',
-        backgroundColor: '#1a1a1a',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '0 20px',
-        color: 'white'
-      }}>
-        <button
-          onClick={() => navigate('/')}
-          style={{
-            background: 'none',
-            border: 'none',
-            color: 'white',
-            cursor: 'pointer',
-            fontSize: '16px'
-          }}
-        >
-          ← 返回
-        </button>
-        <div style={{ fontSize: '18px', fontWeight: '500' }}>
-          {book?.title}
-        </div>
-        <div style={{ width: '80px' }} />
-      </div>
-
-      {/* 主体区域：左侧目录 + 中间渲染区 */}
+      {/* 主体区域：仅中间渲染区（目录改为蒙版弹层） */}
       <div style={{
         flex: 1,
         display: 'flex',
         overflow: 'hidden'
       }}>
-        {/* 左侧：目录 / 书签页签 */}
-        <div style={{
-          width: '280px',
-          backgroundColor: '#1f1f1f',
-          color: 'white',
-          overflowY: 'auto',
-          padding: '12px 8px',
-          borderRight: '1px solid #333'
-        }}>
-          <div style={{ display: 'flex', gap: '16px', marginBottom: '12px', justifyContent: 'center' }}>
-            <button
-              onClick={() => setLeftTab('toc')}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: leftTab === 'toc' ? '#d15158' : '#fff',
-                cursor: 'pointer',
-                fontSize: '14px',
-                padding: '4px 6px',
-                borderBottom: leftTab === 'toc' ? '2px solid #d15158' : '2px solid transparent'
-              }}
-            >
-              <span style={{ marginRight: '6px' }}>≡</span>
-              <span>目录</span>
-            </button>
-            <button
-              onClick={() => setLeftTab('bookmark')}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: leftTab === 'bookmark' ? '#d15158' : '#fff',
-                cursor: 'pointer',
-                fontSize: '14px',
-                padding: '4px 6px',
-                borderBottom: leftTab === 'bookmark' ? '2px solid #d15158' : '2px solid transparent'
-              }}
-            >
-              <span style={{ marginRight: '6px' }}>🔖</span>
-              <span>书签</span>
-            </button>
-          </div>
-          {leftTab === 'toc' ? (
-            toc.length === 0 ? (
-              <div style={{ fontSize: '13px', opacity: 0.6 }}>无目录信息</div>
-            ) : (
-              <div>{renderTocTree(toc, 0)}</div>
-            )
-          ) : (
-            bookmarks.length === 0 ? (
-              <div style={{ fontSize: '13px', opacity: 0.6, display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>没有添加书签</div>
-            ) : (
-              <div>
-                {bookmarks.map((bm) => (
-                  <div
-                    key={bm.id}
-                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px', borderRadius: '6px', cursor: 'pointer' }}
-                    onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#2a2a2a'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
-                    onClick={() => goToPage(bm.page_number)}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontSize: '13px', color: '#fff' }}>{bm.title}</span>
-                      <span style={{ fontSize: '12px', opacity: 0.7 }}>第 {bm.page_number} 页</span>
-                    </div>
-                    <button onClick={(e) => { e.stopPropagation(); deleteBookmark(bm.id); }} style={{ background: 'none', border: 'none', color: '#ccc', cursor: 'pointer', fontSize: '12px' }} title="删除书签">✕</button>
-                  </div>
-                ))}
-              </div>
-            )
-          )}
-        </div>
         {/* 中间渲染区 */}
         <div
           onClick={(e) => {
@@ -433,6 +337,45 @@ export const Reader: React.FC = () => {
             position: 'relative'
           }}
         >
+          {/* 顶部工具栏覆盖层：与底部控制栏一致的显示/隐藏逻辑 */}
+          {(uiVisible || isSeeking || tocOverlayOpen) && (
+            <div
+              onClick={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+              onMouseUp={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+              onTouchEnd={(e) => e.stopPropagation()}
+              onWheel={(e) => e.stopPropagation()}
+              style={{
+                position: 'absolute',
+                top: '10px',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                width: '80%',
+                backgroundColor: 'rgba(26,26,26,0.92)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                color: 'white',
+                borderRadius: '10px',
+                padding: '8px 12px',
+                boxShadow: '0 6px 24px rgba(0,0,0,0.35)',
+                zIndex: 12
+              }}
+            >
+              <button
+                onClick={() => navigate('/')}
+                style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '16px' }}
+                title="返回"
+              >
+                {'<'}
+              </button>
+              <div style={{ fontSize: '16px', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {book?.title}
+              </div>
+              <div style={{ width: '24px' }} />
+            </div>
+          )}
           <canvas
             ref={canvasRef}
             style={{
@@ -442,22 +385,130 @@ export const Reader: React.FC = () => {
             }}
           />
 
-          {/* 顶部左侧页码气泡：中央点击显示时常驻；拖动时显示预览 */}
+          {/* 顶部页码气泡：贴紧顶部栏最左侧下方，顶部栏可见时下移 */}
           {(uiVisible || isSeeking) && (
+            (() => {
+              const offset = (uiVisible || isSeeking || tocOverlayOpen) ? 72 : 14;
+              return (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: `${offset}px`,
+                    left: '10%',
+                    display: 'block',
+                    pointerEvents: 'none',
+                    zIndex: 11
+                  }}
+                >
+                  <div
+                    style={{
+                      padding: '6px 12px',
+                      borderRadius: '18px',
+                      backgroundColor: 'rgba(0,0,0,0.75)',
+                      color: '#fff',
+                      fontSize: '12px',
+                      boxShadow: '0 2px 6px rgba(0,0,0,0.25)'
+                    }}
+                  >
+                    {(isSeeking && seekPage !== null ? seekPage : currentPage)} / {totalPages}
+                  </div>
+                </div>
+              );
+            })()
+          )}
+
+          {/* 目录蒙版弹层：占据页面90%，点击外部收回 */}
+          {tocOverlayOpen && (
             <div
+              onClick={(e) => { e.stopPropagation(); setTocOverlayOpen(false); }}
               style={{
                 position: 'absolute',
-                top: '10px',
-                left: '10px',
-                padding: '6px 12px',
-                borderRadius: '18px',
-                backgroundColor: 'rgba(0,0,0,0.75)',
-                color: '#fff',
-                fontSize: '12px',
-                boxShadow: '0 2px 6px rgba(0,0,0,0.25)'
+                inset: 0,
+                backgroundColor: 'rgba(0,0,0,0.6)',
+                display: 'flex',
+                alignItems: 'stretch',
+                justifyContent: 'flex-start',
+                zIndex: 20
               }}
             >
-              {(isSeeking && seekPage !== null ? seekPage : currentPage)} / {totalPages}
+              <div
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  width: '90%',
+                  height: '100%',
+                  backgroundColor: '#1f1f1f',
+                  color: '#fff',
+                  borderRadius: '0 10px 10px 0',
+                  overflowY: 'auto',
+                  padding: '16px',
+                  boxShadow: '0 8px 32px rgba(0,0,0,0.5)'
+                }}
+                className="no-scrollbar"
+              >
+                {/* 顶部页签：目录 / 书签（图标与文字贴近） */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '12px' }}>
+                  <button
+                    onClick={() => setLeftTab('toc')}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: leftTab === 'toc' ? '#d15158' : '#fff',
+                      cursor: 'pointer',
+                      fontSize: '14px',
+                      padding: '4px 6px',
+                      borderBottom: leftTab === 'toc' ? '2px solid #d15158' : '2px solid transparent'
+                    }}
+                  >
+                    <span style={{ marginRight: '6px' }}>≡</span>
+                    <span>目录</span>
+                  </button>
+                  <button
+                    onClick={() => setLeftTab('bookmark')}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: leftTab === 'bookmark' ? '#d15158' : '#fff',
+                      cursor: 'pointer',
+                      fontSize: '14px',
+                      padding: '4px 6px',
+                      borderBottom: leftTab === 'bookmark' ? '2px solid #d15158' : '2px solid transparent'
+                    }}
+                  >
+                    <span style={{ marginRight: '6px' }}>🔖</span>
+                    <span>书签</span>
+                  </button>
+                </div>
+                {/* 内容区：目录或书签列表 */}
+                {leftTab === 'toc' ? (
+                  toc.length === 0 ? (
+                    <div style={{ fontSize: '13px', opacity: 0.6 }}>无目录信息</div>
+                  ) : (
+                    <div>{renderTocTree(toc, 0)}</div>
+                  )
+                ) : (
+                  bookmarks.length === 0 ? (
+                    <div style={{ fontSize: '13px', opacity: 0.6, display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>没有添加书签</div>
+                  ) : (
+                    <div>
+                      {bookmarks.map((bm) => (
+                        <div
+                          key={bm.id}
+                          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px', borderRadius: '6px', cursor: 'pointer' }}
+                          onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#2a2a2a'; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+                          onClick={() => { goToPage(bm.page_number); setTocOverlayOpen(false); }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span style={{ fontSize: '13px', color: '#fff' }}>{bm.title}</span>
+                            <span style={{ fontSize: '12px', opacity: 0.7 }}>第 {bm.page_number} 页</span>
+                          </div>
+                          <button onClick={(e) => { e.stopPropagation(); deleteBookmark(bm.id); }} style={{ background: 'none', border: 'none', color: '#ccc', cursor: 'pointer', fontSize: '12px' }} title="删除书签">✕</button>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                )}
+              </div>
             </div>
           )}
 
@@ -562,8 +613,8 @@ export const Reader: React.FC = () => {
               {/* 下方图标操作区 */}
               <div style={{ marginTop: '14px', display: 'flex', gap: '28px', alignItems: 'center', justifyContent: 'center' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  <button onClick={() => setLeftTab('toc')} style={{ background: 'none', border: 'none', color: leftTab === 'toc' ? '#d15158' : '#fff', cursor: 'pointer', fontSize: '18px' }} title="目录">≡</button>
-                  <div style={{ fontSize: '12px', color: leftTab === 'toc' ? '#d15158' : '#ccc', marginTop: '6px' }}>目录</div>
+                  <button onClick={() => setTocOverlayOpen(true)} style={{ background: 'none', border: 'none', color: tocOverlayOpen ? '#d15158' : '#fff', cursor: 'pointer', fontSize: '18px' }} title="目录">≡</button>
+                  <div style={{ fontSize: '12px', color: tocOverlayOpen ? '#d15158' : '#ccc', marginTop: '6px' }}>目录</div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                   <button style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '18px' }} title="阅读方式">▉▉</button>
@@ -578,8 +629,8 @@ export const Reader: React.FC = () => {
                   <div style={{ fontSize: '12px', color: '#ccc', marginTop: '6px' }}>书签</div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  <button onClick={() => setLeftTab('bookmark')} style={{ background: 'none', border: 'none', color: leftTab === 'bookmark' ? '#d15158' : '#fff', cursor: 'pointer', fontSize: '18px' }} title="更多">…</button>
-                  <div style={{ fontSize: '12px', color: leftTab === 'bookmark' ? '#d15158' : '#ccc', marginTop: '6px' }}>更多</div>
+                  <button onClick={() => { setLeftTab('bookmark'); setTocOverlayOpen(true); }} style={{ background: 'none', border: 'none', color: leftTab === 'bookmark' && tocOverlayOpen ? '#d15158' : '#fff', cursor: 'pointer', fontSize: '18px' }} title="更多">…</button>
+                  <div style={{ fontSize: '12px', color: leftTab === 'bookmark' && tocOverlayOpen ? '#d15158' : '#ccc', marginTop: '6px' }}>更多</div>
                 </div>
               </div>
 
