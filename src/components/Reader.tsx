@@ -460,137 +460,154 @@ export const Reader: React.FC = () => {
               {(isSeeking && seekPage !== null ? seekPage : currentPage)} / {totalPages}
             </div>
           )}
-        </div>
-      </div>
 
-      {/* 底部控制栏：参考图2布局 */}
-      {(uiVisible || isSeeking) && (
-        <div
-          style={{
-            height: '150px',
-            backgroundColor: '#1a1a1a',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: 'white',
-            position: 'relative'
-          }}
-        >
-          {/* 上方进度滑条 + 两端上一章/下一章文案 */}
-          <div style={{ width: '60%', display: 'flex', flexDirection: 'column', alignItems: 'stretch', margin: '0 40px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#bbb', marginBottom: '8px' }}>
-              <span
-                onClick={() => {
-                  const page = findCurrentChapterPage(toc);
-                  if (typeof page === 'number' && page < currentPage) {
-                    goToPage(page);
-                  } else {
-                    prevPage();
-                  }
-                }}
-                style={{ cursor: currentPage <= 1 ? 'default' : 'pointer', opacity: currentPage <= 1 ? 0.5 : 1 }}
-              >上一章</span>
-              <span
-                onClick={() => {
-                  const pages: number[] = [];
-                  const collect = (ns: TocNode[]) => {
-                    for (const n of ns) {
-                      if (typeof n.page === 'number') pages.push(n.page);
-                      if (n.children && n.children.length) collect(n.children);
-                    }
-                  };
-                  collect(toc);
-                  pages.sort((a, b) => a - b);
-                  const target = pages.find((p) => p > currentPage);
-                  if (typeof target === 'number') {
-                    goToPage(target);
-                  } else {
-                    nextPage();
-                  }
-                }}
-                style={{ cursor: currentPage >= totalPages ? 'default' : 'pointer', opacity: currentPage >= totalPages ? 0.5 : 1 }}
-              >下一章</span>
-            </div>
-            {(() => {
-              const sliderVal = isSeeking && seekPage !== null ? seekPage : currentPage;
-              const pct = Math.max(0, Math.min(100, Math.round((sliderVal / Math.max(1, totalPages)) * 100)));
-              const track = `linear-gradient(to right, #d15158 0%, #d15158 ${pct}%, #3a3a3a ${pct}%, #3a3a3a 100%)`;
-              return (
-                <input
-                  className="reader-range"
-                  type="range"
-                  min={1}
-                  max={totalPages}
-                  value={sliderVal}
-                  onMouseDown={() => setIsSeeking(true)}
-                  onTouchStart={() => setIsSeeking(true)}
-                  onInput={(e) => {
-                    const v = Number((e.target as HTMLInputElement).value);
-                    setSeekPage(v);
-                  }}
-                  onMouseUp={async (e) => {
-                    const v = Number((e.target as HTMLInputElement).value);
-                    setIsSeeking(false);
-                    setSeekPage(null);
-                    await goToPage(v);
-                  }}
-                  onTouchEnd={async (e) => {
-                    const v = Number((e.target as HTMLInputElement).value);
-                    setIsSeeking(false);
-                    setSeekPage(null);
-                    await goToPage(v);
-                  }}
-                  style={{ width: '100%', height: '6px', borderRadius: '6px', background: track, outline: 'none' }}
-                />
-              );
-            })()}
-            {/* 页码说明由顶部左侧预览气泡承担 */}
-          </div>
-          {/* 下方图标操作区（分离于滑条，下方一行，带文字） */}
-          <div style={{ marginTop: '18px', display: 'flex', gap: '40px', alignItems: 'center', justifyContent: 'center' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-              <button onClick={() => setLeftTab('toc')} style={{ background: 'none', border: 'none', color: leftTab === 'toc' ? '#d15158' : '#fff', cursor: 'pointer', fontSize: '18px' }} title="目录">≡</button>
-              <div style={{ fontSize: '12px', color: leftTab === 'toc' ? '#d15158' : '#ccc', marginTop: '6px' }}>目录</div>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-              <button style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '18px' }} title="阅读方式">▉▉</button>
-              <div style={{ fontSize: '12px', color: '#ccc', marginTop: '6px' }}>阅读方式</div>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-              <button style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '18px' }} title="自动滚动">☰</button>
-              <div style={{ fontSize: '12px', color: '#ccc', marginTop: '6px' }}>自动滚动</div>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-              <button onClick={addBookmark} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '18px' }} title="书签">🔖</button>
-              <div style={{ fontSize: '12px', color: '#ccc', marginTop: '6px' }}>书签</div>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-              <button onClick={() => setLeftTab('bookmark')} style={{ background: 'none', border: 'none', color: leftTab === 'bookmark' ? '#d15158' : '#fff', cursor: 'pointer', fontSize: '18px' }} title="更多">…</button>
-              <div style={{ fontSize: '12px', color: leftTab === 'bookmark' ? '#d15158' : '#ccc', marginTop: '6px' }}>更多</div>
-            </div>
-          </div>
-          {/* 书签提示气泡 */}
-          {bookmarkToastVisible && (
+          {/* 覆盖式底部控制栏（绝对定位），不挤压内容 */}
+          {(uiVisible || isSeeking) && (
             <div
+              onClick={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+              onMouseUp={(e) => e.stopPropagation()}
+              onTouchStart={(e) => e.stopPropagation()}
+              onTouchEnd={(e) => e.stopPropagation()}
+              onWheel={(e) => e.stopPropagation()}
               style={{
                 position: 'absolute',
-                bottom: '12px',
                 left: '50%',
                 transform: 'translateX(-50%)',
-                padding: '6px 12px',
-                borderRadius: '16px',
-                backgroundColor: 'rgba(0,0,0,0.8)',
-                color: '#fff',
-                fontSize: '12px',
-                boxShadow: '0 2px 6px rgba(0,0,0,0.3)'
+                bottom: '20px',
+                width: '60%',
+                backgroundColor: 'rgba(26,26,26,0.92)',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'white',
+                borderRadius: '10px',
+                padding: '14px 18px',
+                boxShadow: '0 6px 24px rgba(0,0,0,0.35)',
+                zIndex: 10
               }}
             >
-              {bookmarkToastText}
+              {/* 上方进度滑条 + 两端上一章/下一章文案 */}
+              <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#bbb', marginBottom: '8px' }}>
+                  <span
+                    onClick={() => {
+                      const page = findCurrentChapterPage(toc);
+                      if (typeof page === 'number' && page < currentPage) {
+                        goToPage(page);
+                      } else {
+                        prevPage();
+                      }
+                    }}
+                    style={{ cursor: currentPage <= 1 ? 'default' : 'pointer', opacity: currentPage <= 1 ? 0.5 : 1 }}
+                  >上一章</span>
+                  <span
+                    onClick={() => {
+                      const pages: number[] = [];
+                      const collect = (ns: TocNode[]) => {
+                        for (const n of ns) {
+                          if (typeof n.page === 'number') pages.push(n.page);
+                          if (n.children && n.children.length) collect(n.children);
+                        }
+                      };
+                      collect(toc);
+                      pages.sort((a, b) => a - b);
+                      const target = pages.find((p) => p > currentPage);
+                      if (typeof target === 'number') {
+                        goToPage(target);
+                      } else {
+                        nextPage();
+                      }
+                    }}
+                    style={{ cursor: currentPage >= totalPages ? 'default' : 'pointer', opacity: currentPage >= totalPages ? 0.5 : 1 }}
+                  >下一章</span>
+                </div>
+                {(() => {
+                  const sliderVal = isSeeking && seekPage !== null ? seekPage : currentPage;
+                  const pct = Math.max(0, Math.min(100, Math.round((sliderVal / Math.max(1, totalPages)) * 100)));
+                  const track = `linear-gradient(to right, #d15158 0%, #d15158 ${pct}%, #3a3a3a ${pct}%, #3a3a3a 100%)`;
+                  return (
+                    <input
+                      className="reader-range"
+                      type="range"
+                      min={1}
+                      max={totalPages}
+                      value={sliderVal}
+                      onMouseDown={(e) => { e.stopPropagation(); setIsSeeking(true); }}
+                      onTouchStart={(e) => { e.stopPropagation(); setIsSeeking(true); }}
+                      onInput={(e) => {
+                        const v = Number((e.target as HTMLInputElement).value);
+                        setSeekPage(v);
+                      }}
+                      onMouseUp={async (e) => {
+                        e.stopPropagation();
+                        const v = Number((e.target as HTMLInputElement).value);
+                        setIsSeeking(false);
+                        setSeekPage(null);
+                        await goToPage(v);
+                      }}
+                      onTouchEnd={async (e) => {
+                        e.stopPropagation();
+                        const v = Number((e.target as HTMLInputElement).value);
+                        setIsSeeking(false);
+                        setSeekPage(null);
+                        await goToPage(v);
+                      }}
+                      style={{ width: '100%', height: '6px', borderRadius: '6px', background: track, outline: 'none' }}
+                    />
+                  );
+                })()}
+              </div>
+              {/* 下方图标操作区 */}
+              <div style={{ marginTop: '14px', display: 'flex', gap: '28px', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                  <button onClick={() => setLeftTab('toc')} style={{ background: 'none', border: 'none', color: leftTab === 'toc' ? '#d15158' : '#fff', cursor: 'pointer', fontSize: '18px' }} title="目录">≡</button>
+                  <div style={{ fontSize: '12px', color: leftTab === 'toc' ? '#d15158' : '#ccc', marginTop: '6px' }}>目录</div>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                  <button style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '18px' }} title="阅读方式">▉▉</button>
+                  <div style={{ fontSize: '12px', color: '#ccc', marginTop: '6px' }}>阅读方式</div>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                  <button style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '18px' }} title="自动滚动">☰</button>
+                  <div style={{ fontSize: '12px', color: '#ccc', marginTop: '6px' }}>自动滚动</div>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                  <button onClick={addBookmark} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '18px' }} title="书签">🔖</button>
+                  <div style={{ fontSize: '12px', color: '#ccc', marginTop: '6px' }}>书签</div>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                  <button onClick={() => setLeftTab('bookmark')} style={{ background: 'none', border: 'none', color: leftTab === 'bookmark' ? '#d15158' : '#fff', cursor: 'pointer', fontSize: '18px' }} title="更多">…</button>
+                  <div style={{ fontSize: '12px', color: leftTab === 'bookmark' ? '#d15158' : '#ccc', marginTop: '6px' }}>更多</div>
+                </div>
+              </div>
+
+              {/* 书签提示气泡：覆盖显示，不影响布局与交互 */}
+              {bookmarkToastVisible && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    bottom: '8px',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    padding: '6px 12px',
+                    borderRadius: '16px',
+                    backgroundColor: 'rgba(0,0,0,0.8)',
+                    color: '#fff',
+                    fontSize: '12px',
+                    boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+                    pointerEvents: 'none'
+                  }}
+                >
+                  {bookmarkToastText}
+                </div>
+              )}
             </div>
           )}
         </div>
-      )}
+      </div>
+
     </div>
   );
 };
