@@ -2,6 +2,34 @@
   filter: drop-shadow(0 0 2em #747bff);
 }
 
+/* Reader bottom progress range custom style */
+.reader-range {
+  -webkit-appearance: none;
+  appearance: none;
+  border: none;
+  padding: 0;
+  box-shadow: none;
+  height: 6px;
+  border-radius: 6px;
+}
+.reader-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2px solid #d15158;
+  box-shadow: 0 0 0 2px rgba(0,0,0,0.2);
+}
+.reader-range::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2px solid #d15158;
+}
+
 .logo.react:hover {
   filter: drop-shadow(0 0 2em #61dafb);
 }

@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { IBook } from '../types';
+import { IBook, IBookmark } from '../types';
 // @ts-ignore
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
-import { bookService } from '../services';
+import { bookService, bookmarkService } from '../services';
 
 export const Reader: React.FC = () => {
   const { bookId } = useParams<{ bookId: string }>();
@@ -14,6 +14,7 @@ export const Reader: React.FC = () => {
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [pdf, setPdf] = useState<any>(null);
+  const [bookmarks, setBookmarks] = useState<IBookmark[]>([]);
   type TocNode = { title: string; page?: number; children?: TocNode[]; expanded?: boolean };
   const [toc, setToc] = useState<TocNode[]>([]);
   const tocItemRefs = useRef<Map<number, HTMLDivElement>>(new Map());
@@ -21,6 +22,10 @@ export const Reader: React.FC = () => {
   const [uiVisible, setUiVisible] = useState(false);
   const [isSeeking, setIsSeeking] = useState(false);
   const [seekPage, setSeekPage] = useState<number | null>(null);
+  const [leftTab, setLeftTab] = useState<'toc' | 'bookmark'>('toc');
+  // 书签提示气泡
+  const [bookmarkToastVisible, setBookmarkToastVisible] = useState(false);
+  const [bookmarkToastText, setBookmarkToastText] = useState('');
 
   useEffect(() => {
     loadBook();
@@ -103,6 +108,15 @@ export const Reader: React.FC = () => {
         console.warn('获取PDF目录失败', e);
         setToc([]);
       }
+
+      // 加载书签
+      try {
+        const list = await bookmarkService.getBookmarks(targetBook.id);
+        setBookmarks(Array.isArray(list) ? list : []);
+      } catch (e) {
+        console.warn('获取书签失败', e);
+        setBookmarks([]);
+      }
     } catch (error) {
       console.error('Failed to load book:', error);
       alert('加载书籍失败');
@@ -177,6 +191,52 @@ export const Reader: React.FC = () => {
   }, [currentPage, toc]);
 
   const currentChapterPageVal = findCurrentChapterPage(toc);
+
+  // 根据当前位置生成书签标题：优先使用章节标题，否则使用“第 X 页”
+  const getBookmarkTitleForCurrent = (): string => {
+    const chapterPage = currentChapterPageVal;
+    if (typeof chapterPage === 'number') {
+      const findTitle = (nodes: TocNode[]): string | undefined => {
+        for (const n of nodes) {
+          if (n.page === chapterPage) return n.title;
+          if (n.children && n.children.length) {
+            const t = findTitle(n.children);
+            if (t) return t;
+          }
+        }
+        return undefined;
+      };
+      const title = findTitle(toc);
+      if (title) return title;
+    }
+    return `第 ${currentPage} 页`;
+  };
+
+  const addBookmark = async () => {
+    if (!book) return;
+    try {
+      const title = getBookmarkTitleForCurrent();
+      const created = await bookmarkService.addBookmark(book.id, currentPage, title);
+      setBookmarks((prev) => [...prev, created].sort((a, b) => a.page_number - b.page_number));
+      // 展示短暂气泡提示
+      setBookmarkToastText('书签已添加');
+      setBookmarkToastVisible(true);
+      setTimeout(() => setBookmarkToastVisible(false), 1200);
+    } catch (e) {
+      console.error('添加书签失败', e);
+      alert('添加书签失败');
+    }
+  };
+
+  const deleteBookmark = async (id: number) => {
+    try {
+      await bookmarkService.deleteBookmark(id);
+      setBookmarks((prev) => prev.filter((b) => b.id !== id));
+    } catch (e) {
+      console.error('删除书签失败', e);
+      alert('删除书签失败');
+    }
+  };
 
   // 渲染目录树（组件内，可访问状态与方法）
   const renderTocTree = (nodes: TocNode[], level: number): React.ReactNode => {
@@ -279,7 +339,7 @@ export const Reader: React.FC = () => {
         display: 'flex',
         overflow: 'hidden'
       }}>
-        {/* 左侧目录 */}
+        {/* 左侧：目录 / 书签页签 */}
         <div style={{
           width: '280px',
           backgroundColor: '#1f1f1f',
@@ -288,11 +348,66 @@ export const Reader: React.FC = () => {
           padding: '12px 8px',
           borderRight: '1px solid #333'
         }}>
-          <div style={{ fontSize: '14px', marginBottom: '8px', opacity: 0.8 }}>目录</div>
-          {toc.length === 0 ? (
-            <div style={{ fontSize: '13px', opacity: 0.6 }}>无目录信息</div>
+          <div style={{ display: 'flex', gap: '16px', marginBottom: '12px', justifyContent: 'center' }}>
+            <button
+              onClick={() => setLeftTab('toc')}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: leftTab === 'toc' ? '#d15158' : '#fff',
+                cursor: 'pointer',
+                fontSize: '14px',
+                padding: '4px 6px',
+                borderBottom: leftTab === 'toc' ? '2px solid #d15158' : '2px solid transparent'
+              }}
+            >
+              <span style={{ marginRight: '6px' }}>≡</span>
+              <span>目录</span>
+            </button>
+            <button
+              onClick={() => setLeftTab('bookmark')}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: leftTab === 'bookmark' ? '#d15158' : '#fff',
+                cursor: 'pointer',
+                fontSize: '14px',
+                padding: '4px 6px',
+                borderBottom: leftTab === 'bookmark' ? '2px solid #d15158' : '2px solid transparent'
+              }}
+            >
+              <span style={{ marginRight: '6px' }}>🔖</span>
+              <span>书签</span>
+            </button>
+          </div>
+          {leftTab === 'toc' ? (
+            toc.length === 0 ? (
+              <div style={{ fontSize: '13px', opacity: 0.6 }}>无目录信息</div>
+            ) : (
+              <div>{renderTocTree(toc, 0)}</div>
+            )
           ) : (
-            <div>{renderTocTree(toc, 0)}</div>
+            bookmarks.length === 0 ? (
+              <div style={{ fontSize: '13px', opacity: 0.6, display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>没有添加书签</div>
+            ) : (
+              <div>
+                {bookmarks.map((bm) => (
+                  <div
+                    key={bm.id}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px', borderRadius: '6px', cursor: 'pointer' }}
+                    onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#2a2a2a'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+                    onClick={() => goToPage(bm.page_number)}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '13px', color: '#fff' }}>{bm.title}</span>
+                      <span style={{ fontSize: '12px', opacity: 0.7 }}>第 {bm.page_number} 页</span>
+                    </div>
+                    <button onClick={(e) => { e.stopPropagation(); deleteBookmark(bm.id); }} style={{ background: 'none', border: 'none', color: '#ccc', cursor: 'pointer', fontSize: '12px' }} title="删除书签">✕</button>
+                  </div>
+                ))}
+              </div>
+            )
           )}
         </div>
         {/* 中间渲染区 */}
@@ -348,104 +463,132 @@ export const Reader: React.FC = () => {
         </div>
       </div>
 
-      {/* 底部控制栏：中央点击时显示；滑动时始终显示进度条 */}
+      {/* 底部控制栏：参考图2布局 */}
       {(uiVisible || isSeeking) && (
         <div
           style={{
-            height: '100px',
+            height: '150px',
             backgroundColor: '#1a1a1a',
             display: 'flex',
+            flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
-            gap: '20px',
             color: 'white',
             position: 'relative'
           }}
         >
-          <button
-            onClick={() => {
-              const page = findCurrentChapterPage(toc);
-              if (typeof page === 'number' && page < currentPage) {
-                goToPage(page);
-              } else {
-                prevPage(); // 目录缺失或无更早章节时回退到按页
-              }
-            }}
-            disabled={currentPage <= 1}
-            style={{
-              padding: '10px 16px',
-              backgroundColor: currentPage <= 1 ? '#555' : '#d15158',
-              color: 'white',
-              border: 'none',
-              borderRadius: '6px',
-              cursor: currentPage <= 1 ? 'not-allowed' : 'pointer',
-              fontSize: '14px'
-            }}
-          >
-            上一章
-          </button>
-
-          {/* 进度滑条 */}
-          <div style={{ width: '56%', display: 'flex', flexDirection: 'column', alignItems: 'stretch', margin: '0 40px' }}>
-            <input
-              type="range"
-              min={1}
-              max={totalPages}
-              value={isSeeking && seekPage !== null ? seekPage : currentPage}
-              onMouseDown={() => setIsSeeking(true)}
-              onTouchStart={() => setIsSeeking(true)}
-              onInput={(e) => {
-                const v = Number((e.target as HTMLInputElement).value);
-                setSeekPage(v);
-              }}
-              onMouseUp={async (e) => {
-                const v = Number((e.target as HTMLInputElement).value);
-                setIsSeeking(false);
-                setSeekPage(null);
-                await goToPage(v);
-              }}
-              onTouchEnd={async (e) => {
-                const v = Number((e.target as HTMLInputElement).value);
-                setIsSeeking(false);
-                setSeekPage(null);
-                await goToPage(v);
-              }}
-              style={{ width: '100%' }}
-            />
-            {/* 底部不再显示页码说明，页码在顶部左侧预览气泡里显示 */}
+          {/* 上方进度滑条 + 两端上一章/下一章文案 */}
+          <div style={{ width: '60%', display: 'flex', flexDirection: 'column', alignItems: 'stretch', margin: '0 40px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#bbb', marginBottom: '8px' }}>
+              <span
+                onClick={() => {
+                  const page = findCurrentChapterPage(toc);
+                  if (typeof page === 'number' && page < currentPage) {
+                    goToPage(page);
+                  } else {
+                    prevPage();
+                  }
+                }}
+                style={{ cursor: currentPage <= 1 ? 'default' : 'pointer', opacity: currentPage <= 1 ? 0.5 : 1 }}
+              >上一章</span>
+              <span
+                onClick={() => {
+                  const pages: number[] = [];
+                  const collect = (ns: TocNode[]) => {
+                    for (const n of ns) {
+                      if (typeof n.page === 'number') pages.push(n.page);
+                      if (n.children && n.children.length) collect(n.children);
+                    }
+                  };
+                  collect(toc);
+                  pages.sort((a, b) => a - b);
+                  const target = pages.find((p) => p > currentPage);
+                  if (typeof target === 'number') {
+                    goToPage(target);
+                  } else {
+                    nextPage();
+                  }
+                }}
+                style={{ cursor: currentPage >= totalPages ? 'default' : 'pointer', opacity: currentPage >= totalPages ? 0.5 : 1 }}
+              >下一章</span>
+            </div>
+            {(() => {
+              const sliderVal = isSeeking && seekPage !== null ? seekPage : currentPage;
+              const pct = Math.max(0, Math.min(100, Math.round((sliderVal / Math.max(1, totalPages)) * 100)));
+              const track = `linear-gradient(to right, #d15158 0%, #d15158 ${pct}%, #3a3a3a ${pct}%, #3a3a3a 100%)`;
+              return (
+                <input
+                  className="reader-range"
+                  type="range"
+                  min={1}
+                  max={totalPages}
+                  value={sliderVal}
+                  onMouseDown={() => setIsSeeking(true)}
+                  onTouchStart={() => setIsSeeking(true)}
+                  onInput={(e) => {
+                    const v = Number((e.target as HTMLInputElement).value);
+                    setSeekPage(v);
+                  }}
+                  onMouseUp={async (e) => {
+                    const v = Number((e.target as HTMLInputElement).value);
+                    setIsSeeking(false);
+                    setSeekPage(null);
+                    await goToPage(v);
+                  }}
+                  onTouchEnd={async (e) => {
+                    const v = Number((e.target as HTMLInputElement).value);
+                    setIsSeeking(false);
+                    setSeekPage(null);
+                    await goToPage(v);
+                  }}
+                  style={{ width: '100%', height: '6px', borderRadius: '6px', background: track, outline: 'none' }}
+                />
+              );
+            })()}
+            {/* 页码说明由顶部左侧预览气泡承担 */}
           </div>
-
-          <button
-            onClick={() => {
-              const pages: number[] = [];
-              const collect = (ns: TocNode[]) => {
-                for (const n of ns) {
-                  if (typeof n.page === 'number') pages.push(n.page);
-                  if (n.children && n.children.length) collect(n.children);
-                }
-              };
-              collect(toc);
-              pages.sort((a, b) => a - b);
-              const target = pages.find((p) => p > currentPage);
-              if (typeof target === 'number') {
-                goToPage(target);
-              } else {
-                nextPage(); // 目录缺失或无更后章节时回退到按页
-              }
-            }}
-            disabled={currentPage >= totalPages}
-            style={{
-              padding: '10px 16px',
-              backgroundColor: currentPage >= totalPages ? '#555' : '#d15158',
-              color: 'white',
-              border: 'none',
-              borderRadius: '6px',
-              cursor: currentPage >= totalPages ? 'not-allowed' : 'pointer',
-              fontSize: '14px'
-            }}
-          >
-            下一章
-          </button>
+          {/* 下方图标操作区（分离于滑条，下方一行，带文字） */}
+          <div style={{ marginTop: '18px', display: 'flex', gap: '40px', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <button onClick={() => setLeftTab('toc')} style={{ background: 'none', border: 'none', color: leftTab === 'toc' ? '#d15158' : '#fff', cursor: 'pointer', fontSize: '18px' }} title="目录">≡</button>
+              <div style={{ fontSize: '12px', color: leftTab === 'toc' ? '#d15158' : '#ccc', marginTop: '6px' }}>目录</div>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <button style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '18px' }} title="阅读方式">▉▉</button>
+              <div style={{ fontSize: '12px', color: '#ccc', marginTop: '6px' }}>阅读方式</div>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <button style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '18px' }} title="自动滚动">☰</button>
+              <div style={{ fontSize: '12px', color: '#ccc', marginTop: '6px' }}>自动滚动</div>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <button onClick={addBookmark} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '18px' }} title="书签">🔖</button>
+              <div style={{ fontSize: '12px', color: '#ccc', marginTop: '6px' }}>书签</div>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <button onClick={() => setLeftTab('bookmark')} style={{ background: 'none', border: 'none', color: leftTab === 'bookmark' ? '#d15158' : '#fff', cursor: 'pointer', fontSize: '18px' }} title="更多">…</button>
+              <div style={{ fontSize: '12px', color: leftTab === 'bookmark' ? '#d15158' : '#ccc', marginTop: '6px' }}>更多</div>
+            </div>
+          </div>
+          {/* 书签提示气泡 */}
+          {bookmarkToastVisible && (
+            <div
+              style={{
+                position: 'absolute',
+                bottom: '12px',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                padding: '6px 12px',
+                borderRadius: '16px',
+                backgroundColor: 'rgba(0,0,0,0.8)',
+                color: '#fff',
+                fontSize: '12px',
+                boxShadow: '0 2px 6px rgba(0,0,0,0.3)'
+              }}
+            >
+              {bookmarkToastText}
+            </div>
+          )}
         </div>
       )}
     </div>
