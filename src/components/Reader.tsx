@@ -14,7 +14,9 @@ export const Reader: React.FC = () => {
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [pdf, setPdf] = useState<any>(null);
-  const [toc, setToc] = useState<Array<{ title: string; page?: number }>>([]);
+  type TocNode = { title: string; page?: number; children?: TocNode[]; expanded?: boolean };
+  const [toc, setToc] = useState<TocNode[]>([]);
+  const tocItemRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   // UI 可见与进度滑动状态
   const [uiVisible, setUiVisible] = useState(false);
   const [isSeeking, setIsSeeking] = useState(false);
@@ -63,7 +65,7 @@ export const Reader: React.FC = () => {
       // 渲染当前页面
       await renderPage(targetBook.current_page, loadedPdf);
 
-      // 加载目录（Outline）——支持字符串和数组 dest，递归扁平化但保留不可跳转项
+      // 加载目录（Outline）——保留层级结构，支持字符串/数组 dest
       try {
         const outline = await loadedPdf.getOutline();
         const resolvePage = async (node: any): Promise<number | undefined> => {
@@ -84,22 +86,19 @@ export const Reader: React.FC = () => {
           }
           return undefined;
         };
-        const flatten = async (
-          nodes: any[] | undefined,
-          acc: Array<{ title: string; page?: number }>
-        ) => {
-          if (!nodes || !Array.isArray(nodes)) return acc;
+        const parseNodes = async (nodes: any[] | undefined, level = 0): Promise<TocNode[]> => {
+          if (!nodes || !Array.isArray(nodes)) return [];
+          const result: TocNode[] = [];
           for (const n of nodes) {
             const title = n?.title || '无标题';
             const page = await resolvePage(n);
-            acc.push({ title, page });
-            const children = n?.items || n?.children;
-            if (children && Array.isArray(children)) await flatten(children, acc);
+            const children = await parseNodes(n?.items || n?.children, level + 1);
+            result.push({ title, page, children, expanded: level === 0 });
           }
-          return acc;
+          return result;
         };
-        const flat = await flatten(outline as any[], []);
-        setToc(flat || []);
+        const root = await parseNodes(outline as any[], 0);
+        setToc(root || []);
       } catch (e) {
         console.warn('获取PDF目录失败', e);
         setToc([]);
@@ -151,6 +150,78 @@ export const Reader: React.FC = () => {
 
   const nextPage = () => goToPage(currentPage + 1);
   const prevPage = () => goToPage(currentPage - 1);
+
+  // 计算当前章节页（<= currentPage 的最大章节页）
+  const findCurrentChapterPage = (nodes: TocNode[]): number | undefined => {
+    const pages: number[] = [];
+    const collect = (ns: TocNode[]) => {
+      for (const n of ns) {
+        if (typeof n.page === 'number') pages.push(n.page);
+        if (n.children && n.children.length) collect(n.children);
+      }
+    };
+    collect(nodes);
+    pages.sort((a, b) => a - b);
+    let target: number | undefined = undefined;
+    for (const p of pages) { if (p <= currentPage) target = p; else break; }
+    return target;
+  };
+
+  // 侧栏自动滚动至当前章节
+  useEffect(() => {
+    const chapterPage = findCurrentChapterPage(toc);
+    if (typeof chapterPage === 'number') {
+      const el = tocItemRefs.current.get(chapterPage);
+      if (el) el.scrollIntoView({ block: 'center' });
+    }
+  }, [currentPage, toc]);
+
+  const currentChapterPageVal = findCurrentChapterPage(toc);
+
+  // 渲染目录树（组件内，可访问状态与方法）
+  const renderTocTree = (nodes: TocNode[], level: number): React.ReactNode => {
+    const indent = 10 + level * 14;
+    return nodes.map((node, idx) => {
+      const hasChildren = !!(node.children && node.children.length);
+      const caret = hasChildren ? (node.expanded ? '▼' : '▶') : '•';
+      const isActive = typeof currentChapterPageVal === 'number' && node.page === currentChapterPageVal;
+      return (
+        <div key={`${level}-${idx}`} style={{ marginLeft: indent }}>
+          <div
+            onClick={() => {
+              if (hasChildren) {
+                node.expanded = !node.expanded;
+                setToc([...toc]);
+              }
+              if (typeof node.page === 'number') {
+                goToPage(node.page);
+              }
+            }}
+            ref={(el) => {
+              if (el && typeof node.page === 'number') {
+                tocItemRefs.current.set(node.page, el as HTMLDivElement);
+              }
+            }}
+            style={{
+              padding: '8px',
+              borderRadius: '6px',
+              cursor: (typeof node.page === 'number' || hasChildren) ? 'pointer' : 'default',
+              backgroundColor: isActive ? '#333' : 'transparent'
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = isActive ? '#333' : '#2a2a2a'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = isActive ? '#333' : 'transparent'; }}
+          >
+            <span style={{ marginRight: 12, fontSize: '11px', lineHeight: '1', color: '#ffffff', opacity: 0.7 }}>{caret}</span>
+            <span style={{ fontSize: '13px', color: isActive ? '#d15158' : '#ffffff' }}>{node.title}</span>
+            {typeof node.page === 'number' && (
+              <span style={{ fontSize: '12px', opacity: 0.7, marginLeft: 6 }}>第 {node.page} 页</span>
+            )}
+          </div>
+          {hasChildren && node.expanded && renderTocTree(node.children!, level + 1)}
+        </div>
+      );
+    });
+  };
 
   if (loading) {
     return (
@@ -221,29 +292,7 @@ export const Reader: React.FC = () => {
           {toc.length === 0 ? (
             <div style={{ fontSize: '13px', opacity: 0.6 }}>无目录信息</div>
           ) : (
-            toc.map((item, idx) => (
-              <div
-                key={idx}
-                onClick={() => item.page && goToPage(item.page)}
-                style={{
-                  padding: '8px',
-                  borderRadius: '6px',
-                  cursor: item.page ? 'pointer' : 'default',
-                  backgroundColor: 'transparent'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = '#2a2a2a';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = 'transparent';
-                }}
-              >
-                <div style={{ fontSize: '13px' }}>{item.title}</div>
-                {item.page && (
-                  <div style={{ fontSize: '12px', opacity: 0.7 }}>第 {item.page} 页</div>
-                )}
-              </div>
-            ))
+            <div>{renderTocTree(toc, 0)}</div>
           )}
         </div>
         {/* 中间渲染区 */}
@@ -315,14 +364,12 @@ export const Reader: React.FC = () => {
         >
           <button
             onClick={() => {
-              // 跳到上一章：取 < currentPage 的最大章节页
-              const pages = toc
-                .map(t => t.page)
-                .filter((p): p is number => typeof p === 'number')
-                .sort((a, b) => a - b);
-              let target = pages[0];
-              for (const p of pages) { if (p < currentPage) target = p; else break; }
-              if (typeof target === 'number' && target < currentPage) goToPage(target);
+              const page = findCurrentChapterPage(toc);
+              if (typeof page === 'number' && page < currentPage) {
+                goToPage(page);
+              } else {
+                prevPage(); // 目录缺失或无更早章节时回退到按页
+              }
             }}
             disabled={currentPage <= 1}
             style={{
@@ -370,13 +417,21 @@ export const Reader: React.FC = () => {
 
           <button
             onClick={() => {
-              // 跳到下一章：取 > currentPage 的最小章节页
-              const pages = toc
-                .map(t => t.page)
-                .filter((p): p is number => typeof p === 'number')
-                .sort((a, b) => a - b);
-              const target = pages.find(p => p > currentPage);
-              if (typeof target === 'number') goToPage(target);
+              const pages: number[] = [];
+              const collect = (ns: TocNode[]) => {
+                for (const n of ns) {
+                  if (typeof n.page === 'number') pages.push(n.page);
+                  if (n.children && n.children.length) collect(n.children);
+                }
+              };
+              collect(toc);
+              pages.sort((a, b) => a - b);
+              const target = pages.find((p) => p > currentPage);
+              if (typeof target === 'number') {
+                goToPage(target);
+              } else {
+                nextPage(); // 目录缺失或无更后章节时回退到按页
+              }
             }}
             disabled={currentPage >= totalPages}
             style={{
