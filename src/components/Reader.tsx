@@ -63,31 +63,43 @@ export const Reader: React.FC = () => {
       // 渲染当前页面
       await renderPage(targetBook.current_page, loadedPdf);
 
-      // 加载目录（Outline）
+      // 加载目录（Outline）——支持字符串和数组 dest，递归扁平化但保留不可跳转项
       try {
         const outline = await loadedPdf.getOutline();
-        if (outline && Array.isArray(outline)) {
-          const items: Array<{ title: string; page?: number }> = [];
-          for (const item of outline) {
-            const title: string = item.title || '无标题';
-            let pageNum: number | undefined;
-            if (item.dest) {
-              try {
-                const dest = await loadedPdf.getDestination(item.dest);
-                const ref = dest && dest[0];
-                if (ref) {
-                  pageNum = (await loadedPdf.getPageIndex(ref)) + 1;
-                }
-              } catch (e) {
-                console.warn('解析目录目标失败', e);
-              }
+        const resolvePage = async (node: any): Promise<number | undefined> => {
+          const key = node?.dest || node?.a?.dest;
+          try {
+            if (!key) return undefined;
+            if (Array.isArray(key)) {
+              const ref = key[0];
+              if (ref) return (await loadedPdf.getPageIndex(ref)) + 1;
             }
-            items.push({ title, page: pageNum });
+            if (typeof key === 'string') {
+              const dest = await loadedPdf.getDestination(key);
+              const ref = dest && dest[0];
+              if (ref) return (await loadedPdf.getPageIndex(ref)) + 1;
+            }
+          } catch (e) {
+            console.warn('解析目录目标失败', e);
           }
-          setToc(items);
-        } else {
-          setToc([]);
-        }
+          return undefined;
+        };
+        const flatten = async (
+          nodes: any[] | undefined,
+          acc: Array<{ title: string; page?: number }>
+        ) => {
+          if (!nodes || !Array.isArray(nodes)) return acc;
+          for (const n of nodes) {
+            const title = n?.title || '无标题';
+            const page = await resolvePage(n);
+            acc.push({ title, page });
+            const children = n?.items || n?.children;
+            if (children && Array.isArray(children)) await flatten(children, acc);
+          }
+          return acc;
+        };
+        const flat = await flatten(outline as any[], []);
+        setToc(flat || []);
       } catch (e) {
         console.warn('获取PDF目录失败', e);
         setToc([]);
@@ -302,7 +314,16 @@ export const Reader: React.FC = () => {
           }}
         >
           <button
-            onClick={prevPage}
+            onClick={() => {
+              // 跳到上一章：取 < currentPage 的最大章节页
+              const pages = toc
+                .map(t => t.page)
+                .filter((p): p is number => typeof p === 'number')
+                .sort((a, b) => a - b);
+              let target = pages[0];
+              for (const p of pages) { if (p < currentPage) target = p; else break; }
+              if (typeof target === 'number' && target < currentPage) goToPage(target);
+            }}
             disabled={currentPage <= 1}
             style={{
               padding: '10px 16px',
@@ -314,11 +335,11 @@ export const Reader: React.FC = () => {
               fontSize: '14px'
             }}
           >
-            上一页
+            上一章
           </button>
 
           {/* 进度滑条 */}
-          <div style={{ width: '55%', display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}>
+          <div style={{ width: '56%', display: 'flex', flexDirection: 'column', alignItems: 'stretch', margin: '0 40px' }}>
             <input
               type="range"
               min={1}
@@ -348,7 +369,15 @@ export const Reader: React.FC = () => {
           </div>
 
           <button
-            onClick={nextPage}
+            onClick={() => {
+              // 跳到下一章：取 > currentPage 的最小章节页
+              const pages = toc
+                .map(t => t.page)
+                .filter((p): p is number => typeof p === 'number')
+                .sort((a, b) => a - b);
+              const target = pages.find(p => p > currentPage);
+              if (typeof target === 'number') goToPage(target);
+            }}
             disabled={currentPage >= totalPages}
             style={{
               padding: '10px 16px',
@@ -360,7 +389,7 @@ export const Reader: React.FC = () => {
               fontSize: '14px'
             }}
           >
-            下一页
+            下一章
           </button>
         </div>
       )}
