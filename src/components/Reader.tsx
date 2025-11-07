@@ -258,6 +258,7 @@ export const Reader: React.FC = () => {
               if (typeof node.page === 'number') {
                 goToPage(node.page);
                 setTocOverlayOpen(false);
+                setUiVisible(false);
               }
             }}
             ref={(el) => {
@@ -420,7 +421,7 @@ export const Reader: React.FC = () => {
           {/* 目录蒙版弹层：占据页面90%，点击外部收回 */}
           {tocOverlayOpen && (
             <div
-              onClick={(e) => { e.stopPropagation(); setTocOverlayOpen(false); }}
+              onClick={(e) => { e.stopPropagation(); setTocOverlayOpen(false); setUiVisible(false); }}
               style={{
                 position: 'absolute',
                 inset: 0,
@@ -496,7 +497,7 @@ export const Reader: React.FC = () => {
                           style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px', borderRadius: '6px', cursor: 'pointer' }}
                           onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#2a2a2a'; }}
                           onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
-                          onClick={() => { goToPage(bm.page_number); setTocOverlayOpen(false); }}
+                          onClick={() => { goToPage(bm.page_number); setTocOverlayOpen(false); setUiVisible(false); }}
                         >
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <span style={{ fontSize: '13px', color: '#fff' }}>{bm.title}</span>
@@ -512,8 +513,8 @@ export const Reader: React.FC = () => {
             </div>
           )}
 
-          {/* 覆盖式底部控制栏（绝对定位），不挤压内容 */}
-          {(uiVisible || isSeeking) && (
+          {/* 覆盖式底部控制栏（绝对定位），不挤压内容；抽屉打开时隐藏 */}
+          {(uiVisible || isSeeking) && !tocOverlayOpen && (
             <div
               onClick={(e) => e.stopPropagation()}
               onMouseDown={(e) => e.stopPropagation()}
@@ -526,7 +527,7 @@ export const Reader: React.FC = () => {
                 left: '50%',
                 transform: 'translateX(-50%)',
                 bottom: '20px',
-                width: '60%',
+                width: 'min(720px, calc(100% - 32px))',
                 backgroundColor: 'rgba(26,26,26,0.92)',
                 display: 'flex',
                 flexDirection: 'column',
@@ -535,13 +536,14 @@ export const Reader: React.FC = () => {
                 color: 'white',
                 borderRadius: '10px',
                 padding: '14px 18px',
+                paddingBottom: 'calc(14px + env(safe-area-inset-bottom))',
                 boxShadow: '0 6px 24px rgba(0,0,0,0.35)',
                 zIndex: 10
               }}
             >
               {/* 上方进度滑条 + 两端上一章/下一章文案 */}
               <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: '#bbb', marginBottom: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'clamp(10px, 1.6vw, 12px)', color: '#bbb', marginBottom: '8px' }}>
                   <span
                     onClick={() => {
                       const page = findCurrentChapterPage(toc);
@@ -610,27 +612,27 @@ export const Reader: React.FC = () => {
                   );
                 })()}
               </div>
-              {/* 下方图标操作区 */}
-              <div style={{ marginTop: '14px', display: 'flex', gap: '28px', alignItems: 'center', justifyContent: 'center' }}>
+              {/* 下方图标操作区：5等分网格，窄屏也不拥挤 */}
+              <div style={{ marginTop: '14px', display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', alignItems: 'center', justifyItems: 'center', width: '100%', gap: '8px' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  <button onClick={() => setTocOverlayOpen(true)} style={{ background: 'none', border: 'none', color: tocOverlayOpen ? '#d15158' : '#fff', cursor: 'pointer', fontSize: '18px' }} title="目录">≡</button>
-                  <div style={{ fontSize: '12px', color: tocOverlayOpen ? '#d15158' : '#ccc', marginTop: '6px' }}>目录</div>
+                  <button onClick={() => setTocOverlayOpen(true)} style={{ background: 'none', border: 'none', color: tocOverlayOpen ? '#d15158' : '#fff', cursor: 'pointer', fontSize: 'clamp(16px, 3.2vw, 18px)' }} title="目录">≡</button>
+                  <div style={{ fontSize: 'clamp(10px, 1.6vw, 12px)', color: tocOverlayOpen ? '#d15158' : '#ccc', marginTop: '6px' }}>目录</div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  <button style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '18px' }} title="阅读方式">▉▉</button>
-                  <div style={{ fontSize: '12px', color: '#ccc', marginTop: '6px' }}>阅读方式</div>
+                  <button style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 'clamp(16px, 3.2vw, 18px)' }} title="阅读方式">▉▉</button>
+                  <div style={{ fontSize: 'clamp(10px, 1.6vw, 12px)', color: '#ccc', marginTop: '6px' }}>阅读方式</div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  <button style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '18px' }} title="自动滚动">☰</button>
-                  <div style={{ fontSize: '12px', color: '#ccc', marginTop: '6px' }}>自动滚动</div>
+                  <button style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 'clamp(16px, 3.2vw, 18px)' }} title="自动滚动">☰</button>
+                  <div style={{ fontSize: 'clamp(10px, 1.6vw, 12px)', color: '#ccc', marginTop: '6px' }}>自动滚动</div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  <button onClick={addBookmark} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '18px' }} title="书签">🔖</button>
-                  <div style={{ fontSize: '12px', color: '#ccc', marginTop: '6px' }}>书签</div>
+                  <button onClick={addBookmark} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 'clamp(16px, 3.2vw, 18px)' }} title="书签">🔖</button>
+                  <div style={{ fontSize: 'clamp(10px, 1.6vw, 12px)', color: '#ccc', marginTop: '6px' }}>书签</div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  <button onClick={() => { setLeftTab('bookmark'); setTocOverlayOpen(true); }} style={{ background: 'none', border: 'none', color: leftTab === 'bookmark' && tocOverlayOpen ? '#d15158' : '#fff', cursor: 'pointer', fontSize: '18px' }} title="更多">…</button>
-                  <div style={{ fontSize: '12px', color: leftTab === 'bookmark' && tocOverlayOpen ? '#d15158' : '#ccc', marginTop: '6px' }}>更多</div>
+                  <button onClick={() => { setLeftTab('bookmark'); setTocOverlayOpen(true); }} style={{ background: 'none', border: 'none', color: leftTab === 'bookmark' && tocOverlayOpen ? '#d15158' : '#fff', cursor: 'pointer', fontSize: 'clamp(16px, 3.2vw, 18px)' }} title="更多">…</button>
+                  <div style={{ fontSize: 'clamp(10px, 1.6vw, 12px)', color: leftTab === 'bookmark' && tocOverlayOpen ? '#d15158' : '#ccc', marginTop: '6px' }}>更多</div>
                 </div>
               </div>
 
