@@ -1,9 +1,15 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { IBook, IBookmark } from '../types';
+import React, { useState, useEffect, useRef } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import { IBook, IBookmark } from "../types";
 // @ts-ignore
-import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
-import { bookService, bookmarkService, getReaderSettings, saveReaderSettings, ReaderSettings } from '../services';
+import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+import {
+  bookService,
+  bookmarkService,
+  getReaderSettings,
+  saveReaderSettings,
+  ReaderSettings,
+} from "../services";
 
 export const Reader: React.FC = () => {
   const { bookId } = useParams<{ bookId: string }>();
@@ -15,18 +21,25 @@ export const Reader: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [pdf, setPdf] = useState<any>(null);
   const [bookmarks, setBookmarks] = useState<IBookmark[]>([]);
-  type TocNode = { title: string; page?: number; children?: TocNode[]; expanded?: boolean };
+  type TocNode = {
+    title: string;
+    page?: number;
+    children?: TocNode[];
+    expanded?: boolean;
+  };
   const [toc, setToc] = useState<TocNode[]>([]);
   const tocItemRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   // UI 可见与进度滑动状态
   const [uiVisible, setUiVisible] = useState(false);
   const [isSeeking, setIsSeeking] = useState(false);
   const [seekPage, setSeekPage] = useState<number | null>(null);
-  const [leftTab, setLeftTab] = useState<'toc' | 'bookmark'>('toc');
+  const [leftTab, setLeftTab] = useState<"toc" | "bookmark">("toc");
   // 目录弹层开关
   const [tocOverlayOpen, setTocOverlayOpen] = useState(false);
   // 阅读方式：horizontal(横向分页) / vertical(纵向连续)
-  const [readingMode, setReadingMode] = useState<'horizontal' | 'vertical'>('horizontal');
+  const [readingMode, setReadingMode] = useState<"horizontal" | "vertical">(
+    "horizontal"
+  );
   // 自动滚动：状态与计时器
   const [autoScroll, setAutoScroll] = useState(false);
   const autoScrollTimerRef = useRef<number | null>(null);
@@ -42,22 +55,22 @@ export const Reader: React.FC = () => {
   const verticalScrollRef = useRef<HTMLDivElement>(null);
   // 书签提示气泡
   const [bookmarkToastVisible, setBookmarkToastVisible] = useState(false);
-  const [bookmarkToastText, setBookmarkToastText] = useState('');
+  const [bookmarkToastText, setBookmarkToastText] = useState("");
   // 设置：本地持久化
   const [settings, setSettings] = useState<ReaderSettings>(getReaderSettings());
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
-      if (e.key === 'reader_settings_v1') {
+      if (e.key === "reader_settings_v1") {
         setSettings(getReaderSettings());
       }
     };
-    window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
   }, []);
 
   // 从设置恢复阅读方式；当设置中的阅读方式变化时同步到本地状态
   useEffect(() => {
-    const mode = settings.readingMode || 'horizontal';
+    const mode = settings.readingMode || "horizontal";
     if (mode !== readingMode) {
       setReadingMode(mode);
     }
@@ -71,11 +84,11 @@ export const Reader: React.FC = () => {
     try {
       setLoading(true);
       const books = await bookService.getAllBooks();
-      const targetBook = books.find(b => b.id === parseInt(bookId!));
-      
+      const targetBook = books.find((b) => b.id === parseInt(bookId!));
+
       if (!targetBook) {
-        alert('书籍不存在');
-        navigate('/');
+        alert("书籍不存在");
+        navigate("/");
         return;
       }
 
@@ -84,27 +97,33 @@ export const Reader: React.FC = () => {
       setTotalPages(targetBook.total_pages);
 
       // 加载PDF文件
-      const fs = await import('@tauri-apps/plugin-fs');
+      const fs = await import("@tauri-apps/plugin-fs");
       const fileData = await fs.readFile(targetBook.file_path);
-      
-      const pdfjs = await import('pdfjs-dist');
+
+      const pdfjs = await import("pdfjs-dist");
       // 设置 workerSrc，避免 "No GlobalWorkerOptions.workerSrc specified" 报错
       (pdfjs as any).GlobalWorkerOptions.workerSrc = workerUrl;
       let loadedPdf: any;
       try {
-        loadedPdf = await (pdfjs as any).getDocument({ data: fileData }).promise;
+        loadedPdf = await (pdfjs as any).getDocument({ data: fileData })
+          .promise;
       } catch (e: any) {
         const msg = String(e?.message || e);
-        if (msg.includes('GlobalWorkerOptions.workerSrc')) {
-          loadedPdf = await (pdfjs as any).getDocument({ data: fileData, disableWorker: true }).promise;
+        if (msg.includes("GlobalWorkerOptions.workerSrc")) {
+          loadedPdf = await (pdfjs as any).getDocument({
+            data: fileData,
+            disableWorker: true,
+          }).promise;
         } else {
           throw e;
         }
       }
       setPdf(loadedPdf);
 
-      // 渲染当前页面
-      await renderPage(targetBook.current_page, loadedPdf);
+      // 渲染当前页面（仅在横向模式下立即渲染；纵向模式交由懒加载）
+      if (readingMode === "horizontal") {
+        await renderPage(targetBook.current_page, loadedPdf);
+      }
 
       // 加载目录（Outline）——保留层级结构，支持字符串/数组 dest
       try {
@@ -117,23 +136,29 @@ export const Reader: React.FC = () => {
               const ref = key[0];
               if (ref) return (await loadedPdf.getPageIndex(ref)) + 1;
             }
-            if (typeof key === 'string') {
+            if (typeof key === "string") {
               const dest = await loadedPdf.getDestination(key);
               const ref = dest && dest[0];
               if (ref) return (await loadedPdf.getPageIndex(ref)) + 1;
             }
           } catch (e) {
-            console.warn('解析目录目标失败', e);
+            console.warn("解析目录目标失败", e);
           }
           return undefined;
         };
-        const parseNodes = async (nodes: any[] | undefined, level = 0): Promise<TocNode[]> => {
+        const parseNodes = async (
+          nodes: any[] | undefined,
+          level = 0
+        ): Promise<TocNode[]> => {
           if (!nodes || !Array.isArray(nodes)) return [];
           const result: TocNode[] = [];
           for (const n of nodes) {
-            const title = n?.title || '无标题';
+            const title = n?.title || "无标题";
             const page = await resolvePage(n);
-            const children = await parseNodes(n?.items || n?.children, level + 1);
+            const children = await parseNodes(
+              n?.items || n?.children,
+              level + 1
+            );
             result.push({ title, page, children, expanded: level === 0 });
           }
           return result;
@@ -141,7 +166,7 @@ export const Reader: React.FC = () => {
         const root = await parseNodes(outline as any[], 0);
         setToc(root || []);
       } catch (e) {
-        console.warn('获取PDF目录失败', e);
+        console.warn("获取PDF目录失败", e);
         setToc([]);
       }
 
@@ -150,12 +175,12 @@ export const Reader: React.FC = () => {
         const list = await bookmarkService.getBookmarks(targetBook.id);
         setBookmarks(Array.isArray(list) ? list : []);
       } catch (e) {
-        console.warn('获取书签失败', e);
+        console.warn("获取书签失败", e);
         setBookmarks([]);
       }
     } catch (error) {
-      console.error('Failed to load book:', error);
-      alert('加载书籍失败');
+      console.error("Failed to load book:", error);
+      alert("加载书籍失败");
     } finally {
       setLoading(false);
     }
@@ -168,49 +193,49 @@ export const Reader: React.FC = () => {
     try {
       const page = await pdfToUse.getPage(pageNum);
       const viewport = page.getViewport({ scale: 1.0 });
-      
+
       const canvas = canvasRef.current;
-      const context = canvas.getContext('2d')!;
-      
+      const context = canvas.getContext("2d")!;
+
       // 设置canvas尺寸
       canvas.width = viewport.width;
       canvas.height = viewport.height;
       if (settings.pageTransition) {
-        canvas.style.transition = 'opacity 200ms ease';
-        canvas.style.opacity = '0';
+        canvas.style.transition = "opacity 200ms ease";
+        canvas.style.opacity = "0";
       }
-      
+
       // 渲染页面
       await page.render({
         canvasContext: context,
-        viewport: viewport
+        viewport: viewport,
       }).promise;
       if (settings.pageTransition) {
-        canvas.style.opacity = '1';
+        canvas.style.opacity = "1";
       }
     } catch (error) {
-      console.error('Failed to render page:', error);
+      console.error("Failed to render page:", error);
     }
   };
 
   const goToPage = async (pageNum: number) => {
     if (pageNum < 1 || pageNum > totalPages) return;
-    
+
     setCurrentPage(pageNum);
-    if (readingMode === 'horizontal') {
+    if (readingMode === "horizontal") {
       await renderPage(pageNum);
     } else {
       // 纵向模式：滚动到对应页的 canvas
       const target = verticalCanvasRefs.current.get(pageNum);
       if (target) {
-        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        target.scrollIntoView({ behavior: "smooth", block: "start" });
       }
       // 若尚未渲染，尝试渲染该页
       if (!renderedPagesRef.current.has(pageNum)) {
         await renderPageToTarget(pageNum, target || null);
       }
     }
-    
+
     // 保存阅读进度
     if (book) {
       await bookService.updateBookProgress(book.id!, pageNum);
@@ -225,23 +250,26 @@ export const Reader: React.FC = () => {
     const pages: number[] = [];
     const collect = (ns: TocNode[]) => {
       for (const n of ns) {
-        if (typeof n.page === 'number') pages.push(n.page);
+        if (typeof n.page === "number") pages.push(n.page);
         if (n.children && n.children.length) collect(n.children);
       }
     };
     collect(nodes);
     pages.sort((a, b) => a - b);
     let target: number | undefined = undefined;
-    for (const p of pages) { if (p <= currentPage) target = p; else break; }
+    for (const p of pages) {
+      if (p <= currentPage) target = p;
+      else break;
+    }
     return target;
   };
 
   // 侧栏自动滚动至当前章节
   useEffect(() => {
     const chapterPage = findCurrentChapterPage(toc);
-    if (typeof chapterPage === 'number') {
+    if (typeof chapterPage === "number") {
       const el = tocItemRefs.current.get(chapterPage);
-      if (el) el.scrollIntoView({ block: 'center' });
+      if (el) el.scrollIntoView({ block: "center" });
     }
   }, [currentPage, toc]);
 
@@ -250,7 +278,7 @@ export const Reader: React.FC = () => {
   // 根据当前位置生成书签标题：优先使用章节标题，否则使用“第 X 页”
   const getBookmarkTitleForCurrent = (): string => {
     const chapterPage = currentChapterPageVal;
-    if (typeof chapterPage === 'number') {
+    if (typeof chapterPage === "number") {
       const findTitle = (nodes: TocNode[]): string | undefined => {
         for (const n of nodes) {
           if (n.page === chapterPage) return n.title;
@@ -271,15 +299,21 @@ export const Reader: React.FC = () => {
     if (!book) return;
     try {
       const title = getBookmarkTitleForCurrent();
-      const created = await bookmarkService.addBookmark(book.id, currentPage, title);
-      setBookmarks((prev) => [...prev, created].sort((a, b) => a.page_number - b.page_number));
+      const created = await bookmarkService.addBookmark(
+        book.id,
+        currentPage,
+        title
+      );
+      setBookmarks((prev) =>
+        [...prev, created].sort((a, b) => a.page_number - b.page_number)
+      );
       // 展示短暂气泡提示
-      setBookmarkToastText('书签已添加');
+      setBookmarkToastText("书签已添加");
       setBookmarkToastVisible(true);
       setTimeout(() => setBookmarkToastVisible(false), 1200);
     } catch (e) {
-      console.error('添加书签失败', e);
-      alert('添加书签失败');
+      console.error("添加书签失败", e);
+      alert("添加书签失败");
     }
   };
 
@@ -288,13 +322,16 @@ export const Reader: React.FC = () => {
       await bookmarkService.deleteBookmark(id);
       setBookmarks((prev) => prev.filter((b) => b.id !== id));
     } catch (e) {
-      console.error('删除书签失败', e);
-      alert('删除书签失败');
+      console.error("删除书签失败", e);
+      alert("删除书签失败");
     }
   };
 
   // 将指定页渲染到给定 canvas（用于纵向模式）
-  const renderPageToTarget = async (pageNum: number, canvasEl: HTMLCanvasElement | null) => {
+  const renderPageToTarget = async (
+    pageNum: number,
+    canvasEl: HTMLCanvasElement | null
+  ) => {
     const pdfToUse = pdf;
     if (!pdfToUse) return;
     try {
@@ -305,46 +342,83 @@ export const Reader: React.FC = () => {
       const containerWidth = mainViewRef.current?.clientWidth || viewport.width;
       const scale = Math.max(0.5, Math.min(2, containerWidth / viewport.width));
       const scaledViewport = page.getViewport({ scale });
-      const context = canvas.getContext('2d')!;
+      const context = canvas.getContext("2d")!;
       canvas.width = scaledViewport.width;
       canvas.height = scaledViewport.height;
-      await page.render({ canvasContext: context, viewport: scaledViewport }).promise;
+      await page.render({ canvasContext: context, viewport: scaledViewport })
+        .promise;
       renderedPagesRef.current.add(pageNum);
     } catch (error) {
-      console.error('Failed to render vertical page:', error);
+      console.error("Failed to render vertical page:", error);
     }
   };
 
   // 纵向模式懒加载：在进入可视区域时渲染页面
   useEffect(() => {
-    if (readingMode !== 'vertical' || !pdf) return;
-    const rootEl = mainViewRef.current || undefined;
-    const observer = new IntersectionObserver((entries) => {
-      entries.forEach(async (entry) => {
-        if (entry.isIntersecting) {
-          const target = entry.target as HTMLCanvasElement;
-          const pageAttr = target.getAttribute('data-page');
-          const pageNum = pageAttr ? Number(pageAttr) : NaN;
-          if (!isNaN(pageNum) && !renderedPagesRef.current.has(pageNum)) {
-            await renderPageToTarget(pageNum, target);
-            observer.unobserve(target);
-          }
-        }
-      });
-    }, { root: rootEl, rootMargin: '100px' });
+    if (readingMode !== "vertical" || !pdf) return;
+    let observer: IntersectionObserver | null = null;
+    let cancelled = false;
 
-    for (let p = 1; p <= totalPages; p++) {
-      const el = verticalCanvasRefs.current.get(p);
-      if (el) observer.observe(el);
-    }
+    const setup = () => {
+      if (cancelled) return;
+      const rootEl =
+        verticalScrollRef.current || mainViewRef.current || undefined;
+      const canvases = Array.from(verticalCanvasRefs.current.values());
+      if (!rootEl || canvases.length === 0) {
+        // 等待下一帧，确保 DOM 与 refs 已就绪
+        requestAnimationFrame(setup);
+        return;
+      }
+      observer = new IntersectionObserver(
+        (entries) => {
+          entries.forEach(async (entry) => {
+            if (entry.isIntersecting) {
+              const target = entry.target as HTMLCanvasElement;
+              const pageAttr = target.getAttribute("data-page");
+              const pageNum = pageAttr ? Number(pageAttr) : NaN;
+              if (!isNaN(pageNum) && !renderedPagesRef.current.has(pageNum)) {
+                await renderPageToTarget(pageNum, target);
+                observer && observer.unobserve(target);
+              }
+            }
+          });
+        },
+        { root: rootEl, rootMargin: "100px" }
+      );
 
-    return () => observer.disconnect();
-  }, [readingMode, pdf, totalPages]);
+      canvases.forEach((el) => observer!.observe(el));
+
+      // 立即绘制当前页以及相邻页，避免返回远页时空白
+      const currentEl = verticalCanvasRefs.current.get(currentPage);
+      if (currentEl && !renderedPagesRef.current.has(currentPage)) {
+        renderPageToTarget(currentPage, currentEl);
+      }
+      const prevEl = verticalCanvasRefs.current.get(currentPage - 1);
+      if (prevEl && !renderedPagesRef.current.has(currentPage - 1)) {
+        renderPageToTarget(currentPage - 1, prevEl);
+      }
+      const nextEl = verticalCanvasRefs.current.get(currentPage + 1);
+      if (nextEl && !renderedPagesRef.current.has(currentPage + 1)) {
+        renderPageToTarget(currentPage + 1, nextEl);
+      }
+
+      // 确保滚动定位到当前页（避免总是停在第一页）
+      if (currentEl) {
+        currentEl.scrollIntoView({ behavior: "auto", block: "start" });
+      }
+    };
+
+    requestAnimationFrame(setup);
+    return () => {
+      cancelled = true;
+      observer && observer.disconnect();
+    };
+  }, [readingMode, pdf, totalPages, currentPage]);
 
   // 切换阅读模式时，确保重新渲染当前页（横向）或滚动到当前页（纵向）
   useEffect(() => {
     if (!pdf) return;
-    if (readingMode === 'horizontal') {
+    if (readingMode === "horizontal") {
       // 横向模式：渲染当前页到单一 canvas
       renderPage(currentPage);
       // 清理纵向模式的渲染标记，防止引用残留
@@ -352,7 +426,7 @@ export const Reader: React.FC = () => {
     } else {
       // 纵向模式：尝试滚动至当前页的 canvas
       const target = verticalCanvasRefs.current.get(currentPage);
-      if (target) target.scrollIntoView({ behavior: 'auto', block: 'start' });
+      if (target) target.scrollIntoView({ behavior: "auto", block: "start" });
     }
   }, [readingMode, pdf, currentPage]);
 
@@ -375,7 +449,7 @@ export const Reader: React.FC = () => {
       return () => stopAll();
     }
 
-    if (readingMode === 'horizontal') {
+    if (readingMode === "horizontal") {
       // 横向：每隔固定时间翻到下一页，至末页自动停止
       stopAll();
       autoScrollTimerRef.current = window.setInterval(async () => {
@@ -410,31 +484,39 @@ export const Reader: React.FC = () => {
     }
 
     return () => stopAll();
-  }, [autoScroll, readingMode, currentPage, totalPages, tocOverlayOpen, modeOverlayOpen, settings.scrollSpeed]);
+  }, [
+    autoScroll,
+    readingMode,
+    currentPage,
+    totalPages,
+    tocOverlayOpen,
+    modeOverlayOpen,
+    settings.scrollSpeed,
+  ]);
 
   // 键盘：音量键翻页（部分平台支持），开启后生效
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (!settings.volumeKeyTurnPage) return;
-      const code = (e.code || e.key);
-      if (code === 'AudioVolumeUp' || code === 'VolumeUp') {
+      const code = e.code || e.key;
+      if (code === "AudioVolumeUp" || code === "VolumeUp") {
         e.preventDefault();
         prevPage();
-      } else if (code === 'AudioVolumeDown' || code === 'VolumeDown') {
+      } else if (code === "AudioVolumeDown" || code === "VolumeDown") {
         e.preventDefault();
         nextPage();
       }
     };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
   }, [settings.volumeKeyTurnPage, currentPage]);
 
   // 根据设置显示/隐藏系统状态栏：通过浏览器全屏控制（受平台限制）
   useEffect(() => {
     const hideStatusBar = !settings.showStatusBar;
-    const ua = navigator.userAgent || '';
+    const ua = navigator.userAgent || "";
     const isMobile = /Android|iPhone|iPad|iPod/i.test(ua);
-    const isTauri = typeof (window as any).__TAURI__ !== 'undefined';
+    const isTauri = typeof (window as any).__TAURI__ !== "undefined";
 
     // 仅在移动端浏览器或移动端容器中尝试全屏；桌面 Tauri/Web 不触发以避免窗口被最大化
     if (!isMobile || isTauri) return;
@@ -455,8 +537,10 @@ export const Reader: React.FC = () => {
     const indent = 10 + level * 14;
     return nodes.map((node, idx) => {
       const hasChildren = !!(node.children && node.children.length);
-      const caret = hasChildren ? (node.expanded ? '▼' : '▶') : '•';
-      const isActive = typeof currentChapterPageVal === 'number' && node.page === currentChapterPageVal;
+      const caret = hasChildren ? (node.expanded ? "▼" : "▶") : "•";
+      const isActive =
+        typeof currentChapterPageVal === "number" &&
+        node.page === currentChapterPageVal;
       return (
         <div key={`${level}-${idx}`} style={{ marginLeft: indent }}>
           <div
@@ -465,33 +549,65 @@ export const Reader: React.FC = () => {
                 node.expanded = !node.expanded;
                 setToc([...toc]);
               }
-              if (typeof node.page === 'number') {
+              if (typeof node.page === "number") {
                 goToPage(node.page);
                 setTocOverlayOpen(false);
                 setUiVisible(false);
               }
             }}
             ref={(el) => {
-              if (el && typeof node.page === 'number') {
+              if (el && typeof node.page === "number") {
                 tocItemRefs.current.set(node.page, el as HTMLDivElement);
               }
             }}
             style={{
-              padding: '8px',
-              borderRadius: '6px',
-              cursor: (typeof node.page === 'number' || hasChildren) ? 'pointer' : 'default',
-              backgroundColor: isActive ? '#333' : 'transparent'
+              padding: "8px",
+              borderRadius: "6px",
+              cursor:
+                typeof node.page === "number" || hasChildren
+                  ? "pointer"
+                  : "default",
+              backgroundColor: isActive ? "#333" : "transparent",
             }}
-            onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = isActive ? '#333' : '#2a2a2a'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = isActive ? '#333' : 'transparent'; }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = isActive
+                ? "#333"
+                : "#2a2a2a";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = isActive
+                ? "#333"
+                : "transparent";
+            }}
           >
-            <span style={{ marginRight: 12, fontSize: '11px', lineHeight: '1', color: '#ffffff', opacity: 0.7 }}>{caret}</span>
-            <span style={{ fontSize: '13px', color: isActive ? '#d15158' : '#ffffff' }}>{node.title}</span>
-            {typeof node.page === 'number' && (
-              <span style={{ fontSize: '12px', opacity: 0.7, marginLeft: 6 }}>第 {node.page} 页</span>
+            <span
+              style={{
+                marginRight: 12,
+                fontSize: "11px",
+                lineHeight: "1",
+                color: "#ffffff",
+                opacity: 0.7,
+              }}
+            >
+              {caret}
+            </span>
+            <span
+              style={{
+                fontSize: "13px",
+                color: isActive ? "#d15158" : "#ffffff",
+              }}
+            >
+              {node.title}
+            </span>
+            {typeof node.page === "number" && (
+              <span style={{ fontSize: "12px", opacity: 0.7, marginLeft: 6 }}>
+                第 {node.page} 页
+              </span>
             )}
           </div>
-          {hasChildren && node.expanded && renderTocTree(node.children!, level + 1)}
+          {hasChildren &&
+            node.expanded &&
+            renderTocTree(node.children!, level + 1)}
         </div>
       );
     });
@@ -499,37 +615,47 @@ export const Reader: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="reader-fullheight" style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        fontSize: '16px',
-        color: '#666'
-      }}>
+      <div
+        className="reader-fullheight"
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: "16px",
+          color: "#666",
+        }}
+      >
         加载中...
       </div>
     );
   }
 
   return (
-    <div className="reader-fullheight" style={{
-      display: 'flex',
-      flexDirection: 'column',
-      backgroundColor: '#2c2c2c',
-      paddingTop: settings.showStatusBar ? 'env(safe-area-inset-top)' : 0
-    }}>
+    <div
+      className="reader-fullheight"
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        backgroundColor: "#2c2c2c",
+        paddingTop: settings.showStatusBar ? "env(safe-area-inset-top)" : 0,
+      }}
+    >
       {/* 主体区域：仅中间渲染区（目录改为蒙版弹层） */}
-      <div style={{
-        flex: 1,
-        display: 'flex',
-        overflow: 'hidden'
-      }}>
+      <div
+        style={{
+          flex: 1,
+          display: "flex",
+          overflow: "hidden",
+        }}
+      >
         {/* 中间渲染区 */}
         <div
           onClick={(e) => {
-            const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+            const rect = (
+              e.currentTarget as HTMLDivElement
+            ).getBoundingClientRect();
             const x = e.clientX - rect.left;
-            if (readingMode === 'horizontal') {
+            if (readingMode === "horizontal") {
               if (x < rect.width * 0.3) {
                 if (settings.clickTurnPage) prevPage();
               } else if (x > rect.width * 0.7) {
@@ -553,12 +679,12 @@ export const Reader: React.FC = () => {
           }}
           style={{
             flex: 1,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            overflow: 'auto',
-            padding: '20px',
-            position: 'relative'
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            overflow: "auto",
+            padding: "20px",
+            position: "relative",
           }}
           ref={mainViewRef}
         >
@@ -572,57 +698,76 @@ export const Reader: React.FC = () => {
               onTouchEnd={(e) => e.stopPropagation()}
               onWheel={(e) => e.stopPropagation()}
               style={{
-                position: 'absolute',
-                top: '10px',
-                left: '50%',
-                transform: 'translateX(-50%)',
-                width: '80%',
-                backgroundColor: 'rgba(26,26,26,0.92)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                color: 'white',
-                borderRadius: '10px',
-                padding: '8px 12px',
-                boxShadow: '0 6px 24px rgba(0,0,0,0.35)',
-                zIndex: 12
+                position: "absolute",
+                top: "10px",
+                left: "50%",
+                transform: "translateX(-50%)",
+                width: "80%",
+                backgroundColor: "rgba(26,26,26,0.92)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                color: "white",
+                borderRadius: "10px",
+                padding: "8px 12px",
+                boxShadow: "0 6px 24px rgba(0,0,0,0.35)",
+                zIndex: 12,
               }}
             >
               <button
-                onClick={() => navigate('/')}
-                style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '16px' }}
+                onClick={() => navigate("/")}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "#fff",
+                  cursor: "pointer",
+                  fontSize: "16px",
+                }}
                 title="返回"
               >
-                {'<'}
+                {"<"}
               </button>
-              <div style={{ fontSize: '16px', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <div
+                style={{
+                  fontSize: "16px",
+                  fontWeight: 500,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
                 {book?.title}
               </div>
-              <div style={{ width: '24px' }} />
+              <div style={{ width: "24px" }} />
             </div>
           )}
-          {readingMode === 'horizontal' ? (
+          {readingMode === "horizontal" ? (
             <canvas
               ref={canvasRef}
               style={{
-                maxWidth: '100%',
-                maxHeight: '100%',
-                boxShadow: '0 8px 32px rgba(0,0,0,0.5)'
+                maxWidth: "100%",
+                maxHeight: "100%",
+                boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
               }}
             />
           ) : (
-            <div style={{ width: '100%', maxHeight: '100%', overflowY: 'auto' }} className="no-scrollbar" ref={verticalScrollRef}
+            <div
+              style={{ width: "100%", maxHeight: "100%", overflowY: "auto" }}
+              className="no-scrollbar"
+              ref={verticalScrollRef}
             >
               {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
                 <canvas
                   key={p}
                   data-page={p}
-                  ref={(el) => { if (el) verticalCanvasRefs.current.set(p, el); }}
+                  ref={(el) => {
+                    if (el) verticalCanvasRefs.current.set(p, el);
+                  }}
                   style={{
-                    width: '100%',
-                    display: 'block',
+                    width: "100%",
+                    display: "block",
                     margin: `0 auto ${settings.pageGap}px`,
-                    boxShadow: '0 8px 32px rgba(0,0,0,0.5)'
+                    boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
                   }}
                 />
               ))}
@@ -630,127 +775,195 @@ export const Reader: React.FC = () => {
           )}
 
           {/* 顶部页码气泡：贴紧顶部栏最左侧下方，顶部栏可见时下移；不因“显示状态栏”而强制显示 */}
-          {(uiVisible || isSeeking) && (
+          {(uiVisible || isSeeking) &&
             (() => {
-              const offset = (uiVisible || isSeeking || tocOverlayOpen) ? 72 : 14;
+              const offset = uiVisible || isSeeking || tocOverlayOpen ? 72 : 14;
               return (
                 <div
                   style={{
-                    position: 'absolute',
+                    position: "absolute",
                     top: `${settings.showStatusBar ? 14 : offset}px`,
-                    left: '10%',
-                    display: 'block',
-                    pointerEvents: 'none',
-                    zIndex: 11
+                    left: "10%",
+                    display: "block",
+                    pointerEvents: "none",
+                    zIndex: 11,
                   }}
                 >
                   <div
                     style={{
-                      padding: '6px 12px',
-                      borderRadius: '18px',
-                      backgroundColor: 'rgba(0,0,0,0.75)',
-                      color: '#fff',
-                      fontSize: '12px',
-                      boxShadow: '0 2px 6px rgba(0,0,0,0.25)'
+                      padding: "6px 12px",
+                      borderRadius: "18px",
+                      backgroundColor: "rgba(0,0,0,0.75)",
+                      color: "#fff",
+                      fontSize: "12px",
+                      boxShadow: "0 2px 6px rgba(0,0,0,0.25)",
                     }}
                   >
-                    {(isSeeking && seekPage !== null ? seekPage : currentPage)} / {totalPages}
+                    {isSeeking && seekPage !== null ? seekPage : currentPage} /{" "}
+                    {totalPages}
                   </div>
                 </div>
               );
-            })()
-          )}
+            })()}
 
           {/* 目录蒙版弹层：占据页面90%，点击外部收回 */}
           {tocOverlayOpen && (
             <div
-              onClick={(e) => { e.stopPropagation(); setTocOverlayOpen(false); setUiVisible(false); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setTocOverlayOpen(false);
+                setUiVisible(false);
+              }}
               style={{
-                position: 'absolute',
+                position: "absolute",
                 inset: 0,
-                backgroundColor: 'rgba(0,0,0,0.6)',
-                display: 'flex',
-                alignItems: 'stretch',
-                justifyContent: 'flex-start',
-                zIndex: 20
+                backgroundColor: "rgba(0,0,0,0.6)",
+                display: "flex",
+                alignItems: "stretch",
+                justifyContent: "flex-start",
+                zIndex: 20,
               }}
             >
               <div
                 onClick={(e) => e.stopPropagation()}
                 style={{
-                  width: '90%',
-                  height: '100%',
-                  backgroundColor: '#1f1f1f',
-                  color: '#fff',
-                  borderRadius: '0 10px 10px 0',
-                  overflowY: 'auto',
-                  padding: '16px',
-                  boxShadow: '0 8px 32px rgba(0,0,0,0.5)'
+                  width: "90%",
+                  height: "100%",
+                  backgroundColor: "#1f1f1f",
+                  color: "#fff",
+                  borderRadius: "0 10px 10px 0",
+                  overflowY: "auto",
+                  padding: "16px",
+                  boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
                 }}
                 className="no-scrollbar"
               >
                 {/* 顶部页签：目录 / 书签（图标与文字贴近） */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '12px' }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "16px",
+                    marginBottom: "12px",
+                  }}
+                >
                   <button
-                    onClick={() => setLeftTab('toc')}
+                    onClick={() => setLeftTab("toc")}
                     style={{
-                      background: 'none',
-                      border: 'none',
-                      color: leftTab === 'toc' ? '#d15158' : '#fff',
-                      cursor: 'pointer',
-                      fontSize: '14px',
-                      padding: '4px 6px',
-                      borderBottom: leftTab === 'toc' ? '2px solid #d15158' : '2px solid transparent'
+                      background: "none",
+                      border: "none",
+                      color: leftTab === "toc" ? "#d15158" : "#fff",
+                      cursor: "pointer",
+                      fontSize: "14px",
+                      padding: "4px 6px",
+                      borderBottom:
+                        leftTab === "toc"
+                          ? "2px solid #d15158"
+                          : "2px solid transparent",
                     }}
                   >
-                    <span style={{ marginRight: '6px' }}>≡</span>
+                    <span style={{ marginRight: "6px" }}>≡</span>
                     <span>目录</span>
                   </button>
                   <button
-                    onClick={() => setLeftTab('bookmark')}
+                    onClick={() => setLeftTab("bookmark")}
                     style={{
-                      background: 'none',
-                      border: 'none',
-                      color: leftTab === 'bookmark' ? '#d15158' : '#fff',
-                      cursor: 'pointer',
-                      fontSize: '14px',
-                      padding: '4px 6px',
-                      borderBottom: leftTab === 'bookmark' ? '2px solid #d15158' : '2px solid transparent'
+                      background: "none",
+                      border: "none",
+                      color: leftTab === "bookmark" ? "#d15158" : "#fff",
+                      cursor: "pointer",
+                      fontSize: "14px",
+                      padding: "4px 6px",
+                      borderBottom:
+                        leftTab === "bookmark"
+                          ? "2px solid #d15158"
+                          : "2px solid transparent",
                     }}
                   >
-                    <span style={{ marginRight: '6px' }}>🔖</span>
+                    <span style={{ marginRight: "6px" }}>🔖</span>
                     <span>书签</span>
                   </button>
                 </div>
                 {/* 内容区：目录或书签列表 */}
-                {leftTab === 'toc' ? (
+                {leftTab === "toc" ? (
                   toc.length === 0 ? (
-                    <div style={{ fontSize: '13px', opacity: 0.6 }}>无目录信息</div>
+                    <div style={{ fontSize: "13px", opacity: 0.6 }}>
+                      无目录信息
+                    </div>
                   ) : (
                     <div>{renderTocTree(toc, 0)}</div>
                   )
+                ) : bookmarks.length === 0 ? (
+                  <div
+                    style={{
+                      fontSize: "13px",
+                      opacity: 0.6,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      height: "100%",
+                    }}
+                  >
+                    没有添加书签
+                  </div>
                 ) : (
-                  bookmarks.length === 0 ? (
-                    <div style={{ fontSize: '13px', opacity: 0.6, display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>没有添加书签</div>
-                  ) : (
-                    <div>
-                      {bookmarks.map((bm) => (
+                  <div>
+                    {bookmarks.map((bm) => (
+                      <div
+                        key={bm.id}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          padding: "6px 8px",
+                          borderRadius: "6px",
+                          cursor: "pointer",
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.backgroundColor = "#2a2a2a";
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.backgroundColor = "transparent";
+                        }}
+                        onClick={() => {
+                          goToPage(bm.page_number);
+                          setTocOverlayOpen(false);
+                          setUiVisible(false);
+                        }}
+                      >
                         <div
-                          key={bm.id}
-                          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 8px', borderRadius: '6px', cursor: 'pointer' }}
-                          onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#2a2a2a'; }}
-                          onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
-                          onClick={() => { goToPage(bm.page_number); setTocOverlayOpen(false); setUiVisible(false); }}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "8px",
+                          }}
                         >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <span style={{ fontSize: '13px', color: '#fff' }}>{bm.title}</span>
-                            <span style={{ fontSize: '12px', opacity: 0.7 }}>第 {bm.page_number} 页</span>
-                          </div>
-                          <button onClick={(e) => { e.stopPropagation(); deleteBookmark(bm.id); }} style={{ background: 'none', border: 'none', color: '#ccc', cursor: 'pointer', fontSize: '12px' }} title="删除书签">✕</button>
+                          <span style={{ fontSize: "13px", color: "#fff" }}>
+                            {bm.title}
+                          </span>
+                          <span style={{ fontSize: "12px", opacity: 0.7 }}>
+                            第 {bm.page_number} 页
+                          </span>
                         </div>
-                      ))}
-                    </div>
-                  )
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteBookmark(bm.id);
+                          }}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            color: "#ccc",
+                            cursor: "pointer",
+                            fontSize: "12px",
+                          }}
+                          title="删除书签"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
             </div>
@@ -759,77 +972,111 @@ export const Reader: React.FC = () => {
           {/* 阅读方式抽屉：贴底部的下拉面板（Bottom Sheet），选择横向/纵向 */}
           {modeOverlayOpen && (
             <div
-              onClick={(e) => { e.stopPropagation(); setModeOverlayOpen(false); setUiVisible(false); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setModeOverlayOpen(false);
+                setUiVisible(false);
+              }}
               style={{
-                position: 'absolute',
+                position: "absolute",
                 inset: 0,
-                backgroundColor: 'rgba(0,0,0,0.6)',
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'flex-end',
-                alignItems: 'center',
-                zIndex: 20
+                backgroundColor: "rgba(0,0,0,0.6)",
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "flex-end",
+                alignItems: "center",
+                zIndex: 20,
               }}
             >
               <div
                 onClick={(e) => e.stopPropagation()}
                 style={{
-                  width: 'min(720px, calc(100% - 32px))',
-                  backgroundColor: '#1f1f1f',
-                  color: '#fff',
-                  borderTopLeftRadius: '12px',
-                  borderTopRightRadius: '12px',
-                  padding: '18px',
-                  paddingBottom: 'calc(18px + env(safe-area-inset-bottom))',
-                  margin: '0 auto 0',
-                  boxShadow: '0 -8px 32px rgba(0,0,0,0.5)'
+                  width: "min(720px, calc(100% - 32px))",
+                  backgroundColor: "#1f1f1f",
+                  color: "#fff",
+                  borderTopLeftRadius: "12px",
+                  borderTopRightRadius: "12px",
+                  padding: "18px",
+                  paddingBottom: "calc(18px + env(safe-area-inset-bottom))",
+                  margin: "0 auto 0",
+                  boxShadow: "0 -8px 32px rgba(0,0,0,0.5)",
                 }}
               >
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "16px",
+                  }}
+                >
                   <button
                     onClick={() => {
-                      setReadingMode('horizontal');
-                      setSettings(prev => {
-                        const next = { ...prev, readingMode: 'horizontal' } as ReaderSettings;
-                        saveReaderSettings({ readingMode: 'horizontal' });
+                      setReadingMode("horizontal");
+                      setSettings((prev) => {
+                        const next = {
+                          ...prev,
+                          readingMode: "horizontal",
+                        } as ReaderSettings;
+                        saveReaderSettings({ readingMode: "horizontal" });
                         return next;
                       });
                       setModeOverlayOpen(false);
                       setUiVisible(false);
                     }}
                     style={{
-                      display: 'flex', alignItems: 'center', gap: '12px',
-                      background: 'none', border: '1px solid #333', color: readingMode === 'horizontal' ? '#d15158' : '#fff',
-                      cursor: 'pointer', borderRadius: '8px', padding: '10px 12px', textAlign: 'left'
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "12px",
+                      background: "none",
+                      border: "1px solid #333",
+                      color: readingMode === "horizontal" ? "#d15158" : "#fff",
+                      cursor: "pointer",
+                      borderRadius: "8px",
+                      padding: "10px 12px",
+                      textAlign: "left",
                     }}
                   >
-                    <span style={{ fontSize: '18px' }}>▤</span>
+                    <span style={{ fontSize: "18px" }}>▤</span>
                     <div>
-                      <div style={{ fontSize: '14px' }}>横向阅读</div>
-                      <div style={{ fontSize: '12px', opacity: 0.7 }}>左右翻页，适合分页浏览</div>
+                      <div style={{ fontSize: "14px" }}>横向阅读</div>
+                      <div style={{ fontSize: "12px", opacity: 0.7 }}>
+                        左右翻页，适合分页浏览
+                      </div>
                     </div>
                   </button>
                   <button
                     onClick={() => {
-                      setReadingMode('vertical');
-                      setSettings(prev => {
-                        const next = { ...prev, readingMode: 'vertical' } as ReaderSettings;
-                        saveReaderSettings({ readingMode: 'vertical' });
+                      setReadingMode("vertical");
+                      setSettings((prev) => {
+                        const next = {
+                          ...prev,
+                          readingMode: "vertical",
+                        } as ReaderSettings;
+                        saveReaderSettings({ readingMode: "vertical" });
                         return next;
                       });
                       setModeOverlayOpen(false);
                       setUiVisible(false);
                     }}
                     style={{
-                      display: 'flex', alignItems: 'center', gap: '12px',
-                      background: 'none', border: '1px solid #333', color: readingMode === 'vertical' ? '#d15158' : '#fff',
-                      cursor: 'pointer', borderRadius: '8px', padding: '10px 12px', textAlign: 'left'
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "12px",
+                      background: "none",
+                      border: "1px solid #333",
+                      color: readingMode === "vertical" ? "#d15158" : "#fff",
+                      cursor: "pointer",
+                      borderRadius: "8px",
+                      padding: "10px 12px",
+                      textAlign: "left",
                     }}
                   >
-                    <span style={{ fontSize: '18px' }}>▮</span>
+                    <span style={{ fontSize: "18px" }}>▮</span>
                     <div>
-                      <div style={{ fontSize: '14px' }}>纵向阅读</div>
-                      <div style={{ fontSize: '12px', opacity: 0.7 }}>向下滚动，连续阅读</div>
+                      <div style={{ fontSize: "14px" }}>纵向阅读</div>
+                      <div style={{ fontSize: "12px", opacity: 0.7 }}>
+                        向下滚动，连续阅读
+                      </div>
                     </div>
                   </button>
                 </div>
@@ -847,62 +1094,95 @@ export const Reader: React.FC = () => {
               onTouchEnd={(e) => e.stopPropagation()}
               onWheel={(e) => e.stopPropagation()}
               style={{
-                position: 'absolute',
-                left: '50%',
-                transform: 'translateX(-50%)',
-                bottom: '20px',
-                width: 'min(720px, calc(100% - 32px))',
-                backgroundColor: 'rgba(26,26,26,0.92)',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: 'white',
-                borderRadius: '10px',
-                padding: '14px 18px',
-                paddingBottom: 'calc(14px + env(safe-area-inset-bottom))',
-                boxShadow: '0 6px 24px rgba(0,0,0,0.35)',
-                zIndex: 10
+                position: "absolute",
+                left: "50%",
+                transform: "translateX(-50%)",
+                bottom: "20px",
+                width: "min(720px, calc(100% - 32px))",
+                backgroundColor: "rgba(26,26,26,0.92)",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "white",
+                borderRadius: "10px",
+                padding: "14px 18px",
+                paddingBottom: "calc(14px + env(safe-area-inset-bottom))",
+                boxShadow: "0 6px 24px rgba(0,0,0,0.35)",
+                zIndex: 10,
               }}
             >
               {/* 上方进度滑条 + 两端上一章/下一章文案 */}
-              <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'clamp(10px, 1.6vw, 12px)', color: '#bbb', marginBottom: '8px' }}>
+              <div
+                style={{
+                  width: "100%",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "stretch",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    fontSize: "clamp(10px, 1.6vw, 12px)",
+                    color: "#bbb",
+                    marginBottom: "8px",
+                  }}
+                >
                   <span
                     onClick={() => {
                       const page = findCurrentChapterPage(toc);
-                      if (typeof page === 'number' && page < currentPage) {
+                      if (typeof page === "number" && page < currentPage) {
                         goToPage(page);
                       } else {
                         prevPage();
                       }
                     }}
-                    style={{ cursor: currentPage <= 1 ? 'default' : 'pointer', opacity: currentPage <= 1 ? 0.5 : 1 }}
-                  >上一章</span>
+                    style={{
+                      cursor: currentPage <= 1 ? "default" : "pointer",
+                      opacity: currentPage <= 1 ? 0.5 : 1,
+                    }}
+                  >
+                    上一章
+                  </span>
                   <span
                     onClick={() => {
                       const pages: number[] = [];
                       const collect = (ns: TocNode[]) => {
                         for (const n of ns) {
-                          if (typeof n.page === 'number') pages.push(n.page);
-                          if (n.children && n.children.length) collect(n.children);
+                          if (typeof n.page === "number") pages.push(n.page);
+                          if (n.children && n.children.length)
+                            collect(n.children);
                         }
                       };
                       collect(toc);
                       pages.sort((a, b) => a - b);
                       const target = pages.find((p) => p > currentPage);
-                      if (typeof target === 'number') {
+                      if (typeof target === "number") {
                         goToPage(target);
                       } else {
                         nextPage();
                       }
                     }}
-                    style={{ cursor: currentPage >= totalPages ? 'default' : 'pointer', opacity: currentPage >= totalPages ? 0.5 : 1 }}
-                  >下一章</span>
+                    style={{
+                      cursor: currentPage >= totalPages ? "default" : "pointer",
+                      opacity: currentPage >= totalPages ? 0.5 : 1,
+                    }}
+                  >
+                    下一章
+                  </span>
                 </div>
                 {(() => {
-                  const sliderVal = isSeeking && seekPage !== null ? seekPage : currentPage;
-                  const pct = Math.max(0, Math.min(100, Math.round((sliderVal / Math.max(1, totalPages)) * 100)));
+                  const sliderVal =
+                    isSeeking && seekPage !== null ? seekPage : currentPage;
+                  const pct = Math.max(
+                    0,
+                    Math.min(
+                      100,
+                      Math.round((sliderVal / Math.max(1, totalPages)) * 100)
+                    )
+                  );
                   const track = `linear-gradient(to right, #d15158 0%, #d15158 ${pct}%, #3a3a3a ${pct}%, #3a3a3a 100%)`;
                   return (
                     <input
@@ -911,8 +1191,14 @@ export const Reader: React.FC = () => {
                       min={1}
                       max={totalPages}
                       value={sliderVal}
-                      onMouseDown={(e) => { e.stopPropagation(); setIsSeeking(true); }}
-                      onTouchStart={(e) => { e.stopPropagation(); setIsSeeking(true); }}
+                      onMouseDown={(e) => {
+                        e.stopPropagation();
+                        setIsSeeking(true);
+                      }}
+                      onTouchStart={(e) => {
+                        e.stopPropagation();
+                        setIsSeeking(true);
+                      }}
                       onInput={(e) => {
                         const v = Number((e.target as HTMLInputElement).value);
                         setSeekPage(v);
@@ -931,32 +1217,185 @@ export const Reader: React.FC = () => {
                         setSeekPage(null);
                         await goToPage(v);
                       }}
-                      style={{ width: '100%', height: '6px', borderRadius: '6px', background: track, outline: 'none' }}
+                      style={{
+                        width: "100%",
+                        height: "6px",
+                        borderRadius: "6px",
+                        background: track,
+                        outline: "none",
+                      }}
                     />
                   );
                 })()}
               </div>
               {/* 下方图标操作区：5等分网格，窄屏也不拥挤 */}
-              <div style={{ marginTop: '14px', display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', alignItems: 'center', justifyItems: 'center', width: '100%', gap: '8px' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  <button onClick={() => setTocOverlayOpen(true)} style={{ background: 'none', border: 'none', color: tocOverlayOpen ? '#d15158' : '#fff', cursor: 'pointer', fontSize: 'clamp(16px, 3.2vw, 18px)' }} title="目录">≡</button>
-                  <div style={{ fontSize: 'clamp(10px, 1.6vw, 12px)', color: tocOverlayOpen ? '#d15158' : '#ccc', marginTop: '6px' }}>目录</div>
+              <div
+                style={{
+                  marginTop: "14px",
+                  display: "grid",
+                  gridTemplateColumns: "repeat(5, 1fr)",
+                  alignItems: "center",
+                  justifyItems: "center",
+                  width: "100%",
+                  gap: "8px",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                  }}
+                >
+                  <button
+                    onClick={() => setTocOverlayOpen(true)}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: tocOverlayOpen ? "#d15158" : "#fff",
+                      cursor: "pointer",
+                      fontSize: "clamp(16px, 3.2vw, 18px)",
+                    }}
+                    title="目录"
+                  >
+                    ≡
+                  </button>
+                  <div
+                    style={{
+                      fontSize: "clamp(10px, 1.6vw, 12px)",
+                      color: tocOverlayOpen ? "#d15158" : "#ccc",
+                      marginTop: "6px",
+                    }}
+                  >
+                    目录
+                  </div>
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  <button onClick={() => setModeOverlayOpen(true)} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 'clamp(16px, 3.2vw, 18px)' }} title="阅读方式">▉▉</button>
-                  <div style={{ fontSize: 'clamp(10px, 1.6vw, 12px)', color: '#ccc', marginTop: '6px' }}>阅读方式</div>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                  }}
+                >
+                  <button
+                    onClick={() => setModeOverlayOpen(true)}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "#fff",
+                      cursor: "pointer",
+                      fontSize: "clamp(16px, 3.2vw, 18px)",
+                    }}
+                    title="阅读方式"
+                  >
+                    ▉▉
+                  </button>
+                  <div
+                    style={{
+                      fontSize: "clamp(10px, 1.6vw, 12px)",
+                      color: "#ccc",
+                      marginTop: "6px",
+                    }}
+                  >
+                    阅读方式
+                  </div>
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  <button onClick={() => { if (!autoScroll) { setAutoScroll(true); setUiVisible(false); } else { setAutoScroll(false); } }} style={{ background: 'none', border: 'none', color: autoScroll ? '#d15158' : '#fff', cursor: 'pointer', fontSize: 'clamp(16px, 3.2vw, 18px)' }} title="自动滚动">☰</button>
-                  <div style={{ fontSize: 'clamp(10px, 1.6vw, 12px)', color: autoScroll ? '#d15158' : '#ccc', marginTop: '6px' }}>自动滚动</div>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                  }}
+                >
+                  <button
+                    onClick={() => {
+                      if (!autoScroll) {
+                        setAutoScroll(true);
+                        setUiVisible(false);
+                      } else {
+                        setAutoScroll(false);
+                      }
+                    }}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: autoScroll ? "#d15158" : "#fff",
+                      cursor: "pointer",
+                      fontSize: "clamp(16px, 3.2vw, 18px)",
+                    }}
+                    title="自动滚动"
+                  >
+                    ☰
+                  </button>
+                  <div
+                    style={{
+                      fontSize: "clamp(10px, 1.6vw, 12px)",
+                      color: autoScroll ? "#d15158" : "#ccc",
+                      marginTop: "6px",
+                    }}
+                  >
+                    自动滚动
+                  </div>
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  <button onClick={addBookmark} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 'clamp(16px, 3.2vw, 18px)' }} title="书签">🔖</button>
-                  <div style={{ fontSize: 'clamp(10px, 1.6vw, 12px)', color: '#ccc', marginTop: '6px' }}>书签</div>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                  }}
+                >
+                  <button
+                    onClick={addBookmark}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "#fff",
+                      cursor: "pointer",
+                      fontSize: "clamp(16px, 3.2vw, 18px)",
+                    }}
+                    title="书签"
+                  >
+                    🔖
+                  </button>
+                  <div
+                    style={{
+                      fontSize: "clamp(10px, 1.6vw, 12px)",
+                      color: "#ccc",
+                      marginTop: "6px",
+                    }}
+                  >
+                    书签
+                  </div>
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  <button onClick={() => navigate('/settings')} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 'clamp(16px, 3.2vw, 18px)' }} title="更多">…</button>
-                  <div style={{ fontSize: 'clamp(10px, 1.6vw, 12px)', color: '#ccc', marginTop: '6px' }}>更多</div>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                  }}
+                >
+                  <button
+                    onClick={() => navigate("/settings")}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "#fff",
+                      cursor: "pointer",
+                      fontSize: "clamp(16px, 3.2vw, 18px)",
+                    }}
+                    title="更多"
+                  >
+                    …
+                  </button>
+                  <div
+                    style={{
+                      fontSize: "clamp(10px, 1.6vw, 12px)",
+                      color: "#ccc",
+                      marginTop: "6px",
+                    }}
+                  >
+                    更多
+                  </div>
                 </div>
               </div>
 
@@ -964,17 +1403,17 @@ export const Reader: React.FC = () => {
               {bookmarkToastVisible && (
                 <div
                   style={{
-                    position: 'absolute',
-                    bottom: '8px',
-                    left: '50%',
-                    transform: 'translateX(-50%)',
-                    padding: '6px 12px',
-                    borderRadius: '16px',
-                    backgroundColor: 'rgba(0,0,0,0.8)',
-                    color: '#fff',
-                    fontSize: '12px',
-                    boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
-                    pointerEvents: 'none'
+                    position: "absolute",
+                    bottom: "8px",
+                    left: "50%",
+                    transform: "translateX(-50%)",
+                    padding: "6px 12px",
+                    borderRadius: "16px",
+                    backgroundColor: "rgba(0,0,0,0.8)",
+                    color: "#fff",
+                    fontSize: "12px",
+                    boxShadow: "0 2px 6px rgba(0,0,0,0.3)",
+                    pointerEvents: "none",
                   }}
                 >
                   {bookmarkToastText}
@@ -984,7 +1423,6 @@ export const Reader: React.FC = () => {
           )}
         </div>
       </div>
-
     </div>
   );
 };
