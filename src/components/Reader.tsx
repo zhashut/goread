@@ -27,12 +27,19 @@ export const Reader: React.FC = () => {
   const [tocOverlayOpen, setTocOverlayOpen] = useState(false);
   // 阅读方式：horizontal(横向分页) / vertical(纵向连续)
   const [readingMode, setReadingMode] = useState<'horizontal' | 'vertical'>('horizontal');
+  // 自动滚动：状态与计时器
+  const [autoScroll, setAutoScroll] = useState(false);
+  const autoScrollTimerRef = useRef<number | null>(null);
+  const autoScrollRafRef = useRef<number | null>(null);
+  const DEFAULT_AUTO_PAGE_MS = 2000; // 横向自动翻页间隔
+  const DEFAULT_SCROLL_PX_PER_SEC = 120; // 纵向每秒滚动像素
   // 阅读方式选择弹层
   const [modeOverlayOpen, setModeOverlayOpen] = useState(false);
   // 纵向阅读容器与懒加载渲染引用
   const mainViewRef = useRef<HTMLDivElement>(null);
   const verticalCanvasRefs = useRef<Map<number, HTMLCanvasElement>>(new Map());
   const renderedPagesRef = useRef<Set<number>>(new Set());
+  const verticalScrollRef = useRef<HTMLDivElement>(null);
   // 书签提示气泡
   const [bookmarkToastVisible, setBookmarkToastVisible] = useState(false);
   const [bookmarkToastText, setBookmarkToastText] = useState('');
@@ -323,6 +330,62 @@ export const Reader: React.FC = () => {
     }
   }, [readingMode, pdf, currentPage]);
 
+  // 自动滚动：根据阅读模式分别处理（横向自动翻页，纵向持续滚动）
+  useEffect(() => {
+    const stopAll = () => {
+      if (autoScrollTimerRef.current !== null) {
+        window.clearInterval(autoScrollTimerRef.current);
+        autoScrollTimerRef.current = null;
+      }
+      if (autoScrollRafRef.current !== null) {
+        cancelAnimationFrame(autoScrollRafRef.current);
+        autoScrollRafRef.current = null;
+      }
+    };
+
+    // 当自动滚动关闭，或抽屉打开时，停止自动滚动
+    if (!autoScroll || tocOverlayOpen || modeOverlayOpen) {
+      stopAll();
+      return () => stopAll();
+    }
+
+    if (readingMode === 'horizontal') {
+      // 横向：每隔固定时间翻到下一页，至末页自动停止
+      stopAll();
+      autoScrollTimerRef.current = window.setInterval(async () => {
+        if (currentPage >= totalPages) {
+          stopAll();
+          setAutoScroll(false);
+          return;
+        }
+        await goToPage(currentPage + 1);
+      }, DEFAULT_AUTO_PAGE_MS);
+    } else {
+      // 纵向：持续向下滚动
+      stopAll();
+      const el = verticalScrollRef.current || mainViewRef.current;
+      if (!el) return () => stopAll();
+      const speed = DEFAULT_SCROLL_PX_PER_SEC;
+      const step = () => {
+        if (!autoScroll || tocOverlayOpen || modeOverlayOpen) {
+          stopAll();
+          return;
+        }
+        const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 2;
+        if (atBottom) {
+          stopAll();
+          setAutoScroll(false);
+          return;
+        }
+        el.scrollTop = el.scrollTop + speed / 60; // 约 60fps
+        autoScrollRafRef.current = requestAnimationFrame(step);
+      };
+      autoScrollRafRef.current = requestAnimationFrame(step);
+    }
+
+    return () => stopAll();
+  }, [autoScroll, readingMode, currentPage, totalPages, tocOverlayOpen, modeOverlayOpen]);
+
   // 渲染目录树（组件内，可访问状态与方法）
   const renderTocTree = (nodes: TocNode[], level: number): React.ReactNode => {
     const indent = 10 + level * 14;
@@ -409,11 +472,20 @@ export const Reader: React.FC = () => {
               } else if (x > rect.width * 0.7) {
                 nextPage();
               } else {
-                setUiVisible((v) => !v);
+                // 中间点击：自动滚动时仅停止，不弹出扩展器；非自动滚动时切换UI显隐
+                if (autoScroll) {
+                  setAutoScroll(false);
+                } else {
+                  setUiVisible((v) => !v);
+                }
               }
             } else {
-              // 纵向模式：点击中央仅显示/隐藏UI，不触发翻页
-              setUiVisible((v) => !v);
+              // 纵向模式：自动滚动时仅停止，不弹出扩展器；非自动滚动时切换UI显隐
+              if (autoScroll) {
+                setAutoScroll(false);
+              } else {
+                setUiVisible((v) => !v);
+              }
             }
           }}
           style={{
@@ -476,7 +548,8 @@ export const Reader: React.FC = () => {
               }}
             />
           ) : (
-            <div style={{ width: '100%', maxHeight: '100%', overflowY: 'auto' }} className="no-scrollbar">
+            <div style={{ width: '100%', maxHeight: '100%', overflowY: 'auto' }} className="no-scrollbar" ref={verticalScrollRef}
+            >
               {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
                 <canvas
                   key={p}
@@ -793,8 +866,8 @@ export const Reader: React.FC = () => {
                   <div style={{ fontSize: 'clamp(10px, 1.6vw, 12px)', color: '#ccc', marginTop: '6px' }}>阅读方式</div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  <button style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 'clamp(16px, 3.2vw, 18px)' }} title="自动滚动">☰</button>
-                  <div style={{ fontSize: 'clamp(10px, 1.6vw, 12px)', color: '#ccc', marginTop: '6px' }}>自动滚动</div>
+                  <button onClick={() => { if (!autoScroll) { setAutoScroll(true); setUiVisible(false); } else { setAutoScroll(false); } }} style={{ background: 'none', border: 'none', color: autoScroll ? '#d15158' : '#fff', cursor: 'pointer', fontSize: 'clamp(16px, 3.2vw, 18px)' }} title="自动滚动">☰</button>
+                  <div style={{ fontSize: 'clamp(10px, 1.6vw, 12px)', color: autoScroll ? '#d15158' : '#ccc', marginTop: '6px' }}>自动滚动</div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                   <button onClick={addBookmark} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 'clamp(16px, 3.2vw, 18px)' }} title="书签">🔖</button>
