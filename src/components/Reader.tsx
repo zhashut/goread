@@ -359,56 +359,29 @@ export const Reader: React.FC = () => {
     let observer: IntersectionObserver | null = null;
     let cancelled = false;
 
-    const setup = () => {
-      if (cancelled) return;
-      const rootEl =
-        verticalScrollRef.current || mainViewRef.current || undefined;
-      const canvases = Array.from(verticalCanvasRefs.current.values());
-      if (!rootEl || canvases.length === 0) {
-        // 等待下一帧，确保 DOM 与 refs 已就绪
-        requestAnimationFrame(setup);
-        return;
-      }
-      observer = new IntersectionObserver(
-        (entries) => {
-          entries.forEach(async (entry) => {
-            if (entry.isIntersecting) {
-              const target = entry.target as HTMLCanvasElement;
-              const pageAttr = target.getAttribute("data-page");
-              const pageNum = pageAttr ? Number(pageAttr) : NaN;
-              if (!isNaN(pageNum) && !renderedPagesRef.current.has(pageNum)) {
-                await renderPageToTarget(pageNum, target);
-                observer && observer.unobserve(target);
-              }
+    // 直接初始化观察者（不延迟、不预渲染相邻页、不在此处滚动）
+    const rootEl = verticalScrollRef.current || mainViewRef.current || undefined;
+    const canvases = Array.from(verticalCanvasRefs.current.values());
+    if (!rootEl || canvases.length === 0) return () => {};
+
+    observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach(async (entry) => {
+          if (entry.isIntersecting) {
+            const target = entry.target as HTMLCanvasElement;
+            const pageAttr = target.getAttribute("data-page");
+            const pageNum = pageAttr ? Number(pageAttr) : NaN;
+            if (!isNaN(pageNum) && !renderedPagesRef.current.has(pageNum)) {
+              await renderPageToTarget(pageNum, target);
+              observer && observer.unobserve(target);
             }
-          });
-        },
-        { root: rootEl, rootMargin: "100px" }
-      );
+          }
+        });
+      },
+      { root: rootEl, rootMargin: "100px" }
+    );
 
-      canvases.forEach((el) => observer!.observe(el));
-
-      // 立即绘制当前页以及相邻页，避免返回远页时空白
-      const currentEl = verticalCanvasRefs.current.get(currentPage);
-      if (currentEl && !renderedPagesRef.current.has(currentPage)) {
-        renderPageToTarget(currentPage, currentEl);
-      }
-      const prevEl = verticalCanvasRefs.current.get(currentPage - 1);
-      if (prevEl && !renderedPagesRef.current.has(currentPage - 1)) {
-        renderPageToTarget(currentPage - 1, prevEl);
-      }
-      const nextEl = verticalCanvasRefs.current.get(currentPage + 1);
-      if (nextEl && !renderedPagesRef.current.has(currentPage + 1)) {
-        renderPageToTarget(currentPage + 1, nextEl);
-      }
-
-      // 确保滚动定位到当前页（避免总是停在第一页）
-      if (currentEl) {
-        currentEl.scrollIntoView({ behavior: "auto", block: "start" });
-      }
-    };
-
-    requestAnimationFrame(setup);
+    canvases.forEach((el) => observer!.observe(el));
     return () => {
       cancelled = true;
       observer && observer.disconnect();
@@ -426,7 +399,9 @@ export const Reader: React.FC = () => {
     } else {
       // 纵向模式：尝试滚动至当前页的 canvas
       const target = verticalCanvasRefs.current.get(currentPage);
-      if (target) target.scrollIntoView({ behavior: "auto", block: "start" });
+      if (target && target.height > 0) {
+        target.scrollIntoView({ behavior: "auto", block: "start" });
+      }
     }
   }, [readingMode, pdf, currentPage]);
 
@@ -777,12 +752,16 @@ export const Reader: React.FC = () => {
           {/* 顶部页码气泡：贴紧顶部栏最左侧下方，顶部栏可见时下移；不因“显示状态栏”而强制显示 */}
           {(uiVisible || isSeeking) &&
             (() => {
-              const offset = uiVisible || isSeeking || tocOverlayOpen ? 72 : 14;
+              const toolbarVisible = uiVisible || isSeeking || tocOverlayOpen;
+              const baseOffsetPx = toolbarVisible ? 72 : 14;
+              const safeInset = settings.showStatusBar
+                ? "env(safe-area-inset-top)"
+                : "0px";
               return (
                 <div
                   style={{
                     position: "absolute",
-                    top: `${settings.showStatusBar ? 14 : offset}px`,
+                    top: `calc(${safeInset} + ${baseOffsetPx}px)`,
                     left: "10%",
                     display: "block",
                     pointerEvents: "none",
