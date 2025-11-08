@@ -157,3 +157,55 @@ export class TauriBookmarkService implements IBookmarkService {
 export const bookService = new TauriBookService();
 export const groupService = new TauriGroupService();
 export const bookmarkService = new TauriBookmarkService();
+
+// --------------- 阅读器设置持久化 ---------------
+export type ReaderSettings = {
+  volumeKeyTurnPage: boolean;
+  clickTurnPage: boolean;
+  showStatusBar: boolean;
+  pageTransition: boolean;
+  recentDisplayCount: number;
+  scrollSpeed: number; // 像素/秒
+  pageGap: number; // 像素
+};
+
+const SETTINGS_KEY = 'reader_settings_v1';
+
+export const getReaderSettings = (): ReaderSettings => {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    const defaults: ReaderSettings = {
+      volumeKeyTurnPage: false,
+      clickTurnPage: true,
+      showStatusBar: false,
+      pageTransition: true,
+      recentDisplayCount: 9,
+      scrollSpeed: 120,
+      pageGap: 12,
+    };
+    return { ...defaults, ...(parsed || {}) } as ReaderSettings;
+  } catch {
+    return {
+      volumeKeyTurnPage: false,
+      clickTurnPage: true,
+      showStatusBar: false,
+      pageTransition: true,
+      recentDisplayCount: 9,
+      scrollSpeed: 120,
+      pageGap: 12,
+    };
+  }
+};
+
+export const saveReaderSettings = (settings: Partial<ReaderSettings>) => {
+  try {
+    const current = getReaderSettings();
+    const next = { ...current, ...settings } as ReaderSettings;
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
+    return next;
+  } catch (e) {
+    console.warn('Save settings failed', e);
+    return getReaderSettings();
+  }
+};

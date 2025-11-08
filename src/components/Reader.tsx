@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { IBook, IBookmark } from '../types';
 // @ts-ignore
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
-import { bookService, bookmarkService } from '../services';
+import { bookService, bookmarkService, getReaderSettings, ReaderSettings } from '../services';
 
 export const Reader: React.FC = () => {
   const { bookId } = useParams<{ bookId: string }>();
@@ -43,6 +43,17 @@ export const Reader: React.FC = () => {
   // 书签提示气泡
   const [bookmarkToastVisible, setBookmarkToastVisible] = useState(false);
   const [bookmarkToastText, setBookmarkToastText] = useState('');
+  // 设置：本地持久化
+  const [settings, setSettings] = useState<ReaderSettings>(getReaderSettings());
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'reader_settings_v1') {
+        setSettings(getReaderSettings());
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
 
   useEffect(() => {
     loadBook();
@@ -156,12 +167,19 @@ export const Reader: React.FC = () => {
       // 设置canvas尺寸
       canvas.width = viewport.width;
       canvas.height = viewport.height;
+      if (settings.pageTransition) {
+        canvas.style.transition = 'opacity 200ms ease';
+        canvas.style.opacity = '0';
+      }
       
       // 渲染页面
       await page.render({
         canvasContext: context,
         viewport: viewport
       }).promise;
+      if (settings.pageTransition) {
+        canvas.style.opacity = '1';
+      }
     } catch (error) {
       console.error('Failed to render page:', error);
     }
@@ -365,7 +383,7 @@ export const Reader: React.FC = () => {
       stopAll();
       const el = verticalScrollRef.current || mainViewRef.current;
       if (!el) return () => stopAll();
-      const speed = DEFAULT_SCROLL_PX_PER_SEC;
+      const speed = settings.scrollSpeed || DEFAULT_SCROLL_PX_PER_SEC;
       const step = () => {
         if (!autoScroll || tocOverlayOpen || modeOverlayOpen) {
           stopAll();
@@ -384,7 +402,45 @@ export const Reader: React.FC = () => {
     }
 
     return () => stopAll();
-  }, [autoScroll, readingMode, currentPage, totalPages, tocOverlayOpen, modeOverlayOpen]);
+  }, [autoScroll, readingMode, currentPage, totalPages, tocOverlayOpen, modeOverlayOpen, settings.scrollSpeed]);
+
+  // 键盘：音量键翻页（部分平台支持），开启后生效
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!settings.volumeKeyTurnPage) return;
+      const code = (e.code || e.key);
+      if (code === 'AudioVolumeUp' || code === 'VolumeUp') {
+        e.preventDefault();
+        prevPage();
+      } else if (code === 'AudioVolumeDown' || code === 'VolumeDown') {
+        e.preventDefault();
+        nextPage();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [settings.volumeKeyTurnPage, currentPage]);
+
+  // 根据设置显示/隐藏系统状态栏：通过浏览器全屏控制（受平台限制）
+  useEffect(() => {
+    const hideStatusBar = !settings.showStatusBar;
+    const ua = navigator.userAgent || '';
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(ua);
+    const isTauri = typeof (window as any).__TAURI__ !== 'undefined';
+
+    // 仅在移动端浏览器或移动端容器中尝试全屏；桌面 Tauri/Web 不触发以避免窗口被最大化
+    if (!isMobile || isTauri) return;
+
+    if (hideStatusBar) {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen?.().catch(() => {});
+      }
+    } else {
+      if (document.fullscreenElement) {
+        document.exitFullscreen?.().catch(() => {});
+      }
+    }
+  }, [settings.showStatusBar]);
 
   // 渲染目录树（组件内，可访问状态与方法）
   const renderTocTree = (nodes: TocNode[], level: number): React.ReactNode => {
@@ -435,11 +491,10 @@ export const Reader: React.FC = () => {
 
   if (loading) {
     return (
-      <div style={{
+      <div className="reader-fullheight" style={{
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        height: '100vh',
         fontSize: '16px',
         color: '#666'
       }}>
@@ -449,11 +504,11 @@ export const Reader: React.FC = () => {
   }
 
   return (
-    <div style={{
+    <div className="reader-fullheight" style={{
       display: 'flex',
       flexDirection: 'column',
-      height: '100vh',
-      backgroundColor: '#2c2c2c'
+      backgroundColor: '#2c2c2c',
+      paddingTop: settings.showStatusBar ? 'env(safe-area-inset-top)' : 0
     }}>
       {/* 主体区域：仅中间渲染区（目录改为蒙版弹层） */}
       <div style={{
@@ -468,9 +523,9 @@ export const Reader: React.FC = () => {
             const x = e.clientX - rect.left;
             if (readingMode === 'horizontal') {
               if (x < rect.width * 0.3) {
-                prevPage();
+                if (settings.clickTurnPage) prevPage();
               } else if (x > rect.width * 0.7) {
-                nextPage();
+                if (settings.clickTurnPage) nextPage();
               } else {
                 // 中间点击：自动滚动时仅停止，不弹出扩展器；非自动滚动时切换UI显隐
                 if (autoScroll) {
@@ -558,7 +613,7 @@ export const Reader: React.FC = () => {
                   style={{
                     width: '100%',
                     display: 'block',
-                    margin: '0 auto 12px',
+                    margin: `0 auto ${settings.pageGap}px`,
                     boxShadow: '0 8px 32px rgba(0,0,0,0.5)'
                   }}
                 />
@@ -566,7 +621,7 @@ export const Reader: React.FC = () => {
             </div>
           )}
 
-          {/* 顶部页码气泡：贴紧顶部栏最左侧下方，顶部栏可见时下移 */}
+          {/* 顶部页码气泡：贴紧顶部栏最左侧下方，顶部栏可见时下移；不因“显示状态栏”而强制显示 */}
           {(uiVisible || isSeeking) && (
             (() => {
               const offset = (uiVisible || isSeeking || tocOverlayOpen) ? 72 : 14;
@@ -574,7 +629,7 @@ export const Reader: React.FC = () => {
                 <div
                   style={{
                     position: 'absolute',
-                    top: `${offset}px`,
+                    top: `${settings.showStatusBar ? 14 : offset}px`,
                     left: '10%',
                     display: 'block',
                     pointerEvents: 'none',
@@ -874,8 +929,8 @@ export const Reader: React.FC = () => {
                   <div style={{ fontSize: 'clamp(10px, 1.6vw, 12px)', color: '#ccc', marginTop: '6px' }}>书签</div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  <button onClick={() => { setLeftTab('bookmark'); setTocOverlayOpen(true); }} style={{ background: 'none', border: 'none', color: leftTab === 'bookmark' && tocOverlayOpen ? '#d15158' : '#fff', cursor: 'pointer', fontSize: 'clamp(16px, 3.2vw, 18px)' }} title="更多">…</button>
-                  <div style={{ fontSize: 'clamp(10px, 1.6vw, 12px)', color: leftTab === 'bookmark' && tocOverlayOpen ? '#d15158' : '#ccc', marginTop: '6px' }}>更多</div>
+                  <button onClick={() => navigate('/settings')} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 'clamp(16px, 3.2vw, 18px)' }} title="更多">…</button>
+                  <div style={{ fontSize: 'clamp(10px, 1.6vw, 12px)', color: '#ccc', marginTop: '6px' }}>更多</div>
                 </div>
               </div>
 
