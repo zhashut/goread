@@ -25,6 +25,14 @@ export const Reader: React.FC = () => {
   const [leftTab, setLeftTab] = useState<'toc' | 'bookmark'>('toc');
   // 目录弹层开关
   const [tocOverlayOpen, setTocOverlayOpen] = useState(false);
+  // 阅读方式：horizontal(横向分页) / vertical(纵向连续)
+  const [readingMode, setReadingMode] = useState<'horizontal' | 'vertical'>('horizontal');
+  // 阅读方式选择弹层
+  const [modeOverlayOpen, setModeOverlayOpen] = useState(false);
+  // 纵向阅读容器与懒加载渲染引用
+  const mainViewRef = useRef<HTMLDivElement>(null);
+  const verticalCanvasRefs = useRef<Map<number, HTMLCanvasElement>>(new Map());
+  const renderedPagesRef = useRef<Set<number>>(new Set());
   // 书签提示气泡
   const [bookmarkToastVisible, setBookmarkToastVisible] = useState(false);
   const [bookmarkToastText, setBookmarkToastText] = useState('');
@@ -156,7 +164,19 @@ export const Reader: React.FC = () => {
     if (pageNum < 1 || pageNum > totalPages) return;
     
     setCurrentPage(pageNum);
-    await renderPage(pageNum);
+    if (readingMode === 'horizontal') {
+      await renderPage(pageNum);
+    } else {
+      // 纵向模式：滚动到对应页的 canvas
+      const target = verticalCanvasRefs.current.get(pageNum);
+      if (target) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+      // 若尚未渲染，尝试渲染该页
+      if (!renderedPagesRef.current.has(pageNum)) {
+        await renderPageToTarget(pageNum, target || null);
+      }
+    }
     
     // 保存阅读进度
     if (book) {
@@ -240,6 +260,69 @@ export const Reader: React.FC = () => {
     }
   };
 
+  // 将指定页渲染到给定 canvas（用于纵向模式）
+  const renderPageToTarget = async (pageNum: number, canvasEl: HTMLCanvasElement | null) => {
+    const pdfToUse = pdf;
+    if (!pdfToUse) return;
+    try {
+      const page = await pdfToUse.getPage(pageNum);
+      const viewport = page.getViewport({ scale: 1.0 });
+      const canvas = canvasEl || verticalCanvasRefs.current.get(pageNum);
+      if (!canvas) return;
+      const containerWidth = mainViewRef.current?.clientWidth || viewport.width;
+      const scale = Math.max(0.5, Math.min(2, containerWidth / viewport.width));
+      const scaledViewport = page.getViewport({ scale });
+      const context = canvas.getContext('2d')!;
+      canvas.width = scaledViewport.width;
+      canvas.height = scaledViewport.height;
+      await page.render({ canvasContext: context, viewport: scaledViewport }).promise;
+      renderedPagesRef.current.add(pageNum);
+    } catch (error) {
+      console.error('Failed to render vertical page:', error);
+    }
+  };
+
+  // 纵向模式懒加载：在进入可视区域时渲染页面
+  useEffect(() => {
+    if (readingMode !== 'vertical' || !pdf) return;
+    const rootEl = mainViewRef.current || undefined;
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(async (entry) => {
+        if (entry.isIntersecting) {
+          const target = entry.target as HTMLCanvasElement;
+          const pageAttr = target.getAttribute('data-page');
+          const pageNum = pageAttr ? Number(pageAttr) : NaN;
+          if (!isNaN(pageNum) && !renderedPagesRef.current.has(pageNum)) {
+            await renderPageToTarget(pageNum, target);
+            observer.unobserve(target);
+          }
+        }
+      });
+    }, { root: rootEl, rootMargin: '100px' });
+
+    for (let p = 1; p <= totalPages; p++) {
+      const el = verticalCanvasRefs.current.get(p);
+      if (el) observer.observe(el);
+    }
+
+    return () => observer.disconnect();
+  }, [readingMode, pdf, totalPages]);
+
+  // 切换阅读模式时，确保重新渲染当前页（横向）或滚动到当前页（纵向）
+  useEffect(() => {
+    if (!pdf) return;
+    if (readingMode === 'horizontal') {
+      // 横向模式：渲染当前页到单一 canvas
+      renderPage(currentPage);
+      // 清理纵向模式的渲染标记，防止引用残留
+      renderedPagesRef.current.clear();
+    } else {
+      // 纵向模式：尝试滚动至当前页的 canvas
+      const target = verticalCanvasRefs.current.get(currentPage);
+      if (target) target.scrollIntoView({ behavior: 'auto', block: 'start' });
+    }
+  }, [readingMode, pdf, currentPage]);
+
   // 渲染目录树（组件内，可访问状态与方法）
   const renderTocTree = (nodes: TocNode[], level: number): React.ReactNode => {
     const indent = 10 + level * 14;
@@ -320,11 +403,16 @@ export const Reader: React.FC = () => {
           onClick={(e) => {
             const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
             const x = e.clientX - rect.left;
-            if (x < rect.width * 0.3) {
-              prevPage();
-            } else if (x > rect.width * 0.7) {
-              nextPage();
+            if (readingMode === 'horizontal') {
+              if (x < rect.width * 0.3) {
+                prevPage();
+              } else if (x > rect.width * 0.7) {
+                nextPage();
+              } else {
+                setUiVisible((v) => !v);
+              }
             } else {
+              // 纵向模式：点击中央仅显示/隐藏UI，不触发翻页
               setUiVisible((v) => !v);
             }
           }}
@@ -337,6 +425,7 @@ export const Reader: React.FC = () => {
             padding: '20px',
             position: 'relative'
           }}
+          ref={mainViewRef}
         >
           {/* 顶部工具栏覆盖层：与底部控制栏一致的显示/隐藏逻辑 */}
           {(uiVisible || isSeeking || tocOverlayOpen) && (
@@ -377,14 +466,32 @@ export const Reader: React.FC = () => {
               <div style={{ width: '24px' }} />
             </div>
           )}
-          <canvas
-            ref={canvasRef}
-            style={{
-              maxWidth: '100%',
-              maxHeight: '100%',
-              boxShadow: '0 8px 32px rgba(0,0,0,0.5)'
-            }}
-          />
+          {readingMode === 'horizontal' ? (
+            <canvas
+              ref={canvasRef}
+              style={{
+                maxWidth: '100%',
+                maxHeight: '100%',
+                boxShadow: '0 8px 32px rgba(0,0,0,0.5)'
+              }}
+            />
+          ) : (
+            <div style={{ width: '100%', maxHeight: '100%', overflowY: 'auto' }} className="no-scrollbar">
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+                <canvas
+                  key={p}
+                  data-page={p}
+                  ref={(el) => { if (el) verticalCanvasRefs.current.set(p, el); }}
+                  style={{
+                    width: '100%',
+                    display: 'block',
+                    margin: '0 auto 12px',
+                    boxShadow: '0 8px 32px rgba(0,0,0,0.5)'
+                  }}
+                />
+              ))}
+            </div>
+          )}
 
           {/* 顶部页码气泡：贴紧顶部栏最左侧下方，顶部栏可见时下移 */}
           {(uiVisible || isSeeking) && (
@@ -513,8 +620,71 @@ export const Reader: React.FC = () => {
             </div>
           )}
 
+          {/* 阅读方式抽屉：贴底部的下拉面板（Bottom Sheet），选择横向/纵向 */}
+          {modeOverlayOpen && (
+            <div
+              onClick={(e) => { e.stopPropagation(); setModeOverlayOpen(false); setUiVisible(false); }}
+              style={{
+                position: 'absolute',
+                inset: 0,
+                backgroundColor: 'rgba(0,0,0,0.6)',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'flex-end',
+                alignItems: 'center',
+                zIndex: 20
+              }}
+            >
+              <div
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  width: 'min(720px, calc(100% - 32px))',
+                  backgroundColor: '#1f1f1f',
+                  color: '#fff',
+                  borderTopLeftRadius: '12px',
+                  borderTopRightRadius: '12px',
+                  padding: '18px',
+                  paddingBottom: 'calc(18px + env(safe-area-inset-bottom))',
+                  margin: '0 auto 0',
+                  boxShadow: '0 -8px 32px rgba(0,0,0,0.5)'
+                }}
+              >
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <button
+                    onClick={() => { setReadingMode('horizontal'); setModeOverlayOpen(false); setUiVisible(false); }}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '12px',
+                      background: 'none', border: '1px solid #333', color: readingMode === 'horizontal' ? '#d15158' : '#fff',
+                      cursor: 'pointer', borderRadius: '8px', padding: '10px 12px', textAlign: 'left'
+                    }}
+                  >
+                    <span style={{ fontSize: '18px' }}>▤</span>
+                    <div>
+                      <div style={{ fontSize: '14px' }}>横向阅读</div>
+                      <div style={{ fontSize: '12px', opacity: 0.7 }}>左右翻页，适合分页浏览</div>
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => { setReadingMode('vertical'); setModeOverlayOpen(false); setUiVisible(false); }}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '12px',
+                      background: 'none', border: '1px solid #333', color: readingMode === 'vertical' ? '#d15158' : '#fff',
+                      cursor: 'pointer', borderRadius: '8px', padding: '10px 12px', textAlign: 'left'
+                    }}
+                  >
+                    <span style={{ fontSize: '18px' }}>▮</span>
+                    <div>
+                      <div style={{ fontSize: '14px' }}>纵向阅读</div>
+                      <div style={{ fontSize: '12px', opacity: 0.7 }}>向下滚动，连续阅读</div>
+                    </div>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* 覆盖式底部控制栏（绝对定位），不挤压内容；抽屉打开时隐藏 */}
-          {(uiVisible || isSeeking) && !tocOverlayOpen && (
+          {(uiVisible || isSeeking) && !tocOverlayOpen && !modeOverlayOpen && (
             <div
               onClick={(e) => e.stopPropagation()}
               onMouseDown={(e) => e.stopPropagation()}
@@ -619,7 +789,7 @@ export const Reader: React.FC = () => {
                   <div style={{ fontSize: 'clamp(10px, 1.6vw, 12px)', color: tocOverlayOpen ? '#d15158' : '#ccc', marginTop: '6px' }}>目录</div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  <button style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 'clamp(16px, 3.2vw, 18px)' }} title="阅读方式">▉▉</button>
+                  <button onClick={() => setModeOverlayOpen(true)} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 'clamp(16px, 3.2vw, 18px)' }} title="阅读方式">▉▉</button>
                   <div style={{ fontSize: 'clamp(10px, 1.6vw, 12px)', color: '#ccc', marginTop: '6px' }}>阅读方式</div>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
