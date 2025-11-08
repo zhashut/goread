@@ -53,6 +53,9 @@ export const Reader: React.FC = () => {
   const verticalCanvasRefs = useRef<Map<number, HTMLCanvasElement>>(new Map());
   const renderedPagesRef = useRef<Set<number>>(new Set());
   const verticalScrollRef = useRef<HTMLDivElement>(null);
+  const verticalScrollRafRef = useRef<number | null>(null);
+  const verticalInitFramesRef = useRef<number>(0);
+  const verticalInitRafRef = useRef<number | null>(null);
   // 书签提示气泡
   const [bookmarkToastVisible, setBookmarkToastVisible] = useState(false);
   const [bookmarkToastText, setBookmarkToastText] = useState("");
@@ -218,6 +221,8 @@ export const Reader: React.FC = () => {
     }
   };
 
+  // 移除导航锁：纵向模式完全由滚动驱动预览页，不抑制滚动更新
+
   const goToPage = async (pageNum: number) => {
     if (pageNum < 1 || pageNum > totalPages) return;
 
@@ -228,7 +233,7 @@ export const Reader: React.FC = () => {
       // 纵向模式：滚动到对应页的 canvas
       const target = verticalCanvasRefs.current.get(pageNum);
       if (target) {
-        target.scrollIntoView({ behavior: "smooth", block: "start" });
+        target.scrollIntoView({ behavior: "auto", block: "start" });
       }
       // 若尚未渲染，尝试渲染该页
       if (!renderedPagesRef.current.has(pageNum)) {
@@ -353,32 +358,31 @@ export const Reader: React.FC = () => {
     }
   };
 
-  // 纵向模式懒加载：在进入可视区域时渲染页面
+  // 纵向模式懒加载：在进入可视区域时渲染页面（不在此处更新 currentPage）
   useEffect(() => {
     if (readingMode !== "vertical" || !pdf) return;
     let observer: IntersectionObserver | null = null;
     let cancelled = false;
 
-    // 直接初始化观察者（不延迟、不预渲染相邻页、不在此处滚动）
-    const rootEl = verticalScrollRef.current || mainViewRef.current || undefined;
+    const rootEl =
+      verticalScrollRef.current || mainViewRef.current || undefined;
     const canvases = Array.from(verticalCanvasRefs.current.values());
     if (!rootEl || canvases.length === 0) return () => {};
 
     observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach(async (entry) => {
-          if (entry.isIntersecting) {
-            const target = entry.target as HTMLCanvasElement;
-            const pageAttr = target.getAttribute("data-page");
-            const pageNum = pageAttr ? Number(pageAttr) : NaN;
-            if (!isNaN(pageNum) && !renderedPagesRef.current.has(pageNum)) {
-              await renderPageToTarget(pageNum, target);
-              observer && observer.unobserve(target);
-            }
+      async (entries) => {
+        for (const entry of entries) {
+          const target = entry.target as HTMLCanvasElement;
+          const pageAttr = target.getAttribute("data-page");
+          const pageNum = pageAttr ? Number(pageAttr) : NaN;
+          if (isNaN(pageNum)) continue;
+          if (entry.isIntersecting && !renderedPagesRef.current.has(pageNum)) {
+            await renderPageToTarget(pageNum, target);
           }
-        });
+        }
       },
-      { root: rootEl, rootMargin: "100px" }
+      // 扩大预渲染范围，缓解快速向上滚动时的空白
+      { root: rootEl, rootMargin: "400px 0px 800px 0px" }
     );
 
     canvases.forEach((el) => observer!.observe(el));
@@ -386,7 +390,7 @@ export const Reader: React.FC = () => {
       cancelled = true;
       observer && observer.disconnect();
     };
-  }, [readingMode, pdf, totalPages, currentPage]);
+  }, [readingMode, pdf, totalPages]);
 
   // 切换阅读模式时，确保重新渲染当前页（横向）或滚动到当前页（纵向）
   useEffect(() => {
@@ -403,7 +407,141 @@ export const Reader: React.FC = () => {
         target.scrollIntoView({ behavior: "auto", block: "start" });
       }
     }
-  }, [readingMode, pdf, currentPage]);
+  }, [readingMode, pdf]);
+
+  // 纵向模式：首次进入时主动渲染当前页及相邻页，确保滚动监听有尺寸参考
+  useEffect(() => {
+    if (!pdf || readingMode !== "vertical") return;
+    const renderInitial = async () => {
+      const cur = verticalCanvasRefs.current.get(currentPage);
+      if (cur && cur.height === 0) {
+        await renderPageToTarget(currentPage, cur);
+      }
+      const nextPageNum = Math.min(totalPages, currentPage + 1);
+      const next = verticalCanvasRefs.current.get(nextPageNum);
+      if (next && next.height === 0 && nextPageNum !== currentPage) {
+        await renderPageToTarget(nextPageNum, next);
+      }
+    };
+    // 下一帧执行，确保 DOM 已挂载
+    requestAnimationFrame(() => {
+      renderInitial();
+    });
+  }, [pdf, readingMode, currentPage, totalPages]);
+
+  // 纵向模式：滚动时动态更新当前页（以视口中心线为准；不进行程序化对齐）
+  useEffect(() => {
+    if (readingMode !== "vertical") return;
+    const vs = verticalScrollRef.current;
+    const mv = mainViewRef.current;
+
+    const updateFromScroll = () => {
+      verticalScrollRafRef.current = null;
+      // 滑动期间不回写 currentPage，避免与滑动条中途状态互相干扰
+      if (isSeeking) return;
+      // 选择活动滚动容器（优先内层，其次外层），否则使用窗口视口
+      const hasVsScroll = !!(vs && vs.scrollHeight > vs.clientHeight + 2);
+      const hasMvScroll = !!(mv && mv.scrollHeight > mv.clientHeight + 2);
+      const activeContainer = hasVsScroll ? vs : hasMvScroll ? mv : null;
+      const activeRect = activeContainer?.getBoundingClientRect();
+      const centerY = activeContainer
+        ? (activeRect!.top + activeContainer.clientHeight * 0.5)
+        : (window.innerHeight * 0.5);
+      let pageUnderCenter: number | null = null;
+      verticalCanvasRefs.current.forEach((canvas, pageNum) => {
+        if (!canvas) return;
+        const rect = canvas.getBoundingClientRect();
+        if (rect.top <= centerY && rect.bottom >= centerY) {
+          pageUnderCenter = pageNum;
+        }
+      });
+      let bestPage = pageUnderCenter ?? currentPage;
+      if (pageUnderCenter === null) {
+        let bestDist = Infinity;
+        verticalCanvasRefs.current.forEach((canvas, pageNum) => {
+          if (!canvas) return;
+          const rect = canvas.getBoundingClientRect();
+          const dist = Math.abs(rect.top - centerY);
+          if (dist < bestDist) {
+            bestDist = dist;
+            bestPage = pageNum;
+          }
+        });
+        if (bestDist === Infinity) {
+          const fromDom = document.querySelectorAll("canvas[data-page]");
+          fromDom.forEach((el) => {
+            const rect = (el as HTMLCanvasElement).getBoundingClientRect();
+            const dist = Math.abs(rect.top - centerY);
+            if (dist < bestDist) {
+              bestDist = dist;
+              const attr = (el as HTMLCanvasElement).getAttribute("data-page");
+              const num = attr ? Number(attr) : NaN;
+              if (!isNaN(num)) bestPage = num;
+            }
+          });
+        }
+      }
+      if (bestPage !== currentPage) {
+        setCurrentPage(bestPage);
+        if (book) {
+          bookService.updateBookProgress(book.id!, bestPage).catch(() => {});
+        }
+      }
+    };
+
+    const onScroll = () => {
+      if (verticalScrollRafRef.current !== null) return;
+      verticalScrollRafRef.current = requestAnimationFrame(updateFromScroll);
+    };
+    // 同时监听内层容器、外层容器与窗口滚动，避免滚动目标在加载过程发生切换时监听失效
+    if (vs) {
+      vs.addEventListener("scroll", onScroll, { passive: true });
+    }
+    if (mv) {
+      mv.addEventListener("scroll", onScroll, { passive: true });
+    }
+    window.addEventListener("scroll", onScroll, { passive: true });
+    // 绑定 wheel 事件，确保某些环境下仅 wheel 不触发 scroll 时也能更新
+    if (vs) {
+      vs.addEventListener("wheel", onScroll, { passive: true });
+    }
+    if (mv) {
+      mv.addEventListener("wheel", onScroll, { passive: true });
+    }
+    window.addEventListener("wheel", onScroll, { passive: true });
+    // 初次挂载后立即计算一次，保证进入后不滑动也同步当前页
+    requestAnimationFrame(updateFromScroll);
+    // 首次进入时短暂轮询，确保画布尺寸与滚动容器就绪后立即更新页码
+    verticalInitFramesRef.current = 0;
+    const initTick = () => {
+      verticalInitRafRef.current = null;
+      if (verticalInitFramesRef.current >= 12) return; // 约 12 帧 ~200ms
+      verticalInitFramesRef.current += 1;
+      updateFromScroll();
+      verticalInitRafRef.current = requestAnimationFrame(initTick);
+    };
+    verticalInitRafRef.current = requestAnimationFrame(initTick);
+    return () => {
+      if (vs) {
+        vs.removeEventListener("scroll", onScroll);
+        vs.removeEventListener("wheel", onScroll);
+      }
+      if (mv) {
+        mv.removeEventListener("scroll", onScroll);
+        mv.removeEventListener("wheel", onScroll);
+      }
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("wheel", onScroll);
+      if (verticalScrollRafRef.current !== null) {
+        cancelAnimationFrame(verticalScrollRafRef.current);
+        verticalScrollRafRef.current = null;
+      }
+      if (verticalInitRafRef.current !== null) {
+        cancelAnimationFrame(verticalInitRafRef.current);
+        verticalInitRafRef.current = null;
+      }
+    };
+  }, [readingMode, book, isSeeking, totalPages]);
 
   // 自动滚动：根据阅读模式分别处理（横向自动翻页，纵向持续滚动）
   useEffect(() => {
@@ -1185,15 +1323,17 @@ export const Reader: React.FC = () => {
                       onMouseUp={async (e) => {
                         e.stopPropagation();
                         const v = Number((e.target as HTMLInputElement).value);
-                        setIsSeeking(false);
+                        // 提交后立刻结束 seeking，让滚动监听按照内容更新预览
                         setSeekPage(null);
+                        setIsSeeking(false);
                         await goToPage(v);
                       }}
                       onTouchEnd={async (e) => {
                         e.stopPropagation();
                         const v = Number((e.target as HTMLInputElement).value);
-                        setIsSeeking(false);
+                        // 提交后立刻结束 seeking，让滚动监听按照内容更新预览
                         setSeekPage(null);
+                        setIsSeeking(false);
                         await goToPage(v);
                       }}
                       style={{
