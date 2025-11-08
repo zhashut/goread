@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { IBook, IBookmark } from '../types';
 // @ts-ignore
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
-import { bookService, bookmarkService, getReaderSettings, ReaderSettings } from '../services';
+import { bookService, bookmarkService, getReaderSettings, saveReaderSettings, ReaderSettings } from '../services';
 
 export const Reader: React.FC = () => {
   const { bookId } = useParams<{ bookId: string }>();
@@ -54,6 +54,14 @@ export const Reader: React.FC = () => {
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
   }, []);
+
+  // 从设置恢复阅读方式；当设置中的阅读方式变化时同步到本地状态
+  useEffect(() => {
+    const mode = settings.readingMode || 'horizontal';
+    if (mode !== readingMode) {
+      setReadingMode(mode);
+    }
+  }, [settings.readingMode]);
 
   useEffect(() => {
     loadBook();
@@ -779,7 +787,16 @@ export const Reader: React.FC = () => {
               >
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                   <button
-                    onClick={() => { setReadingMode('horizontal'); setModeOverlayOpen(false); setUiVisible(false); }}
+                    onClick={() => {
+                      setReadingMode('horizontal');
+                      setSettings(prev => {
+                        const next = { ...prev, readingMode: 'horizontal' } as ReaderSettings;
+                        saveReaderSettings({ readingMode: 'horizontal' });
+                        return next;
+                      });
+                      setModeOverlayOpen(false);
+                      setUiVisible(false);
+                    }}
                     style={{
                       display: 'flex', alignItems: 'center', gap: '12px',
                       background: 'none', border: '1px solid #333', color: readingMode === 'horizontal' ? '#d15158' : '#fff',
@@ -793,7 +810,16 @@ export const Reader: React.FC = () => {
                     </div>
                   </button>
                   <button
-                    onClick={() => { setReadingMode('vertical'); setModeOverlayOpen(false); setUiVisible(false); }}
+                    onClick={() => {
+                      setReadingMode('vertical');
+                      setSettings(prev => {
+                        const next = { ...prev, readingMode: 'vertical' } as ReaderSettings;
+                        saveReaderSettings({ readingMode: 'vertical' });
+                        return next;
+                      });
+                      setModeOverlayOpen(false);
+                      setUiVisible(false);
+                    }}
                     style={{
                       display: 'flex', alignItems: 'center', gap: '12px',
                       background: 'none', border: '1px solid #333', color: readingMode === 'vertical' ? '#d15158' : '#fff',

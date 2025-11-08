@@ -167,6 +167,7 @@ export type ReaderSettings = {
   recentDisplayCount: number;
   scrollSpeed: number; // 像素/秒
   pageGap: number; // 像素
+  readingMode?: 'horizontal' | 'vertical'; // 阅读方式（可选，向后兼容）
 };
 
 const SETTINGS_KEY = 'reader_settings_v1';
@@ -183,6 +184,7 @@ export const getReaderSettings = (): ReaderSettings => {
       recentDisplayCount: 9,
       scrollSpeed: 120,
       pageGap: 12,
+      readingMode: 'horizontal',
     };
     return { ...defaults, ...(parsed || {}) } as ReaderSettings;
   } catch {
@@ -194,6 +196,7 @@ export const getReaderSettings = (): ReaderSettings => {
       recentDisplayCount: 9,
       scrollSpeed: 120,
       pageGap: 12,
+      readingMode: 'horizontal',
     };
   }
 };
