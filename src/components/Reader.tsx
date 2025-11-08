@@ -46,6 +46,7 @@ export const Reader: React.FC = () => {
   const autoScrollRafRef = useRef<number | null>(null);
   const DEFAULT_AUTO_PAGE_MS = 2000; // 横向自动翻页间隔
   const DEFAULT_SCROLL_PX_PER_SEC = 120; // 纵向每秒滚动像素
+  const OVERLAY_WIDTH = "min(720px, calc(100% - 32px))"; // 顶部标题栏与底部扩展器一致的宽度
   // 阅读方式选择弹层
   const [modeOverlayOpen, setModeOverlayOpen] = useState(false);
   // 纵向阅读容器与懒加载渲染引用
@@ -220,8 +221,6 @@ export const Reader: React.FC = () => {
       console.error("Failed to render page:", error);
     }
   };
-
-  // 移除导航锁：纵向模式完全由滚动驱动预览页，不抑制滚动更新
 
   const goToPage = async (pageNum: number) => {
     if (pageNum < 1 || pageNum > totalPages) return;
@@ -657,17 +656,6 @@ export const Reader: React.FC = () => {
       return (
         <div key={`${level}-${idx}`} style={{ marginLeft: indent }}>
           <div
-            onClick={() => {
-              if (hasChildren) {
-                node.expanded = !node.expanded;
-                setToc([...toc]);
-              }
-              if (typeof node.page === "number") {
-                goToPage(node.page);
-                setTocOverlayOpen(false);
-                setUiVisible(false);
-              }
-            }}
             ref={(el) => {
               if (el && typeof node.page === "number") {
                 tocItemRefs.current.set(node.page, el as HTMLDivElement);
@@ -676,10 +664,7 @@ export const Reader: React.FC = () => {
             style={{
               padding: "8px",
               borderRadius: "6px",
-              cursor:
-                typeof node.page === "number" || hasChildren
-                  ? "pointer"
-                  : "default",
+              cursor: "default",
               backgroundColor: isActive ? "#333" : "transparent",
             }}
             onMouseEnter={(e) => {
@@ -694,20 +679,37 @@ export const Reader: React.FC = () => {
             }}
           >
             <span
+              onClick={(e) => {
+                e.stopPropagation();
+                if (hasChildren) {
+                  node.expanded = !node.expanded;
+                  setToc([...toc]);
+                }
+              }}
               style={{
                 marginRight: 12,
                 fontSize: "11px",
                 lineHeight: "1",
                 color: "#ffffff",
                 opacity: 0.7,
+                cursor: hasChildren ? "pointer" : "default",
               }}
             >
               {caret}
             </span>
             <span
+              onClick={(e) => {
+                e.stopPropagation();
+                if (typeof node.page === "number") {
+                  goToPage(node.page);
+                  setTocOverlayOpen(false);
+                  setUiVisible(false);
+                }
+              }}
               style={{
                 fontSize: "13px",
                 color: isActive ? "#d15158" : "#ffffff",
+                cursor: typeof node.page === "number" ? "pointer" : "default",
               }}
             >
               {node.title}
@@ -815,7 +817,7 @@ export const Reader: React.FC = () => {
                 top: "10px",
                 left: "50%",
                 transform: "translateX(-50%)",
-                width: "80%",
+                width: OVERLAY_WIDTH,
                 backgroundColor: "rgba(26,26,26,0.92)",
                 display: "flex",
                 alignItems: "center",
@@ -900,7 +902,10 @@ export const Reader: React.FC = () => {
                   style={{
                     position: "absolute",
                     top: `calc(${safeInset} + ${baseOffsetPx}px)`,
-                    left: "10%",
+                    // 贴顶部覆盖层左边缘：覆盖层居中，宽度为 OVERLAY_WIDTH
+                    // 其左边缘 = (100% - OVERLAY_WIDTH) / 2
+                    // 再加少许内边距 16px
+                    left: `calc((100% - ${OVERLAY_WIDTH}) / 2 + 16px)`,
                     display: "block",
                     pointerEvents: "none",
                     zIndex: 11,
@@ -1215,7 +1220,7 @@ export const Reader: React.FC = () => {
                 left: "50%",
                 transform: "translateX(-50%)",
                 bottom: "20px",
-                width: "min(720px, calc(100% - 32px))",
+                width: OVERLAY_WIDTH,
                 backgroundColor: "rgba(26,26,26,0.92)",
                 display: "flex",
                 flexDirection: "column",
