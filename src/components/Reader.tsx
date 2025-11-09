@@ -797,7 +797,7 @@ export const Reader: React.FC = () => {
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            overflow: "auto",
+            overflow: tocOverlayOpen || modeOverlayOpen ? "hidden" : "auto",
             padding: "20px",
             position: "relative",
           }}
@@ -815,9 +815,10 @@ export const Reader: React.FC = () => {
               style={{
                 position: "absolute",
                 top: "10px",
-                left: "50%",
-                transform: "translateX(-50%)",
-                width: OVERLAY_WIDTH,
+                left: 0,
+                right: 0,
+                transform: "none",
+                boxSizing: "border-box",
                 backgroundColor: "rgba(26,26,26,0.92)",
                 display: "flex",
                 alignItems: "center",
@@ -902,10 +903,8 @@ export const Reader: React.FC = () => {
                   style={{
                     position: "absolute",
                     top: `calc(${safeInset} + ${baseOffsetPx}px)`,
-                    // 贴顶部覆盖层左边缘：覆盖层居中，宽度为 OVERLAY_WIDTH
-                    // 其左边缘 = (100% - OVERLAY_WIDTH) / 2
-                    // 再加少许内边距 16px
-                    left: `calc((100% - ${OVERLAY_WIDTH}) / 2 + 16px)`,
+                    // 顶部覆盖层已满宽，严格对齐其左内边距（含安全区）
+                    left: "calc(env(safe-area-inset-left) + 12px)",
                     display: "block",
                     pointerEvents: "none",
                     zIndex: 11,
@@ -943,6 +942,7 @@ export const Reader: React.FC = () => {
                 display: "flex",
                 alignItems: "stretch",
                 justifyContent: "flex-start",
+                overflow: "hidden",
                 zIndex: 20,
               }}
             >
@@ -1107,6 +1107,7 @@ export const Reader: React.FC = () => {
                 flexDirection: "column",
                 justifyContent: "flex-end",
                 alignItems: "center",
+                overflow: "hidden",
                 zIndex: 20,
               }}
             >
@@ -1217,10 +1218,11 @@ export const Reader: React.FC = () => {
               onWheel={(e) => e.stopPropagation()}
               style={{
                 position: "absolute",
-                left: "50%",
-                transform: "translateX(-50%)",
+                left: 0,
+                right: 0,
+                transform: "none",
                 bottom: "20px",
-                width: OVERLAY_WIDTH,
+                boxSizing: "border-box",
                 backgroundColor: "rgba(26,26,26,0.92)",
                 display: "flex",
                 flexDirection: "column",
