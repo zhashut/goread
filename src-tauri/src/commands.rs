@@ -66,6 +66,7 @@ pub async fn init_database(db: DbState<'_>) -> Result<(), Error> {
             total_pages INTEGER DEFAULT 1,
             last_read_time INTEGER,
             group_id INTEGER,
+            position_in_group INTEGER,
             created_at INTEGER DEFAULT (strftime('%s', 'now')),
             FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE SET NULL
         )"
@@ -80,6 +81,23 @@ pub async fn init_database(db: DbState<'_>) -> Result<(), Error> {
             created_at INTEGER DEFAULT (strftime('%s', 'now')),
             FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE
         )"
+    ).execute(&*pool).await?;
+
+    // Migrations: add missing column if database already existed
+    // SQLite does not support IF NOT EXISTS for ADD COLUMN; ignore error if column exists
+    let _ = sqlx::query(
+        "ALTER TABLE books ADD COLUMN position_in_group INTEGER"
+    ).execute(&*pool).await;
+
+    // Indexes
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_books_last_read_time ON books(last_read_time)"
+    ).execute(&*pool).await?;
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_books_group_id ON books(group_id)"
+    ).execute(&*pool).await?;
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_books_group_pos ON books(group_id, position_in_group)"
     ).execute(&*pool).await?;
 
     // Create default group
@@ -220,7 +238,8 @@ pub async fn get_books_by_group(group_id: i64, db: DbState<'_>) -> Result<Vec<Bo
     let pool = db.lock().await;
     
     let books = sqlx::query_as::<_, Book>(
-        "SELECT * FROM books WHERE group_id = ? ORDER BY title"
+        // Order: positioned first (ascending), then unpositioned by title
+        "SELECT * FROM books WHERE group_id = ? ORDER BY position_in_group IS NULL, position_in_group ASC, title"
     )
     .bind(group_id)
     .fetch_all(&*pool).await?;
@@ -236,13 +255,53 @@ pub async fn move_book_to_group(
 ) -> Result<(), Error> {
     let pool = db.lock().await;
     
-    sqlx::query(
-        "UPDATE books SET group_id = ? WHERE id = ?"
-    )
-    .bind(group_id)
-    .bind(book_id)
-    .execute(&*pool).await?;
+    if let Some(gid) = group_id {
+        // place at end within the group
+        let max_pos: Option<i64> = sqlx::query_scalar(
+            "SELECT MAX(position_in_group) FROM books WHERE group_id = ?"
+        )
+        .bind(gid)
+        .fetch_one(&*pool).await?;
+        let next_pos = max_pos.unwrap_or(0) + 1;
+        sqlx::query(
+            "UPDATE books SET group_id = ?, position_in_group = ? WHERE id = ?"
+        )
+        .bind(gid)
+        .bind(next_pos)
+        .bind(book_id)
+        .execute(&*pool).await?;
+    } else {
+        // removing from group clears position
+        sqlx::query(
+            "UPDATE books SET group_id = NULL, position_in_group = NULL WHERE id = ?"
+        )
+        .bind(book_id)
+        .execute(&*pool).await?;
+    }
     
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn reorder_group_books(
+    group_id: i64,
+    ordered_ids: Vec<i64>,
+    db: DbState<'_>
+) -> Result<(), Error> {
+    let pool = db.lock().await;
+    // Use transaction to ensure atomic updates
+    let mut tx = (&*pool).begin().await?;
+    for (idx, bid) in ordered_ids.iter().enumerate() {
+        // Only update books within the group
+        sqlx::query(
+            "UPDATE books SET position_in_group = ? WHERE id = ? AND group_id = ?"
+        )
+        .bind((idx as i64) + 1)
+        .bind(bid)
+        .bind(group_id)
+        .execute(&mut *tx).await?;
+    }
+    tx.commit().await?;
     Ok(())
 }
 

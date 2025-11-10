@@ -47,6 +47,7 @@ pub fn run() {
             get_all_groups,
             get_books_by_group,
             move_book_to_group,
+            reorder_group_books,
             add_bookmark,
             get_bookmarks,
             delete_bookmark

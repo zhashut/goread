@@ -7,6 +7,7 @@ import * as pdfjs from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { IBook, IGroup } from "../types";
 import { bookService, groupService, getReaderSettings } from "../services";
+import { GroupDetail } from "./GroupDetail";
 
 interface BookCardProps {
   book: IBook;
@@ -146,6 +147,8 @@ export const Bookshelf: React.FC = () => {
   const allLabelRef = useRef<HTMLDivElement | null>(null);
   const [underlinePos, setUnderlinePos] = useState<{ left: number; width: number }>({ left: 0, width: 0 });
   const navigate = useNavigate();
+  const [groupOverlayOpen, setGroupOverlayOpen] = useState(false);
+  const [overlayGroupId, setOverlayGroupId] = useState<number | null>(null);
 
   useEffect(() => {
     loadBooks();
@@ -439,7 +442,7 @@ export const Bookshelf: React.FC = () => {
       ) : (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
           {filteredGroups.map((g) => (
-            <div key={g.id} style={{ width: '160px', margin: 0, cursor: 'pointer' }} onClick={() => navigate(`/group/${g.id}`)}>
+            <div key={g.id} style={{ width: '160px', margin: 0, cursor: 'pointer' }} onClick={() => { setOverlayGroupId(g.id); setGroupOverlayOpen(true); }}>
               <div style={{ width: '100%', height: '160px', background: '#fff', border: '1px solid #e5e5e5', borderRadius: '4px', boxShadow: '0 2px 6px rgba(0,0,0,0.06)', overflow: 'hidden', display: 'grid', gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr 1fr', gap: '1px' }}>
                 {Array.from({ length: 4 }).map((_, idx) => {
                   const covers = groupCovers[g.id] || [];
@@ -457,6 +460,26 @@ export const Bookshelf: React.FC = () => {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {groupOverlayOpen && overlayGroupId !== null && (
+        <div
+          onClick={() => { setGroupOverlayOpen(false); setActiveTab('all'); }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(225,225,225,0.6)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        >
+          <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+            {/* 标题在容器外居中 */}
+            <div style={{ fontSize: '16px', fontWeight: 500, color: '#333', textAlign: 'center' }}>
+              {(groups.find(g => g.id === overlayGroupId)?.name) || '分组'}
+            </div>
+            {/* 抽屉主体：宽度占满，高度85%，居中位置 */}
+            <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', height: '85vh', maxHeight: '85vh', overflow: 'hidden', background: '#f7f7f7' }}>
+              <div style={{ width: '100%', height: '100%' }}>
+                <GroupDetail groupIdProp={overlayGroupId} onClose={() => { setGroupOverlayOpen(false); setActiveTab('all'); }} />
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>

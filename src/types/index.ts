@@ -8,6 +8,7 @@ export interface IBook {
   total_pages: number;
   last_read_time?: number;
   group_id?: number;
+  position_in_group?: number;
   created_at?: number;
 }
 

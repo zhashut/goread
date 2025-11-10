@@ -11,6 +11,7 @@ pub struct Book {
     pub total_pages: u32,
     pub last_read_time: Option<i64>, // Unix timestamp
     pub group_id: Option<i64>,
+    pub position_in_group: Option<i64>,
     pub created_at: Option<i64>,
 }
 
