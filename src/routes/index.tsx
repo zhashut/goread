@@ -4,6 +4,7 @@ import { Bookshelf } from '../components/Bookshelf';
 import { Reader } from '../components/Reader';
 import { Settings } from '../components/Settings';
 import { GroupDetail } from '../components/GroupDetail';
+import { Search } from '../components/Search';
 
 export const AppRoutes: React.FC = () => {
   return (
@@ -12,6 +13,7 @@ export const AppRoutes: React.FC = () => {
       <Route path="/reader/:bookId" element={<Reader />} />
       <Route path="/group/:groupId" element={<GroupDetail />} />
       <Route path="/settings" element={<Settings />} />
+      <Route path="/search" element={<Search />} />
     </Routes>
   );
 };

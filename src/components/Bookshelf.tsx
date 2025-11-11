@@ -361,7 +361,7 @@ export const Bookshelf: React.FC = () => {
           <button
             title="搜索"
             aria-label="搜索"
-            onClick={() => setSearchOpen(s => !s)}
+            onClick={() => navigate('/search')}
             style={{
               background: 'transparent',
               border: 'none',
@@ -420,11 +420,7 @@ export const Bookshelf: React.FC = () => {
         </div>
       </div>
 
-      {searchOpen && (
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: '12px' }}>
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={activeTab === 'recent' ? '搜索最近阅读…' : '搜索分组…'} style={{ width: '100%', padding: '10px 12px', border: '1px solid #ddd', borderRadius: '6px' }} />
-        </div>
-      )}
+      {/* 首页临时搜索输入移除，改为跳转到 /search */}
 
       {activeTab === 'recent' ? (
         filteredBooks.length === 0 ? (
