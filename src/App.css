@@ -49,6 +49,24 @@
   -webkit-text-size-adjust: 100%;
 }
 
+/* 全局：移除页面默认外边距并隐藏窗口滚动条 */
+body {
+  margin: 0;
+  overflow: hidden;
+}
+body {
+  /* Firefox */
+  scrollbar-width: none;
+  /* IE 10+ */
+  -ms-overflow-style: none;
+}
+body::-webkit-scrollbar {
+  /* Chrome / Safari */
+  width: 0;
+  height: 0;
+  display: none;
+}
+
 .container {
   margin: 0;
   padding-top: 10vh;
