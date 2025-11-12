@@ -5,7 +5,7 @@ import React, {
   useRef,
   useLayoutEffect,
 } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import * as pdfjs from "pdfjs-dist";
 // 通过 Vite 将 worker 打包为可用 URL，并告知 PDF.js
 // 这样就不需要手动禁用 worker，性能也更好
@@ -145,10 +145,22 @@ const BookCard: React.FC<BookCardProps> = ({ book, onClick, onDelete }) => {
 };
 
 export const Bookshelf: React.FC = () => {
+  const location = useLocation();
   const [books, setBooks] = useState<IBook[]>([]);
   const [groups, setGroups] = useState<IGroup[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"recent" | "all">("recent");
+  const [activeTab, setActiveTab] = useState<"recent" | "all">(() => {
+    const search = typeof window !== "undefined" ? window.location.search : location.search;
+    const params = new URLSearchParams(search || "");
+    return params.get("tab") === "all" ? "all" : "recent";
+  });
+
+  // Sync tab with URL when it changes to avoid visual switching from recent -> all
+  useEffect(() => {
+    const params = new URLSearchParams(location.search || "");
+    const next = params.get("tab") === "all" ? "all" : "recent";
+    setActiveTab((prev) => (prev === next ? prev : next));
+  }, [location.search]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
@@ -166,6 +178,8 @@ export const Bookshelf: React.FC = () => {
     left: number;
     width: number;
   }>({ left: 0, width: 0 });
+  const [animateUnderline, setAnimateUnderline] = useState(false);
+  const [underlineReady, setUnderlineReady] = useState(false);
   const navigate = useNavigate();
   const [groupOverlayOpen, setGroupOverlayOpen] = useState(false);
   const [overlayGroupId, setOverlayGroupId] = useState<number | null>(null);
@@ -380,20 +394,23 @@ export const Bookshelf: React.FC = () => {
       const tabsRect = tabsRef.current.getBoundingClientRect();
       const rect = target.getBoundingClientRect();
       setUnderlinePos({ left: rect.left - tabsRect.left, width: rect.width });
+      setUnderlineReady(true);
     };
     update();
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
   }, [activeTab, loading]);
 
-  // ensure underline is positioned on first paint (mount)
+  // ensure underline is positioned on first paint using current activeTab
   useLayoutEffect(() => {
     const update = () => {
-      const target = recentLabelRef.current;
+      const target =
+        activeTab === "recent" ? recentLabelRef.current : allLabelRef.current;
       if (!target || !tabsRef.current) return;
       const tabsRect = tabsRef.current.getBoundingClientRect();
       const rect = target.getBoundingClientRect();
       setUnderlinePos({ left: rect.left - tabsRect.left, width: rect.width });
+      setUnderlineReady(true);
     };
     update();
     requestAnimationFrame(update);
@@ -446,7 +463,10 @@ export const Bookshelf: React.FC = () => {
           }}
         >
           <button
-            onClick={() => setActiveTab("recent")}
+            onClick={() => {
+              setActiveTab("recent");
+              setAnimateUnderline(true);
+            }}
             style={{
               background: "transparent",
               border: "none",
@@ -469,7 +489,10 @@ export const Bookshelf: React.FC = () => {
             </div>
           </button>
           <button
-            onClick={() => setActiveTab("all")}
+            onClick={() => {
+              setActiveTab("all");
+              setAnimateUnderline(true);
+            }}
             style={{
               background: "transparent",
               border: "none",
@@ -499,7 +522,10 @@ export const Bookshelf: React.FC = () => {
               width: underlinePos.width,
               height: "3px",
               backgroundColor: "#d15158",
-              transition: "left 250ms ease, width 250ms ease",
+              transition: animateUnderline
+                ? "left 250ms ease, width 250ms ease"
+                : "none",
+              opacity: underlineReady ? 1 : 0,
             }}
           />
         </div>
@@ -514,7 +540,7 @@ export const Bookshelf: React.FC = () => {
           <button
             title="搜索"
             aria-label="搜索"
-            onClick={() => navigate("/search")}
+            onClick={() => navigate(`/search?tab=${activeTab}`)}
             style={{
               background: "transparent",
               border: "none",
@@ -605,7 +631,7 @@ export const Bookshelf: React.FC = () => {
               <button
                 onClick={() => {
                   setMenuOpen(false);
-                  handleImportBook();
+                  navigate('/import');
                 }}
                 style={{
                   width: "100%",

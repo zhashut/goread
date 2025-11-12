@@ -20,7 +20,7 @@
   border-radius: 50%;
   background: #ffffff;
   border: 2px solid #d15158;
-  box-shadow: 0 0 0 2px rgba(0,0,0,0.2);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.2);
 }
 .reader-range::-moz-range-thumb {
   width: 14px;
@@ -191,7 +191,7 @@ button {
   transition: background 0.2s ease;
 }
 .settings-toggle::after {
-  content: '';
+  content: "";
   position: absolute;
   top: 3px;
   left: 3px;
@@ -199,7 +199,7 @@ button {
   height: 18px;
   border-radius: 50%;
   background: #ffffff;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
   transition: left 0.2s ease;
 }
 .settings-toggle:checked {
@@ -232,7 +232,7 @@ button {
   border-radius: 50%;
   background: #d15158; /* theme red */
   border: none;
-  box-shadow: 0 0 0 2px rgba(209,81,88,0.25);
+  box-shadow: 0 0 0 2px rgba(209, 81, 88, 0.25);
   margin-top: -4px; /* align to track center */
 }
 .settings-range::-moz-range-thumb {
@@ -241,7 +241,7 @@ button {
   border-radius: 50%;
   background: #d15158;
   border: none;
-  box-shadow: 0 0 0 2px rgba(209,81,88,0.25);
+  box-shadow: 0 0 0 2px rgba(209, 81, 88, 0.25);
 }
 
 /* Reader dynamic viewport height to avoid status bar overlap */
@@ -249,8 +249,30 @@ button {
   height: 100vh;
 }
 @supports (height: 100dvh) {
-  .reader-fullheight { height: 100dvh; }
+  .reader-fullheight {
+    height: 100dvh;
+  }
 }
 @supports (height: 100svh) {
-  .reader-fullheight { height: 100svh; }
+  .reader-fullheight {
+    height: 100svh;
+  }
+}
+
+/* Import page: hard reset bubble effects inside this scope */
+.import-page button,
+.import-page input {
+  box-shadow: none !important;
+  border: none !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  padding: 0 !important;
+}
+
+/* Import page: allow solid style for specific buttons (e.g., drawer stop) */
+.import-page .drawer-stop {
+  background: #d23c3c !important;
+  color: #fff !important;
+  border-radius: 22px !important;
+  box-shadow: none !important;
 }
