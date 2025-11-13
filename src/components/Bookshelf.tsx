@@ -150,7 +150,8 @@ export const Bookshelf: React.FC = () => {
   const [groups, setGroups] = useState<IGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"recent" | "all">(() => {
-    const search = typeof window !== "undefined" ? window.location.search : location.search;
+    const search =
+      typeof window !== "undefined" ? window.location.search : location.search;
     const params = new URLSearchParams(search || "");
     return params.get("tab") === "all" ? "all" : "recent";
   });
@@ -189,6 +190,15 @@ export const Bookshelf: React.FC = () => {
     loadGroups();
   }, []);
 
+  // 监听分组详情页的删除事件，及时刷新“最近”
+  useEffect(() => {
+    const onChanged = () => {
+      loadBooks();
+    };
+    window.addEventListener("goread:books:changed", onChanged as any);
+    return () => window.removeEventListener("goread:books:changed", onChanged as any);
+  }, []);
+
   const loadBooks = async () => {
     try {
       setLoading(true);
@@ -198,14 +208,8 @@ export const Bookshelf: React.FC = () => {
       let list: IBook[] = [];
       try {
         const recent = await bookService.getRecentBooks(recentCount);
-        if (recent && Array.isArray(recent) && recent.length > 0) {
-          list = recent;
-        } else {
-          const allBooks = await bookService.getAllBooks();
-          list = (allBooks || [])
-            .sort((a, b) => (b.last_read_time || 0) - (a.last_read_time || 0))
-            .slice(0, recentCount);
-        }
+        // 仅显示真正阅读过的书籍；如果没有则“最近”为空
+        list = Array.isArray(recent) ? recent : [];
       } catch {
         const allBooks = await bookService.getAllBooks();
         list = (allBooks || []).sort(
@@ -296,16 +300,29 @@ export const Bookshelf: React.FC = () => {
 
   const handleDeleteBook = async (book: IBook) => {
     try {
-      let ok: boolean = false;
-      try {
-        const { confirm } = await import("@tauri-apps/plugin-dialog");
-        ok = await confirm(`确认删除该书籍及其书签?`, { title: "goread" });
-      } catch {
-        ok = window.confirm("确认删除该书籍及其书签?");
+      if (activeTab === "recent") {
+        let ok: boolean = false;
+        try {
+          const { confirm } = await import("@tauri-apps/plugin-dialog");
+          ok = await confirm(`仅从“最近”中移除该书籍？不会删除书籍`, { title: "goread" });
+        } catch {
+          ok = window.confirm("仅从“最近”中移除该书籍？不会删除书籍");
+        }
+        if (!ok) return;
+        await bookService.clearRecent(book.id);
+        await loadBooks();
+      } else {
+        let ok: boolean = false;
+        try {
+          const { confirm } = await import("@tauri-apps/plugin-dialog");
+          ok = await confirm(`确认删除该书籍及其书签?`, { title: "goread" });
+        } catch {
+          ok = window.confirm("确认删除该书籍及其书签?");
+        }
+        if (!ok) return;
+        await bookService.deleteBook(book.id);
+        await Promise.all([loadBooks(), loadGroups()]);
       }
-      if (!ok) return;
-      await bookService.deleteBook(book.id);
-      await loadBooks();
     } catch (error: any) {
       console.error("删除书籍失败:", error);
       const msg =
@@ -313,19 +330,37 @@ export const Bookshelf: React.FC = () => {
       alert(`删除书籍失败，请重试\n\n原因：${msg}`);
     }
   };
-
-  const groupCovers = useMemo(() => {
-    const map: Record<number, string[]> = {};
-    books.forEach((b) => {
-      if (typeof b.group_id === "number") {
-        map[b.group_id] = map[b.group_id] || [];
-        if (b.cover_image && map[b.group_id].length < 4) {
-          map[b.group_id].push(b.cover_image);
-        }
+  // 分组封面：基于“全部”分组中的书籍封面（最多4张）
+  const [groupCovers, setGroupCovers] = useState<Record<number, string[]>>({});
+  useEffect(() => {
+    const run = async () => {
+      try {
+        const entries = await Promise.all(
+          (groups || []).map(async (g) => {
+            try {
+              const list = await groupService.getBooksByGroup(g.id);
+              const covers = (list || [])
+                .filter((b) => !!b.cover_image)
+                .slice(0, 4)
+                .map((b) => b.cover_image as string);
+              return [g.id, covers] as [number, string[]];
+            } catch {
+              return [g.id, []] as [number, string[]];
+            }
+          })
+        );
+        const map: Record<number, string[]> = {};
+        entries.forEach(([id, covers]) => {
+          map[id] = covers;
+        });
+        setGroupCovers(map);
+      } catch (e) {
+        setGroupCovers({});
       }
-    });
-    return map;
-  }, [books]);
+    };
+    if (groups && groups.length > 0) run();
+    else setGroupCovers({});
+  }, [groups]);
 
   const filteredBooks = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -631,7 +666,7 @@ export const Bookshelf: React.FC = () => {
               <button
                 onClick={() => {
                   setMenuOpen(false);
-                  navigate('/import');
+                  navigate("/import");
                 }}
                 style={{
                   width: "100%",
@@ -653,19 +688,38 @@ export const Bookshelf: React.FC = () => {
                 onMouseLeave={(e) => {
                   e.currentTarget.style.backgroundColor = "transparent";
                 }}
+              >
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                  aria-hidden
                 >
-                  <svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    xmlns="http://www.w3.org/2000/svg"
-                    aria-hidden
-                  >
-                    <path d="M12 3v8" stroke="#333" strokeWidth="2" strokeLinecap="round" />
-                    <path d="M9.5 8.5L12 11l2.5-2.5" stroke="#333" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                    <rect x="4" y="13" width="16" height="7" rx="2" stroke="#333" strokeWidth="2" />
-                  </svg>
+                  <path
+                    d="M12 3v8"
+                    stroke="#333"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+                  <path
+                    d="M9.5 8.5L12 11l2.5-2.5"
+                    stroke="#333"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  <rect
+                    x="4"
+                    y="13"
+                    width="16"
+                    height="7"
+                    rx="2"
+                    stroke="#333"
+                    strokeWidth="2"
+                  />
+                </svg>
                 <span>导入</span>
               </button>
               <button
@@ -694,25 +748,65 @@ export const Bookshelf: React.FC = () => {
                   e.currentTarget.style.backgroundColor = "transparent";
                 }}
               >
-                  <svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    xmlns="http://www.w3.org/2000/svg"
-                    aria-hidden
-                  >
-                    <circle cx="12" cy="12" r="9" stroke="#333" strokeWidth="2" />
-                    <circle cx="12" cy="12" r="3" stroke="#333" strokeWidth="2" />
-                    <path d="M12 4.5v2.3" stroke="#333" strokeWidth="2" strokeLinecap="round" />
-                    <path d="M12 17.2v2.3" stroke="#333" strokeWidth="2" strokeLinecap="round" />
-                    <path d="M4.5 12h2.3" stroke="#333" strokeWidth="2" strokeLinecap="round" />
-                    <path d="M17.2 12h2.3" stroke="#333" strokeWidth="2" strokeLinecap="round" />
-                    <path d="M6.8 6.8l1.6 1.6" stroke="#333" strokeWidth="2" strokeLinecap="round" />
-                    <path d="M15.6 15.6l1.6 1.6" stroke="#333" strokeWidth="2" strokeLinecap="round" />
-                    <path d="M6.8 17.2l1.6-1.6" stroke="#333" strokeWidth="2" strokeLinecap="round" />
-                    <path d="M15.6 8.4l1.6-1.6" stroke="#333" strokeWidth="2" strokeLinecap="round" />
-                  </svg>
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                  aria-hidden
+                >
+                  <circle cx="12" cy="12" r="9" stroke="#333" strokeWidth="2" />
+                  <circle cx="12" cy="12" r="3" stroke="#333" strokeWidth="2" />
+                  <path
+                    d="M12 4.5v2.3"
+                    stroke="#333"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+                  <path
+                    d="M12 17.2v2.3"
+                    stroke="#333"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+                  <path
+                    d="M4.5 12h2.3"
+                    stroke="#333"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+                  <path
+                    d="M17.2 12h2.3"
+                    stroke="#333"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+                  <path
+                    d="M6.8 6.8l1.6 1.6"
+                    stroke="#333"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+                  <path
+                    d="M15.6 15.6l1.6 1.6"
+                    stroke="#333"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+                  <path
+                    d="M6.8 17.2l1.6-1.6"
+                    stroke="#333"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+                  <path
+                    d="M15.6 8.4l1.6-1.6"
+                    stroke="#333"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+                </svg>
                 <span>设置</span>
               </button>
               <button
@@ -767,118 +861,151 @@ export const Bookshelf: React.FC = () => {
 
       {/* 首页临时搜索输入移除，改为跳转到 /search */}
       <div className="no-scrollbar" style={{ flex: 1, overflowY: "auto" }}>
-      {activeTab === "recent" ? (
-        filteredBooks.length === 0 ? (
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              height: "400px",
-              color: "#999",
-            }}
-          >
-            <div style={{ fontSize: "18px", marginBottom: "10px" }}>
-              暂无书籍
-            </div>
-            <div style={{ fontSize: "14px" }}>
-              通过右上角“更多”中的“导入”添加PDF
-            </div>
-          </div>
-        ) : (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "12px" }}>
-            {filteredBooks.map((book) => (
-              <BookCard
-                key={book.id}
-                book={book}
-                onClick={() => handleBookClick(book)}
-                onDelete={() => handleDeleteBook(book)}
-              />
-            ))}
-          </div>
-        )
-      ) : (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "12px" }}>
-          {filteredGroups.map((g) => (
+        {activeTab === "recent" ? (
+          filteredBooks.length === 0 ? (
             <div
-              key={g.id}
-              style={{ width: "160px", margin: 0, cursor: "pointer" }}
-              onClick={() => {
-                setOverlayGroupId(g.id);
-                setGroupOverlayOpen(true);
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                height: "400px",
+                color: "#999",
               }}
             >
-              <div
-                style={{
-                  width: "100%",
-                  height: "160px",
-                  background: "#fff",
-                  border: "1px solid #e5e5e5",
-                  borderRadius: "4px",
-                  boxShadow: "0 2px 6px rgba(0,0,0,0.06)",
-                  overflow: "hidden",
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gridTemplateRows: "1fr 1fr",
-                  gap: "1px",
-                }}
-              >
-                {Array.from({ length: 4 }).map((_, idx) => {
-                  const covers = groupCovers[g.id] || [];
-                  const img = covers[idx];
-                  return img ? (
-                    <img
-                      key={idx}
-                      src={`data:image/jpeg;base64,${img}`}
-                      alt={`cover-${idx}`}
-                      style={{
-                        width: "100%",
-                        height: "100%",
-                        objectFit: "cover",
-                      }}
-                    />
-                  ) : (
-                    <div
-                      key={idx}
-                      style={{
-                        background: idx % 2 === 0 ? "#f2f2f2" : "#e9e9e9",
-                      }}
-                    />
-                  );
-                })}
+              <div style={{ fontSize: "18px", marginBottom: "10px" }}>
+                暂无书籍
               </div>
-              <div style={{ marginTop: "8px" }}>
-                <div
-                  style={{
-                    fontSize: "14px",
-                    fontWeight: 500,
-                    color: "#333",
-                    lineHeight: 1.5,
-                    overflow: "hidden",
-                    textAlign: "left",
-                    display: "-webkit-box",
-                    WebkitLineClamp: 1,
-                    WebkitBoxOrient: "vertical" as any,
-                  }}
-                >
-                  {g.name}
-                </div>
-                <div
-                  style={{
-                    marginTop: "4px",
-                    fontSize: "12px",
-                    color: "#888",
-                    textAlign: "left",
-                  }}
-                >
-                  共 {g.book_count} 本
-                </div>
+              <div style={{ fontSize: "14px" }}>
+                通过右上角“更多”中的“导入”添加书籍
               </div>
             </div>
-          ))}
-        </div>
-      )}
+          ) : (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "12px" }}>
+              {filteredBooks.map((book) => (
+                <BookCard
+                  key={book.id}
+                  book={book}
+                  onClick={() => handleBookClick(book)}
+                  onDelete={() => handleDeleteBook(book)}
+                />
+              ))}
+            </div>
+          )
+        ) : (
+          filteredGroups.length === 0 ? (
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                height: "400px",
+                color: "#999",
+              }}
+            >
+              <div style={{ fontSize: "18px", marginBottom: "10px" }}>暂无分组</div>
+              <div style={{ fontSize: "14px" }}>通过右上角“更多”中的“导入”添加书籍</div>
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "12px" }}>
+              {filteredGroups.map((g) => (
+                <div
+                  key={g.id}
+                  style={{ width: "160px", margin: 0, cursor: "pointer" }}
+                  onClick={() => {
+                    setOverlayGroupId(g.id);
+                    setGroupOverlayOpen(true);
+                  }}
+                >
+                  <div
+                    style={{
+                      width: "100%",
+                      background: "#fff",
+                      border: "1px solid #e5e5e5",
+                      borderRadius: "4px",
+                      boxShadow: "0 2px 6px rgba(0,0,0,0.06)",
+                      overflow: "hidden",
+                      display: "grid",
+                      gridTemplateColumns: "1fr 1fr",
+                      gap: "6px",
+                      padding: "6px",
+                    }}
+                  >
+                    {Array.from({ length: 4 }).map((_, idx) => {
+                      const covers = groupCovers[g.id] || [];
+                      const img = covers[idx];
+                      return (
+                        <div
+                          key={idx}
+                          style={{
+                            width: "100%",
+                            aspectRatio: "2 / 3",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            background: "#fff",
+                            border: "1px solid #dcdcdc",
+                            borderRadius: 4,
+                            overflow: "hidden",
+                          }}
+                        >
+                          {img ? (
+                            <img
+                              src={`data:image/jpeg;base64,${img}`}
+                              alt={`cover-${idx}`}
+                              style={{
+                                width: "100%",
+                                height: "100%",
+                                objectFit: "cover",
+                                objectPosition: "center",
+                              }}
+                            />
+                          ) : (
+                            <div
+                              style={{
+                                width: "100%",
+                                height: "100%",
+                                background: idx % 2 === 0 ? "#f2f2f2" : "#e9e9e9",
+                              }}
+                            />
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div style={{ marginTop: "8px" }}>
+                    <div
+                      style={{
+                        fontSize: "14px",
+                        fontWeight: 500,
+                        color: "#333",
+                        lineHeight: 1.5,
+                        overflow: "hidden",
+                        textAlign: "left",
+                        display: "-webkit-box",
+                        WebkitLineClamp: 1,
+                        WebkitBoxOrient: "vertical" as any,
+                      }}
+                    >
+                      {g.name}
+                    </div>
+                    <div
+                      style={{
+                        marginTop: "4px",
+                        fontSize: "12px",
+                        color: "#888",
+                        textAlign: "left",
+                      }}
+                    >
+                      共 {g.book_count} 本
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )
+        )}
       </div>
 
       {groupOverlayOpen && overlayGroupId !== null && (
@@ -936,6 +1063,9 @@ export const Bookshelf: React.FC = () => {
                   onClose={() => {
                     setGroupOverlayOpen(false);
                     setActiveTab("all");
+                    // 关闭抽屉时刷新分组与最近
+                    loadGroups();
+                    loadBooks();
                   }}
                 />
               </div>

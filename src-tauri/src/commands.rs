@@ -193,10 +193,33 @@ pub async fn update_book_progress(
 #[tauri::command]
 pub async fn delete_book(id: i64, db: DbState<'_>) -> Result<(), Error> {
     let pool = db.lock().await;
-    
+    // fetch current group id before deleting
+    let old_group: Option<i64> = sqlx::query_scalar(
+        "SELECT group_id FROM books WHERE id = ?"
+    )
+    .bind(id)
+    .fetch_one(&*pool).await?;
+
     sqlx::query("DELETE FROM books WHERE id = ?")
         .bind(id)
         .execute(&*pool).await?;
+
+    // update old group book_count and delete it if empty
+    if let Some(gid) = old_group {
+        // recompute count for robustness
+        sqlx::query(
+            "UPDATE groups SET book_count = (SELECT COUNT(*) FROM books WHERE group_id = ?) WHERE id = ?"
+        )
+        .bind(gid)
+        .bind(gid)
+        .execute(&*pool).await?;
+        // delete group if it has no books
+        sqlx::query(
+            "DELETE FROM groups WHERE id = ? AND book_count = 0"
+        )
+        .bind(gid)
+        .execute(&*pool).await?;
+    }
     Ok(())
 }
 
@@ -226,7 +249,8 @@ pub async fn get_all_groups(db: DbState<'_>) -> Result<Vec<Group>, Error> {
     let pool = db.lock().await;
     
     let groups = sqlx::query_as::<_, Group>(
-        "SELECT * FROM groups ORDER BY name"
+        // 过滤空分组：仅返回至少包含一本书的分组
+        "SELECT * FROM groups WHERE book_count > 0 ORDER BY name"
     )
     .fetch_all(&*pool).await?;
     
@@ -238,8 +262,8 @@ pub async fn get_books_by_group(group_id: i64, db: DbState<'_>) -> Result<Vec<Bo
     let pool = db.lock().await;
     
     let books = sqlx::query_as::<_, Book>(
-        // Order: positioned first (ascending), then unpositioned by title
-        "SELECT * FROM books WHERE group_id = ? ORDER BY position_in_group IS NULL, position_in_group ASC, title"
+        // 排序：有自定义顺序的优先按 position_in_group，其余按导入时间倒序
+        "SELECT * FROM books WHERE group_id = ? ORDER BY position_in_group IS NULL, position_in_group ASC, created_at DESC"
     )
     .bind(group_id)
     .fetch_all(&*pool).await?;
@@ -254,7 +278,13 @@ pub async fn move_book_to_group(
     db: DbState<'_>
 ) -> Result<(), Error> {
     let pool = db.lock().await;
-    
+    // find previous group assignment
+    let prev_group: Option<i64> = sqlx::query_scalar(
+        "SELECT group_id FROM books WHERE id = ?"
+    )
+    .bind(book_id)
+    .fetch_one(&*pool).await?;
+
     if let Some(gid) = group_id {
         // place at end within the group
         let max_pos: Option<i64> = sqlx::query_scalar(
@@ -278,7 +308,35 @@ pub async fn move_book_to_group(
         .bind(book_id)
         .execute(&*pool).await?;
     }
-    
+    // update counts for affected groups
+    if let Some(pg) = prev_group {
+        sqlx::query(
+            "UPDATE groups SET book_count = (SELECT COUNT(*) FROM books WHERE group_id = ?) WHERE id = ?"
+        )
+        .bind(pg)
+        .bind(pg)
+        .execute(&*pool).await?;
+        sqlx::query("DELETE FROM groups WHERE id = ? AND book_count = 0")
+            .bind(pg)
+            .execute(&*pool).await?;
+    }
+    if let Some(ng) = group_id {
+        sqlx::query(
+            "UPDATE groups SET book_count = (SELECT COUNT(*) FROM books WHERE group_id = ?) WHERE id = ?"
+        )
+        .bind(ng)
+        .bind(ng)
+        .execute(&*pool).await?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn clear_recent_read_record(id: i64, db: DbState<'_>) -> Result<(), Error> {
+    let pool = db.lock().await;
+    sqlx::query("UPDATE books SET last_read_time = NULL WHERE id = ?")
+        .bind(id)
+        .execute(&*pool).await?;
     Ok(())
 }
 
