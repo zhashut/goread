@@ -42,6 +42,7 @@ pub fn run() {
             get_all_books,
             get_recent_books,
             update_book_progress,
+            mark_book_opened,
             clear_recent_read_record,
             delete_book,
             add_group,

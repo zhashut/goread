@@ -53,6 +53,7 @@ export interface IBookService {
   getAllBooks(): Promise<IBook[]>;
   getRecentBooks(limit: number): Promise<IBook[]>;
   updateBookProgress(id: number, currentPage: number): Promise<void>;
+  markBookOpened(id: number): Promise<void>;
   deleteBook(id: number): Promise<void>;
   clearRecent(bookId: number): Promise<void>;
 }
@@ -108,6 +109,11 @@ export class TauriBookService implements IBookService {
   async updateBookProgress(id: number, currentPage: number): Promise<void> {
     const invoke = await getInvoke();
     await invoke('update_book_progress', { id, currentPage });
+  }
+
+  async markBookOpened(id: number): Promise<void> {
+    const invoke = await getInvoke();
+    await invoke('mark_book_opened', { id });
   }
 
   async deleteBook(id: number): Promise<void> {

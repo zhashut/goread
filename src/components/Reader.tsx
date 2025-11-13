@@ -100,6 +100,13 @@ export const Reader: React.FC = () => {
       setCurrentPage(targetBook.current_page);
       setTotalPages(targetBook.total_pages);
 
+      // 打开即记录最近阅读时间（不依赖进度变化）
+      try {
+        await bookService.markBookOpened(targetBook.id);
+      } catch (e) {
+        console.warn("标记书籍已打开失败", e);
+      }
+
       // 加载PDF文件
       const fs = await import("@tauri-apps/plugin-fs");
       const fileData = await fs.readFile(targetBook.file_path);

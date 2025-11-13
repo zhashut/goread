@@ -190,6 +190,17 @@ pub async fn update_book_progress(
     Ok(())
 }
 
+// 标记书籍已被打开（不依赖进度变化）
+#[tauri::command]
+pub async fn mark_book_opened(id: i64, db: DbState<'_>) -> Result<(), Error> {
+    let pool = db.lock().await;
+    sqlx::query(
+        "UPDATE books SET last_read_time = strftime('%s', 'now') WHERE id = ?"
+    )
+    .bind(id)
+    .execute(&*pool).await?;
+    Ok(())
+}
 #[tauri::command]
 pub async fn delete_book(id: i64, db: DbState<'_>) -> Result<(), Error> {
     let pool = db.lock().await;

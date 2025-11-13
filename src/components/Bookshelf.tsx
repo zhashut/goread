@@ -196,7 +196,21 @@ export const Bookshelf: React.FC = () => {
       loadBooks();
     };
     window.addEventListener("goread:books:changed", onChanged as any);
-    return () => window.removeEventListener("goread:books:changed", onChanged as any);
+    return () =>
+      window.removeEventListener("goread:books:changed", onChanged as any);
+  }, []);
+
+  // 监听分组变化事件，刷新分组列表与封面
+  useEffect(() => {
+    const onGroupsChanged = () => {
+      loadGroups();
+    };
+    window.addEventListener("goread:groups:changed", onGroupsChanged as any);
+    return () =>
+      window.removeEventListener(
+        "goread:groups:changed",
+        onGroupsChanged as any
+      );
   }, []);
 
   const loadBooks = async () => {
@@ -304,7 +318,9 @@ export const Bookshelf: React.FC = () => {
         let ok: boolean = false;
         try {
           const { confirm } = await import("@tauri-apps/plugin-dialog");
-          ok = await confirm(`仅从“最近”中移除该书籍？不会删除书籍`, { title: "goread" });
+          ok = await confirm(`仅从“最近”中移除该书籍？不会删除书籍`, {
+            title: "goread",
+          });
         } catch {
           ok = window.confirm("仅从“最近”中移除该书籍？不会删除书籍");
         }
@@ -892,119 +908,121 @@ export const Bookshelf: React.FC = () => {
               ))}
             </div>
           )
-        ) : (
-          filteredGroups.length === 0 ? (
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "center",
-                height: "400px",
-                color: "#999",
-              }}
-            >
-              <div style={{ fontSize: "18px", marginBottom: "10px" }}>暂无分组</div>
-              <div style={{ fontSize: "14px" }}>通过右上角“更多”中的“导入”添加书籍</div>
+        ) : filteredGroups.length === 0 ? (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              height: "400px",
+              color: "#999",
+            }}
+          >
+            <div style={{ fontSize: "18px", marginBottom: "10px" }}>
+              暂无分组
             </div>
-          ) : (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "12px" }}>
-              {filteredGroups.map((g) => (
+            <div style={{ fontSize: "14px" }}>
+              通过右上角“更多”中的“导入”添加书籍
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "20px 30px" }}>
+            {filteredGroups.map((g) => (
+              <div
+                key={g.id}
+                style={{ width: "160px", margin: 0, cursor: "pointer" }}
+                onClick={() => {
+                  setOverlayGroupId(g.id);
+                  setGroupOverlayOpen(true);
+                }}
+              >
                 <div
-                  key={g.id}
-                  style={{ width: "160px", margin: 0, cursor: "pointer" }}
-                  onClick={() => {
-                    setOverlayGroupId(g.id);
-                    setGroupOverlayOpen(true);
+                  style={{
+                    width: "100%",
+                    background: "#fff",
+                    border: "1px solid #e5e5e5",
+                    borderRadius: "4px",
+                    boxShadow: "0 2px 6px rgba(0,0,0,0.06)",
+                    overflow: "hidden",
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: "6px",
+                    padding: "6px",
                   }}
                 >
+                  {Array.from({ length: 4 }).map((_, idx) => {
+                    const covers = groupCovers[g.id] || [];
+                    const img = covers[idx];
+                    return (
+                      <div
+                        key={idx}
+                        style={{
+                          width: "100%",
+                          aspectRatio: "2 / 3",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          background: "#fff",
+                          border: "1px solid #dcdcdc",
+                          borderRadius: 4,
+                          overflow: "hidden",
+                        }}
+                      >
+                        {img ? (
+                          <img
+                            src={`data:image/jpeg;base64,${img}`}
+                            alt={`cover-${idx}`}
+                            style={{
+                              width: "100%",
+                              height: "100%",
+                              objectFit: "cover",
+                              objectPosition: "center",
+                            }}
+                          />
+                        ) : (
+                          <div
+                            style={{
+                              width: "100%",
+                              height: "100%",
+                              background: "#fff",
+                            }}
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ marginTop: "8px" }}>
                   <div
                     style={{
-                      width: "100%",
-                      background: "#fff",
-                      border: "1px solid #e5e5e5",
-                      borderRadius: "4px",
-                      boxShadow: "0 2px 6px rgba(0,0,0,0.06)",
+                      fontSize: "14px",
+                      fontWeight: 500,
+                      color: "#333",
+                      lineHeight: 1.5,
                       overflow: "hidden",
-                      display: "grid",
-                      gridTemplateColumns: "1fr 1fr",
-                      gap: "6px",
-                      padding: "6px",
+                      textAlign: "left",
+                      display: "-webkit-box",
+                      WebkitLineClamp: 1,
+                      WebkitBoxOrient: "vertical" as any,
                     }}
                   >
-                    {Array.from({ length: 4 }).map((_, idx) => {
-                      const covers = groupCovers[g.id] || [];
-                      const img = covers[idx];
-                      return (
-                        <div
-                          key={idx}
-                          style={{
-                            width: "100%",
-                            aspectRatio: "2 / 3",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            background: "#fff",
-                            border: "1px solid #dcdcdc",
-                            borderRadius: 4,
-                            overflow: "hidden",
-                          }}
-                        >
-                          {img ? (
-                            <img
-                              src={`data:image/jpeg;base64,${img}`}
-                              alt={`cover-${idx}`}
-                              style={{
-                                width: "100%",
-                                height: "100%",
-                                objectFit: "cover",
-                                objectPosition: "center",
-                              }}
-                            />
-                          ) : (
-                            <div
-                              style={{
-                                width: "100%",
-                                height: "100%",
-                                background: idx % 2 === 0 ? "#f2f2f2" : "#e9e9e9",
-                              }}
-                            />
-                          )}
-                        </div>
-                      );
-                    })}
+                    {g.name}
                   </div>
-                  <div style={{ marginTop: "8px" }}>
-                    <div
-                      style={{
-                        fontSize: "14px",
-                        fontWeight: 500,
-                        color: "#333",
-                        lineHeight: 1.5,
-                        overflow: "hidden",
-                        textAlign: "left",
-                        display: "-webkit-box",
-                        WebkitLineClamp: 1,
-                        WebkitBoxOrient: "vertical" as any,
-                      }}
-                    >
-                      {g.name}
-                    </div>
-                    <div
-                      style={{
-                        marginTop: "4px",
-                        fontSize: "12px",
-                        color: "#888",
-                        textAlign: "left",
-                      }}
-                    >
-                      共 {g.book_count} 本
-                    </div>
+                  <div
+                    style={{
+                      marginTop: "4px",
+                      fontSize: "12px",
+                      color: "#888",
+                      textAlign: "left",
+                    }}
+                  >
+                    共 {g.book_count} 本
                   </div>
                 </div>
-              ))}
-            </div>
-          )
+              </div>
+            ))}
+          </div>
         )}
       </div>
 

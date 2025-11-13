@@ -171,6 +171,11 @@ export const GroupDetail: React.FC<{
     setGroup(g);
     const list = await groupService.getBooksByGroup(id);
     setBooks(list || []);
+    // 通知首页分组数据已变更（用于刷新封面与计数）
+    try {
+      window.dispatchEvent(new CustomEvent("goread:groups:changed"));
+      window.dispatchEvent(new CustomEvent("goread:books:changed"));
+    } catch {}
     if (!g || (list || []).length === 0) {
       onClose?.();
     }
