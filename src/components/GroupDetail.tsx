@@ -253,7 +253,9 @@ export const GroupDetail: React.FC<{
             <BookCardMini
               key={b.id}
               book={b}
-              onClick={() => navigate(`/reader/${b.id}`)}
+              onClick={() =>
+                navigate(`/reader/${b.id}`, { state: { fromGroupId: id } })
+              }
               draggable
               onDragStart={(e) => {
                 setDragIndex(idx);

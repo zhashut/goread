@@ -157,11 +157,23 @@ export const Bookshelf: React.FC = () => {
     return params.get("tab") === "all" ? "all" : "recent";
   });
 
-  // Sync tab with URL when it changes to avoid visual switching from recent -> all
+  // Sync tab with URL when it changes; also optionally open group overlay via query param
   useEffect(() => {
     const params = new URLSearchParams(location.search || "");
     const next = params.get("tab") === "all" ? "all" : "recent";
     setActiveTab((prev) => (prev === next ? prev : next));
+    const groupParam = params.get("group");
+    if (next === "all" && groupParam) {
+      const idNum = Number(groupParam);
+      if (!isNaN(idNum)) {
+        // Only open if not already open or id changed
+        setOverlayGroupId((prevId) => {
+          const shouldOpen = !groupOverlayOpen || prevId !== idNum;
+          if (shouldOpen) setGroupOverlayOpen(true);
+          return idNum;
+        });
+      }
+    }
   }, [location.search]);
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -293,7 +305,8 @@ export const Bookshelf: React.FC = () => {
   };
 
   const handleBookClick = (book: IBook) => {
-    navigate(`/reader/${book.id}`);
+    // Pass current tab context so Reader can return appropriately
+    navigate(`/reader/${book.id}`, { state: { fromTab: activeTab } });
   };
 
   const handleImportBook = async () => {

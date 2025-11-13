@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { IBook, IBookmark } from "../types";
 // @ts-ignore
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
@@ -14,6 +14,7 @@ import {
 export const Reader: React.FC = () => {
   const { bookId } = useParams<{ bookId: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [book, setBook] = useState<IBook | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
@@ -821,7 +822,7 @@ export const Reader: React.FC = () => {
               onWheel={(e) => e.stopPropagation()}
               style={{
                 position: "absolute",
-                top: "10px",
+                top: 0,
                 left: 0,
                 right: 0,
                 transform: "none",
@@ -838,7 +839,21 @@ export const Reader: React.FC = () => {
               }}
             >
               <button
-                onClick={() => navigate("/")}
+                onClick={() => {
+                  const state: any = location.state || {};
+                  const fromGroupId = state?.fromGroupId;
+                  const fromTab = state?.fromTab;
+                  if (typeof fromGroupId === "number") {
+                    navigate(`/?tab=all&group=${fromGroupId}`);
+                    return;
+                  }
+                  if (fromTab === "recent") {
+                    navigate("/?tab=recent");
+                    return;
+                  }
+                  if (window.history.length > 1) navigate(-1);
+                  else navigate("/");
+                }}
                 style={{
                   background: "none",
                   border: "none",
