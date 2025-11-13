@@ -6,6 +6,7 @@ import { bookService, groupService } from "../services";
 import * as pdfjs from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import GroupingDrawer from "./GroupingDrawer";
+import { pickPdfPaths, waitNextFrame, pathToTitle } from "../services/importUtils";
 
 type TabKey = "scan" | "browse";
 
@@ -117,7 +118,8 @@ export const ImportFiles: React.FC<{ importedBooks?: IBook[] }> = ({
   const [groupingOpen, setGroupingOpen] = useState(false);
   const [chooseGroupOpen, setChooseGroupOpen] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
-  const [newlyImportedBooks, setNewlyImportedBooks] = useState<IBook[]>([]);
+  // 改为在分组确认后才开始导入：这里仅保存待导入的文件路径
+  const [pendingImportPaths, setPendingImportPaths] = useState<string[]>([]);
   const [allGroups, setAllGroups] = useState<IGroup[]>([]);
   const [groupPreviews, setGroupPreviews] = useState<Record<number, string[]>>(
     {}
@@ -223,83 +225,20 @@ export const ImportFiles: React.FC<{ importedBooks?: IBook[] }> = ({
   };
 
   const defaultNameFromFiles = useMemo(() => {
-    const first = newlyImportedBooks[0];
-    return (first?.title || "").trim();
-  }, [newlyImportedBooks]);
+    const firstPath = pendingImportPaths[0];
+    const name = firstPath
+      ? firstPath.split("\\").pop()?.split("/").pop() || ""
+      : "";
+    return name.replace(/\.pdf$/i, "");
+  }, [pendingImportPaths]);
 
   const handleImportClick = async () => {
     try {
-      const [{ open }, { readFile }] = await Promise.all([
-        import("@tauri-apps/plugin-dialog"),
-        import("@tauri-apps/plugin-fs"),
-      ]);
-
-      const selected = await open({
-        multiple: true,
-        filters: [{ name: "PDF", extensions: ["pdf"] }],
-      });
-
-      const paths: string[] = Array.isArray(selected)
-        ? selected.map((s: any) => (typeof s === "string" ? s : s.path))
-        : selected
-        ? [
-            typeof selected === "string"
-              ? (selected as string)
-              : (selected as any).path,
-          ]
-        : [];
-
+      const paths = await pickPdfPaths(true);
       if (!paths.length) return;
-
-      (pdfjs as any).GlobalWorkerOptions.workerSrc = workerUrl;
-      let success = 0;
-      const imported: IBook[] = [];
-      for (const filePath of paths) {
-        try {
-          const fileName = filePath.split("\\").pop()?.split("/").pop();
-          const fileData = await readFile(filePath);
-          let pdf: any;
-          try {
-            pdf = await (pdfjs as any).getDocument({ data: fileData }).promise;
-          } catch (e: any) {
-            const msg = String(e?.message || e);
-            if (msg.includes("GlobalWorkerOptions.workerSrc")) {
-              pdf = await (pdfjs as any).getDocument({
-                data: fileData,
-                disableWorker: true,
-              }).promise;
-            } else {
-              throw e;
-            }
-          }
-          const page = await pdf.getPage(1);
-          const viewport = page.getViewport({ scale: 0.5 });
-          const canvas = document.createElement("canvas");
-          const context = canvas.getContext("2d")!;
-          canvas.width = viewport.width;
-          canvas.height = viewport.height;
-          await page.render({ canvasContext: context, viewport }).promise;
-          const coverImage = canvas.toDataURL("image/jpeg", 0.8).split(",")[1];
-          const title = fileName?.replace(/\.pdf$/i, "") || "Unknown";
-          const saved = await bookService.addBook(
-            filePath,
-            title,
-            coverImage,
-            pdf.numPages
-          );
-          imported.push(saved);
-          success += 1;
-        } catch (e) {
-          console.error("Import failed for", filePath, e);
-        }
-      }
-
-      if (success > 0) {
-        setNewlyImportedBooks(imported);
-        setGroupingOpen(true);
-      } else {
-        alert("未导入任何文件");
-      }
+      // 不立即导入，仅记录路径并打开分组抽屉
+      setPendingImportPaths(paths);
+      setGroupingOpen(true);
     } catch (error: any) {
       console.error("Import dialog failed:", error);
       const msg =
@@ -334,13 +273,21 @@ export const ImportFiles: React.FC<{ importedBooks?: IBook[] }> = ({
   const assignToGroupAndFinish = async (groupId: number) => {
     try {
       setGroupingLoading(true);
-      for (const b of newlyImportedBooks) {
-        await groupService.moveBookToGroup(b.id, groupId);
-      }
-      setGroupingLoading(false);
+      const total = pendingImportPaths.length;
+      const firstTitlePath = pendingImportPaths[0] || "";
+      const firstTitle = (firstTitlePath.split("\\").pop()?.split("/").pop() || "")
+        .replace(/\.pdf$/i, "");
+      // 立即跳转到“全部”，并关闭抽屉
       setGroupingOpen(false);
       setChooseGroupOpen(false);
       navigate("/?tab=all");
+      // 等待下一帧，确保首页（Bookshelf）已挂载并开始监听事件
+      await waitNextFrame();
+
+      // 使用共享导入服务
+      const { importPathsToExistingGroup } = await import("../services/importRunner");
+      await importPathsToExistingGroup(pendingImportPaths, groupId);
+      setGroupingLoading(false);
     } catch (e) {
       setGroupingLoading(false);
       alert("分组保存失败，请重试");
@@ -353,13 +300,19 @@ export const ImportFiles: React.FC<{ importedBooks?: IBook[] }> = ({
     try {
       setGroupingLoading(true);
       const g = await groupService.addGroup(name.trim());
-      for (const b of newlyImportedBooks) {
-        await groupService.moveBookToGroup(b.id, g.id);
-      }
-      setGroupingLoading(false);
+      const total = pendingImportPaths.length;
+      const firstTitle = pendingImportPaths[0] ? pathToTitle(pendingImportPaths[0]) : "";
+
+      // 立即跳转到“全部”，并关闭抽屉
       setGroupingOpen(false);
       setChooseGroupOpen(false);
       navigate("/?tab=all");
+      // 等待下一帧，确保首页（Bookshelf）已挂载并开始监听事件
+      await waitNextFrame();
+
+      const { createGroupAndImport } = await import("../services/importRunner");
+      await createGroupAndImport(pendingImportPaths, name.trim());
+      setGroupingLoading(false);
     } catch (e) {
       setGroupingLoading(false);
       alert("创建分组失败，请重试");

@@ -14,6 +14,7 @@ import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { IBook, IGroup } from "../types";
 import { bookService, groupService, getReaderSettings } from "../services";
 import { GroupDetail } from "./GroupDetail";
+import ImportProgressDrawer from "./ImportProgressDrawer";
 
 interface BookCardProps {
   book: IBook;
@@ -185,6 +186,12 @@ export const Bookshelf: React.FC = () => {
   const [groupOverlayOpen, setGroupOverlayOpen] = useState(false);
   const [overlayGroupId, setOverlayGroupId] = useState<number | null>(null);
 
+  // 导入进度抽屉状态
+  const [importOpen, setImportOpen] = useState(false);
+  const [importTotal, setImportTotal] = useState(0);
+  const [importCurrent, setImportCurrent] = useState(0);
+  const [importTitle, setImportTitle] = useState("");
+
   useEffect(() => {
     loadBooks();
     loadGroups();
@@ -211,6 +218,42 @@ export const Bookshelf: React.FC = () => {
         "goread:groups:changed",
         onGroupsChanged as any
       );
+  }, []);
+
+  // 监听导入事件：开始 / 进度 / 完成 / 取消
+  useEffect(() => {
+    const onStart = (e: any) => {
+      const detail = e?.detail || {};
+      setImportTotal(detail.total || 0);
+      setImportCurrent(0);
+      setImportTitle(detail.title || "");
+      setImportOpen(true);
+      // 不再记录打开时间，移除最短展示时长逻辑
+      // 保持在“全部”标签
+      setActiveTab("all");
+    };
+    const onProgress = (e: any) => {
+      const detail = e?.detail || {};
+      setImportCurrent(detail.current || 0);
+      if (detail.title) setImportTitle(detail.title);
+    };
+    const onDone = (_e: any) => {
+      // 立即关闭进度抽屉，无人工延时
+      setImportOpen(false);
+      setImportTitle("");
+      setImportTotal(0);
+      setImportCurrent(0);
+      loadGroups();
+      loadBooks();
+    };
+    window.addEventListener("goread:import:start", onStart as any);
+    window.addEventListener("goread:import:progress", onProgress as any);
+    window.addEventListener("goread:import:done", onDone as any);
+    return () => {
+      window.removeEventListener("goread:import:start", onStart as any);
+      window.removeEventListener("goread:import:progress", onProgress as any);
+      window.removeEventListener("goread:import:done", onDone as any);
+    };
   }, []);
 
   const loadBooks = async () => {
@@ -1091,6 +1134,20 @@ export const Bookshelf: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* 导入进度抽屉：覆盖在页面底部并加深背景 */}
+      <ImportProgressDrawer
+        open={importOpen}
+        title={importTitle}
+        current={importCurrent}
+        total={importTotal}
+        onStop={() => {
+          // 通知正在导入的流程取消
+          const evt = new CustomEvent("goread:import:cancel");
+          window.dispatchEvent(evt);
+          setImportOpen(false);
+        }}
+      />
     </div>
   );
 };
