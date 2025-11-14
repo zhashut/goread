@@ -1,94 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { IBook } from "../types";
-import { BOOK_TITLE_FONT_SIZE } from "../constants/ui";
+import { COVER_ASPECT_RATIO_COMPACT, GRID_GAP_BOOK_CARDS } from "../constants/ui";
 import { bookService } from "../services";
-
-const ResultCard: React.FC<{ book: IBook; onClick: () => void }> = ({
-  book,
-  onClick,
-}) => {
-  const progress =
-    book.total_pages > 0
-      ? Math.min(
-          100,
-          Math.round((book.current_page / book.total_pages) * 1000) / 10
-        )
-      : 0;
-  return (
-    <div
-      className="book-card"
-      onClick={onClick}
-      style={{
-        width: "160px",
-        cursor: "pointer",
-        transition: "transform 0.2s ease",
-        backgroundColor: "transparent",
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.transform = "translateY(-4px)";
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.transform = "translateY(0)";
-      }}
-    >
-      <div
-        style={{
-          width: "100%",
-          height: "230px",
-          backgroundColor: "#fff",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          position: "relative",
-          border: "1px solid #e5e5e5",
-          borderRadius: "4px",
-          boxShadow: "0 2px 6px rgba(0,0,0,0.06)",
-          overflow: "hidden",
-        }}
-      >
-        {book.cover_image ? (
-          <img
-            src={`data:image/jpeg;base64,${book.cover_image}`}
-            alt={book.title}
-            style={{ width: "100%", height: "100%", objectFit: "cover" }}
-          />
-        ) : (
-          <div style={{ color: "#999", fontSize: "14px", textAlign: "center" }}>
-            暂无封面
-          </div>
-        )}
-      </div>
-      <div style={{ marginTop: "8px" }}>
-        <div
-          style={{
-            fontSize: BOOK_TITLE_FONT_SIZE + "px",
-            fontWeight: 500,
-            color: "#333",
-            lineHeight: 1.5,
-            display: "-webkit-box",
-            WebkitLineClamp: 2,
-            WebkitBoxOrient: "vertical" as any,
-            overflow: "hidden",
-            textAlign: "left",
-          }}
-        >
-          {book.title}
-        </div>
-        <div
-          style={{
-            marginTop: "4px",
-            fontSize: "12px",
-            color: "#888",
-            textAlign: "left",
-          }}
-        >
-          已读 {progress}%
-        </div>
-      </div>
-    </div>
-  );
-};
+import { BookCard } from "./BookCard";
 
 export const Search: React.FC = () => {
   const navigate = useNavigate();
@@ -334,15 +249,17 @@ export const Search: React.FC = () => {
           style={{
             padding: "12px",
             display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))",
-            gap: "12px",
+            gridTemplateColumns: "repeat(auto-fill, 160px)",
+            gap: GRID_GAP_BOOK_CARDS + "px",
             justifyItems: "center",
           }}
         >
           {results.map((b) => (
-            <ResultCard
+            <BookCard
               key={b.id}
               book={b}
+              width={160}
+              aspectRatio={COVER_ASPECT_RATIO_COMPACT}
               onClick={() => navigate(`/reader/${b.id}`)}
             />
           ))}

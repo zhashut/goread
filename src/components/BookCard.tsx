@@ -5,6 +5,9 @@ import {
   COVER_ASPECT_RATIO_COMPACT,
   BOOK_TITLE_FONT_SIZE,
   BOOK_TITLE_FONT_WEIGHT,
+  BOOK_META_FONT_SIZE,
+  CARD_INFO_MARGIN_TOP,
+  BOOK_PROGRESS_MARGIN_TOP,
 } from "../constants/ui";
 
 export interface CommonBookCardProps {
@@ -118,7 +121,7 @@ export const BookCard: React.FC<CommonBookCardProps> = ({
           </div>
         )}
       </div>
-      <div style={{ marginTop: "8px" }}>
+      <div style={{ marginTop: CARD_INFO_MARGIN_TOP + "px" }}>
         <div
           style={{
             fontSize: BOOK_TITLE_FONT_SIZE + "px",
@@ -136,8 +139,8 @@ export const BookCard: React.FC<CommonBookCardProps> = ({
         </div>
         <div
           style={{
-            marginTop: "1px",
-            fontSize: "12px",
+            marginTop: BOOK_PROGRESS_MARGIN_TOP + "px",
+            fontSize: BOOK_META_FONT_SIZE + "px",
             color: "#888",
             textAlign: "left",
           }}

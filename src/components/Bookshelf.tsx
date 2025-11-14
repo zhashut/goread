@@ -16,10 +16,20 @@ import {
   CARD_WIDTH_COMPACT,
   COVER_ASPECT_RATIO_COMPACT,
   BOOK_TITLE_FONT_SIZE,
+  GRID_GAP_BOOK_CARDS,
+  GRID_GAP_GROUP_ROW,
+  GRID_GAP_GROUP_COLUMN,
+  GROUP_NAME_FONT_SIZE,
+  GROUP_META_FONT_SIZE,
+  GROUP_NAME_FONT_WEIGHT,
+  CARD_INFO_MARGIN_TOP,
+  GROUP_NAME_MARGIN_TOP,
+  GROUP_META_MARGIN_TOP,
 } from "../constants/ui";
 import { bookService, groupService, getReaderSettings } from "../services";
 import { GroupDetail } from "./GroupDetail";
 import { BookCard } from "./BookCard";
+import GroupCoverGrid from "./GroupCoverGrid";
 import ImportProgressDrawer from "./ImportProgressDrawer";
 
 // 使用通用 BookCard 组件
@@ -832,7 +842,7 @@ export const Bookshelf: React.FC = () => {
               </div>
             </div>
           ) : (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "12px" }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: GRID_GAP_BOOK_CARDS + "px" }}>
               {filteredBooks.map((book) => (
                 <BookCard
                   key={book.id}
@@ -862,7 +872,7 @@ export const Bookshelf: React.FC = () => {
             </div>
           </div>
         ) : (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "16px 24px" }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: `${GRID_GAP_GROUP_ROW}px ${GRID_GAP_GROUP_COLUMN}px` }}>
             {filteredGroups.map((g) => (
               <div
                 key={g.id}
@@ -872,67 +882,14 @@ export const Bookshelf: React.FC = () => {
                   setGroupOverlayOpen(true);
                 }}
               >
-                <div
-                  style={{
-                    width: "100%",
-                    background: "#fff",
-                    border: "1px solid #e5e5e5",
-                    borderRadius: "4px",
-                    boxShadow: "0 2px 6px rgba(0,0,0,0.06)",
-                    overflow: "hidden",
-                    display: "grid",
-                    gridTemplateColumns: "1fr 1fr",
-                    gap: "4px",
-                    padding: "4px",
-                  }}
-                >
-                  {Array.from({ length: 4 }).map((_, idx) => {
-                    const covers = groupCovers[g.id] || [];
-                    const img = covers[idx];
-                    return (
-                      <div
-                        key={idx}
-                        style={{
-                          width: "100%",
-                          aspectRatio: "3 / 4",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          background: "#fff",
-                          border: "1px solid #dcdcdc",
-                          borderRadius: 4,
-                          overflow: "hidden",
-                        }}
-                      >
-                        {img ? (
-                          <img
-                            src={`data:image/jpeg;base64,${img}`}
-                            alt={`cover-${idx}`}
-                            style={{
-                              width: "100%",
-                              height: "100%",
-                              objectFit: "cover",
-                              objectPosition: "center",
-                            }}
-                          />
-                        ) : (
-                          <div
-                            style={{
-                              width: "100%",
-                              height: "100%",
-                              background: "#fff",
-                            }}
-                          />
-                        )}
-                      </div>
-                    );
-                  })}
+                <div>
+                  <GroupCoverGrid covers={groupCovers[g.id] || []} tileRatio="3 / 4" />
                 </div>
-                <div style={{ marginTop: "8px" }}>
+                <div style={{ marginTop: CARD_INFO_MARGIN_TOP + "px" }}>
                   <div
                     style={{
-                      fontSize: "14px",
-                      fontWeight: 500,
+                      fontSize: GROUP_NAME_FONT_SIZE + "px",
+                      fontWeight: GROUP_NAME_FONT_WEIGHT,
                       color: "#333",
                       lineHeight: 1.5,
                       overflow: "hidden",
@@ -940,14 +897,15 @@ export const Bookshelf: React.FC = () => {
                       display: "-webkit-box",
                       WebkitLineClamp: 1,
                       WebkitBoxOrient: "vertical" as any,
+                      marginTop: GROUP_NAME_MARGIN_TOP + "px",
                     }}
                   >
                     {g.name}
                   </div>
                   <div
                     style={{
-                      marginTop: "4px",
-                      fontSize: "12px",
+                      marginTop: GROUP_META_MARGIN_TOP + "px",
+                      fontSize: GROUP_META_FONT_SIZE + "px",
                       color: "#888",
                       textAlign: "left",
                     }}

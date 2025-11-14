@@ -3,3 +3,18 @@ export const CARD_WIDTH_COMPACT = 140; // 与分组卡片一致
 export const COVER_ASPECT_RATIO_COMPACT = "3 / 4"; // 与分组封面统一
 export const BOOK_TITLE_FONT_SIZE = 12; // 书籍卡片标题字体大小（px）
 export const BOOK_TITLE_FONT_WEIGHT = 600; // 书籍卡片标题加粗权重
+export const GROUP_NAME_FONT_WEIGHT = BOOK_TITLE_FONT_WEIGHT; // 分组名加粗权重与书籍标题一致
+// 书籍/分组的次级文案字号（如阅读进度、“共 x 本”）
+export const BOOK_META_FONT_SIZE = 12; // 与书籍阅读进度一致
+export const GROUP_NAME_FONT_SIZE = BOOK_TITLE_FONT_SIZE; // 分组名与书籍标题字号对齐
+export const GROUP_META_FONT_SIZE = BOOK_META_FONT_SIZE; // 分组“共 x 本”与书籍进度字号对齐
+// 文案块的上下间距
+export const CARD_INFO_MARGIN_TOP = 8; // 封面下方信息块统一上间距
+export const BOOK_PROGRESS_MARGIN_TOP = 1; // 书籍阅读进度的上间距
+export const GROUP_NAME_MARGIN_TOP = 0; // 分组名与书籍标题保持一致（标题本身无上间距）
+export const GROUP_META_MARGIN_TOP = BOOK_PROGRESS_MARGIN_TOP; // “共 x 本”与阅读进度保持一致
+// 统一的网格间距（在现有基础上统一加 3px）
+export const GRID_GAP_BOOK_CARDS = 19; // 最近/搜索页书籍卡片
+export const GRID_GAP_GROUP_DETAIL = 19; // 分组详情书籍卡片
+export const GRID_GAP_GROUP_ROW = GRID_GAP_BOOK_CARDS; // 全部栏目分组卡片行间距对齐最近书籍卡片
+export const GRID_GAP_GROUP_COLUMN = 25; // 全部栏目分组卡片列间距

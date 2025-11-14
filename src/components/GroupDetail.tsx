@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { IBook, IGroup } from "../types";
-import { CARD_WIDTH_COMPACT, COVER_ASPECT_RATIO_COMPACT, BOOK_TITLE_FONT_SIZE } from "../constants/ui";
+import { CARD_WIDTH_COMPACT, COVER_ASPECT_RATIO_COMPACT, BOOK_TITLE_FONT_SIZE, GRID_GAP_GROUP_DETAIL } from "../constants/ui";
 import { groupService, bookService } from "../services";
 import { BookCard } from "./BookCard";
 
@@ -114,7 +114,7 @@ export const GroupDetail: React.FC<{
             display: "grid",
             // 固定列宽，避免第一列过宽导致卡片居中偏移
             gridTemplateColumns: "repeat(auto-fill, " + CARD_WIDTH_COMPACT + "px)",
-            gap: "16px",
+            gap: GRID_GAP_GROUP_DETAIL + "px",
             // 卡片在栅格单元内靠左对齐
             justifyItems: "start",
             justifyContent: "start",
