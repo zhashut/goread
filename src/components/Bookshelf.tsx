@@ -983,11 +983,11 @@ export const Bookshelf: React.FC = () => {
             </div>
           </div>
         ) : (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "20px 30px" }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "16px 24px" }}>
             {filteredGroups.map((g) => (
               <div
                 key={g.id}
-                style={{ width: "160px", margin: 0, cursor: "pointer" }}
+                style={{ width: "140px", margin: 0, cursor: "pointer" }}
                 onClick={() => {
                   setOverlayGroupId(g.id);
                   setGroupOverlayOpen(true);
@@ -1003,8 +1003,8 @@ export const Bookshelf: React.FC = () => {
                     overflow: "hidden",
                     display: "grid",
                     gridTemplateColumns: "1fr 1fr",
-                    gap: "6px",
-                    padding: "6px",
+                    gap: "4px",
+                    padding: "4px",
                   }}
                 >
                   {Array.from({ length: 4 }).map((_, idx) => {
@@ -1015,7 +1015,7 @@ export const Bookshelf: React.FC = () => {
                         key={idx}
                         style={{
                           width: "100%",
-                          aspectRatio: "2 / 3",
+                          aspectRatio: "3 / 4",
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",

@@ -6,6 +6,8 @@ import { bookService, groupService } from "../services";
 import * as pdfjs from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import GroupingDrawer from "./GroupingDrawer";
+import GroupCoverGrid from "./GroupCoverGrid";
+import ChooseExistingGroupDrawer from "./ChooseExistingGroupDrawer";
 import { pickPdfPaths, waitNextFrame, pathToTitle } from "../services/importUtils";
 
 type TabKey = "scan" | "browse";
@@ -893,85 +895,13 @@ export const ImportFiles: React.FC<{ importedBooks?: IBook[] }> = ({
       )}
 
       {/* 选择现有分组抽屉 */}
-      {chooseGroupOpen && (
-        <div
-          aria-live="polite"
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.35)",
-            display: "flex",
-            alignItems: "flex-end",
-            zIndex: 1001,
-          }}
-          onClick={() => setChooseGroupOpen(false)}
-        >
-          <div
-            role="dialog"
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              width: "100%",
-              background: "#fff",
-              borderTopLeftRadius: 20,
-              borderTopRightRadius: 20,
-              padding: "18px 16px 24px 16px",
-              boxSizing: "border-box",
-              maxHeight: "70vh",
-              overflowY: "auto",
-            }}
-          >
-            <div style={{ color: "#333", fontSize: 16, marginBottom: 12 }}>
-              现有分组
-            </div>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(2, 1fr)",
-                gap: 12,
-              }}
-            >
-              {allGroups.map((g) => (
-                <button
-                  key={g.id}
-                  onClick={() => assignToGroupAndFinish(g.id)}
-                  style={{
-                    background: "none",
-                    border: "1px solid #eee",
-                    borderRadius: 8,
-                    padding: 8,
-                    textAlign: "left",
-                    cursor: "pointer",
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "repeat(2, 1fr)",
-                      gap: 4,
-                      marginBottom: 6,
-                    }}
-                  >
-                    {(groupPreviews[g.id] || []).map((img, idx) => (
-                      <img
-                        key={idx}
-                        src={`data:image/jpeg;base64,${img}`}
-                        alt="cover"
-                        style={{
-                          width: "100%",
-                          aspectRatio: "1 / 1",
-                          objectFit: "cover",
-                          borderRadius: 4,
-                        }}
-                      />
-                    ))}
-                  </div>
-                  <div style={{ color: "#333", fontSize: 14 }}>{g.name}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
+      <ChooseExistingGroupDrawer
+        open={chooseGroupOpen}
+        groups={allGroups}
+        groupPreviews={groupPreviews}
+        onClose={() => setChooseGroupOpen(false)}
+        onSelectGroup={assignToGroupAndFinish}
+      />
     </div>
   );
 
