@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { IBook, IGroup } from "../types";
-import { CARD_WIDTH_COMPACT, COVER_ASPECT_RATIO_COMPACT, BOOK_TITLE_FONT_SIZE, GRID_GAP_GROUP_DETAIL } from "../constants/ui";
+import { IBook } from "../types";
+import { CARD_WIDTH_COMPACT, GRID_GAP_GROUP_DETAIL } from "../constants/ui";
 import { groupService, bookService } from "../services";
 import { BookCard } from "./BookCard";
 
@@ -14,7 +14,6 @@ export const GroupDetail: React.FC<{
   const navigate = useNavigate();
   const { groupId } = useParams();
   const id = typeof groupIdProp === "number" ? groupIdProp : Number(groupId);
-  const [group, setGroup] = useState<IGroup | null>(null);
   const [books, setBooks] = useState<IBook[]>([]);
   const [loading, setLoading] = useState(true);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -23,9 +22,6 @@ export const GroupDetail: React.FC<{
     const run = async () => {
       try {
         setLoading(true);
-        const allGroups = await groupService.getAllGroups();
-        const g = (allGroups || []).find((x) => x.id === id) || null;
-        setGroup(g);
         const list = await groupService.getBooksByGroup(id);
         setBooks(list || []);
       } catch (e) {
@@ -38,9 +34,6 @@ export const GroupDetail: React.FC<{
   }, [id]);
 
   const reloadBooksAndGroups = async () => {
-    const allGroups = await groupService.getAllGroups();
-    const g = (allGroups || []).find((x) => x.id === id) || null;
-    setGroup(g);
     const list = await groupService.getBooksByGroup(id);
     setBooks(list || []);
     // 通知首页分组数据已变更（用于刷新封面与计数）
@@ -48,6 +41,8 @@ export const GroupDetail: React.FC<{
       window.dispatchEvent(new CustomEvent("goread:groups:changed"));
       window.dispatchEvent(new CustomEvent("goread:books:changed"));
     } catch {}
+    const allGroups = await groupService.getAllGroups();
+    const g = (allGroups || []).find((x) => x.id === id) || null;
     if (!g || (list || []).length === 0) {
       onClose?.();
     }

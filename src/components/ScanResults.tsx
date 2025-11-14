@@ -1,14 +1,11 @@
 import React, { useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { FileRow } from "./FileRow";
-import { bookService, groupService } from "../services";
-import { IBook, IGroup } from "../types";
-import * as pdfjs from "pdfjs-dist";
-import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+import { groupService } from "../services";
+import { IGroup } from "../types";
 import GroupingDrawer from "./GroupingDrawer";
-import GroupCoverGrid from "./GroupCoverGrid";
 import ChooseExistingGroupDrawer from "./ChooseExistingGroupDrawer";
-import { pickPdfPaths, waitNextFrame, pathToTitle } from "../services/importUtils";
+import { pickPdfPaths, waitNextFrame } from "../services/importUtils";
 
 export interface FileEntry {
   type: "file" | "dir";
@@ -23,23 +20,7 @@ export interface ScanResultItem extends FileEntry {
   type: "file";
 }
 
-const bytesToSize = (n?: number) => {
-  if (!n || n <= 0) return "";
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-};
-
-const fmtDate = (t?: number) => {
-  if (!t) return "";
-  const d = new Date(t);
-  const y = d.getFullYear();
-  const m = `${d.getMonth() + 1}`.padStart(2, "0");
-  const day = `${d.getDate()}`.padStart(2, "0");
-  const hh = `${d.getHours()}`.padStart(2, "0");
-  const mm = `${d.getMinutes()}`.padStart(2, "0");
-  return `${y}/${m}/${day} ${hh}:${mm}`;
-};
+//
 
 export const ScanResults: React.FC = () => {
   const navigate = useNavigate();
@@ -76,14 +57,6 @@ export const ScanResults: React.FC = () => {
     {}
   );
   const [groupingLoading, setGroupingLoading] = useState(false);
-
-  const defaultNameFromFiles = useMemo(() => {
-    const firstPath = pendingImportPaths[0];
-    const name = firstPath
-      ? firstPath.split("\\").pop()?.split("/").pop() || ""
-      : "";
-    return name.replace(/\.pdf$/i, "");
-  }, [pendingImportPaths]);
 
   const handleImportClick = async () => {
     try {
@@ -126,8 +99,6 @@ export const ScanResults: React.FC = () => {
   const assignToGroupAndFinish = async (groupId: number) => {
     try {
       setGroupingLoading(true);
-      const total = pendingImportPaths.length;
-      const firstTitle = pendingImportPaths[0] ? pathToTitle(pendingImportPaths[0]) : "";
 
       // 立即跳转到“全部”，并关闭抽屉
       setGroupingOpen(false);
@@ -150,9 +121,7 @@ export const ScanResults: React.FC = () => {
     if (!name.trim()) return;
     try {
       setGroupingLoading(true);
-      const g = await groupService.addGroup(name.trim());
-      const total = pendingImportPaths.length;
-      const firstTitle = pendingImportPaths[0] ? pathToTitle(pendingImportPaths[0]) : "";
+      await groupService.addGroup(name.trim());
 
       // 立即跳转到“全部”，并关闭抽屉
       setGroupingOpen(false);

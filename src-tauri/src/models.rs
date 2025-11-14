@@ -23,6 +23,7 @@ pub struct Group {
     pub created_at: Option<i64>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BookMetadata {
     pub title: String,
@@ -42,6 +43,7 @@ pub struct Bookmark {
     pub created_at: Option<i64>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TocItem {
     pub title: String,
@@ -49,6 +51,7 @@ pub struct TocItem {
     pub children: Vec<TocItem>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReaderSettings {
     pub theme: String, // "light" or "dark"

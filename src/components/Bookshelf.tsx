@@ -6,16 +6,8 @@ import React, {
   useLayoutEffect,
 } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import * as pdfjs from "pdfjs-dist";
-// 通过 Vite 将 worker 打包为可用 URL，并告知 PDF.js
-// 这样就不需要手动禁用 worker，性能也更好
-// @ts-ignore
-import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { IBook, IGroup } from "../types";
 import {
-  CARD_WIDTH_COMPACT,
-  COVER_ASPECT_RATIO_COMPACT,
-  BOOK_TITLE_FONT_SIZE,
   GRID_GAP_BOOK_CARDS,
   GRID_GAP_GROUP_ROW,
   GRID_GAP_GROUP_COLUMN,
@@ -64,8 +56,7 @@ export const Bookshelf: React.FC = () => {
       }
     }
   }, [location.search]);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [query, setQuery] = useState("");
+  const [query] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPos, setMenuPos] = useState<{ left: number; top: number }>({
     left: 0,
@@ -198,64 +189,6 @@ export const Bookshelf: React.FC = () => {
     navigate(`/reader/${book.id}`, { state: { fromTab: activeTab } });
   };
 
-  const handleImportBook = async () => {
-    try {
-      const [{ open }, { readFile }] = await Promise.all([
-        import("@tauri-apps/plugin-dialog"),
-        import("@tauri-apps/plugin-fs"),
-      ]);
-
-      const selected = await open({
-        multiple: false,
-        filters: [{ name: "PDF", extensions: ["pdf"] }],
-      });
-
-      if (selected && !Array.isArray(selected)) {
-        const filePath =
-          typeof selected === "string" ? selected : (selected as any).path;
-        const fileName =
-          typeof selected === "string"
-            ? selected.split("\\").pop()?.split("/").pop()
-            : (selected as any).name;
-
-        const fileData = await readFile(filePath);
-        (pdfjs as any).GlobalWorkerOptions.workerSrc = workerUrl;
-        let pdf: any;
-        try {
-          pdf = await (pdfjs as any).getDocument({ data: fileData }).promise;
-        } catch (e: any) {
-          const msg = String(e?.message || e);
-          if (msg.includes("GlobalWorkerOptions.workerSrc")) {
-            pdf = await (pdfjs as any).getDocument({
-              data: fileData,
-              disableWorker: true,
-            }).promise;
-          } else {
-            throw e;
-          }
-        }
-
-        const page = await pdf.getPage(1);
-        const viewport = page.getViewport({ scale: 0.5 });
-        const canvas = document.createElement("canvas");
-        const context = canvas.getContext("2d")!;
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
-        await page.render({ canvasContext: context, viewport }).promise;
-        const coverImage = canvas.toDataURL("image/jpeg", 0.8).split(",")[1];
-
-        const title = fileName?.replace(/\.pdf$/i, "") || "Unknown";
-        await bookService.addBook(filePath, title, coverImage, pdf.numPages);
-        await loadBooks();
-        alert(`成功导入书籍: ${title}`);
-      }
-    } catch (error: any) {
-      console.error("Failed to import book:", error);
-      const msg =
-        typeof error?.message === "string" ? error.message : String(error);
-      alert(`导入书籍失败，请重试\n\n原因：${msg}`);
-    }
-  };
 
   const handleDeleteBook = async (book: IBook) => {
     try {

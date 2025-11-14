@@ -2,13 +2,10 @@ import React, { useMemo, useRef, useState } from "react";
 import { FileRow } from "./FileRow";
 import { useNavigate, useLocation } from "react-router-dom";
 import { IBook, IGroup } from "../types";
-import { bookService, groupService } from "../services";
-import * as pdfjs from "pdfjs-dist";
-import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+import { groupService } from "../services";
 import GroupingDrawer from "./GroupingDrawer";
-import GroupCoverGrid from "./GroupCoverGrid";
 import ChooseExistingGroupDrawer from "./ChooseExistingGroupDrawer";
-import { pickPdfPaths, waitNextFrame, pathToTitle } from "../services/importUtils";
+import { pickPdfPaths, waitNextFrame } from "../services/importUtils";
 
 type TabKey = "scan" | "browse";
 
@@ -78,13 +75,6 @@ const mockRootDirs: FileEntry[] = [
   },
 ];
 
-const bytesToSize = (n?: number) => {
-  if (!n || n <= 0) return "";
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-};
-
 const fmtDate = (t?: number) => {
   if (!t) return "";
   const d = new Date(t);
@@ -113,7 +103,7 @@ export const ImportFiles: React.FC<{ importedBooks?: IBook[] }> = ({
   const scannedCountRef = useRef(0);
   const foundPdfCountRef = useRef(0);
   // 顶部共享搜索（两个栏目共用）
-  const [globalSearch, setGlobalSearch] = useState("");
+  const [globalSearch] = useState("");
   const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
   const [searchOpen, setSearchOpen] = useState(false);
   // 导入后的分组抽屉
@@ -226,13 +216,7 @@ export const ImportFiles: React.FC<{ importedBooks?: IBook[] }> = ({
     );
   };
 
-  const defaultNameFromFiles = useMemo(() => {
-    const firstPath = pendingImportPaths[0];
-    const name = firstPath
-      ? firstPath.split("\\").pop()?.split("/").pop() || ""
-      : "";
-    return name.replace(/\.pdf$/i, "");
-  }, [pendingImportPaths]);
+  // 默认分组名由用户输入，不再从文件名推断
 
   const handleImportClick = async () => {
     try {
@@ -275,10 +259,6 @@ export const ImportFiles: React.FC<{ importedBooks?: IBook[] }> = ({
   const assignToGroupAndFinish = async (groupId: number) => {
     try {
       setGroupingLoading(true);
-      const total = pendingImportPaths.length;
-      const firstTitlePath = pendingImportPaths[0] || "";
-      const firstTitle = (firstTitlePath.split("\\").pop()?.split("/").pop() || "")
-        .replace(/\.pdf$/i, "");
       // 立即跳转到“全部”，并关闭抽屉
       setGroupingOpen(false);
       setChooseGroupOpen(false);
@@ -301,9 +281,7 @@ export const ImportFiles: React.FC<{ importedBooks?: IBook[] }> = ({
     if (!name.trim()) return;
     try {
       setGroupingLoading(true);
-      const g = await groupService.addGroup(name.trim());
-      const total = pendingImportPaths.length;
-      const firstTitle = pendingImportPaths[0] ? pathToTitle(pendingImportPaths[0]) : "";
+      await groupService.addGroup(name.trim());
 
       // 立即跳转到“全部”，并关闭抽屉
       setGroupingOpen(false);
@@ -355,14 +333,7 @@ export const ImportFiles: React.FC<{ importedBooks?: IBook[] }> = ({
     ]);
   };
 
-  const goBack = () => {
-    setBrowseStack((stack) =>
-      stack.length > 1 ? stack.slice(0, stack.length - 1) : stack
-    );
-    setBrowseDirStack((stack) =>
-      stack.length > 1 ? stack.slice(0, stack.length - 1) : stack
-    );
-  };
+  // 目录返回通过面包屑点击实现，无需单独函数
 
   const goToDepth = (idx: number) => {
     if (idx < 0 || idx >= browseStack.length) return;

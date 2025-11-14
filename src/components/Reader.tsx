@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { useParams, useNavigate, useLocation } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { IBook, IBookmark } from "../types";
 // @ts-ignore
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
@@ -14,7 +14,6 @@ import {
 export const Reader: React.FC = () => {
   const { bookId } = useParams<{ bookId: string }>();
   const navigate = useNavigate();
-  const location = useLocation();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [book, setBook] = useState<IBook | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
@@ -47,7 +46,6 @@ export const Reader: React.FC = () => {
   const autoScrollRafRef = useRef<number | null>(null);
   const DEFAULT_AUTO_PAGE_MS = 2000; // 横向自动翻页间隔
   const DEFAULT_SCROLL_PX_PER_SEC = 120; // 纵向每秒滚动像素
-  const OVERLAY_WIDTH = "min(720px, calc(100% - 32px))"; // 顶部标题栏与底部扩展器一致的宽度
   // 阅读方式选择弹层
   const [modeOverlayOpen, setModeOverlayOpen] = useState(false);
   // 纵向阅读容器与懒加载渲染引用
@@ -369,7 +367,6 @@ export const Reader: React.FC = () => {
   useEffect(() => {
     if (readingMode !== "vertical" || !pdf) return;
     let observer: IntersectionObserver | null = null;
-    let cancelled = false;
 
     const rootEl =
       verticalScrollRef.current || mainViewRef.current || undefined;
@@ -394,7 +391,6 @@ export const Reader: React.FC = () => {
 
     canvases.forEach((el) => observer!.observe(el));
     return () => {
-      cancelled = true;
       observer && observer.disconnect();
     };
   }, [readingMode, pdf, totalPages]);
@@ -840,17 +836,6 @@ export const Reader: React.FC = () => {
             >
               <button
                 onClick={() => {
-                  const state: any = location.state || {};
-                  const fromGroupId = state?.fromGroupId;
-                  const fromTab = state?.fromTab;
-                  if (typeof fromGroupId === "number") {
-                    navigate(`/?tab=all&group=${fromGroupId}`);
-                    return;
-                  }
-                  if (fromTab === "recent") {
-                    navigate("/?tab=recent");
-                    return;
-                  }
                   if (window.history.length > 1) navigate(-1);
                   else navigate("/");
                 }}
