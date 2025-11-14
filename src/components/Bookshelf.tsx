@@ -12,138 +12,17 @@ import * as pdfjs from "pdfjs-dist";
 // @ts-ignore
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { IBook, IGroup } from "../types";
+import {
+  CARD_WIDTH_COMPACT,
+  COVER_ASPECT_RATIO_COMPACT,
+  BOOK_TITLE_FONT_SIZE,
+} from "../constants/ui";
 import { bookService, groupService, getReaderSettings } from "../services";
 import { GroupDetail } from "./GroupDetail";
+import { BookCard } from "./BookCard";
 import ImportProgressDrawer from "./ImportProgressDrawer";
 
-interface BookCardProps {
-  book: IBook;
-  onClick: () => void;
-  onDelete: () => void;
-}
-
-const BookCard: React.FC<BookCardProps> = ({ book, onClick, onDelete }) => {
-  const progress =
-    book.total_pages > 0
-      ? Math.min(
-          100,
-          Math.round((book.current_page / book.total_pages) * 1000) / 10
-        )
-      : 0;
-
-  return (
-    <div
-      className="book-card"
-      onClick={onClick}
-      style={{
-        width: "160px",
-        margin: 0,
-        cursor: "pointer",
-        transition: "transform 0.2s ease",
-        backgroundColor: "transparent",
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.transform = "translateY(-4px)";
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.transform = "translateY(0)";
-      }}
-    >
-      <div
-        style={{
-          width: "100%",
-          height: "230px",
-          backgroundColor: "#fff",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          position: "relative",
-          border: "1px solid #e5e5e5",
-          borderRadius: "4px",
-          boxShadow: "0 2px 6px rgba(0,0,0,0.06)",
-          overflow: "hidden",
-        }}
-      >
-        {/* 删除按钮 */}
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete();
-          }}
-          title="删除书籍"
-          style={{
-            position: "absolute",
-            top: "6px",
-            right: "6px",
-            background: "rgba(0,0,0,0.6)",
-            color: "#fff",
-            border: "none",
-            borderRadius: "4px",
-            padding: "4px 6px",
-            fontSize: "12px",
-            cursor: "pointer",
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.backgroundColor = "rgba(0,0,0,0.8)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.backgroundColor = "rgba(0,0,0,0.6)";
-          }}
-        >
-          删除
-        </button>
-        {book.cover_image ? (
-          <img
-            src={`data:image/jpeg;base64,${book.cover_image}`}
-            alt={book.title}
-            style={{
-              width: "100%",
-              height: "100%",
-              objectFit: "cover",
-            }}
-          />
-        ) : (
-          <div
-            style={{
-              color: "#999",
-              fontSize: "14px",
-              textAlign: "center",
-            }}
-          >
-            暂无封面
-          </div>
-        )}
-      </div>
-      <div style={{ marginTop: "8px" }}>
-        <div
-          style={{
-            fontSize: "14px",
-            fontWeight: 500,
-            color: "#333",
-            lineHeight: 1.5,
-            display: "-webkit-box",
-            WebkitLineClamp: 2,
-            WebkitBoxOrient: "vertical" as any,
-            overflow: "hidden",
-            textAlign: "left",
-          }}
-        >
-          {book.title}
-        </div>
-        <div
-          style={{
-            marginTop: "4px",
-            fontSize: "12px",
-            color: "#888",
-            textAlign: "left",
-          }}
-        >
-          已读 {progress}%
-        </div>
-      </div>
-    </div>
-  );
-};
+// 使用通用 BookCard 组件
 
 export const Bookshelf: React.FC = () => {
   const location = useLocation();

@@ -1,139 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { IBook, IGroup } from "../types";
+import { CARD_WIDTH_COMPACT, COVER_ASPECT_RATIO_COMPACT, BOOK_TITLE_FONT_SIZE } from "../constants/ui";
 import { groupService, bookService } from "../services";
+import { BookCard } from "./BookCard";
 
-const BookCardMini: React.FC<{
-  book: IBook;
-  onClick: () => void;
-  draggable?: boolean;
-  onDragStart?: (e: React.DragEvent<HTMLDivElement>) => void;
-  onDragOver?: (e: React.DragEvent<HTMLDivElement>) => void;
-  onDrop?: (e: React.DragEvent<HTMLDivElement>) => void;
-  onDelete?: () => void;
-}> = ({
-  book,
-  onClick,
-  draggable,
-  onDragStart,
-  onDragOver,
-  onDrop,
-  onDelete,
-}) => {
-  const progress =
-    book.total_pages > 0
-      ? Math.min(
-          100,
-          Math.round((book.current_page / book.total_pages) * 1000) / 10
-        )
-      : 0;
-  return (
-    <div
-      className="book-card"
-      onClick={onClick}
-      draggable={draggable}
-      onDragStart={onDragStart}
-      onDragOver={onDragOver}
-      onDrop={onDrop}
-      style={{
-        width: "160px",
-        cursor: "pointer",
-        transition: "transform 0.2s ease",
-        backgroundColor: "transparent",
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.transform = "translateY(-4px)";
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.transform = "translateY(0)";
-      }}
-    >
-      <div
-        style={{
-          width: "100%",
-          height: "230px",
-          backgroundColor: "#fff",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          position: "relative",
-          border: "1px solid #e5e5e5",
-          borderRadius: "4px",
-          boxShadow: "0 2px 6px rgba(0,0,0,0.06)",
-          overflow: "hidden",
-        }}
-      >
-        {onDelete && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete();
-            }}
-            title="删除书籍"
-            style={{
-              position: "absolute",
-              top: "6px",
-              right: "6px",
-              background: "rgba(0,0,0,0.6)",
-              color: "#fff",
-              border: "none",
-              borderRadius: "4px",
-              padding: "4px 6px",
-              fontSize: "12px",
-              cursor: "pointer",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = "rgba(0,0,0,0.8)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = "rgba(0,0,0,0.6)";
-            }}
-          >
-            删除
-          </button>
-        )}
-        {book.cover_image ? (
-          <img
-            src={`data:image/jpeg;base64,${book.cover_image}`}
-            alt={book.title}
-            style={{ width: "100%", height: "100%", objectFit: "cover" }}
-          />
-        ) : (
-          <div style={{ color: "#999", fontSize: "14px", textAlign: "center" }}>
-            暂无封面
-          </div>
-        )}
-      </div>
-      <div style={{ marginTop: "8px" }}>
-        <div
-          style={{
-            fontSize: "14px",
-            fontWeight: 500,
-            color: "#333",
-            lineHeight: 1.5,
-            display: "-webkit-box",
-            WebkitLineClamp: 2,
-            WebkitBoxOrient: "vertical" as any,
-            overflow: "hidden",
-            textAlign: "left",
-          }}
-        >
-          {book.title}
-        </div>
-        <div
-          style={{
-            marginTop: "4px",
-            fontSize: "12px",
-            color: "#888",
-            textAlign: "left",
-          }}
-        >
-          已读 {progress}%
-        </div>
-      </div>
-    </div>
-  );
-};
+// 使用通用 BookCard 组件替换内联实现
 
 export const GroupDetail: React.FC<{
   groupIdProp?: number;
@@ -241,7 +113,7 @@ export const GroupDetail: React.FC<{
             padding: "12px 16px 16px",
             display: "grid",
             // 固定列宽，避免第一列过宽导致卡片居中偏移
-            gridTemplateColumns: "repeat(auto-fill, 160px)",
+            gridTemplateColumns: "repeat(auto-fill, " + CARD_WIDTH_COMPACT + "px)",
             gap: "16px",
             // 卡片在栅格单元内靠左对齐
             justifyItems: "start",
@@ -250,7 +122,7 @@ export const GroupDetail: React.FC<{
           }}
         >
           {books.map((b, idx) => (
-            <BookCardMini
+            <BookCard
               key={b.id}
               book={b}
               onClick={() =>

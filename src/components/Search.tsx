@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { IBook } from "../types";
+import { BOOK_TITLE_FONT_SIZE } from "../constants/ui";
 import { bookService } from "../services";
 
 const ResultCard: React.FC<{ book: IBook; onClick: () => void }> = ({
@@ -61,7 +62,7 @@ const ResultCard: React.FC<{ book: IBook; onClick: () => void }> = ({
       <div style={{ marginTop: "8px" }}>
         <div
           style={{
-            fontSize: "14px",
+            fontSize: BOOK_TITLE_FONT_SIZE + "px",
             fontWeight: 500,
             color: "#333",
             lineHeight: 1.5,
