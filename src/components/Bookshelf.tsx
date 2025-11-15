@@ -23,6 +23,7 @@ import { GroupDetail } from "./GroupDetail";
 import { BookCard } from "./BookCard";
 import GroupCoverGrid from "./GroupCoverGrid";
 import ImportProgressDrawer from "./ImportProgressDrawer";
+import ConfirmDeleteDrawer from "./ConfirmDeleteDrawer";
 
 // 使用通用 BookCard 组件
 
@@ -77,6 +78,18 @@ export const Bookshelf: React.FC = () => {
   const navigate = useNavigate();
   const [groupOverlayOpen, setGroupOverlayOpen] = useState(false);
   const [overlayGroupId, setOverlayGroupId] = useState<number | null>(null);
+
+  // 选择模式状态
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedBookIds, setSelectedBookIds] = useState<Set<number>>(
+    new Set()
+  );
+  const [selectedGroupIds, setSelectedGroupIds] = useState<Set<number>>(
+    new Set()
+  );
+  const selectedCount =
+    activeTab === "recent" ? selectedBookIds.size : selectedGroupIds.size;
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   // 导入进度抽屉状态
   const [importOpen, setImportOpen] = useState(false);
@@ -185,12 +198,25 @@ export const Bookshelf: React.FC = () => {
   };
 
   const handleBookClick = (book: IBook) => {
-    // Pass current tab context so Reader can return appropriately
+    if (selectionMode) {
+      setSelectedBookIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(book.id)) next.delete(book.id);
+        else next.add(book.id);
+        return next;
+      });
+      return;
+    }
     navigate(`/reader/${book.id}`, { state: { fromTab: activeTab } });
   };
 
-
   const handleDeleteBook = async (book: IBook) => {
+    if (selectionMode) {
+      // 在选择模式下使用顶部删除入口
+      setSelectedBookIds((prev) => new Set([...prev, book.id]));
+      setConfirmOpen(true);
+      return;
+    }
     try {
       if (activeTab === "recent") {
         let ok: boolean = false;
@@ -222,6 +248,61 @@ export const Bookshelf: React.FC = () => {
       const msg =
         typeof error?.message === "string" ? error.message : String(error);
       alert(`删除书籍失败，请重试\n\n原因：${msg}`);
+    }
+  };
+
+  // 长按进入选择模式（书籍）
+  const onBookLongPress = (id: number) => {
+    if (!selectionMode) setSelectionMode(true);
+    setSelectedBookIds((prev) => new Set(prev).add(id));
+  };
+
+  // 长按进入选择模式（分组）
+  const onGroupLongPress = (id: number) => {
+    if (!selectionMode) setSelectionMode(true);
+    setSelectedGroupIds((prev) => new Set(prev).add(id));
+  };
+
+  const exitSelection = () => {
+    setSelectionMode(false);
+    setSelectedBookIds(new Set());
+    setSelectedGroupIds(new Set());
+    setConfirmOpen(false);
+  };
+
+  const selectAllCurrent = () => {
+    if (activeTab === "recent") {
+      const allIds = new Set((filteredBooks || []).map((b) => b.id));
+      const isAllSelected =
+        selectedBookIds.size === allIds.size && allIds.size > 0;
+      setSelectedBookIds(isAllSelected ? new Set() : allIds);
+    } else {
+      const allIds = new Set((filteredGroups || []).map((g) => g.id));
+      const isAllSelected =
+        selectedGroupIds.size === allIds.size && allIds.size > 0;
+      setSelectedGroupIds(isAllSelected ? new Set() : allIds);
+    }
+  };
+
+  const confirmDelete = async () => {
+    try {
+      if (activeTab === "recent") {
+        const ids = Array.from(selectedBookIds);
+        for (const id of ids) {
+          await bookService.clearRecent(id);
+        }
+        await loadBooks();
+      } else {
+        const ids = Array.from(selectedGroupIds);
+        for (const gid of ids) {
+          await groupService.deleteGroup(gid);
+        }
+        await loadGroups();
+      }
+      exitSelection();
+    } catch (err) {
+      console.error("批量删除失败", err);
+      alert("删除失败，请重试");
     }
   };
   // 分组封面：基于“全部”分组中的书籍封面（最多4张）
@@ -373,388 +454,577 @@ export const Bookshelf: React.FC = () => {
         overflow: "hidden",
       }}
     >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          marginBottom: "12px",
-        }}
-      >
-        <div
-          ref={tabsRef}
-          style={{
-            display: "flex",
-            alignItems: "flex-end",
-            gap: "18px",
-            position: "relative",
-            paddingBottom: "8px",
-          }}
-        >
-          <button
-            onClick={() => {
-              setActiveTab("recent");
-              setAnimateUnderline(true);
-            }}
-            style={{
-              background: "transparent",
-              border: "none",
-              padding: 0,
-              cursor: "pointer",
-              boxShadow: "none",
-              borderRadius: 0,
-            }}
-            title="最近"
-          >
-            <div
-              ref={recentLabelRef}
-              style={{
-                fontSize: "18px",
-                color: activeTab === "recent" ? "#000" : "#bbb",
-                transition: "color 200ms ease",
-              }}
-            >
-              最近
-            </div>
-          </button>
-          <button
-            onClick={() => {
-              setActiveTab("all");
-              setAnimateUnderline(true);
-            }}
-            style={{
-              background: "transparent",
-              border: "none",
-              padding: 0,
-              cursor: "pointer",
-              boxShadow: "none",
-              borderRadius: 0,
-            }}
-            title="全部"
-          >
-            <div
-              ref={allLabelRef}
-              style={{
-                fontSize: "18px",
-                color: activeTab === "all" ? "#000" : "#bbb",
-                transition: "color 200ms ease",
-              }}
-            >
-              全部
-            </div>
-          </button>
-          <div
-            style={{
-              position: "absolute",
-              bottom: 0,
-              left: underlinePos.left,
-              width: underlinePos.width,
-              height: "3px",
-              backgroundColor: "#d15158",
-              transition: animateUnderline
-                ? "left 250ms ease, width 250ms ease"
-                : "none",
-              opacity: underlineReady ? 1 : 0,
-            }}
-          />
-        </div>
+      {selectionMode ? (
         <div
           style={{
             display: "flex",
             alignItems: "center",
-            gap: "20px",
-            position: "relative",
+            padding: 0,
+            marginBottom: "12px",
           }}
         >
           <button
-            title="搜索"
-            aria-label="搜索"
-            onClick={() => navigate(`/search?tab=${activeTab}`)}
+            aria-label="返回"
+            onClick={exitSelection}
             style={{
-              background: "transparent",
+              background: "none",
               border: "none",
-              padding: 0,
-              margin: 0,
-              cursor: "pointer",
-              color: "#333",
-              WebkitAppearance: "none",
-              appearance: "none",
-              outline: "none",
               boxShadow: "none",
               borderRadius: 0,
-              display: "inline-flex",
-              alignItems: "center",
+              cursor: "pointer",
+              padding: 0,
+              marginLeft: "-6px",
             }}
           >
-            <svg
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <circle cx="11" cy="11" r="7" stroke="#333" strokeWidth="2" />
-              <line
-                x1="20"
-                y1="20"
-                x2="16.5"
-                y2="16.5"
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+              <path
+                d="M14 18l-6-6 6-6"
                 stroke="#333"
                 strokeWidth="2"
                 strokeLinecap="round"
+                strokeLinejoin="round"
               />
             </svg>
           </button>
-          <button
-            ref={menuBtnRef}
-            title="更多"
-            aria-label="更多"
-            onClick={() => setMenuOpen((m) => !m)}
+          <span
             style={{
-              background: "transparent",
-              border: "none",
-              padding: 0,
-              margin: 0,
-              cursor: "pointer",
+              fontSize: 16,
               color: "#333",
-              WebkitAppearance: "none",
-              appearance: "none",
-              outline: "none",
-              boxShadow: "none",
-              borderRadius: 0,
+              marginLeft: 8,
+              fontWeight: 600,
+              // 与左侧返回图标(24px)保持垂直居中视觉对齐
               display: "inline-flex",
               alignItems: "center",
+              height: "24px",
+              lineHeight: "24px",
+              // 视觉微调：字体度量相对图形略低，向上平移1px
+              transform: "translateY(-2px)",
             }}
           >
-            <svg
-              width="20"
-              height="20"
-              viewBox="0 0 24 24"
-              fill="#333"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <circle cx="12" cy="5" r="2" />
-              <circle cx="12" cy="12" r="2" />
-              <circle cx="12" cy="19" r="2" />
-            </svg>
-          </button>
-          {menuOpen && (
-            <div
-              ref={menuRef}
+            已选中({selectedCount})
+          </span>
+          <div style={{ flex: 1 }} />
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            <button
+              aria-label="删除"
+              title="删除"
               style={{
-                position: "fixed",
-                left: menuPos.left,
-                top: menuPos.top,
-                transform: "translateX(-50%)",
-                background: "#fff",
+                background: "none",
                 border: "none",
-                boxShadow: "0 6px 16px rgba(0,0,0,0.12)",
-                borderRadius: "10px",
-                padding: "8px 14px",
-                width: "auto",
-                minWidth: "100px",
-                whiteSpace: "nowrap",
-                zIndex: 20,
+                boxShadow: "none",
+                borderRadius: 0,
+                cursor: selectedCount === 0 ? "not-allowed" : "pointer",
+                opacity: selectedCount === 0 ? 0.4 : 1,
+                padding: 0,
+              }}
+              disabled={selectedCount === 0}
+              onClick={() => {
+                if (selectedCount === 0) return;
+                setConfirmOpen(true);
               }}
             >
-              <button
-                onClick={() => {
-                  setMenuOpen(false);
-                  navigate("/import");
-                }}
-                style={{
-                  width: "100%",
-                  background: "transparent",
-                  border: "none",
-                  boxShadow: "none",
-                  borderRadius: 0,
-                  padding: "8px 6px",
-                  cursor: "pointer",
-                  color: "#333",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "8px",
-                  textAlign: "left",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = "#f7f7f7";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = "transparent";
-                }}
-              >
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                  aria-hidden
-                >
-                  <path
-                    d="M12 3v8"
-                    stroke="#333"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
-                  <path
-                    d="M9.5 8.5L12 11l2.5-2.5"
-                    stroke="#333"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                  <rect
-                    x="4"
-                    y="13"
-                    width="16"
-                    height="7"
-                    rx="2"
-                    stroke="#333"
-                    strokeWidth="2"
-                  />
-                </svg>
-                <span>导入</span>
-              </button>
-              <button
-                onClick={() => {
-                  setMenuOpen(false);
-                  navigate("/settings");
-                }}
-                style={{
-                  width: "100%",
-                  background: "transparent",
-                  border: "none",
-                  boxShadow: "none",
-                  borderRadius: 0,
-                  padding: "8px 6px",
-                  cursor: "pointer",
-                  color: "#333",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "8px",
-                  textAlign: "left",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = "#f7f7f7";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = "transparent";
-                }}
-              >
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                  aria-hidden
-                >
-                  <circle cx="12" cy="12" r="9" stroke="#333" strokeWidth="2" />
-                  <circle cx="12" cy="12" r="3" stroke="#333" strokeWidth="2" />
-                  <path
-                    d="M12 4.5v2.3"
-                    stroke="#333"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
-                  <path
-                    d="M12 17.2v2.3"
-                    stroke="#333"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
-                  <path
-                    d="M4.5 12h2.3"
-                    stroke="#333"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
-                  <path
-                    d="M17.2 12h2.3"
-                    stroke="#333"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
-                  <path
-                    d="M6.8 6.8l1.6 1.6"
-                    stroke="#333"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
-                  <path
-                    d="M15.6 15.6l1.6 1.6"
-                    stroke="#333"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
-                  <path
-                    d="M6.8 17.2l1.6-1.6"
-                    stroke="#333"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
-                  <path
-                    d="M15.6 8.4l1.6-1.6"
-                    stroke="#333"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
-                </svg>
-                <span>设置</span>
-              </button>
-              <button
-                onClick={() => {
-                  setMenuOpen(false);
-                  alert("GoRead - 轻量 PDF 阅读器");
-                }}
-                style={{
-                  width: "100%",
-                  background: "transparent",
-                  border: "none",
-                  boxShadow: "none",
-                  borderRadius: 0,
-                  padding: "8px 6px",
-                  cursor: "pointer",
-                  color: "#333",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "8px",
-                  textAlign: "left",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = "#f7f7f7";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = "transparent";
-                }}
-              >
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                  aria-hidden
-                >
-                  <circle cx="12" cy="12" r="9" stroke="#333" strokeWidth="2" />
-                  <path
-                    d="M12 9v6"
-                    stroke="#333"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
-                  <circle cx="12" cy="6.5" r="1.5" fill="#333" />
-                </svg>
-                <span>关于</span>
-              </button>
-            </div>
-          )}
+              <svg width="21" height="21" viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M6 7h12"
+                  stroke={selectedCount === 0 ? "#bbb" : "#333"}
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+                <path
+                  d="M9 7V5h6v2"
+                  stroke={selectedCount === 0 ? "#bbb" : "#333"}
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+                <rect
+                  x="6"
+                  y="7"
+                  width="12"
+                  height="14"
+                  rx="2"
+                  stroke={selectedCount === 0 ? "#bbb" : "#333"}
+                  strokeWidth="2"
+                />
+              </svg>
+            </button>
+            <button
+              aria-label="全选"
+              title={
+                activeTab === "recent"
+                  ? selectedBookIds.size === (filteredBooks?.length || 0) &&
+                    (filteredBooks?.length || 0) > 0
+                    ? "取消全选"
+                    : "全选"
+                  : selectedGroupIds.size === (filteredGroups?.length || 0) &&
+                    (filteredGroups?.length || 0) > 0
+                  ? "取消全选"
+                  : "全选"
+              }
+              style={{
+                background: "none",
+                border: "none",
+                boxShadow: "none",
+                borderRadius: 0,
+                cursor: "pointer",
+                padding: 0,
+              }}
+              onClick={selectAllCurrent}
+            >
+              <svg width="21" height="21" viewBox="0 0 24 24" fill="none">
+                {(() => {
+                  const allCount =
+                    activeTab === "recent"
+                      ? filteredBooks?.length || 0
+                      : filteredGroups?.length || 0;
+                  const selCount =
+                    activeTab === "recent"
+                      ? selectedBookIds.size
+                      : selectedGroupIds.size;
+                  const isAll = allCount > 0 && selCount === allCount;
+                  const stroke = isAll ? "#d23c3c" : "#333";
+                  return (
+                    <g>
+                      <rect
+                        x="3"
+                        y="3"
+                        width="7"
+                        height="7"
+                        stroke={stroke}
+                        strokeWidth="2"
+                      />
+                      <rect
+                        x="14"
+                        y="3"
+                        width="7"
+                        height="7"
+                        stroke={stroke}
+                        strokeWidth="2"
+                      />
+                      <rect
+                        x="3"
+                        y="14"
+                        width="7"
+                        height="7"
+                        stroke={stroke}
+                        strokeWidth="2"
+                      />
+                      <rect
+                        x="14"
+                        y="14"
+                        width="7"
+                        height="7"
+                        stroke={stroke}
+                        strokeWidth="2"
+                      />
+                    </g>
+                  );
+                })()}
+              </svg>
+            </button>
+          </div>
         </div>
-      </div>
+      ) : (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: "12px",
+          }}
+        >
+          <div
+            ref={tabsRef}
+            style={{
+              display: "flex",
+              alignItems: "flex-end",
+              gap: "18px",
+              position: "relative",
+              paddingBottom: "8px",
+            }}
+          >
+            <button
+              onClick={() => {
+                setActiveTab("recent");
+                setAnimateUnderline(true);
+              }}
+              style={{
+                background: "transparent",
+                border: "none",
+                padding: 0,
+                cursor: "pointer",
+                boxShadow: "none",
+                borderRadius: 0,
+              }}
+              title="最近"
+            >
+              <div
+                ref={recentLabelRef}
+                style={{
+                  fontSize: "18px",
+                  color: activeTab === "recent" ? "#000" : "#bbb",
+                  transition: "color 200ms ease",
+                }}
+              >
+                最近
+              </div>
+            </button>
+            <button
+              onClick={() => {
+                setActiveTab("all");
+                setAnimateUnderline(true);
+              }}
+              style={{
+                background: "transparent",
+                border: "none",
+                padding: 0,
+                cursor: "pointer",
+                boxShadow: "none",
+                borderRadius: 0,
+              }}
+              title="全部"
+            >
+              <div
+                ref={allLabelRef}
+                style={{
+                  fontSize: "18px",
+                  color: activeTab === "all" ? "#000" : "#bbb",
+                  transition: "color 200ms ease",
+                }}
+              >
+                全部
+              </div>
+            </button>
+            <div
+              style={{
+                position: "absolute",
+                bottom: 0,
+                left: underlinePos.left,
+                width: underlinePos.width,
+                height: "3px",
+                backgroundColor: "#d15158",
+                transition: animateUnderline
+                  ? "left 250ms ease, width 250ms ease"
+                  : "none",
+                opacity: underlineReady ? 1 : 0,
+              }}
+            />
+          </div>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "20px",
+              position: "relative",
+            }}
+          >
+            <button
+              title="搜索"
+              aria-label="搜索"
+              onClick={() => navigate(`/search?tab=${activeTab}`)}
+              style={{
+                background: "transparent",
+                border: "none",
+                padding: 0,
+                margin: 0,
+                cursor: "pointer",
+                color: "#333",
+                WebkitAppearance: "none",
+                appearance: "none",
+                outline: "none",
+                boxShadow: "none",
+                borderRadius: 0,
+                display: "inline-flex",
+                alignItems: "center",
+              }}
+            >
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <circle cx="11" cy="11" r="7" stroke="#333" strokeWidth="2" />
+                <line
+                  x1="20"
+                  y1="20"
+                  x2="16.5"
+                  y2="16.5"
+                  stroke="#333"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </button>
+            <button
+              ref={menuBtnRef}
+              title="更多"
+              aria-label="更多"
+              onClick={() => setMenuOpen((m) => !m)}
+              style={{
+                background: "transparent",
+                border: "none",
+                padding: 0,
+                margin: 0,
+                cursor: "pointer",
+                color: "#333",
+                WebkitAppearance: "none",
+                appearance: "none",
+                outline: "none",
+                boxShadow: "none",
+                borderRadius: 0,
+                display: "inline-flex",
+                alignItems: "center",
+              }}
+            >
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="#333"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <circle cx="12" cy="5" r="2" />
+                <circle cx="12" cy="12" r="2" />
+                <circle cx="12" cy="19" r="2" />
+              </svg>
+            </button>
+            {menuOpen && (
+              <div
+                ref={menuRef}
+                style={{
+                  position: "fixed",
+                  left: menuPos.left,
+                  top: menuPos.top,
+                  transform: "translateX(-50%)",
+                  background: "#fff",
+                  border: "none",
+                  boxShadow: "0 6px 16px rgba(0,0,0,0.12)",
+                  borderRadius: "10px",
+                  padding: "8px 14px",
+                  width: "auto",
+                  minWidth: "100px",
+                  whiteSpace: "nowrap",
+                  zIndex: 20,
+                }}
+              >
+                <button
+                  onClick={() => {
+                    setMenuOpen(false);
+                    navigate("/import");
+                  }}
+                  style={{
+                    width: "100%",
+                    background: "transparent",
+                    border: "none",
+                    boxShadow: "none",
+                    borderRadius: 0,
+                    padding: "8px 6px",
+                    cursor: "pointer",
+                    color: "#333",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    textAlign: "left",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = "#f7f7f7";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = "transparent";
+                  }}
+                >
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                    aria-hidden
+                  >
+                    <path
+                      d="M12 3v8"
+                      stroke="#333"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                    />
+                    <path
+                      d="M9.5 8.5L12 11l2.5-2.5"
+                      stroke="#333"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                    <rect
+                      x="4"
+                      y="13"
+                      width="16"
+                      height="7"
+                      rx="2"
+                      stroke="#333"
+                      strokeWidth="2"
+                    />
+                  </svg>
+                  <span>导入</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setMenuOpen(false);
+                    navigate("/settings");
+                  }}
+                  style={{
+                    width: "100%",
+                    background: "transparent",
+                    border: "none",
+                    boxShadow: "none",
+                    borderRadius: 0,
+                    padding: "8px 6px",
+                    cursor: "pointer",
+                    color: "#333",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    textAlign: "left",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = "#f7f7f7";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = "transparent";
+                  }}
+                >
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                    aria-hidden
+                  >
+                    <circle
+                      cx="12"
+                      cy="12"
+                      r="9"
+                      stroke="#333"
+                      strokeWidth="2"
+                    />
+                    <circle
+                      cx="12"
+                      cy="12"
+                      r="3"
+                      stroke="#333"
+                      strokeWidth="2"
+                    />
+                    <path
+                      d="M12 4.5v2.3"
+                      stroke="#333"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                    />
+                    <path
+                      d="M12 17.2v2.3"
+                      stroke="#333"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                    />
+                    <path
+                      d="M4.5 12h2.3"
+                      stroke="#333"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                    />
+                    <path
+                      d="M17.2 12h2.3"
+                      stroke="#333"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                    />
+                    <path
+                      d="M6.8 6.8l1.6 1.6"
+                      stroke="#333"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                    />
+                    <path
+                      d="M15.6 15.6l1.6 1.6"
+                      stroke="#333"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                    />
+                    <path
+                      d="M6.8 17.2l1.6-1.6"
+                      stroke="#333"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                    />
+                    <path
+                      d="M15.6 8.4l1.6-1.6"
+                      stroke="#333"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                  <span>设置</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setMenuOpen(false);
+                    alert("GoRead - 轻量 PDF 阅读器");
+                  }}
+                  style={{
+                    width: "100%",
+                    background: "transparent",
+                    border: "none",
+                    boxShadow: "none",
+                    borderRadius: 0,
+                    padding: "8px 6px",
+                    cursor: "pointer",
+                    color: "#333",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    textAlign: "left",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = "#f7f7f7";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = "transparent";
+                  }}
+                >
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                    aria-hidden
+                  >
+                    <circle
+                      cx="12"
+                      cy="12"
+                      r="9"
+                      stroke="#333"
+                      strokeWidth="2"
+                    />
+                    <path
+                      d="M12 9v6"
+                      stroke="#333"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                    />
+                    <circle cx="12" cy="6.5" r="1.5" fill="#333" />
+                  </svg>
+                  <span>关于</span>
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
-      {/* 首页临时搜索输入移除，改为跳转到 /search */}
       <div className="no-scrollbar" style={{ flex: 1, overflowY: "auto" }}>
+        {/* 选择模式顶部栏已合并到上方最近/全部标签区域 */}
         {activeTab === "recent" ? (
           filteredBooks.length === 0 ? (
             <div
@@ -775,12 +1045,29 @@ export const Bookshelf: React.FC = () => {
               </div>
             </div>
           ) : (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: GRID_GAP_BOOK_CARDS + "px" }}>
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: GRID_GAP_BOOK_CARDS + "px",
+              }}
+            >
               {filteredBooks.map((book) => (
                 <BookCard
                   key={book.id}
                   book={book}
                   onClick={() => handleBookClick(book)}
+                  onLongPress={() => onBookLongPress(book.id)}
+                  selectable={selectionMode}
+                  selected={selectedBookIds.has(book.id)}
+                  onToggleSelect={() => {
+                    setSelectedBookIds((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(book.id)) next.delete(book.id);
+                      else next.add(book.id);
+                      return next;
+                    });
+                  }}
                   onDelete={() => handleDeleteBook(book)}
                 />
               ))}
@@ -805,18 +1092,134 @@ export const Bookshelf: React.FC = () => {
             </div>
           </div>
         ) : (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: `${GRID_GAP_GROUP_ROW}px ${GRID_GAP_GROUP_COLUMN}px` }}>
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: `${GRID_GAP_GROUP_ROW}px ${GRID_GAP_GROUP_COLUMN}px`,
+            }}
+          >
             {filteredGroups.map((g) => (
               <div
                 key={g.id}
-                style={{ width: "140px", margin: 0, cursor: "pointer" }}
+                style={{
+                  width: "140px",
+                  margin: 0,
+                  cursor: "pointer",
+                  position: "relative",
+                }}
                 onClick={() => {
-                  setOverlayGroupId(g.id);
-                  setGroupOverlayOpen(true);
+                  if (selectionMode) {
+                    setSelectedGroupIds((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(g.id)) next.delete(g.id);
+                      else next.add(g.id);
+                      return next;
+                    });
+                  } else {
+                    setOverlayGroupId(g.id);
+                    setGroupOverlayOpen(true);
+                  }
+                }}
+                onPointerDown={(e) => {
+                  if (selectionMode) return;
+                  const target = e.currentTarget;
+                  const timer = window.setTimeout(() => {
+                    onGroupLongPress(g.id);
+                  }, 500);
+                  const clear = () => window.clearTimeout(timer);
+                  const up = () => {
+                    clear();
+                    target.removeEventListener("pointerup", up as any);
+                    target.removeEventListener("pointerleave", leave as any);
+                    target.removeEventListener("pointercancel", cancel as any);
+                  };
+                  const leave = () => up();
+                  const cancel = () => up();
+                  target.addEventListener("pointerup", up as any, {
+                    once: true,
+                  });
+                  target.addEventListener("pointerleave", leave as any, {
+                    once: true,
+                  });
+                  target.addEventListener("pointercancel", cancel as any, {
+                    once: true,
+                  });
                 }}
               >
-                <div>
-                  <GroupCoverGrid covers={groupCovers[g.id] || []} tileRatio="3 / 4" />
+                <div style={{ position: "relative" }}>
+                  <GroupCoverGrid
+                    covers={groupCovers[g.id] || []}
+                    tileRatio="3 / 4"
+                  />
+                  {selectionMode && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedGroupIds((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(g.id)) next.delete(g.id);
+                          else next.add(g.id);
+                          return next;
+                        });
+                      }}
+                      title={selectedGroupIds.has(g.id) ? "取消选择" : "选择"}
+                      style={{
+                        position: "absolute",
+                        top: "0.5px",
+                        right: "0.5px",
+                        width: "24px",
+                        height: "24px",
+                        background: "none",
+                        border: "none",
+                        boxShadow: "none",
+                        borderRadius: 0,
+                        WebkitAppearance: "none",
+                        appearance: "none",
+                        outline: "none",
+                        WebkitTapHighlightColor: "transparent",
+                        padding: 0,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        cursor: "pointer",
+                      }}
+                    >
+                      {selectedGroupIds.has(g.id) ? (
+                        <svg
+                          width="24"
+                          height="24"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                        >
+                          <circle cx="12" cy="12" r="9" fill="#d23c3c" />
+                          <path
+                            d="M9 12l2 2 4-4"
+                            stroke="#fff"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      ) : (
+                        <svg
+                          width="24"
+                          height="24"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                        >
+                          <circle
+                            cx="12"
+                            cy="12"
+                            r="9"
+                            fill="#fff"
+                            stroke="#d23c3c"
+                            strokeWidth="2"
+                          />
+                        </svg>
+                      )}
+                    </button>
+                  )}
                 </div>
                 <div style={{ marginTop: CARD_INFO_MARGIN_TOP + "px" }}>
                   <div
@@ -930,6 +1333,13 @@ export const Bookshelf: React.FC = () => {
           window.dispatchEvent(evt);
           setImportOpen(false);
         }}
+      />
+      <ConfirmDeleteDrawer
+        open={confirmOpen}
+        context={activeTab === "recent" ? "recent" : "all-groups"}
+        count={selectedCount}
+        onCancel={() => setConfirmOpen(false)}
+        onConfirm={confirmDelete}
       />
     </div>
   );

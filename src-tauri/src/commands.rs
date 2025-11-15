@@ -268,6 +268,24 @@ pub async fn get_all_groups(db: DbState<'_>) -> Result<Vec<Group>, Error> {
     Ok(groups)
 }
 
+// 删除分组以及分组内的所有书籍（不影响源文件）；同时会级联删除书签
+#[tauri::command]
+pub async fn delete_group(group_id: i64, db: DbState<'_>) -> Result<(), Error> {
+    let pool = db.lock().await;
+    // 使用事务保证一致性
+    let mut tx = (&*pool).begin().await?;
+    // 删除该分组内的书籍（书签表有 ON DELETE CASCADE）
+    sqlx::query("DELETE FROM books WHERE group_id = ?")
+        .bind(group_id)
+        .execute(&mut *tx).await?;
+    // 删除分组本身
+    sqlx::query("DELETE FROM groups WHERE id = ?")
+        .bind(group_id)
+        .execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn get_books_by_group(group_id: i64, db: DbState<'_>) -> Result<Vec<Book>, Error> {
     let pool = db.lock().await;

@@ -1,4 +1,5 @@
-import React from "react";
+import React, { useRef } from "react";
+import { useLongPress } from "../hooks/useLongPress";
 import { IBook } from "../types";
 import {
   CARD_WIDTH_COMPACT,
@@ -22,6 +23,12 @@ export interface CommonBookCardProps {
   // 可选尺寸配置（默认与紧凑卡片一致）
   width?: number;
   aspectRatio?: string;
+  // 选择模式（顶部右上角圆点）
+  selectable?: boolean;
+  selected?: boolean;
+  onToggleSelect?: () => void;
+  // 长按手势
+  onLongPress?: () => void;
 }
 
 export const BookCard: React.FC<CommonBookCardProps> = ({
@@ -34,7 +41,16 @@ export const BookCard: React.FC<CommonBookCardProps> = ({
   onDrop,
   width = CARD_WIDTH_COMPACT,
   aspectRatio = COVER_ASPECT_RATIO_COMPACT,
+  selectable = false,
+  selected = false,
+  onToggleSelect,
+  onLongPress,
 }) => {
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  // 动态加载长按 hook，避免循环依赖
+  if (onLongPress) {
+    useLongPress(cardRef as any, () => onLongPress(), { delay: 500 });
+  }
   const progress =
     book.total_pages > 0
       ? Math.min(
@@ -55,15 +71,10 @@ export const BookCard: React.FC<CommonBookCardProps> = ({
         width: width + "px",
         margin: 0,
         cursor: "pointer",
-        transition: "transform 0.2s ease",
         backgroundColor: "transparent",
+        position: "relative",
       }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.transform = "translateY(-4px)";
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.transform = "translateY(0)";
-      }}
+      ref={cardRef}
     >
       <div
         style={{
@@ -80,33 +91,58 @@ export const BookCard: React.FC<CommonBookCardProps> = ({
           overflow: "hidden",
         }}
       >
-        {onDelete && (
+        {/* 选择按钮（卡片内部右上角） */}
+        {selectable && (
           <button
             onClick={(e) => {
               e.stopPropagation();
-              onDelete();
+              onToggleSelect?.();
             }}
-            title="删除书籍"
+            title={selected ? "取消选择" : "选择"}
             style={{
               position: "absolute",
-              top: "6px",
-              right: "6px",
-              background: "rgba(0,0,0,0.6)",
-              color: "#fff",
+              top: "0.5px",
+              right: "0.5px",
+              width: "24px",
+              height: "24px",
+              background: "none",
               border: "none",
-              borderRadius: "4px",
-              padding: "4px 6px",
-              fontSize: "12px",
+              boxShadow: "none",
+              borderRadius: 0,
+              WebkitAppearance: "none",
+              appearance: "none",
+              outline: "none",
+              WebkitTapHighlightColor: "transparent",
+              padding: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
               cursor: "pointer",
             }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = "rgba(0,0,0,0.8)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = "rgba(0,0,0,0.6)";
-            }}
           >
-            删除
+            {selected ? (
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="12" r="9" fill="#d23c3c" />
+                <path
+                  d="M9 12l2 2 4-4"
+                  stroke="#fff"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            ) : (
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                <circle
+                  cx="12"
+                  cy="12"
+                  r="9"
+                  fill="#fff"
+                  stroke="#d23c3c"
+                  strokeWidth="2"
+                />
+              </svg>
+            )}
           </button>
         )}
         {book.cover_image ? (

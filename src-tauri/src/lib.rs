@@ -47,6 +47,7 @@ pub fn run() {
             delete_book,
             add_group,
             get_all_groups,
+            delete_group,
             get_books_by_group,
             move_book_to_group,
             reorder_group_books,
