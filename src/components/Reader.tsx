@@ -107,8 +107,10 @@ export const Reader: React.FC = () => {
       }
 
       // 加载PDF文件
-      const fs = await import("@tauri-apps/plugin-fs");
-      const fileData = await fs.readFile(targetBook.file_path);
+      // 使用 Rust 后端命令读取文件，因为 @tauri-apps/plugin-fs 有安全限制
+      const { getInvoke } = await import("../services/index");
+      const invoke = await getInvoke();
+      const fileData = await invoke('read_file_bytes', { path: targetBook.file_path });
 
       const pdfjs = await import("pdfjs-dist");
       // 设置 workerSrc，避免 "No GlobalWorkerOptions.workerSrc specified" 报错

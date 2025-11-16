@@ -38,7 +38,7 @@ const loadTauriAPI = async () => {
 
 // 延迟加载invoke函数
 let invokePromise: Promise<any> | null = null;
-const getInvoke = async () => {
+export const getInvoke = async () => {
   if (!invokePromise) {
     invokePromise = loadTauriAPI();
   }

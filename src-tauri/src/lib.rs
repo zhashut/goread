@@ -53,7 +53,13 @@ pub fn run() {
             reorder_group_books,
             add_bookmark,
             get_bookmarks,
-            delete_bookmark
+            delete_bookmark,
+            scan_pdf_files,
+            list_directory,
+            get_root_directories,
+            check_storage_permission,
+            request_storage_permission,
+            read_file_bytes
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,11 +1,11 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { FileRow } from "./FileRow";
-import { groupService } from "../services";
-import { IGroup } from "../types";
+import { groupService, bookService } from "../services";
+import { IGroup, IBook } from "../types";
 import GroupingDrawer from "./GroupingDrawer";
 import ChooseExistingGroupDrawer from "./ChooseExistingGroupDrawer";
-import { pickPdfPaths, waitNextFrame } from "../services/importUtils";
+import { waitNextFrame } from "../services/importUtils";
 
 export interface FileEntry {
   type: "file" | "dir";
@@ -35,10 +35,6 @@ export const ScanResults: React.FC = () => {
     () => state?.results || [],
     [state]
   );
-  const filtered = useMemo(() => {
-    const kw = globalSearch.trim().toLowerCase();
-    return results.filter((it) => it.name.toLowerCase().includes(kw));
-  }, [results, globalSearch]);
 
   const toggleSelect = (path: string) => {
     setSelectedPaths((prev) =>
@@ -58,19 +54,49 @@ export const ScanResults: React.FC = () => {
   );
   const [groupingLoading, setGroupingLoading] = useState(false);
 
+  // 从数据库获取所有已导入的书籍路径
+  const [allImportedBooks, setAllImportedBooks] = useState<IBook[]>([]);
+  const importedPaths = useMemo(
+    () => new Set(allImportedBooks.map((b) => b.file_path)),
+    [allImportedBooks]
+  );
+
+  // 加载已导入的书籍列表
+  useEffect(() => {
+    const loadImportedBooks = async () => {
+      try {
+        await bookService.initDatabase();
+        const books = await bookService.getAllBooks();
+        setAllImportedBooks(books);
+      } catch (error) {
+        console.error("加载已导入书籍失败:", error);
+      }
+    };
+    loadImportedBooks();
+  }, []);
+
+  // 更新结果中的已导入标记
+  const resultsWithImported: ScanResultItem[] = useMemo(() => {
+    return results.map((item) => ({
+      ...item,
+      imported: importedPaths.has(item.path),
+    }));
+  }, [results, importedPaths]);
+
+  const filtered = useMemo(() => {
+    const kw = globalSearch.trim().toLowerCase();
+    return resultsWithImported.filter((it) => it.name.toLowerCase().includes(kw));
+  }, [resultsWithImported, globalSearch]);
+
   const handleImportClick = async () => {
-    try {
-      const paths = await pickPdfPaths(true);
-      if (!paths.length) return;
-      // 不立即导入，仅保存路径并打开分组抽屉
-      setPendingImportPaths(paths);
-      setGroupingOpen(true);
-    } catch (error: any) {
-      console.error("Import dialog failed:", error);
-      const msg =
-        typeof error?.message === "string" ? error.message : String(error);
-      alert(`导入失败，请重试\n\n原因：${msg}`);
+    // 直接使用已选中的文件路径，不再弹出文件选择对话框
+    if (selectedPaths.length === 0) {
+      alert("请先选择要导入的文件");
+      return;
     }
+    // 不立即导入，仅保存路径并打开分组抽屉
+    setPendingImportPaths(selectedPaths);
+    setGroupingOpen(true);
   };
 
   const openChooseGroup = async () => {
@@ -85,7 +111,7 @@ export const ScanResults: React.FC = () => {
             .map((b) => b.cover_image)
             .filter(Boolean)
             .slice(0, 4) as string[];
-        } catch {}
+        } catch { }
       }
       setGroupPreviews(previews);
       setChooseGroupOpen(true);
@@ -317,7 +343,7 @@ export const ScanResults: React.FC = () => {
               }}
               onClick={() => {
                 const candidates = filtered
-                  .filter((it) => !it.imported)
+                  .filter((it) => !it.imported && it.type === "file")
                   .map((it) => it.path);
                 const allSelected =
                   candidates.length > 0 &&

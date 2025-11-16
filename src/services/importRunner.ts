@@ -43,8 +43,9 @@ export const importPathsToExistingGroup = async (
     }
 
     // 读取与解析PDF，生成封面
-    const { readFile } = await import("@tauri-apps/plugin-fs");
-    const fileData = await readFile(filePath);
+    // 使用 Rust 后端命令读取文件，因为 @tauri-apps/plugin-fs 有安全限制
+    const invoke = await import("../services/index").then(m => m.getInvoke());
+    const fileData = await invoke('read_file_bytes', { path: filePath });
     (pdfjs as any).GlobalWorkerOptions.workerSrc = workerUrl;
     let pdf: any;
     try {

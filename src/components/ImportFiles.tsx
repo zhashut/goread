@@ -1,11 +1,13 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState, useEffect } from "react";
 import { FileRow } from "./FileRow";
 import { useNavigate, useLocation } from "react-router-dom";
 import { IBook, IGroup } from "../types";
-import { groupService } from "../services";
+import { groupService, bookService } from "../services";
+import { fileSystemService } from "../services/fileSystemService";
 import GroupingDrawer from "./GroupingDrawer";
 import ChooseExistingGroupDrawer from "./ChooseExistingGroupDrawer";
-import { pickPdfPaths, waitNextFrame } from "../services/importUtils";
+import { waitNextFrame } from "../services/importUtils";
+import { isSupportedFile } from "../constants/fileTypes";
 
 type TabKey = "scan" | "browse";
 
@@ -23,58 +25,6 @@ export interface ScanResultItem extends FileEntry {
   type: "file";
 }
 
-// 轻量mock：后续将由 Tauri 命令替换
-const mockScanResults: ScanResultItem[] = [
-  {
-    type: "file",
-    name: "AI研究综述.pdf",
-    path: "/storage/docs/AI研究综述.pdf",
-    size: 1343488,
-    mtime: Date.now() - 86400000,
-    imported: false,
-  },
-  {
-    type: "file",
-    name: "操作系统笔记.pdf",
-    path: "/storage/docs/操作系统笔记.pdf",
-    size: 2893120,
-    mtime: Date.now() - 3600 * 1000 * 24 * 18,
-    imported: true,
-  },
-  {
-    type: "file",
-    name: "算法导论精选.pdf",
-    path: "/storage/books/算法导论精选.pdf",
-    size: 4233216,
-    mtime: Date.now() - 3600 * 1000 * 24 * 36,
-    imported: false,
-  },
-];
-
-const mockRootDirs: FileEntry[] = [
-  {
-    type: "dir",
-    name: "Download",
-    path: "/storage/Download",
-    childrenCount: 42,
-    mtime: Date.now() - 3600 * 1000 * 2,
-  },
-  {
-    type: "dir",
-    name: "Documents",
-    path: "/storage/Documents",
-    childrenCount: 18,
-    mtime: Date.now() - 3600 * 1000 * 24 * 2,
-  },
-  {
-    type: "dir",
-    name: "Pictures",
-    path: "/storage/Pictures",
-    childrenCount: 210,
-    mtime: Date.now() - 3600 * 1000 * 5,
-  },
-];
-
 const fmtDate = (t?: number) => {
   if (!t) return "";
   const d = new Date(t);
@@ -86,9 +36,7 @@ const fmtDate = (t?: number) => {
   return `${y}/${m}/${day} ${hh}:${mm}`;
 };
 
-export const ImportFiles: React.FC<{ importedBooks?: IBook[] }> = ({
-  importedBooks = [],
-}) => {
+export const ImportFiles: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const initialTab = (location.state as any)?.initialTab as TabKey | undefined;
@@ -102,6 +50,8 @@ export const ImportFiles: React.FC<{ importedBooks?: IBook[] }> = ({
   const scanTimerRef = useRef<number | null>(null);
   const scannedCountRef = useRef(0);
   const foundPdfCountRef = useRef(0);
+  const progressIntervalRef = useRef<number | null>(null);
+  const scanCancelledRef = useRef(false);
   // 顶部共享搜索（两个栏目共用）
   const [globalSearch] = useState("");
   const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
@@ -118,33 +68,88 @@ export const ImportFiles: React.FC<{ importedBooks?: IBook[] }> = ({
   );
   const [groupingLoading, setGroupingLoading] = useState(false);
 
-  const [browseStack, setBrowseStack] = useState<FileEntry[][]>([mockRootDirs]);
+  const [browseStack, setBrowseStack] = useState<FileEntry[][]>([]);
   // 面包屑路径栈：与 browseStack 同步，索引 0 为根
   const [browseDirStack, setBrowseDirStack] = useState<
     { name: string; path: string }[]
-  >([{ name: "存储设备", path: "/" }]);
+  >([]);
   const [browseSearch, setBrowseSearch] = useState("");
+  const [browseLoading, setBrowseLoading] = useState(false);
   const ROW_HEIGHT = 60; // 统一行高，复用 FileRow 的布局
 
+  // 从数据库获取所有已导入的书籍路径
+  const [allImportedBooks, setAllImportedBooks] = useState<IBook[]>([]);
   const importedPaths = useMemo(
-    () => new Set(importedBooks.map((b) => b.file_path)),
-    [importedBooks]
+    () => new Set(allImportedBooks.map((b) => b.file_path)),
+    [allImportedBooks]
   );
+
+  // 加载已导入的书籍列表
+  useEffect(() => {
+    const loadImportedBooks = async () => {
+      try {
+        await bookService.initDatabase();
+        const books = await bookService.getAllBooks();
+        setAllImportedBooks(books);
+      } catch (error) {
+        console.error("加载已导入书籍失败:", error);
+      }
+    };
+    loadImportedBooks();
+  }, []);
+
+  // 检查并请求存储权限
+  useEffect(() => {
+    const checkPermission = async () => {
+      try {
+        const hasPermission = await fileSystemService.checkStoragePermission();
+        if (!hasPermission) {
+          const granted = await fileSystemService.requestStoragePermission();
+          if (!granted) {
+            alert("需要存储权限才能扫描和浏览文件");
+          }
+        }
+      } catch (error) {
+        console.error("权限检查失败:", error);
+      }
+    };
+    checkPermission();
+  }, []);
+
+  // 加载根目录
+  useEffect(() => {
+    const loadRootDirs = async () => {
+      if (activeTab === "browse" && browseStack.length === 0) {
+        setBrowseLoading(true);
+        try {
+          const roots = await fileSystemService.getRootDirectories();
+          setBrowseStack([roots]);
+          setBrowseDirStack(roots.map((r) => ({ name: r.name, path: r.path })));
+        } catch (error) {
+          console.error("加载根目录失败:", error);
+          alert("加载根目录失败，请检查权限");
+        } finally {
+          setBrowseLoading(false);
+        }
+      }
+    };
+    loadRootDirs();
+  }, [activeTab]);
 
   const filteredScan = useMemo(() => {
     const keyword = globalSearch.trim().toLowerCase();
-    return (scanList.length ? scanList : mockScanResults).filter((it) =>
+    return scanList.filter((it) =>
       it.name.toLowerCase().includes(keyword)
     );
   }, [scanList, globalSearch]);
 
-  const currentBrowse = browseStack[browseStack.length - 1];
+  const currentBrowse = browseStack[browseStack.length - 1] || [];
   const devicePdfIndex = useMemo(() => {
-    // 简易设备索引：聚合已访问目录中的 PDF 文件
+    // 简易设备索引：聚合已访问目录中的支持的文件
     const files: FileEntry[] = [];
     for (const level of browseStack) {
       for (const it of level) {
-        if (it.type === "file" && it.path.toLowerCase().endsWith(".pdf")) {
+        if (it.type === "file" && isSupportedFile(it.path)) {
           files.push(it);
         }
       }
@@ -160,26 +165,26 @@ export const ImportFiles: React.FC<{ importedBooks?: IBook[] }> = ({
     return currentBrowse;
   }, [currentBrowse, browseSearch, devicePdfIndex]);
 
-  const completeScan = () => {
+  const completeScan = (results: FileEntry[]) => {
     if (scanTimerRef.current) {
       clearInterval(scanTimerRef.current);
       scanTimerRef.current = null;
     }
     setScanLoading(false);
     setDrawerOpen(false);
-    const mapped = mockScanResults.map((it) => ({
+    const mapped: ScanResultItem[] = results.map((it) => ({
       ...it,
-      imported: importedPaths.has(it.path) || it.imported,
+      type: "file" as const,
+      imported: importedPaths.has(it.path),
     }));
     setScanList(mapped);
-    setFoundPdfCount(mockScanResults.length);
+    // foundPdfCount 已经在 startScan 中更新，这里不需要再次设置
     setActiveTab("scan");
     // 跳转到结果页并传递数据
     navigate("/import/results", { state: { results: mapped } });
   };
 
-  const startScan = () => {
-    // 打开抽屉并模拟扫描过程
+  const startScan = async () => {
     setActiveTab("scan");
     setScanLoading(true);
     setDrawerOpen(true);
@@ -187,27 +192,58 @@ export const ImportFiles: React.FC<{ importedBooks?: IBook[] }> = ({
     setFoundPdfCount(0);
     scannedCountRef.current = 0;
     foundPdfCountRef.current = 0;
+    scanCancelledRef.current = false;
 
-    const targetScan = 982; // 演示数据，后续用真实值替换
-    const targetPdf = mockScanResults.length; // 以实际扫描到的 pdf 数量为准
-    scanTimerRef.current = window.setInterval(() => {
-      const nextScan = Math.min(
-        scannedCountRef.current + Math.floor(Math.random() * 35 + 20),
-        targetScan
+    try {
+      // 执行真实扫描，带进度回调
+      const results = await fileSystemService.scanPdfFiles(
+        undefined,
+        (scanned, found) => {
+          // 实时更新扫描进度
+          // 确保 scanned 是数字类型，避免字符串拼接等问题
+          const scannedNum = typeof scanned === 'number' ? scanned : parseInt(String(scanned || 0), 10);
+          const foundNum = typeof found === 'number' ? found : parseInt(String(found || 0), 10);
+          setScannedCount(scannedNum);
+          setFoundPdfCount(foundNum);
+        }
       );
-      const nextPdf = Math.min(
-        foundPdfCountRef.current + Math.floor(Math.random() * 2 + 1),
-        targetPdf
-      );
-      scannedCountRef.current = nextScan;
-      foundPdfCountRef.current = nextPdf;
-      setScannedCount(nextScan);
-      setFoundPdfCount(nextPdf);
-      // 完成条件：扫描到目标 & 找到的 pdf 数达到目标
-      if (nextScan >= targetScan && nextPdf >= targetPdf) {
-        completeScan();
+
+      // 如果扫描被取消，不处理结果
+      if (scanCancelledRef.current) {
+        setScanLoading(false);
+        setDrawerOpen(false);
+        return;
       }
-    }, 120);
+
+      // 确保最终数量正确显示（scannedCount 已经在进度回调中更新，这里只需要更新 foundPdfCount）
+      setFoundPdfCount(results.length);
+
+      // 延迟1秒，确保用户能看到最终扫描结果
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      completeScan(results);
+    } catch (error: any) {
+      console.error("扫描失败:", error);
+      const msg =
+        typeof error?.message === "string" ? error.message : String(error);
+      alert(`扫描失败，请重试\n\n原因：${msg}`);
+      setScanLoading(false);
+      setDrawerOpen(false);
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+        progressIntervalRef.current = null;
+      }
+    }
+  };
+
+  const stopScan = () => {
+    scanCancelledRef.current = true;
+    if (progressIntervalRef.current) {
+      clearInterval(progressIntervalRef.current);
+      progressIntervalRef.current = null;
+    }
+    setScanLoading(false);
+    setDrawerOpen(false);
   };
 
   const toggleSelect = (path: string) => {
@@ -219,18 +255,14 @@ export const ImportFiles: React.FC<{ importedBooks?: IBook[] }> = ({
   // 默认分组名由用户输入，不再从文件名推断
 
   const handleImportClick = async () => {
-    try {
-      const paths = await pickPdfPaths(true);
-      if (!paths.length) return;
-      // 不立即导入，仅记录路径并打开分组抽屉
-      setPendingImportPaths(paths);
-      setGroupingOpen(true);
-    } catch (error: any) {
-      console.error("Import dialog failed:", error);
-      const msg =
-        typeof error?.message === "string" ? error.message : String(error);
-      alert(`导入失败，请重试\n\n原因：${msg}`);
+    // 直接使用已选中的文件路径，不再弹出文件选择对话框
+    if (selectedPaths.length === 0) {
+      alert("请先选择要导入的文件");
+      return;
     }
+    // 不立即导入，仅记录路径并打开分组抽屉
+    setPendingImportPaths(selectedPaths);
+    setGroupingOpen(true);
   };
 
   const openChooseGroup = async () => {
@@ -245,7 +277,7 @@ export const ImportFiles: React.FC<{ importedBooks?: IBook[] }> = ({
             .map((b) => b.cover_image)
             .filter(Boolean)
             .slice(0, 4) as string[];
-        } catch {}
+        } catch { }
       }
       setGroupPreviews(previews);
       setChooseGroupOpen(true);
@@ -300,50 +332,52 @@ export const ImportFiles: React.FC<{ importedBooks?: IBook[] }> = ({
     }
   };
 
-  const goInto = (entry: FileEntry) => {
+  const goInto = async (entry: FileEntry) => {
     if (entry.type !== "dir") return;
-    // 后续这里将从文件服务获取目录内容
-    const mockChildren: FileEntry[] = [
-      {
-        type: "dir",
-        name: "子目录A",
-        path: `${entry.path}/A`,
-        childrenCount: 3,
-        mtime: Date.now() - 3600 * 1000 * 3,
-      },
-      {
-        type: "file",
-        name: "阅读手册.pdf",
-        path: `${entry.path}/阅读手册.pdf`,
-        size: 1034212,
-        mtime: Date.now() - 3600 * 1000 * 6,
-      },
-      {
-        type: "file",
-        name: "课程讲义.pdf",
-        path: `${entry.path}/课程讲义.pdf`,
-        size: 2948321,
-        mtime: Date.now() - 3600 * 1000 * 28,
-      },
-    ];
-    setBrowseStack((stack) => [...stack, mockChildren]);
-    setBrowseDirStack((stack) => [
-      ...stack,
-      { name: entry.name, path: entry.path },
-    ]);
+    setBrowseLoading(true);
+    try {
+      const children = await fileSystemService.listDirectory(entry.path);
+      setBrowseStack((stack) => [...stack, children]);
+      setBrowseDirStack((stack) => [
+        ...stack,
+        { name: entry.name, path: entry.path },
+      ]);
+    } catch (error: any) {
+      console.error("读取目录失败:", error);
+      const msg =
+        typeof error?.message === "string" ? error.message : String(error);
+      alert(`读取目录失败\n\n原因：${msg}`);
+    } finally {
+      setBrowseLoading(false);
+    }
   };
 
   // 目录返回通过面包屑点击实现，无需单独函数
 
-  const goToDepth = (idx: number) => {
+  const goToDepth = async (idx: number) => {
     if (idx < 0 || idx >= browseStack.length) return;
-    setBrowseStack((stack) => stack.slice(0, idx + 1));
-    setBrowseDirStack((stack) => stack.slice(0, idx + 1));
+    setBrowseLoading(true);
+    try {
+      // 如果返回到根目录，重新加载根目录
+      if (idx === 0) {
+        const roots = await fileSystemService.getRootDirectories();
+        setBrowseStack([roots]);
+        setBrowseDirStack(roots.map((r) => ({ name: r.name, path: r.path })));
+      } else {
+        // 否则直接截取栈
+        setBrowseStack((stack) => stack.slice(0, idx + 1));
+        setBrowseDirStack((stack) => stack.slice(0, idx + 1));
+      }
+    } catch (error: any) {
+      console.error("导航失败:", error);
+    } finally {
+      setBrowseLoading(false);
+    }
   };
 
   const Header: React.FC = () => {
     const canSelectAll = currentBrowse.some(
-      (it) => it.type === "file" && it.path.toLowerCase().endsWith(".pdf")
+      (it) => it.type === "file" && isSupportedFile(it.path)
     );
     return (
       <div
@@ -743,18 +777,22 @@ export const ImportFiles: React.FC<{ importedBooks?: IBook[] }> = ({
         {browseDirStack.map((seg, idx) => (
           <React.Fragment key={seg.path + idx}>
             <button
-              onClick={() => goToDepth(idx)}
+              onClick={() => !browseLoading && goToDepth(idx)}
               style={{
                 background: "none",
                 border: "none",
                 boxShadow: "none",
                 borderRadius: 0,
                 cursor:
-                  idx === browseDirStack.length - 1 ? "default" : "pointer",
+                  idx === browseDirStack.length - 1 || browseLoading
+                    ? "default"
+                    : "pointer",
                 color: idx === browseDirStack.length - 1 ? "#999" : "#555",
                 padding: 0,
+                opacity: browseLoading ? 0.6 : 1,
               }}
               title={seg.path}
+              disabled={browseLoading}
             >
               {seg.name}
             </button>
@@ -768,14 +806,15 @@ export const ImportFiles: React.FC<{ importedBooks?: IBook[] }> = ({
         entry.type === "dir" ? (
           <div
             key={entry.path}
-            onClick={() => goInto(entry)}
+            onClick={() => !browseLoading && goInto(entry)}
             style={{
               display: "flex",
               alignItems: "center",
               height: ROW_HEIGHT,
               padding: "0 4px",
               borderBottom: "1px solid #f0f0f0",
-              cursor: "pointer",
+              cursor: browseLoading ? "wait" : "pointer",
+              opacity: browseLoading ? 0.6 : 1,
             }}
           >
             {(() => {
@@ -896,11 +935,23 @@ export const ImportFiles: React.FC<{ importedBooks?: IBook[] }> = ({
       )}
       <div style={{ flex: 1, overflowY: "auto" }}>
         {activeTab === "scan" ? (
-          scanList.length === 0 && globalSearch.trim() === "" ? (
+          scanList.length === 0 && globalSearch.trim() === "" && !scanLoading ? (
             <ScanEmpty />
           ) : (
             <ScanList />
           )
+        ) : browseLoading && browseStack.length === 0 ? (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              height: "400px",
+              color: "#999",
+            }}
+          >
+            加载中...
+          </div>
         ) : (
           <BrowseList />
         )}
@@ -946,7 +997,7 @@ export const ImportFiles: React.FC<{ importedBooks?: IBook[] }> = ({
             <div style={{ marginTop: 18 }}>
               <button
                 className="drawer-stop"
-                onClick={completeScan}
+                onClick={stopScan}
                 style={{
                   width: "88%",
                   height: 44,
@@ -968,3 +1019,4 @@ export const ImportFiles: React.FC<{ importedBooks?: IBook[] }> = ({
     </div>
   );
 };
+
