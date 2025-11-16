@@ -83,6 +83,8 @@ export const Bookshelf: React.FC = () => {
   const navigate = useNavigate();
   const [groupOverlayOpen, setGroupOverlayOpen] = useState(false);
   const [overlayGroupId, setOverlayGroupId] = useState<number | null>(null);
+  const [groupDetailSelectionActive, setGroupDetailSelectionActive] = useState(false);
+  const [groupDetailSelectedCount, setGroupDetailSelectedCount] = useState(0);
 
   // 选择模式状态
   const [selectionMode, setSelectionMode] = useState(false);
@@ -105,6 +107,16 @@ export const Bookshelf: React.FC = () => {
   useEffect(() => {
     loadBooks();
     loadGroups();
+  }, []);
+
+  useEffect(() => {
+    const onSel = (e: Event) => {
+      const detail: any = (e as any).detail || {};
+      setGroupDetailSelectionActive(!!detail.active);
+      setGroupDetailSelectedCount(Number(detail.count) || 0);
+    };
+    window.addEventListener("goread:group-detail:selection", onSel as any);
+    return () => window.removeEventListener("goread:group-detail:selection", onSel as any);
   }, []);
 
   // 监听分组详情页的删除事件，及时刷新“最近”
@@ -1263,8 +1275,15 @@ export const Bookshelf: React.FC = () => {
       {groupOverlayOpen && overlayGroupId !== null && (
         <div
           onClick={() => {
+            if (groupDetailSelectionActive) {
+              const evt = new Event("goread:group-detail:exit-selection");
+              window.dispatchEvent(evt);
+              return;
+            }
             setGroupOverlayOpen(false);
             setActiveTab("all");
+            setGroupDetailSelectionActive(false);
+            setGroupDetailSelectedCount(0);
           }}
           style={{
             position: "fixed",
@@ -1278,6 +1297,110 @@ export const Bookshelf: React.FC = () => {
             justifyContent: "center",
           }}
         >
+          {groupDetailSelectionActive && (
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                position: "fixed",
+                top: 0,
+                left: 0,
+                right: 0,
+                background: "#fff",
+                display: "flex",
+                alignItems: "center",
+                padding: "12px 16px",
+                zIndex: 101,
+              }}
+            >
+              <button
+                onClick={() => {
+                  const evt = new Event("goread:group-detail:exit-selection");
+                  window.dispatchEvent(evt);
+                }}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  boxShadow: "none",
+                  borderRadius: 0,
+                  outline: "none",
+                  WebkitAppearance: "none",
+                  MozAppearance: "none",
+                  appearance: "none",
+                  WebkitTapHighlightColor: "transparent",
+                  padding: 0,
+                  cursor: "pointer",
+                  marginLeft: "-6px",
+                }}
+                title="返回"
+              >
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                  <path d="M14 18l-6-6 6-6" stroke="#333" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+              <span style={{ fontSize: 16, color: "#333", marginLeft: 8, fontWeight: 600, display: "inline-flex", alignItems: "center", height: "24px", lineHeight: "24px", transform: "translateY(-2px)" }}>
+                已选中({groupDetailSelectedCount})
+              </span>
+              <div style={{ flex: 1 }} />
+              <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                <button
+                  aria-label="删除"
+                  title="删除"
+                  style={{
+                    background: "none",
+                    border: "none",
+                    boxShadow: "none",
+                    borderRadius: 0,
+                    cursor: groupDetailSelectedCount === 0 ? "not-allowed" : "pointer",
+                    opacity: groupDetailSelectedCount === 0 ? 0.4 : 1,
+                    padding: 0,
+                  }}
+                  disabled={groupDetailSelectedCount === 0}
+                  onClick={() => {
+                    const evt = new Event("goread:group-detail:open-confirm");
+                    window.dispatchEvent(evt);
+                  }}
+                >
+                  <svg width="21" height="21" viewBox="0 0 24 24" fill="none">
+                    <path d="M6 7h12" stroke={groupDetailSelectedCount === 0 ? "#bbb" : "#333"} strokeWidth="2" strokeLinecap="round" />
+                    <path d="M9 7V5h6v2" stroke={groupDetailSelectedCount === 0 ? "#bbb" : "#333"} strokeWidth="2" strokeLinecap="round" />
+                    <rect x="6" y="7" width="12" height="14" rx="2" stroke={groupDetailSelectedCount === 0 ? "#bbb" : "#333"} strokeWidth="2" />
+                  </svg>
+                </button>
+                <button
+                  aria-label="全选"
+                  title="全选"
+                  style={{
+                    background: "none",
+                    border: "none",
+                    boxShadow: "none",
+                    borderRadius: 0,
+                    cursor: "pointer",
+                    padding: 0,
+                  }}
+                  onClick={() => {
+                    const evt = new Event("goread:group-detail:select-all");
+                    window.dispatchEvent(evt);
+                  }}
+                >
+                  <svg width="21" height="21" viewBox="0 0 24 24" fill="none">
+                    {(() => {
+                      const allCount = (groups.find((g) => g.id === overlayGroupId)?.book_count || 0);
+                      const isAll = allCount > 0 && groupDetailSelectedCount === allCount;
+                      const stroke = isAll ? "#d23c3c" : "#333";
+                      return (
+                        <g>
+                          <rect x="3" y="3" width="7" height="7" stroke={stroke} strokeWidth="2" />
+                          <rect x="14" y="3" width="7" height="7" stroke={stroke} strokeWidth="2" />
+                          <rect x="3" y="14" width="7" height="7" stroke={stroke} strokeWidth="2" />
+                          <rect x="14" y="14" width="7" height="7" stroke={stroke} strokeWidth="2" />
+                        </g>
+                      );
+                    })()}
+                  </svg>
+                </button>
+              </div>
+            </div>
+          )}
           <div
             style={{
               width: "100%",
@@ -1303,8 +1426,8 @@ export const Bookshelf: React.FC = () => {
               onClick={(e) => e.stopPropagation()}
               style={{
                 width: "100%",
-                height: "85vh",
-                maxHeight: "85vh",
+                height: "75vh",
+                maxHeight: "75vh",
                 overflow: "hidden",
                 background: "#f7f7f7",
               }}
