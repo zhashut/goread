@@ -124,7 +124,7 @@ export const ImportFiles: React.FC = () => {
         try {
           const roots = await fileSystemService.getRootDirectories();
           setBrowseStack([roots]);
-          setBrowseDirStack(roots.map((r) => ({ name: r.name, path: r.path })));
+          setBrowseDirStack([{ name: "存储设备", path: "" }]);
         } catch (error) {
           console.error("加载根目录失败:", error);
           alert("加载根目录失败，请检查权限");
@@ -362,7 +362,7 @@ export const ImportFiles: React.FC = () => {
       if (idx === 0) {
         const roots = await fileSystemService.getRootDirectories();
         setBrowseStack([roots]);
-        setBrowseDirStack(roots.map((r) => ({ name: r.name, path: r.path })));
+        setBrowseDirStack([{ name: "存储设备", path: "" }]);
       } else {
         // 否则直接截取栈
         setBrowseStack((stack) => stack.slice(0, idx + 1));

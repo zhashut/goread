@@ -302,7 +302,7 @@ export const Bookshelf: React.FC = () => {
         for (const gid of ids) {
           await groupService.deleteGroup(gid, !!deleteLocal);
         }
-        await loadGroups();
+        await Promise.all([loadGroups(), loadBooks()]);
       }
       exitSelection();
     } catch (err) {
