@@ -7,7 +7,7 @@ export interface ConfirmDeleteDrawerProps {
   context: DeleteContext;
   count: number;
   onCancel: () => void;
-  onConfirm: () => void;
+  onConfirm: (deleteLocal?: boolean) => void;
 }
 
 const ConfirmDeleteDrawer: React.FC<ConfirmDeleteDrawerProps> = ({
@@ -22,7 +22,9 @@ const ConfirmDeleteDrawer: React.FC<ConfirmDeleteDrawerProps> = ({
   const desc =
     context === "recent"
       ? `本次操作将会删除 ${count} 个最近阅读记录（不清除阅读进度），是否继续？`
-      : `本次操作将会删除 ${count} 个分组（包含分组内所有书籍信息等，不影响源文件），是否继续？`;
+      : `本次操作将会删除 ${count} 个分组（包含分组内所有书籍信息等）。可选：同时删除手机本地文件。`;
+
+  const [deleteLocal, setDeleteLocal] = React.useState(false);
 
   return (
     <div
@@ -71,19 +73,43 @@ const ConfirmDeleteDrawer: React.FC<ConfirmDeleteDrawerProps> = ({
           {desc}
         </div>
         {context === "all-groups" && (
-          <label
+          <button
+            onClick={() => setDeleteLocal((v) => !v)}
             style={{
+              marginTop: "16px",
+              background: "transparent",
+              border: "none",
+              boxShadow: "none",
+              borderRadius: 0,
+              WebkitAppearance: "none",
+              MozAppearance: "none",
+              appearance: "none",
+              padding: 0,
               display: "flex",
               alignItems: "center",
               gap: "8px",
-              marginTop: "16px",
+              cursor: "pointer",
             }}
+            title={deleteLocal ? "取消删除本地文件" : "删除本地文件"}
           >
-            <input type="checkbox" />
-            <span style={{ fontSize: "13px", color: "#777" }}>
-              删除本地文件
-            </span>
-          </label>
+            {deleteLocal ? (
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="12" r="9" fill="#d23c3c" />
+                <path
+                  d="M9 12l2 2 4-4"
+                  stroke="#fff"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            ) : (
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="12" r="9" fill="#fff" stroke="#d23c3c" strokeWidth="2" />
+              </svg>
+            )}
+            <span style={{ fontSize: "13px", color: "#777" }}>删除本地文件</span>
+          </button>
         )}
         <div
           style={{
@@ -117,7 +143,7 @@ const ConfirmDeleteDrawer: React.FC<ConfirmDeleteDrawerProps> = ({
             取消
           </button>
           <button
-            onClick={onConfirm}
+            onClick={() => onConfirm(deleteLocal)}
             style={{
               background: "transparent",
               border: "none",

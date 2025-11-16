@@ -7,17 +7,22 @@ import React, {
 } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { IBook, IGroup } from "../types";
-import {
-  GRID_GAP_BOOK_CARDS,
-  GRID_GAP_GROUP_ROW,
-  GRID_GAP_GROUP_COLUMN,
-  GROUP_NAME_FONT_SIZE,
-  GROUP_META_FONT_SIZE,
-  GROUP_NAME_FONT_WEIGHT,
-  CARD_INFO_MARGIN_TOP,
-  GROUP_NAME_MARGIN_TOP,
-  GROUP_META_MARGIN_TOP,
-} from "../constants/ui";
+  import {
+      GRID_GAP_BOOK_CARDS,
+      GRID_GAP_GROUP_ROW,
+      GRID_GAP_GROUP_COLUMN,
+      GROUP_NAME_FONT_SIZE,
+      GROUP_META_FONT_SIZE,
+      GROUP_NAME_FONT_WEIGHT,
+      CARD_INFO_MARGIN_TOP,
+      GROUP_NAME_MARGIN_TOP,
+      GROUP_META_MARGIN_TOP,
+      CARD_WIDTH_COMPACT,
+      SELECTION_ICON_SIZE,
+      SELECTION_ICON_OFFSET_TOP,
+      SELECTION_ICON_OFFSET_RIGHT,
+      GROUP_COVER_PADDING,
+  } from "../constants/ui";
 import { bookService, groupService, getReaderSettings } from "../services";
 import { GroupDetail } from "./GroupDetail";
 import { BookCard } from "./BookCard";
@@ -284,7 +289,7 @@ export const Bookshelf: React.FC = () => {
     }
   };
 
-  const confirmDelete = async () => {
+  const confirmDelete = async (deleteLocal?: boolean) => {
     try {
       if (activeTab === "recent") {
         const ids = Array.from(selectedBookIds);
@@ -295,7 +300,7 @@ export const Bookshelf: React.FC = () => {
       } else {
         const ids = Array.from(selectedGroupIds);
         for (const gid of ids) {
-          await groupService.deleteGroup(gid);
+          await groupService.deleteGroup(gid, !!deleteLocal);
         }
         await loadGroups();
       }
@@ -1096,14 +1101,14 @@ export const Bookshelf: React.FC = () => {
             style={{
               display: "flex",
               flexWrap: "wrap",
-              gap: `${GRID_GAP_GROUP_ROW}px ${GRID_GAP_GROUP_COLUMN}px`,
+              gap: GRID_GAP_BOOK_CARDS + "px",
             }}
           >
             {filteredGroups.map((g) => (
               <div
                 key={g.id}
                 style={{
-                  width: "140px",
+                  width: CARD_WIDTH_COMPACT + "px",
                   margin: 0,
                   cursor: "pointer",
                   position: "relative",
@@ -1166,10 +1171,10 @@ export const Bookshelf: React.FC = () => {
                       title={selectedGroupIds.has(g.id) ? "取消选择" : "选择"}
                       style={{
                         position: "absolute",
-                        top: "0.5px",
-                        right: "0.5px",
-                        width: "24px",
-                        height: "24px",
+                        top: (GROUP_COVER_PADDING + SELECTION_ICON_OFFSET_TOP) + "px",
+                        right: (GROUP_COVER_PADDING + SELECTION_ICON_OFFSET_RIGHT) + "px",
+                        width: SELECTION_ICON_SIZE + "px",
+                        height: SELECTION_ICON_SIZE + "px",
                         background: "none",
                         border: "none",
                         boxShadow: "none",

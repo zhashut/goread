@@ -9,6 +9,9 @@ import {
   BOOK_META_FONT_SIZE,
   CARD_INFO_MARGIN_TOP,
   BOOK_PROGRESS_MARGIN_TOP,
+  SELECTION_ICON_SIZE,
+  SELECTION_ICON_OFFSET_TOP,
+  SELECTION_ICON_OFFSET_RIGHT,
 } from "../constants/ui";
 
 export interface CommonBookCardProps {
@@ -89,6 +92,7 @@ export const BookCard: React.FC<CommonBookCardProps> = ({
           borderRadius: "4px",
           boxShadow: "0 2px 6px rgba(0,0,0,0.06)",
           overflow: "hidden",
+          boxSizing: "border-box",
         }}
       >
         {/* 选择按钮（卡片内部右上角） */}
@@ -101,10 +105,10 @@ export const BookCard: React.FC<CommonBookCardProps> = ({
             title={selected ? "取消选择" : "选择"}
             style={{
               position: "absolute",
-              top: "0.5px",
-              right: "0.5px",
-              width: "24px",
-              height: "24px",
+              top: SELECTION_ICON_OFFSET_TOP + "px",
+              right: SELECTION_ICON_OFFSET_RIGHT + "px",
+              width: SELECTION_ICON_SIZE + "px",
+              height: SELECTION_ICON_SIZE + "px",
               background: "none",
               border: "none",
               boxShadow: "none",

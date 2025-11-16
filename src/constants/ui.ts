@@ -17,4 +17,13 @@ export const GROUP_META_MARGIN_TOP = BOOK_PROGRESS_MARGIN_TOP; // “共 x 本�
 export const GRID_GAP_BOOK_CARDS = 19; // 最近/搜索页书籍卡片
 export const GRID_GAP_GROUP_DETAIL = 19; // 分组详情书籍卡片
 export const GRID_GAP_GROUP_ROW = GRID_GAP_BOOK_CARDS; // 全部栏目分组卡片行间距对齐最近书籍卡片
-export const GRID_GAP_GROUP_COLUMN = 25; // 全部栏目分组卡片列间距
+export const GRID_GAP_GROUP_COLUMN = GRID_GAP_BOOK_CARDS; // 分组列间距与书籍完全一致，确保三列布局
+
+// 选择单选图标统一配置
+export const SELECTION_ICON_SIZE = 24; // 选择单选圆标尺寸（px）
+export const SELECTION_ICON_OFFSET_TOP = 0.5; // 相对容器顶部的偏移（px）
+export const SELECTION_ICON_OFFSET_RIGHT = 0.5; // 相对容器右侧的偏移（px）
+
+// 分组封面容器（默认样式）内边距，用于对齐选择图标到内容边缘
+export const GROUP_COVER_PADDING = 4; // 与 GroupCoverGrid 默认 variant 的 padding 对齐（已从 6px 减小到 4px）
+export const GROUP_COVER_PADDING_COMPACT = 4; // 紧凑 variant 的 padding
