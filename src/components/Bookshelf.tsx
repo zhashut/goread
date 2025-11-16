@@ -183,17 +183,25 @@ export const Bookshelf: React.FC = () => {
       setLoading(true);
       await bookService.initDatabase();
       const settings = getReaderSettings();
-      const recentCount = Math.max(1, settings.recentDisplayCount || 9);
       let list: IBook[] = [];
-      try {
-        const recent = await bookService.getRecentBooks(recentCount);
-        // 仅显示真正阅读过的书籍；如果没有则“最近”为空
-        list = Array.isArray(recent) ? recent : [];
-      } catch {
+      const recentCount = settings.recentDisplayCount || 9;
+      if (recentCount === 0) {
         const allBooks = await bookService.getAllBooks();
-        list = (allBooks || []).sort(
-          (a, b) => (b.last_read_time || 0) - (a.last_read_time || 0)
-        );
+        list = (allBooks || [])
+          .filter((b) => (b.last_read_time || 0) > 0)
+          .sort((a, b) => (b.last_read_time || 0) - (a.last_read_time || 0));
+      } else {
+        const limit = Math.max(1, recentCount);
+        try {
+          const recent = await bookService.getRecentBooks(limit);
+          list = Array.isArray(recent) ? recent : [];
+        } catch {
+          const allBooks = await bookService.getAllBooks();
+          list = (allBooks || [])
+            .filter((b) => (b.last_read_time || 0) > 0)
+            .sort((a, b) => (b.last_read_time || 0) - (a.last_read_time || 0))
+            .slice(0, limit);
+        }
       }
       setBooks(list);
     } catch (error) {

@@ -192,6 +192,7 @@ export const GroupDetail: React.FC<{
       ) : (
         <div
           style={{
+            width: "100%",
             padding: "12px 16px 16px",
             display: "grid",
             // 固定列宽，避免第一列过宽导致卡片居中偏移
