@@ -6,6 +6,7 @@ use sqlx::SqlitePool;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
 use std::str::FromStr;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use tokio::sync::Mutex;
 use tauri::Manager;
 
@@ -30,8 +31,8 @@ pub fn run() {
                     .create_if_missing(true);
                 let pool = SqlitePool::connect_with(opts).await.unwrap();
                 
-                // 存储数据库连接池
                 app.manage(Arc::new(Mutex::new(pool)));
+                app.manage(Arc::new(AtomicBool::new(false)));
             });
             
             Ok(())
@@ -55,6 +56,7 @@ pub fn run() {
             get_bookmarks,
             delete_bookmark,
             scan_pdf_files,
+            cancel_scan,
             list_directory,
             get_root_directories,
             check_storage_permission,

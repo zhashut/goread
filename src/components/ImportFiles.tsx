@@ -208,10 +208,9 @@ export const ImportFiles: React.FC = () => {
         }
       );
 
-      // 如果扫描被取消，不处理结果
       if (scanCancelledRef.current) {
-        setScanLoading(false);
-        setDrawerOpen(false);
+        setFoundPdfCount(results.length);
+        completeScan(results);
         return;
       }
 
@@ -236,14 +235,18 @@ export const ImportFiles: React.FC = () => {
     }
   };
 
-  const stopScan = () => {
+  const stopScan = async () => {
     scanCancelledRef.current = true;
+    try {
+      await fileSystemService.cancelScan();
+    } catch (e) {
+      console.error('取消扫描失败:', e);
+    }
     if (progressIntervalRef.current) {
       clearInterval(progressIntervalRef.current);
       progressIntervalRef.current = null;
     }
     setScanLoading(false);
-    setDrawerOpen(false);
   };
 
   const toggleSelect = (path: string) => {
@@ -409,32 +412,33 @@ export const ImportFiles: React.FC = () => {
           {scanList.length > 0 ? `扫描结果(${scanList.length})` : "导入文件"}
         </span>
         <div style={{ flex: 1 }} />
-        {activeTab === "browse" && (
+        {(activeTab === "browse" || (activeTab === "scan" && filteredScan.length > 0)) && (
           <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-            <button
-              aria-label="搜索"
-              title="搜索"
-              style={{
-                background: "none",
-                border: "none",
-                boxShadow: "none",
-                borderRadius: 0,
-                cursor: "pointer",
-                padding: 0,
-              }}
-              onClick={() => setSearchOpen((v) => !v)}
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                <circle cx="11" cy="11" r="7" stroke="#333" strokeWidth="2" />
-                <path
-                  d="M21 21l-4-4"
-                  stroke="#333"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                />
-              </svg>
-            </button>
-            {/* 全选：仅当前目录存在 PDF 时可用，范围仅限当前目录的 PDF */}
+            {activeTab === "browse" && (
+              <button
+                aria-label="搜索"
+                title="搜索"
+                style={{
+                  background: "none",
+                  border: "none",
+                  boxShadow: "none",
+                  borderRadius: 0,
+                  cursor: "pointer",
+                  padding: 0,
+                }}
+                onClick={() => setSearchOpen((v) => !v)}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <circle cx="11" cy="11" r="7" stroke="#333" strokeWidth="2" />
+                  <path
+                    d="M21 21l-4-4"
+                    stroke="#333"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </button>
+            )}
             <button
               aria-label="全选"
               title="全选"
@@ -443,23 +447,40 @@ export const ImportFiles: React.FC = () => {
                 border: "none",
                 boxShadow: "none",
                 borderRadius: 0,
-                cursor: canSelectAll ? "pointer" : "not-allowed",
-                opacity: canSelectAll ? 1 : 0.45,
                 padding: 0,
+                cursor: (() => {
+                  const candidates = activeTab === "browse"
+                    ? currentBrowse
+                        .filter((it) => it.type === "file" && isSupportedFile(it.path) && !importedPaths.has(it.path))
+                        .map((it) => it.path)
+                    : filteredScan.filter((it) => !it.imported).map((it) => it.path);
+                  return candidates.length > 0 ? "pointer" : "not-allowed";
+                })(),
+                opacity: (() => {
+                  const candidates = activeTab === "browse"
+                    ? currentBrowse
+                        .filter((it) => it.type === "file" && isSupportedFile(it.path) && !importedPaths.has(it.path))
+                        .map((it) => it.path)
+                    : filteredScan.filter((it) => !it.imported).map((it) => it.path);
+                  return candidates.length > 0 ? 1 : 0.45;
+                })(),
               }}
-              disabled={!canSelectAll}
+              disabled={(() => {
+                const candidates = activeTab === "browse"
+                  ? currentBrowse
+                      .filter((it) => it.type === "file" && isSupportedFile(it.path) && !importedPaths.has(it.path))
+                      .map((it) => it.path)
+                  : filteredScan.filter((it) => !it.imported).map((it) => it.path);
+                return candidates.length === 0;
+              })()}
               onClick={() => {
-                const candidates = currentBrowse
-                  .filter(
-                    (it) =>
-                      it.type === "file" &&
-                      it.path.toLowerCase().endsWith(".pdf")
-                  )
-                  .map((it) => it.path);
-                if (candidates.length === 0) return; // 不存在 PDF，禁用
-                const allSelected =
-                  candidates.length > 0 &&
-                  candidates.every((p) => selectedPaths.includes(p));
+                const candidates = activeTab === "browse"
+                  ? currentBrowse
+                      .filter((it) => it.type === "file" && isSupportedFile(it.path) && !importedPaths.has(it.path))
+                      .map((it) => it.path)
+                  : filteredScan.filter((it) => !it.imported).map((it) => it.path);
+                if (candidates.length === 0) return;
+                const allSelected = candidates.every((p) => selectedPaths.includes(p));
                 setSelectedPaths(
                   allSelected
                     ? selectedPaths.filter((p) => !candidates.includes(p))
@@ -467,52 +488,26 @@ export const ImportFiles: React.FC = () => {
                 );
               }}
             >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                <rect
-                  x="3"
-                  y="3"
-                  width="7"
-                  height="7"
-                  stroke={canSelectAll ? "#333" : "#bbb"}
-                  strokeWidth="2"
-                />
-                <rect
-                  x="14"
-                  y="3"
-                  width="7"
-                  height="7"
-                  stroke={canSelectAll ? "#333" : "#bbb"}
-                  strokeWidth="2"
-                />
-                <rect
-                  x="3"
-                  y="14"
-                  width="7"
-                  height="7"
-                  stroke={canSelectAll ? "#333" : "#bbb"}
-                  strokeWidth="2"
-                />
-                <rect
-                  x="14"
-                  y="14"
-                  width="7"
-                  height="7"
-                  stroke={canSelectAll ? "#333" : "#bbb"}
-                  strokeWidth="2"
-                />
-                <path
-                  d="M6 8l2-2"
-                  stroke={canSelectAll ? "#333" : "#bbb"}
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                />
-                <path
-                  d="M17 19l2-2"
-                  stroke={canSelectAll ? "#333" : "#bbb"}
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                />
-              </svg>
+              {(() => {
+                const candidates = activeTab === "browse"
+                  ? currentBrowse
+                      .filter((it) => it.type === "file" && isSupportedFile(it.path) && !importedPaths.has(it.path))
+                      .map((it) => it.path)
+                  : filteredScan.filter((it) => !it.imported).map((it) => it.path);
+                const canSelectAll = candidates.length > 0;
+                const allSelected = canSelectAll && candidates.every((p) => selectedPaths.includes(p));
+                const strokeColor = canSelectAll ? (allSelected ? "#d23c3c" : "#333") : "#bbb";
+                return (
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                    <rect x="3" y="3" width="7" height="7" stroke={strokeColor} strokeWidth="2" />
+                    <rect x="14" y="3" width="7" height="7" stroke={strokeColor} strokeWidth="2" />
+                    <rect x="3" y="14" width="7" height="7" stroke={strokeColor} strokeWidth="2" />
+                    <rect x="14" y="14" width="7" height="7" stroke={strokeColor} strokeWidth="2" />
+                    <path d="M6 8l2-2" stroke={strokeColor} strokeWidth="2" strokeLinecap="round" />
+                    <path d="M17 19l2-2" stroke={strokeColor} strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                );
+              })()}
             </button>
           </div>
         )}

@@ -17,7 +17,7 @@ export interface IFileSystemService {
      */
     scanPdfFiles(
         rootPath?: string,
-        onProgress?: (scannedCount: number) => void
+        onProgress?: (scannedCount: number, foundCount: number) => void
     ): Promise<FileEntry[]>;
 
     /**
@@ -39,6 +39,11 @@ export interface IFileSystemService {
      * 请求存储权限
      */
     requestStoragePermission(): Promise<boolean>;
+
+    /**
+     * 取消当前扫描
+     */
+    cancelScan(): Promise<void>;
 }
 
 class TauriFileSystemService implements IFileSystemService {
@@ -74,6 +79,11 @@ class TauriFileSystemService implements IFileSystemService {
                 unlistenFn();
             }
         }
+    }
+
+    async cancelScan(): Promise<void> {
+        const invoke = await getInvoke();
+        await invoke('cancel_scan');
     }
 
     async listDirectory(path: string): Promise<FileEntry[]> {

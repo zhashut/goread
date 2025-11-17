@@ -338,9 +338,26 @@ export const ScanResults: React.FC = () => {
                 border: "none",
                 boxShadow: "none",
                 borderRadius: 0,
-                cursor: "pointer",
                 padding: 0,
+                cursor: (() => {
+                  const candidates = filtered
+                    .filter((it) => !it.imported && it.type === "file")
+                    .map((it) => it.path);
+                  return candidates.length > 0 ? "pointer" : "not-allowed";
+                })(),
+                opacity: (() => {
+                  const candidates = filtered
+                    .filter((it) => !it.imported && it.type === "file")
+                    .map((it) => it.path);
+                  return candidates.length > 0 ? 1 : 0.45;
+                })(),
               }}
+              disabled={(() => {
+                const candidates = filtered
+                  .filter((it) => !it.imported && it.type === "file")
+                  .map((it) => it.path);
+                return candidates.length === 0;
+              })()}
               onClick={() => {
                 const candidates = filtered
                   .filter((it) => !it.imported && it.type === "file")
@@ -355,52 +372,24 @@ export const ScanResults: React.FC = () => {
                 );
               }}
             >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                <rect
-                  x="3"
-                  y="3"
-                  width="7"
-                  height="7"
-                  stroke="#333"
-                  strokeWidth="2"
-                />
-                <rect
-                  x="14"
-                  y="3"
-                  width="7"
-                  height="7"
-                  stroke="#333"
-                  strokeWidth="2"
-                />
-                <rect
-                  x="3"
-                  y="14"
-                  width="7"
-                  height="7"
-                  stroke="#333"
-                  strokeWidth="2"
-                />
-                <rect
-                  x="14"
-                  y="14"
-                  width="7"
-                  height="7"
-                  stroke="#333"
-                  strokeWidth="2"
-                />
-                <path
-                  d="M6 8l2-2"
-                  stroke="#333"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                />
-                <path
-                  d="M17 19l2-2"
-                  stroke="#333"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                />
-              </svg>
+              {(() => {
+                const candidates = filtered
+                  .filter((it) => !it.imported && it.type === "file")
+                  .map((it) => it.path);
+                const canSelectAll = candidates.length > 0;
+                const allSelected = canSelectAll && candidates.every((p) => selectedPaths.includes(p));
+                const strokeColor = canSelectAll ? (allSelected ? "#d23c3c" : "#333") : "#bbb";
+                return (
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                    <rect x="3" y="3" width="7" height="7" stroke={strokeColor} strokeWidth="2" />
+                    <rect x="14" y="3" width="7" height="7" stroke={strokeColor} strokeWidth="2" />
+                    <rect x="3" y="14" width="7" height="7" stroke={strokeColor} strokeWidth="2" />
+                    <rect x="14" y="14" width="7" height="7" stroke={strokeColor} strokeWidth="2" />
+                    <path d="M6 8l2-2" stroke={strokeColor} strokeWidth="2" strokeLinecap="round" />
+                    <path d="M17 19l2-2" stroke={strokeColor} strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                );
+              })()}
             </button>
           </div>
         </div>
