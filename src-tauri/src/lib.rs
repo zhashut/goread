@@ -1,7 +1,10 @@
 mod commands;
 mod models;
+mod pdf;
+mod pdf_commands;
 
 use commands::*;
+use pdf_commands::*;
 use sqlx::SqlitePool;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
 use std::str::FromStr;
@@ -33,6 +36,9 @@ pub fn run() {
                 
                 app.manage(Arc::new(Mutex::new(pool)));
                 app.manage(Arc::new(AtomicBool::new(false)));
+                
+                // 初始化PDF管理器
+                app.manage(init_pdf_manager());
             });
             
             Ok(())
@@ -61,7 +67,25 @@ pub fn run() {
             get_root_directories,
             check_storage_permission,
             request_storage_permission,
-            read_file_bytes
+            read_file_bytes,
+            // PDF相关命令
+            pdf_load_document,
+            pdf_render_page,
+            pdf_render_page_base64,
+            pdf_get_page_text,
+            pdf_search_text,
+            pdf_get_document_info,
+            pdf_preload_pages,
+            pdf_clear_cache,
+            pdf_close_document,
+            pdf_get_cache_stats,
+            pdf_warmup_cache,
+            pdf_get_performance_metrics,
+            pdf_get_performance_report,
+            // 并行渲染命令
+            pdf_render_pages_parallel,
+            pdf_render_page_range_parallel,
+            pdf_render_pages_with_threads
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
