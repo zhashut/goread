@@ -369,4 +369,61 @@ mod tests {
         let all = page_text.blocks.iter().map(|b| b.text.as_str()).collect::<Vec<_>>().join("");
         assert!(all.contains("Hello"));
     }
+
+    #[tokio::test]
+    async fn test_parallel_render_same_page() {
+        let bytes = build_simple_pdf_with_text();
+        let temp = TempTestFile::new("parallel_text.pdf", &bytes).unwrap();
+        let mut engine = PdfEngine::new();
+        engine.load_document(temp.path().to_str().unwrap()).await.unwrap();
+
+        let opts = RenderOptions { quality: RenderQuality::Standard, ..Default::default() };
+        let results = tokio::time::timeout(tokio::time::Duration::from_secs(10), engine.render_pages_parallel(vec![1, 1, 1, 1], opts)).await.unwrap();
+        assert_eq!(results.len(), 4);
+        for r in results { let v = r.unwrap(); assert!(v.width > 0 && v.height > 0); }
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_thread_pool_render_same_page() {
+        let bytes = build_simple_pdf_with_text();
+        let temp = TempTestFile::new("thread_pool_text.pdf", &bytes).unwrap();
+        let mut engine = PdfEngine::new();
+        engine.load_document(temp.path().to_str().unwrap()).await.unwrap();
+
+        let opts = RenderOptions { quality: RenderQuality::Standard, ..Default::default() };
+        let results = engine.render_pages_with_thread_pool(vec![1, 1, 1], opts, 2).await;
+        assert_eq!(results.len(), 3);
+        for r in results { let v = r.unwrap(); assert!(v.width > 0 && v.height > 0); }
+    }
+
+    #[tokio::test]
+    async fn test_cache_speed_improvement() {
+        use std::time::Instant;
+        let bytes = build_simple_pdf_with_text();
+        let temp = TempTestFile::new("cache_speed_text.pdf", &bytes).unwrap();
+        let mut engine = PdfEngine::new();
+        engine.load_document(temp.path().to_str().unwrap()).await.unwrap();
+        let opts = RenderOptions::default();
+
+        let t1 = Instant::now();
+        let _ = engine.render_page(1, opts.clone()).await.unwrap();
+        let d1 = t1.elapsed();
+
+        let t2 = Instant::now();
+        let _ = engine.render_page(1, opts.clone()).await.unwrap();
+        let d2 = t2.elapsed();
+
+        assert!(d2 <= d1);
+    }
+
+    #[tokio::test]
+    async fn test_preload_pages_ok() {
+        let bytes = build_simple_pdf_with_text();
+        let temp = TempTestFile::new("preload_text.pdf", &bytes).unwrap();
+        let mut engine = PdfEngine::new();
+        engine.load_document(temp.path().to_str().unwrap()).await.unwrap();
+        let r = engine.preload_pages(1, 1, RenderQuality::Standard).await;
+        assert!(r.is_ok());
+    }
 }
