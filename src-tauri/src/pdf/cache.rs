@@ -119,13 +119,16 @@ impl CacheManager {
         let mut removed_count = 0;
 
         for (key, _) in entries {
-            if *current_size - freed_size <= target_size && cache.len() - removed_count < self.max_items {
+            if *current_size - freed_size <= target_size && (cache.len() - removed_count) < self.max_items {
                 break;
             }
 
             if let Some(entry) = cache.remove(&key) {
                 freed_size += entry.size;
                 removed_count += 1;
+            }
+            if *current_size - freed_size <= target_size && (cache.len() - removed_count) <= self.max_items {
+                break;
             }
         }
 

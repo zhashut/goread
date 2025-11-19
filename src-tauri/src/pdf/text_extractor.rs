@@ -26,7 +26,7 @@ impl TextExtractor {
         if !content_data.is_empty() {
             let content = Content::decode(&content_data)
                 .map_err(|e| PdfError::parse_error(Some(page_number), "内容解析失败", e.to_string()))?;
-            let text_blocks = self.parse_content_stream(&content)?;
+            let text_blocks = self.parse_content_stream(document, *page_id, &content)?;
 
             for block in text_blocks {
                 full_text.push_str(&block.text);
@@ -44,6 +44,8 @@ impl TextExtractor {
 
     fn parse_content_stream(
         &self,
+        document: &PdfFile,
+        page_id: ObjectId,
         content: &Content,
     ) -> Result<Vec<TextBlock>, PdfError> {
         let mut text_blocks = Vec::new();
@@ -52,6 +54,7 @@ impl TextExtractor {
         let mut current_y = 0.0;
         let mut current_font_size = 12.0;
         let mut current_font_name: Option<String> = None;
+        let mut to_unicode: Option<std::collections::HashMap<u16, String>> = None;
 
         let mut text_matrix = TextMatrix::default();
         let mut text_line_matrix = TextMatrix::default();
@@ -96,22 +99,55 @@ impl TextExtractor {
                     if !current_text.is_empty() {
                         self.flush_text_block(&mut text_blocks, &mut current_text, current_x, current_y, current_font_size, &current_font_name);
                     }
-                    let decoded = decode_object_string(op.operands.get(0));
+                    let decoded = decode_text_with_font(op.operands.get(0), to_unicode.as_ref());
                     current_text.push_str(&decoded);
                 }
                 "'" => {
                     text_line_matrix.ty -= text_matrix.leading;
                     text_matrix = text_line_matrix;
                     current_y = text_matrix.ty;
-                    let decoded = decode_object_string(op.operands.get(0));
+                    let decoded = decode_text_with_font(op.operands.get(0), to_unicode.as_ref());
                     current_text.push_str(&decoded);
+                }
+                "TJ" => {
+                    if let Some(Object::Array(arr)) = op.operands.get(0) {
+                        for item in arr {
+                            match item {
+                                Object::String(_, _) => {
+                                    let s = decode_text_with_font(Some(item), to_unicode.as_ref());
+                                    current_text.push_str(&s);
+                                }
+                                Object::Integer(v) => {
+                                    let adj = -*v as f32 / 1000.0 * current_font_size;
+                                    current_x += adj;
+                                }
+                                Object::Real(v) => {
+                                    let adj = -*v as f32 / 1000.0 * current_font_size;
+                                    current_x += adj;
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
                 }
                 "Tf" => {
                     current_font_size = as_f32(op.operands.get(1)).unwrap_or(current_font_size);
                     current_font_name = match op.operands.get(0) { Some(Object::Name(n)) => Some(String::from_utf8_lossy(n).to_string()), _ => current_font_name };
+                    if let Some(ref name) = current_font_name {
+                        to_unicode = load_to_unicode(document, page_id, name);
+                    }
                 }
                 "TL" => {
                     text_matrix.leading = as_f32(op.operands.get(0)).unwrap_or(text_matrix.leading);
+                }
+                "Tc" => {
+                    let _char_spacing = as_f32(op.operands.get(0)).unwrap_or(0.0);
+                }
+                "Tw" => {
+                    let _word_spacing = as_f32(op.operands.get(0)).unwrap_or(0.0);
+                }
+                "Tz" => {
+                    let _h_scale = as_f32(op.operands.get(0)).unwrap_or(100.0);
                 }
                 "BT" => {
                     text_matrix = TextMatrix::default();
@@ -229,7 +265,7 @@ impl TextExtractor {
         Ok(all_text)
     }
 
-    pub fn get_text_at_position(
+pub fn get_text_at_position(
         &self,
         document: &PdfFile,
         page_number: u32,
@@ -262,10 +298,80 @@ fn as_f32(o: Option<&Object>) -> Option<f32> {
 
 fn decode_object_string(o: Option<&Object>) -> String {
     match o {
-        Some(Object::String(bytes, _)) => String::from_utf8(bytes.clone()).unwrap_or_default(),
+        Some(Object::String(bytes, _)) => decode_bytes(bytes),
         _ => String::new(),
     }
 }
+
+fn decode_text_with_font(o: Option<&Object>, map: Option<&std::collections::HashMap<u16, String>>) -> String {
+    match o {
+        Some(Object::String(bytes, _)) => {
+            if bytes.len() >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF {
+                decode_bytes(bytes)
+            } else if let Some(m) = map {
+                let mut out = String::new();
+                let mut i = 0;
+                while i + 1 < bytes.len() {
+                    let code = ((bytes[i] as u16) << 8) | (bytes[i + 1] as u16);
+                    if let Some(s) = m.get(&code) { out.push_str(s); } else { out.push(char::from(bytes[i])); }
+                    i += 2;
+                }
+                out
+            } else {
+                decode_bytes(bytes)
+            }
+        }
+        _ => String::new(),
+    }
+}
+
+fn load_to_unicode(document: &PdfFile, page_id: ObjectId, font_name: &str) -> Option<std::collections::HashMap<u16, String>> {
+    let page_obj = document.get_object(page_id).ok()?;
+    let page_dict = page_obj.as_dict().ok()?;
+    let res_obj = page_dict.get(b"Resources").ok();
+    let res_dict = match res_obj { Some(Object::Dictionary(d)) => Some(d), Some(Object::Reference(id)) => match document.get_object(*id) { Ok(Object::Dictionary(d)) => Some(d), _ => None }, _ => None }?;
+    let font_obj = res_dict.get(b"Font").ok();
+    let font_dict = match font_obj { Some(Object::Dictionary(d)) => Some(d), Some(Object::Reference(id)) => match document.get_object(*id) { Ok(Object::Dictionary(d)) => Some(d), _ => None }, _ => None }?;
+    let font_entry = font_dict.get(font_name.as_bytes()).ok()?;
+    let font_dict = match font_entry { Object::Dictionary(d) => Some(d), Object::Reference(id) => match document.get_object(*id) { Ok(Object::Dictionary(d)) => Some(d), _ => None }, _ => None }?;
+    let tu_obj = font_dict.get(b"ToUnicode").ok()?;
+    let stream = match tu_obj { Object::Stream(s) => Some(s.clone()), Object::Reference(id) => match document.get_object(*id) { Ok(Object::Stream(s)) => Some(s.clone()), _ => None }, _ => None }?;
+    let cmap_str = String::from_utf8_lossy(&stream.content);
+    let mut map = std::collections::HashMap::new();
+    for line in cmap_str.lines() {
+        let t = line.trim();
+        if t.starts_with("<") && t.contains("> <") {
+            let parts: Vec<&str> = t.split_whitespace().collect();
+            if parts.len() >= 2 {
+                let src = parts[0].trim_matches(|c| c=='<'||c=='>');
+                let dst = parts[1].trim_matches(|c| c=='<'||c=='>');
+                if src.len()<=4 && dst.len()<=4 {
+                    if let (Ok(sv), Ok(dv)) = (u16::from_str_radix(src, 16), u16::from_str_radix(dst, 16)) {
+                        if let Some(ch) = std::char::from_u32(dv as u32) { map.insert(sv, ch.to_string()); }
+                    }
+                }
+            }
+        }
+    }
+    Some(map)
+}
+
+fn decode_bytes(bytes: &[u8]) -> String {
+    if bytes.len() >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF {
+        let mut u16s = Vec::new();
+        let mut i = 2;
+        while i + 1 < bytes.len() {
+            let val = ((bytes[i] as u16) << 8) | (bytes[i + 1] as u16);
+            u16s.push(val);
+            i += 2;
+        }
+        String::from_utf16_lossy(&u16s)
+    } else {
+        String::from_utf8_lossy(bytes).to_string()
+    }
+}
+
+//
 
 #[derive(Debug, Clone, Copy)]
 struct TextMatrix {

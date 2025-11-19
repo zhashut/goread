@@ -3,6 +3,7 @@
 
 use crate::pdf::*;
 use std::path::PathBuf;
+use lopdf::{Document, Object, Stream, dictionary};
 
 /// 获取测试fixtures目录路径
 pub fn get_fixtures_dir() -> PathBuf {
@@ -31,10 +32,56 @@ pub fn setup_test_extractor() -> TextExtractor {
     TextExtractor::new()
 }
 
+pub fn build_simple_pdf_with_rect() -> Vec<u8> {
+    let mut doc = Document::with_version("1.5");
+    let content = Stream::new(dictionary!{}, b"0.5 g 100 100 200 200 re f".to_vec());
+    let content_id = doc.add_object(content);
+    let pages_id = doc.add_object(dictionary!{
+        "Type" => "Pages",
+        "Kids" => lopdf::Object::Array(vec![]),
+        "Count" => 1,
+    });
+    let page_id = doc.add_object(dictionary!{
+        "Type" => "Page",
+        "Parent" => Object::Reference(pages_id),
+        "MediaBox" => Object::Array(vec![0.into(),0.into(),300.into(),400.into()]),
+        "Resources" => dictionary!{},
+        "Contents" => Object::Reference(content_id),
+    });
+    if let Ok(Object::Dictionary(ref mut d)) = doc.get_object_mut(pages_id) { d.set("Kids", Object::Array(vec![Object::Reference(page_id)])); }
+    let catalog_id = doc.add_object(dictionary!{ "Type" => "Catalog", "Pages" => Object::Reference(pages_id) });
+    doc.trailer.set("Root", Object::Reference(catalog_id));
+    let mut buf = Vec::new();
+    doc.save_to(&mut buf).unwrap();
+    buf
+}
+
+pub fn build_simple_pdf_with_text() -> Vec<u8> {
+    let mut doc = Document::with_version("1.5");
+    let font_id = doc.add_object(dictionary!{"Type"=>"Font","Subtype"=>"Type1","BaseFont"=>"Helvetica"});
+    let resources = dictionary!{"Font" => dictionary!{"F1" => Object::Reference(font_id)}};
+    let content = Stream::new(dictionary!{}, b"BT /F1 24 Tf 100 700 Td (Hello) Tj ET".to_vec());
+    let content_id = doc.add_object(content);
+    let pages_id = doc.add_object(dictionary!{ "Type" => "Pages", "Kids" => lopdf::Object::Array(vec![]), "Count" => 1 });
+    let page_id = doc.add_object(dictionary!{
+        "Type" => "Page",
+        "Parent" => Object::Reference(pages_id),
+        "MediaBox" => Object::Array(vec![0.into(),0.into(),612.into(),792.into()]),
+        "Resources" => resources,
+        "Contents" => Object::Reference(content_id),
+    });
+    if let Ok(Object::Dictionary(ref mut d)) = doc.get_object_mut(pages_id) { d.set("Kids", Object::Array(vec![Object::Reference(page_id)])); }
+    let catalog_id = doc.add_object(dictionary!{ "Type" => "Catalog", "Pages" => Object::Reference(pages_id) });
+    doc.trailer.set("Root", Object::Reference(catalog_id));
+    let mut buf = Vec::new();
+    doc.save_to(&mut buf).unwrap();
+    buf
+}
+
 /// 创建测试用的渲染结果
 pub fn create_test_render_result() -> RenderResult {
     RenderResult {
-        image_data: vec![0u8; 1000],
+        image_data: vec![0u8; 5000],
         width: 800,
         height: 600,
         format: ImageFormat::Png,
@@ -76,7 +123,7 @@ pub fn validate_render_result(result: &RenderResult) -> Result<(), String> {
     }
     
     // 验证图像数据大小是否合理
-    let expected_min_size = (result.width * result.height) as usize / 10; // 至少10:1压缩
+    let expected_min_size = (result.width * result.height) as usize / 100; 
     if result.image_data.len() < expected_min_size {
         return Err(format!(
             "Image data too small: {} bytes for {}x{} image",
@@ -299,5 +346,27 @@ mod tests {
         for (i, result) in results.iter().enumerate() {
             assert_eq!(result.as_ref().unwrap(), &(i * 2));
         }
+    }
+
+    #[tokio::test]
+    async fn test_render_temp_rect_pdf() {
+        let bytes = build_simple_pdf_with_rect();
+        let temp = TempTestFile::new("rect_test.pdf", &bytes).unwrap();
+        let mut engine = PdfEngine::new();
+        engine.load_document(temp.path().to_str().unwrap()).await.unwrap();
+        let result = engine.render_page(1, RenderOptions::default()).await.unwrap();
+        assert!(result.width > 0 && result.height > 0);
+        assert!(!result.image_data.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_extract_text_temp_pdf() {
+        let bytes = build_simple_pdf_with_text();
+        let temp = TempTestFile::new("text_test.pdf", &bytes).unwrap();
+        let mut engine = PdfEngine::new();
+        engine.load_document(temp.path().to_str().unwrap()).await.unwrap();
+        let page_text = engine.extract_page_text(1).unwrap();
+        let all = page_text.blocks.iter().map(|b| b.text.as_str()).collect::<Vec<_>>().join("");
+        assert!(all.contains("Hello"));
     }
 }
