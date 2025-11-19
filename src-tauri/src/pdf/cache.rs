@@ -107,7 +107,7 @@ impl CacheManager {
 
         // 使用LRU策略：按最后访问时间和访问次数排序
         let mut entries: Vec<_> = cache.iter().map(|(k, v)| {
-            let score = v.last_access.elapsed().as_secs() as f64 / (v.access_count as f64 + 1.0);
+            let score = v.last_access.elapsed().as_secs_f64() / (v.access_count as f64 + 1.0);
             (k.clone(), score)
         }).collect();
 

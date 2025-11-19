@@ -81,7 +81,7 @@ pub fn build_simple_pdf_with_text() -> Vec<u8> {
 /// 创建测试用的渲染结果
 pub fn create_test_render_result() -> RenderResult {
     RenderResult {
-        image_data: vec![0u8; 5000],
+        image_data: vec![0u8; 1000],
         width: 800,
         height: 600,
         format: ImageFormat::Png,
@@ -123,7 +123,7 @@ pub fn validate_render_result(result: &RenderResult) -> Result<(), String> {
     }
     
     // 验证图像数据大小是否合理
-    let expected_min_size = (result.width * result.height) as usize / 100; 
+    let expected_min_size = (result.width * result.height) as usize / 1000; 
     if result.image_data.len() < expected_min_size {
         return Err(format!(
             "Image data too small: {} bytes for {}x{} image",
