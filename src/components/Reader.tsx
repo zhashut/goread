@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { TOP_DRAWER_RADIUS, BOTTOM_DRAWER_RADIUS } from "../constants/ui";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { IBook, IBookmark } from "../types";
 // @ts-ignore
@@ -291,6 +292,11 @@ export const Reader: React.FC = () => {
           const tempContext = tempCanvas.getContext('2d');
           
           if (tempContext) {
+            if ((tempContext as any).resetTransform) {
+              (tempContext as any).resetTransform();
+            } else {
+              tempContext.setTransform(1, 0, 0, 1, 0, 0);
+            }
             await page.render({
               canvasContext: tempContext,
               viewport: viewport,
@@ -334,7 +340,12 @@ export const Reader: React.FC = () => {
         canvas.width = cached.width;
         canvas.height = cached.height;
         
-        // 清除之前的内容
+        // 清除之前的内容前重置2D变换，避免翻转
+        if ((context as any).resetTransform) {
+          (context as any).resetTransform();
+        } else {
+          context.setTransform(1, 0, 0, 1, 0, 0);
+        }
         context.clearRect(0, 0, canvas.width, canvas.height);
         
         // 绘制缓存的图像
@@ -359,7 +370,18 @@ export const Reader: React.FC = () => {
       // 注册canvas到内存优化器
       memoryOptimizer.registerCanvas(canvas);
 
-      // 清除canvas内容，确保没有残留
+      // 在渲染前重置任何残留的2D变换，避免页面被翻转
+      if ((context as any).resetTransform) {
+        (context as any).resetTransform();
+      } else {
+        context.setTransform(1, 0, 0, 1, 0, 0);
+      }
+      // 清除canvas内容前重置2D变换，避免翻转
+      if ((context as any).resetTransform) {
+        (context as any).resetTransform();
+      } else {
+        context.setTransform(1, 0, 0, 1, 0, 0);
+      }
       context.clearRect(0, 0, canvas.width, canvas.height);
       context.fillStyle = '#ffffff';
       context.fillRect(0, 0, canvas.width, canvas.height);
@@ -445,6 +467,11 @@ export const Reader: React.FC = () => {
         const tempContext = tempCanvas.getContext('2d');
         
         if (tempContext) {
+          if ((tempContext as any).resetTransform) {
+            (tempContext as any).resetTransform();
+          } else {
+            tempContext.setTransform(1, 0, 0, 1, 0, 0);
+          }
           await page.render({
             canvasContext: tempContext,
             viewport: viewport,
@@ -602,7 +629,12 @@ export const Reader: React.FC = () => {
         canvas.width = cached.width;
         canvas.height = cached.height;
         
-        // 清除之前的内容
+        // 清除之前的内容前重置2D变换，避免翻转
+        if ((context as any).resetTransform) {
+          (context as any).resetTransform();
+        } else {
+          context.setTransform(1, 0, 0, 1, 0, 0);
+        }
         context.clearRect(0, 0, canvas.width, canvas.height);
         
         // 绘制缓存的图像
@@ -629,6 +661,11 @@ export const Reader: React.FC = () => {
       memoryOptimizer.registerCanvas(canvas);
       
       // 清除canvas内容，确保没有残留
+      if ((context as any).resetTransform) {
+        (context as any).resetTransform();
+      } else {
+        context.setTransform(1, 0, 0, 1, 0, 0);
+      }
       context.clearRect(0, 0, canvas.width, canvas.height);
       context.fillStyle = '#ffffff';
       context.fillRect(0, 0, canvas.width, canvas.height);
@@ -1092,7 +1129,7 @@ export const Reader: React.FC = () => {
             alignItems: "center",
             justifyContent: "center",
             overflow: tocOverlayOpen || modeOverlayOpen ? "hidden" : "auto",
-            padding: "20px",
+            padding: 0,
             position: "relative",
           }}
           ref={mainViewRef}
@@ -1118,7 +1155,7 @@ export const Reader: React.FC = () => {
                 alignItems: "center",
                 justifyContent: "space-between",
                 color: "white",
-                borderRadius: "10px",
+                borderRadius: `0 0 ${TOP_DRAWER_RADIUS}px ${TOP_DRAWER_RADIUS}px`,
                 padding: "8px 12px",
                 boxShadow: "0 6px 24px rgba(0,0,0,0.35)",
                 zIndex: 12,
@@ -1168,8 +1205,8 @@ export const Reader: React.FC = () => {
             <canvas
               ref={canvasRef}
               style={{
-                maxWidth: "100%",
-                maxHeight: "100%",
+                width: "100%",
+                height: "auto",
                 boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
               }}
             />
@@ -1256,7 +1293,7 @@ export const Reader: React.FC = () => {
               <div
                 onClick={(e) => e.stopPropagation()}
                 style={{
-                  width: "90%",
+                  width: "75%",
                   height: "100%",
                   backgroundColor: "#1f1f1f",
                   color: "#fff",
@@ -1528,7 +1565,7 @@ export const Reader: React.FC = () => {
                 left: 0,
                 right: 0,
                 transform: "none",
-                bottom: "20px",
+                bottom: 0,
                 boxSizing: "border-box",
                 backgroundColor: "rgba(26,26,26,0.92)",
                 display: "flex",
@@ -1536,7 +1573,7 @@ export const Reader: React.FC = () => {
                 alignItems: "center",
                 justifyContent: "center",
                 color: "white",
-                borderRadius: "10px",
+                borderRadius: `${BOTTOM_DRAWER_RADIUS}px ${BOTTOM_DRAWER_RADIUS}px 0 0`,
                 padding: "14px 18px",
                 paddingBottom: "calc(14px + env(safe-area-inset-bottom))",
                 boxShadow: "0 6px 24px rgba(0,0,0,0.35)",

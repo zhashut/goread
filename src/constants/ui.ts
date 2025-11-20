@@ -27,3 +27,6 @@ export const SELECTION_ICON_OFFSET_RIGHT = 0.5; // 相对容器右侧的偏移�
 // 分组封面容器（默认样式）内边距，用于对齐选择图标到内容边缘
 export const GROUP_COVER_PADDING = 4; // 与 GroupCoverGrid 默认 variant 的 padding 对齐（已从 6px 减小到 4px）
 export const GROUP_COVER_PADDING_COMPACT = 4; // 紧凑 variant 的 padding
+
+export const TOP_DRAWER_RADIUS = 15;
+export const BOTTOM_DRAWER_RADIUS = 16;
