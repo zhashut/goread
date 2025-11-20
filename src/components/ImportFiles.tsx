@@ -17,7 +17,7 @@ export interface FileEntry {
   path: string;
   size?: number; // bytes
   mtime?: number; // epoch ms
-  childrenCount?: number; // for dir
+  children_count?: number; // for dir
 }
 
 export interface ScanResultItem extends FileEntry {
@@ -839,7 +839,7 @@ export const ImportFiles: React.FC = () => {
                 {entry.name}
               </div>
               <div style={{ color: "#888", fontSize: 12 }}>
-                {`${entry.childrenCount || 0}项`} · {fmtDate(entry.mtime)}
+                {`${entry.children_count || 0}项`} · {fmtDate(entry.mtime)}
               </div>
             </div>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
