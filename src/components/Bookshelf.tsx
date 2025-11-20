@@ -836,7 +836,7 @@ export const Bookshelf: React.FC = () => {
                 <button
                   onClick={() => {
                     setMenuOpen(false);
-                    navigate("/import");
+                    navigate("/import", { state: { fromTab: activeTab } });
                   }}
                   style={{
                     width: "100%",
@@ -895,7 +895,7 @@ export const Bookshelf: React.FC = () => {
                 <button
                   onClick={() => {
                     setMenuOpen(false);
-                    navigate("/settings");
+                    navigate("/settings", { state: { fromTab: activeTab } });
                   }}
                   style={{
                     width: "100%",

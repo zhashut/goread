@@ -24,7 +24,7 @@ export interface ScanResultItem extends FileEntry {
 
 export const ScanResults: React.FC = () => {
   const navigate = useNavigate();
-  const { state } = useLocation() as { state?: { results?: ScanResultItem[] } };
+  const { state } = useLocation() as { state?: { results?: ScanResultItem[]; fromTab?: "recent" | "all" } };
   const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
   const [globalSearch, setGlobalSearch] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -282,7 +282,10 @@ export const ScanResults: React.FC = () => {
         >
           <button
             aria-label="返回"
-            onClick={() => navigate(-1)}
+            onClick={() => {
+              if (state?.fromTab === "all") navigate("/?tab=all");
+              else navigate(-1);
+            }}
             style={{
               background: "none",
               border: "none",

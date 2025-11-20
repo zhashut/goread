@@ -181,7 +181,7 @@ export const ImportFiles: React.FC = () => {
     // foundPdfCount 已经在 startScan 中更新，这里不需要再次设置
     setActiveTab("scan");
     // 跳转到结果页并传递数据
-    navigate("/import/results", { state: { results: mapped } });
+    navigate("/import/results", { state: { results: mapped, fromTab: (location.state as any)?.fromTab } });
   };
 
   const startScan = async () => {
@@ -388,7 +388,11 @@ export const ImportFiles: React.FC = () => {
       >
         <button
           aria-label="返回"
-          onClick={() => navigate(-1)}
+          onClick={() => {
+            const state: any = location.state || {};
+            if (state.fromTab === "all") navigate("/?tab=all");
+            else navigate(-1);
+          }}
           style={{
             background: "none",
             border: "none",

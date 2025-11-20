@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import {
   getReaderSettings,
   saveReaderSettings,
@@ -8,6 +8,7 @@ import {
 
 export const Settings: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [settings, setSettings] = useState<ReaderSettings>(getReaderSettings());
 
   useEffect(() => {
@@ -55,7 +56,11 @@ export const Settings: React.FC = () => {
         }}
       >
         <button
-          onClick={() => navigate(-1)}
+          onClick={() => {
+            const state: any = location.state || {};
+            if (state.fromTab === "all") navigate("/?tab=all");
+            else navigate(-1);
+          }}
           style={{
             background: "transparent",
             border: "none",
