@@ -3,7 +3,22 @@ mod models;
 mod pdf;
 mod pdf_commands;
 
-use commands::*;
+// 导入所有命令
+use commands::{
+    // book commands
+    init_database, add_book, get_all_books, get_recent_books,
+    update_book_progress, mark_book_opened, clear_recent_read_record, delete_book,
+    // group commands
+    add_group, get_all_groups, delete_group, get_books_by_group,
+    move_book_to_group, reorder_group_books,
+    // bookmark commands
+    add_bookmark, get_bookmarks, delete_bookmark,
+    // filesystem commands
+    scan_pdf_files, cancel_scan, list_directory, get_root_directories,
+    check_storage_permission, request_storage_permission, read_file_bytes,
+    // import commands
+    batch_read_files, batch_import_books, batch_get_pdf_info,
+};
 use pdf_commands::*;
 use sqlx::SqlitePool;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
@@ -68,6 +83,10 @@ pub fn run() {
             check_storage_permission,
             request_storage_permission,
             read_file_bytes,
+            // 批量导入优化命令
+            batch_read_files,
+            batch_import_books,
+            batch_get_pdf_info,
             // PDF相关命令
             pdf_load_document,
             pdf_render_page,
