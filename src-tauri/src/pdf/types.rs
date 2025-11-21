@@ -85,6 +85,30 @@ impl RenderOptions {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RenderRegion {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct TileKey {
+    pub page_number: u32,
+    pub quality: RenderQuality,
+    pub tile_x: u32,
+    pub tile_y: u32,
+    pub tile_width: u32,
+    pub tile_height: u32,
+}
+
+impl TileKey {
+    pub fn new(page_number: u32, quality: RenderQuality, tile_x: u32, tile_y: u32, tile_width: u32, tile_height: u32) -> Self {
+        Self { page_number, quality, tile_x, tile_y, tile_width, tile_height }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TextPosition {
     pub x: f32,
     pub y: f32,
@@ -318,8 +342,8 @@ impl From<std::io::Error> for PdfError {
     }
 }
 
-impl From<lopdf::Error> for PdfError {
-    fn from(err: lopdf::Error) -> Self {
+impl From<pdfium_render::prelude::PdfiumError> for PdfError {
+    fn from(err: pdfium_render::prelude::PdfiumError) -> Self {
         PdfError::ParseError {
             page: None,
             message: "PDF解析失败".to_string(),

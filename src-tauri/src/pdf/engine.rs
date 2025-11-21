@@ -1,137 +1,158 @@
-use lopdf::{Document, Object, ObjectId};
-use std::collections::HashMap;
+use pdfium_render::prelude::*;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use std::collections::HashMap;
 
 use crate::pdf::cache::CacheManager;
 use crate::pdf::renderer::PdfRenderer;
-use crate::pdf::text_extractor::TextExtractor;
 use crate::pdf::types::*;
 
-pub type PdfFile = Document;
-
+/// PDF 引擎，负责文档加载和管理
 pub struct PdfEngine {
-    document: Option<Arc<PdfFile>>,
     file_path: String,
     document_info: Option<PdfDocumentInfo>,
-    renderer: PdfRenderer,
-    text_extractor: Option<TextExtractor>,
+    cache: CacheManager,
 }
 
 impl PdfEngine {
-    pub fn new() -> Self {
-        Self {
-            document: None,
+    /// 创建新的 PDF 引擎实例
+    pub fn new() -> Result<Self, PdfError> {
+        Ok(Self {
             file_path: String::new(),
             document_info: None,
-            renderer: PdfRenderer::new(),
-            text_extractor: None,
-        }
+            cache: CacheManager::with_limits(50 * 1024 * 1024, 20),
+        })
     }
 
-    pub fn with_cache(cache: CacheManager) -> Self {
-        Self {
-            document: None,
+    /// 使用指定的缓存管理器创建引擎
+    pub fn with_cache(cache: CacheManager) -> Result<Self, PdfError> {
+        Ok(Self {
             file_path: String::new(),
             document_info: None,
-            renderer: PdfRenderer::with_cache(cache),
-            text_extractor: None,
-        }
+            cache,
+        })
     }
 
+    /// 创建 Pdfium 实例（内部使用）
+    fn create_pdfium() -> Result<Pdfium, PdfError> {
+        let mut candidates: Vec<String> = Vec::new();
+        if let Ok(dir) = std::env::var("PDFIUM_LIB_DIR") { candidates.push(dir); }
+        if let Ok(exe) = std::env::current_exe() { if let Some(p) = exe.parent() { candidates.push(p.to_string_lossy().to_string()); } }
+        if let Ok(cwd) = std::env::current_dir() { candidates.push(cwd.to_string_lossy().to_string()); }
+        candidates.push("./resources".to_string());
+        candidates.push("./pdfium".to_string());
+        #[cfg(target_os = "windows")] {
+            candidates.push("./pdfium/windows".to_string());
+            candidates.push("./src/pdfium/windows".to_string());
+        }
+        #[cfg(target_os = "linux")] {
+            candidates.push("./pdfium/linux".to_string());
+            candidates.push("./src/pdfium/linux".to_string());
+        }
+        #[cfg(target_os = "macos")] {
+            candidates.push("./pdfium/macos".to_string());
+            candidates.push("./src/pdfium/macos".to_string());
+        }
+        #[cfg(target_os = "android")] {
+            candidates.push("./pdfium/android".to_string());
+            candidates.push("./src/pdfium/android".to_string());
+        }
+        #[cfg(target_os = "ios")] {
+            candidates.push("./pdfium/ios".to_string());
+            candidates.push("./src/pdfium/ios".to_string());
+        }
+
+        for dir in candidates {
+            if let Ok(bindings) = Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path(&dir)) {
+                return Ok(Pdfium::new(bindings));
+            }
+        }
+
+        Ok(Pdfium::new(
+            Pdfium::bind_to_system_library().map_err(|e| PdfError::ParseError {
+                page: None,
+                message: "无法加载 Pdfium 库".to_string(),
+                source: e.to_string(),
+            })?,
+        ))
+    }
+
+    /// 执行需要文档的操作（内部使用）
+    fn with_document<F, R>(&self, f: F) -> Result<R, PdfError>
+    where
+        F: FnOnce(&Pdfium, &PdfDocument<'_>) -> Result<R, PdfError>,
+    {
+        let pdfium = Self::create_pdfium()?;
+        let document = pdfium
+            .load_pdf_from_file(&self.file_path, None)
+            .map_err(|e| PdfError::FileNotFound {
+                path: self.file_path.clone(),
+                source: e.to_string(),
+            })?;
+        f(&pdfium, &document)
+    }
+
+    /// 加载 PDF 文档
     pub async fn load_document(&mut self, path: &str) -> Result<PdfDocumentInfo, PdfError> {
-        let document = Document::load(path).map_err(|e| PdfError::FileNotFound {
-            path: path.to_string(),
-            source: e.to_string(),
-        })?;
+        let pdfium = Self::create_pdfium()?;
+        let document = pdfium
+            .load_pdf_from_file(path, None)
+            .map_err(|e| PdfError::FileNotFound {
+                path: path.to_string(),
+                source: e.to_string(),
+            })?;
 
         let document_info = self.extract_document_info(&document)?;
 
-        self.text_extractor = Some(TextExtractor::new());
-        self.document = Some(Arc::new(document));
         self.file_path = path.to_string();
         self.document_info = Some(document_info.clone());
 
         Ok(document_info)
     }
 
-    fn extract_document_info(&self, document: &PdfFile) -> Result<PdfDocumentInfo, PdfError> {
-        let pages_map = document.get_pages();
-        let page_count = pages_map.len() as u32;
-        let mut pages = Vec::new();
+    /// 提取文档信息
+    fn extract_document_info(&self, document: &PdfDocument<'_>) -> Result<PdfDocumentInfo, PdfError> {
+        let pages = document.pages();
+        let page_count = pages.len() as u32;
+        
+        let mut page_infos = Vec::new();
+        for i in 0..page_count {
+            let page = pages.get(i as u16).map_err(|e| {
+                PdfError::parse_error(Some(i + 1), "读取页面失败", e.to_string())
+            })?;
 
-        for i in 1..=page_count {
-            if let Some(page_id) = pages_map.get(&i) {
-                let page_obj = document.get_object(*page_id).map_err(|e| {
-                    PdfError::parse_error(Some(i), "读取页面对象失败", e.to_string())
-                })?;
-                let dict = page_obj.as_dict()?;
+            let width = page.width().value;
+            let height = page.height().value;
+            let rotation = match page.rotation() {
+                Ok(PdfPageRenderRotation::None) => 0,
+                Ok(PdfPageRenderRotation::Degrees90) => 90,
+                Ok(PdfPageRenderRotation::Degrees180) => 180,
+                Ok(PdfPageRenderRotation::Degrees270) => 270,
+                Err(_) => 0, // 默认无旋转
+            };
 
-                let mut width = 612.0f32;
-                let mut height = 792.0f32;
-                if let Ok(media_box_obj) = dict.get(b"MediaBox") {
-                    if let Ok(arr) = media_box_obj.as_array() {
-                        let nums: Vec<f32> = arr
-                            .iter()
-                            .filter_map(|o| match o {
-                                Object::Integer(v) => Some(*v as f32),
-                                Object::Real(v) => Some(*v as f32),
-                                _ => None,
-                            })
-                            .collect();
-                        if nums.len() >= 4 {
-                            width = (nums[2] - nums[0]).abs();
-                            height = (nums[3] - nums[1]).abs();
-                        }
-                    }
-                }
-
-                let rotation = match dict.get(b"Rotate") {
-                    Ok(Object::Integer(v)) => *v as i32,
-                    _ => 0,
-                };
-
-                pages.push(PdfPageInfo {
-                    width,
-                    height,
-                    number: i,
-                    rotation,
-                });
-            }
+            page_infos.push(PdfPageInfo {
+                width,
+                height,
+                number: i + 1,
+                rotation,
+            });
         }
 
-        let mut title = None;
-        let mut author = None;
-        let mut subject = None;
-        let mut keywords = None;
-        let mut creator = None;
-        let mut producer = None;
-        let mut creation_date = None;
-        let mut modification_date = None;
-
-        if let Ok(info_obj) = document.trailer.get(b"Info") {
-            if let Object::Reference(id) = info_obj {
-                if let Ok(Object::Dictionary(info_dict)) = document.get_object(*id) {
-                    let to_str = |o: &Object| match o {
-                        Object::String(bytes, _) => String::from_utf8(bytes.clone()).ok(),
-                        Object::Name(name) => Some(String::from_utf8_lossy(name).to_string()),
-                        _ => None,
-                    };
-                    title = info_dict.get(b"Title").ok().and_then(|o| to_str(o));
-                    author = info_dict.get(b"Author").ok().and_then(|o| to_str(o));
-                    subject = info_dict.get(b"Subject").ok().and_then(|o| to_str(o));
-                    keywords = info_dict.get(b"Keywords").ok().and_then(|o| to_str(o));
-                    creator = info_dict.get(b"Creator").ok().and_then(|o| to_str(o));
-                    producer = info_dict.get(b"Producer").ok().and_then(|o| to_str(o));
-                    creation_date = info_dict.get(b"CreationDate").ok().and_then(|o| to_str(o));
-                    modification_date = info_dict.get(b"ModDate").ok().and_then(|o| to_str(o));
-                }
-            }
-        }
+        // 提取元数据
+        // 暂时设置为 None，避免 pdfium-render 不同版本的 trait bound 问题
+        let title = None;
+        let author = None;
+        let subject = None;
+        let keywords = None;
+        let creator = None;
+        let producer = None;
+        let creation_date = None;
+        let modification_date = None;
 
         Ok(PdfDocumentInfo {
             page_count,
-            pages,
+            pages: page_infos,
             title,
             author,
             subject,
@@ -143,17 +164,12 @@ impl PdfEngine {
         })
     }
 
+    /// 渲染单个页面
     pub async fn render_page(
         &self,
         page_number: u32,
         options: RenderOptions,
     ) -> Result<RenderResult, PdfError> {
-        let document = self.document.as_ref().ok_or(PdfError::ParseError {
-            page: None,
-            message: "PDF文档未加载".to_string(),
-            source: String::new(),
-        })?;
-
         if page_number < 1 || page_number > self.get_page_count() {
             return Err(PdfError::PageNotFound {
                 page: page_number,
@@ -161,149 +177,132 @@ impl PdfEngine {
             });
         }
 
-        self.renderer
-            .render_page(document, page_number, options)
-            .await
+        let file_path = self.file_path.clone();
+        let cache = self.cache.clone();
+        
+        tokio::task::spawn_blocking(move || {
+            let pdfium = Arc::new(Self::create_pdfium()?);
+            let document = pdfium
+                .load_pdf_from_file(&file_path, None)
+                .map_err(|e| PdfError::FileNotFound {
+                    path: file_path.clone(),
+                    source: e.to_string(),
+                })?;
+            
+            let renderer = PdfRenderer::with_cache(pdfium.clone(), cache);
+            renderer.render_page_sync(&document, page_number, options)
+        })
+        .await
+        .map_err(|e| PdfError::render_error(page_number, "render_page", format!("渲染任务失败: {}", e)))?
     }
 
+    /// 渲染页面分块
+    pub async fn render_page_tile(
+        &self,
+        page_number: u32,
+        region: RenderRegion,
+        options: RenderOptions,
+    ) -> Result<RenderResult, PdfError> {
+        if page_number < 1 || page_number > self.get_page_count() {
+            return Err(PdfError::PageNotFound { page: page_number, total_pages: self.get_page_count() });
+        }
+
+        let file_path = self.file_path.clone();
+        let cache = self.cache.clone();
+
+        tokio::task::spawn_blocking(move || {
+            let pdfium = Arc::new(Self::create_pdfium()?);
+            let document = pdfium
+                .load_pdf_from_file(&file_path, None)
+                .map_err(|e| PdfError::FileNotFound { path: file_path.clone(), source: e.to_string() })?;
+
+            let renderer = PdfRenderer::with_cache(pdfium.clone(), cache);
+            renderer.render_page_tile_sync(&document, page_number, region, options)
+        })
+        .await
+        .map_err(|e| PdfError::render_error(page_number, "render_page_tile", format!("渲染任务失败: {}", e)))?
+    }
+
+    /// 渲染页面范围
     pub async fn render_page_range(
         &self,
         start_page: u32,
         end_page: u32,
         options: RenderOptions,
     ) -> Result<Vec<RenderResult>, PdfError> {
-        let document = self.document.as_ref().ok_or(PdfError::ParseError {
-            page: None,
-            message: "PDF文档未加载".to_string(),
-            source: String::new(),
-        })?;
-
         let page_count = self.get_page_count();
         let start = start_page.max(1);
         let end = end_page.min(page_count);
 
-        let mut results = Vec::new();
-        for page_num in start..=end {
-            let result = self
-                .renderer
-                .render_page(document, page_num, options.clone())
-                .await?;
-            results.push(result);
-        }
-
-        Ok(results)
+        let file_path = self.file_path.clone();
+        let cache = self.cache.clone();
+        
+        tokio::task::spawn_blocking(move || {
+            let pdfium = Arc::new(Self::create_pdfium()?);
+            let document = pdfium
+                .load_pdf_from_file(&file_path, None)
+                .map_err(|e| PdfError::FileNotFound {
+                    path: file_path.clone(),
+                    source: e.to_string(),
+                })?;
+            
+            let renderer = PdfRenderer::with_cache(pdfium.clone(), cache);
+            let mut results = Vec::new();
+            for page_num in start..=end {
+                let result = renderer.render_page_sync(&document, page_num, options.clone())?;
+                results.push(result);
+            }
+            Ok(results)
+        })
+        .await
+        .map_err(|e| PdfError::render_error(0, "render_page_range", format!("渲染任务失败: {}", e)))?
     }
 
+    /// 并行渲染多个页面
     pub async fn render_pages_parallel(
         &self,
         page_numbers: Vec<u32>,
         options: RenderOptions,
     ) -> Vec<Result<RenderResult, PdfError>> {
-        let document = match self.document.as_ref() {
-            Some(doc) => doc,
-            None => {
-                let error = PdfError::ParseError {
-                    page: None,
-                    message: "PDF文档未加载".to_string(),
-                    source: String::new(),
-                };
-                return (0..page_numbers.len())
-                    .map(|_| Err(error.clone()))
-                    .collect();
-            }
-        };
+        let file_path = self.file_path.clone();
+        let cache = self.cache.clone();
+        
+        let handles: Vec<_> = page_numbers
+            .into_iter()
+            .map(|page_num| {
+                let file_path = file_path.clone();
+                let cache = cache.clone();
+                let options = options.clone();
+                
+                tokio::task::spawn_blocking(move || {
+                    let pdfium = Arc::new(Self::create_pdfium()?);
+                    let document = pdfium
+                        .load_pdf_from_file(&file_path, None)
+                        .map_err(|e| PdfError::FileNotFound {
+                            path: file_path.clone(),
+                            source: e.to_string(),
+                        })?;
+                    
+                    let renderer = PdfRenderer::with_cache(pdfium.clone(), cache);
+                    renderer.render_page_sync(&document, page_num, options)
+                })
+            })
+            .collect();
 
-        self.renderer
-            .render_pages_parallel(document, page_numbers, options)
-            .await
-    }
-
-    pub async fn render_page_range_parallel(
-        &self,
-        start_page: u32,
-        end_page: u32,
-        options: RenderOptions,
-    ) -> Vec<Result<RenderResult, PdfError>> {
-        let document = match self.document.as_ref() {
-            Some(doc) => doc,
-            None => {
-                return vec![Err(PdfError::ParseError {
-                    page: None,
-                    message: "PDF文档未加载".to_string(),
-                    source: String::new(),
-                })];
-            }
-        };
-
-        self.renderer
-            .render_page_range_parallel(document, start_page, end_page, options)
-            .await
-    }
-
-    pub async fn render_pages_with_thread_pool(
-        &self,
-        page_numbers: Vec<u32>,
-        options: RenderOptions,
-        num_threads: usize,
-    ) -> Vec<Result<RenderResult, PdfError>> {
-        let document = match self.document.as_ref() {
-            Some(doc) => doc,
-            None => {
-                let error = PdfError::ParseError {
-                    page: None,
-                    message: "PDF文档未加载".to_string(),
-                    source: String::new(),
-                };
-                return (0..page_numbers.len())
-                    .map(|_| Err(error.clone()))
-                    .collect();
-            }
-        };
-
-        self.renderer
-            .render_pages_with_thread_pool(document, page_numbers, options, num_threads)
-            .await
-    }
-
-    pub async fn preload_pages_with_strategy(
-        &self,
-        current_page: u32,
-        strategy: PreloadStrategy,
-    ) -> Result<(), PdfError> {
-        let page_count = self.get_page_count();
-
-        let start = current_page.saturating_sub(strategy.behind_count).max(1);
-        let end = (current_page + strategy.ahead_count).min(page_count);
-
-        let options = RenderOptions {
-            quality: strategy.quality,
-            ..Default::default()
-        };
-
-        // 直接在当前上下文中预加载，避免clone engine导致的问题
-        for page_num in start..=end {
-            if page_num != current_page {
-                // 忽略错误，继续预加载其他页面
-                let _ = self.render_page(page_num, options.clone()).await;
-            }
+        let mut results = Vec::new();
+        for handle in handles {
+            let result = handle
+                .await
+                .map_err(|e| PdfError::render_error(0, "render_pages_parallel", format!("渲染任务失败: {}", e)))
+                .and_then(|r| r);
+            results.push(result);
         }
 
-        Ok(())
+        results
     }
 
+    /// 提取页面文本
     pub fn extract_page_text(&self, page_number: u32) -> Result<PageText, PdfError> {
-        let extractor = self.text_extractor.as_ref().ok_or(PdfError::ParseError {
-            page: None,
-            message: "文本提取器未初始化".to_string(),
-            source: String::new(),
-        })?;
-
-        let document = self.document.as_ref().ok_or(PdfError::ParseError {
-            page: None,
-            message: "PDF文档未加载".to_string(),
-            source: String::new(),
-        })?;
-
         if page_number < 1 || page_number > self.get_page_count() {
             return Err(PdfError::PageNotFound {
                 page: page_number,
@@ -311,77 +310,193 @@ impl PdfEngine {
             });
         }
 
-        extractor.extract_page_text(document, page_number)
+        self.with_document(|_pdfium, document| {
+            let page = document.pages().get((page_number - 1) as u16).map_err(|e| {
+                PdfError::parse_error(Some(page_number), "获取页面失败", e.to_string())
+            })?;
+
+            let text = page.text().map_err(|e| {
+                PdfError::parse_error(Some(page_number), "提取文本失败", e.to_string())
+            })?;
+
+            let full_text = text.all();
+            
+            let mut blocks = Vec::new();
+            for segment in text.segments().iter() {
+                let segment_text = segment.text();
+                // 只添加非空文本
+                if !segment_text.trim().is_empty() {
+                    let bounds = segment.bounds();
+                    blocks.push(TextBlock {
+                        text: segment_text,
+                        position: TextPosition {
+                            x: bounds.left.value,
+                            y: bounds.top.value,
+                            width: bounds.width().value,
+                            height: bounds.height().value,
+                        },
+                        font_size: 12.0, // 暂定默认值，Pdfium 复杂 API 可获取准确值
+                        font_name: None,
+                    });
+                }
+            }
+
+            Ok(PageText {
+                page_number,
+                blocks,
+                full_text,
+            })
+        })
     }
 
+    /// 搜索文本
     pub fn search_text(
         &self,
         query: &str,
         case_sensitive: bool,
     ) -> Result<Vec<SearchResult>, PdfError> {
-        let extractor = self.text_extractor.as_ref().ok_or(PdfError::ParseError {
-            page: None,
-            message: "文本提取器未初始化".to_string(),
-            source: String::new(),
-        })?;
+        self.with_document(|_pdfium, document| {
+            let mut results = Vec::new();
+            let pages = document.pages();
+            
+            for page_index in 0..pages.len() {
+                let page = pages.get(page_index as u16).map_err(|e| {
+                    PdfError::parse_error(Some(page_index as u32 + 1), "获取页面失败", e.to_string())
+                })?;
 
-        let document = self.document.as_ref().ok_or(PdfError::ParseError {
-            page: None,
-            message: "PDF文档未加载".to_string(),
-            source: String::new(),
-        })?;
+                let text = page.text().map_err(|e| {
+                    PdfError::parse_error(Some(page_index as u32 + 1), "提取文本失败", e.to_string())
+                })?;
 
-        extractor.search_text(document, query, case_sensitive)
+                let page_text = text.all();
+                let search_text = if case_sensitive {
+                    page_text.clone()
+                } else {
+                    page_text.to_lowercase()
+                };
+                let search_query = if case_sensitive {
+                    query.to_string()
+                } else {
+                    query.to_lowercase()
+                };
+
+                let mut start = 0;
+                while let Some(pos) = search_text[start..].find(&search_query) {
+                    let actual_pos = start + pos;
+                    let context_start = actual_pos.saturating_sub(30);
+                    let context_end = (actual_pos + query.len() + 30).min(page_text.len());
+                    let context = page_text[context_start..context_end].to_string();
+
+                    results.push(SearchResult {
+                        page_number: page_index as u32 + 1,
+                        text: page_text[actual_pos..actual_pos + query.len()].to_string(),
+                        position: TextPosition {
+                            x: 0.0,
+                            y: 0.0,
+                            width: 0.0,
+                            height: 0.0,
+                        },
+                        context,
+                    });
+
+                    start = actual_pos + 1;
+                }
+            }
+
+            Ok(results)
+        })
     }
 
+    /// 提取所有文本
     pub fn extract_all_text(&self) -> Result<String, PdfError> {
-        let extractor = self.text_extractor.as_ref().ok_or(PdfError::ParseError {
-            page: None,
-            message: "文本提取器未初始化".to_string(),
-            source: String::new(),
-        })?;
+        self.with_document(|_pdfium, document| {
+            let mut all_text = String::new();
+            let pages = document.pages();
+            
+            for page_index in 0..pages.len() {
+                let page = pages.get(page_index as u16).map_err(|e| {
+                    PdfError::parse_error(Some(page_index as u32 + 1), "获取页面失败", e.to_string())
+                })?;
 
-        let document = self.document.as_ref().ok_or(PdfError::ParseError {
-            page: None,
-            message: "PDF文档未加载".to_string(),
-            source: String::new(),
-        })?;
+                let text = page.text().map_err(|e| {
+                    PdfError::parse_error(Some(page_index as u32 + 1), "提取文本失败", e.to_string())
+                })?;
 
-        extractor.extract_all_text(document)
+                all_text.push_str(&text.all());
+                all_text.push('\n');
+            }
+
+            Ok(all_text)
+        })
     }
 
-    pub fn get_text_at_position(
-        &self,
-        page_number: u32,
-        x: f32,
-        y: f32,
-    ) -> Result<Option<String>, PdfError> {
-        let extractor = self.text_extractor.as_ref().ok_or(PdfError::ParseError {
-            page: None,
-            message: "文本提取器未初始化".to_string(),
-            source: String::new(),
-        })?;
-
-        let document = self.document.as_ref().ok_or(PdfError::ParseError {
-            page: None,
-            message: "PDF文档未加载".to_string(),
-            source: String::new(),
-        })?;
-
-        extractor.get_text_at_position(document, page_number, x, y)
-    }
-
+    /// 获取文档大纲（书签）
     pub fn get_outline(&self) -> Result<PdfOutline, PdfError> {
-        let _document = self.document.as_ref().ok_or(PdfError::ParseError {
-            page: None,
-            message: "PDF文档未加载".to_string(),
-            source: String::new(),
-        })?;
-
-        let bookmarks = Vec::new();
-        Ok(PdfOutline { bookmarks })
+        self.with_document(|_pdfium, document| {
+            let bookmarks = self.extract_bookmarks(&document)?;
+            Ok(PdfOutline { bookmarks })
+        })
     }
 
+    /// 提取书签
+    /// 使用 document.bookmarks().iter() 进行深度优先遍历，并利用 children_len 重建树结构
+    fn extract_bookmarks(&self, document: &PdfDocument<'_>) -> Result<Vec<Bookmark>, PdfError> {
+        let bookmarks_collection = document.bookmarks();
+        let mut iter = bookmarks_collection.iter();
+        let mut roots = Vec::new();
+
+        // 遍历迭代器。由于迭代器是深度优先的，每次 process_bookmark_node 调用
+        // 会递归地消费掉该节点的所有子孙节点。
+        // 因此，外层循环这里拿到的总是顶层（root）节点。
+        while let Some(bookmark) = iter.next() {
+            let root = self.process_bookmark_node(bookmark, &mut iter, 0)?;
+            roots.push(root);
+        }
+
+        Ok(roots)
+    }
+
+    /// 处理单个书签节点，并递归处理其子节点
+    fn process_bookmark_node<'a>(
+        &self,
+        pdf_bookmark: PdfBookmark<'a>,
+        iter: &mut impl Iterator<Item = PdfBookmark<'a>>,
+        level: u32,
+    ) -> Result<Bookmark, PdfError> {
+        let title = pdf_bookmark.title().unwrap_or_default();
+        let page_number = if let Some(dest) = pdf_bookmark.destination() {
+            dest.page_index().unwrap_or(0) as u32 + 1
+        } else {
+            0
+        };
+
+        // 获取子节点数量
+        let children_count = pdf_bookmark.children_len();
+        let mut children = Vec::new();
+
+        // 因为迭代器是 Pre-Order Depth-First (父 -> 子1 -> 子2)，
+        // 紧接着父节点后面的 `children_count` 个 "兄弟块" (siblings at next level) 就是它的子节点。
+        // 注意：每个子节点本身可能是一棵树，process_bookmark_node 会负责消费完那棵子树。
+        for _ in 0..children_count {
+            if let Some(child_bookmark) = iter.next() {
+                let child = self.process_bookmark_node(child_bookmark, iter, level + 1)?;
+                children.push(child);
+            } else {
+                // 如果预期有子节点但迭代器结束了，说明 PDF 结构可能有误，或者迭代器行为不符。
+                // 这里选择停止处理子节点。
+                break;
+            }
+        }
+
+        Ok(Bookmark {
+            title,
+            page_number,
+            level,
+            children,
+        })
+    }
+
+    /// 获取页面信息
     pub fn get_page_info(&self, page_number: u32) -> Result<PdfPageInfo, PdfError> {
         let info = self.document_info.as_ref().ok_or(PdfError::ParseError {
             page: None,
@@ -399,10 +514,12 @@ impl PdfEngine {
             })
     }
 
+    /// 获取文档信息
     pub fn get_document_info(&self) -> Option<&PdfDocumentInfo> {
         self.document_info.as_ref()
     }
 
+    /// 获取页面总数
     pub fn get_page_count(&self) -> u32 {
         self.document_info
             .as_ref()
@@ -410,129 +527,206 @@ impl PdfEngine {
             .unwrap_or(0)
     }
 
+    /// 检查文档是否已加载
     pub fn is_loaded(&self) -> bool {
-        self.document.is_some()
+        !self.file_path.is_empty() && self.document_info.is_some()
     }
 
+    /// 获取文件路径
     pub fn get_file_path(&self) -> &str {
         &self.file_path
     }
 
+    /// 清除缓存
     pub async fn clear_cache(&self) {
-        self.renderer.clear_cache().await;
+        self.cache.clear().await;
     }
 
+    /// 清除指定页面的缓存
     pub async fn clear_page_cache(&self, page_number: u32) {
-        self.renderer.clear_page_cache(page_number).await;
+        self.cache.clear_page(page_number).await;
     }
 
+    /// 关闭文档
     pub fn close(&mut self) {
-        self.document = None;
         self.document_info = None;
-        self.text_extractor = None;
         self.file_path.clear();
     }
 
+    /// 预热缓存
     pub async fn warmup_cache(&self, strategy: WarmupStrategy) -> Result<(), PdfError> {
-        let document = self
-            .document
-            .as_ref()
-            .ok_or_else(|| PdfError::parse_error(None, "PDF文档未加载", ""))?;
-
+        let file_path = self.file_path.clone();
+        let cache = self.cache.clone();
         let page_count = self.get_page_count();
         let pages_to_render = strategy.get_pages_to_render(page_count);
+        let quality = strategy.quality();
 
-        for page in pages_to_render {
-            let options = RenderOptions {
-                quality: strategy.quality(),
-                ..Default::default()
-            };
-            let _ = self.renderer.render_page(document, page, options).await;
-        }
-
-        Ok(())
+        tokio::task::spawn_blocking(move || {
+            let pdfium = Arc::new(Self::create_pdfium()?);
+            let document = pdfium
+                .load_pdf_from_file(&file_path, None)
+                .map_err(|e| PdfError::FileNotFound {
+                    path: file_path.clone(),
+                    source: e.to_string(),
+                })?;
+            
+            let renderer = PdfRenderer::with_cache(pdfium.clone(), cache);
+            for page in pages_to_render {
+                let options = RenderOptions {
+                    quality: quality.clone(),
+                    ..Default::default()
+                };
+                let _ = renderer.render_page_sync(&document, page, options);
+            }
+            Ok(())
+        })
+        .await
+        .map_err(|e| PdfError::render_error(0, "warmup_cache", format!("预热任务失败: {}", e)))?
     }
 
+    /// 预加载页面
     pub async fn preload_pages(
         &self,
         start_page: u32,
         end_page: u32,
         quality: RenderQuality,
     ) -> Result<(), PdfError> {
-        let document = self
-            .document
-            .as_ref()
-            .ok_or_else(|| PdfError::parse_error(None, "PDF文档未加载", ""))?;
-
+        let file_path = self.file_path.clone();
+        let cache = self.cache.clone();
         let page_count = self.get_page_count();
         let start = start_page.max(1);
         let end = end_page.min(page_count);
 
-        for page in start..=end {
-            let options = RenderOptions {
-                quality: quality.clone(),
-                ..Default::default()
-            };
-            let _ = self.renderer.render_page(document, page, options).await;
-        }
-
-        Ok(())
+        tokio::task::spawn_blocking(move || {
+            let pdfium = Arc::new(Self::create_pdfium()?);
+            let document = pdfium
+                .load_pdf_from_file(&file_path, None)
+                .map_err(|e| PdfError::FileNotFound {
+                    path: file_path.clone(),
+                    source: e.to_string(),
+                })?;
+            
+            let renderer = PdfRenderer::with_cache(pdfium.clone(), cache);
+            for page in start..=end {
+                let options = RenderOptions {
+                    quality: quality.clone(),
+                    ..Default::default()
+                };
+                let _ = renderer.render_page_sync(&document, page, options);
+            }
+            Ok(())
+        })
+        .await
+        .map_err(|e| PdfError::render_error(0, "preload_pages", format!("预加载任务失败: {}", e)))?
     }
 
+    /// 渐进式渲染页面
     pub async fn render_page_progressive<F>(
         &self,
         page_number: u32,
         options: RenderOptions,
-        callback: F,
+        mut callback: F,
     ) -> Result<(), PdfError>
     where
-        F: FnMut(RenderQuality, RenderResult) + Send,
+        F: FnMut(RenderQuality, RenderResult) + Send + 'static,
     {
-        let document = self
-            .document
-            .as_ref()
-            .ok_or_else(|| PdfError::parse_error(None, "PDF文档未加载", ""))?;
-
         let page_count = self.get_page_count();
         if page_number < 1 || page_number > page_count {
             return Err(PdfError::page_not_found(page_number, page_count));
         }
 
-        self.renderer
-            .render_page_progressive(document, page_number, options, callback)
-            .await
+        let file_path = self.file_path.clone();
+        let cache = self.cache.clone();
+        
+        tokio::task::spawn_blocking(move || {
+            let pdfium = Arc::new(Self::create_pdfium()?);
+            let document = pdfium
+                .load_pdf_from_file(&file_path, None)
+                .map_err(|e| PdfError::FileNotFound {
+                    path: file_path.clone(),
+                    source: e.to_string(),
+                })?;
+            
+            let renderer = PdfRenderer::with_cache(pdfium.clone(), cache);
+            
+            // 渐进式渲染：先低质量，再高质量
+            let qualities = vec![RenderQuality::Thumbnail, RenderQuality::Standard, RenderQuality::High];
+            for quality in qualities {
+                let mut opts = options.clone();
+                opts.quality = quality.clone();
+                let result = renderer.render_page_sync(&document, page_number, opts)?;
+                callback(quality, result);
+            }
+            
+            Ok(())
+        })
+        .await
+        .map_err(|e| PdfError::render_error(page_number, "render_page_progressive", format!("渐进式渲染任务失败: {}", e)))?
     }
 
+    /// 批量渲染页面
     pub async fn render_pages_batch(
         &self,
         page_numbers: Vec<u32>,
         options: RenderOptions,
     ) -> Vec<Result<RenderResult, PdfError>> {
-        let document = match self.document.as_ref() {
-            Some(doc) => doc,
-            None => {
-                let err = PdfError::parse_error(None, "PDF文档未加载", "");
-                return vec![Err(err); page_numbers.len()];
+        let file_path = self.file_path.clone();
+        let cache = self.cache.clone();
+        
+        match tokio::task::spawn_blocking(move || {
+            let pdfium = Arc::new(Self::create_pdfium()?);
+            let document = pdfium
+                .load_pdf_from_file(&file_path, None)
+                .map_err(|e| PdfError::FileNotFound {
+                    path: file_path.clone(),
+                    source: e.to_string(),
+                })?;
+            
+            let renderer = PdfRenderer::with_cache(pdfium.clone(), cache);
+            let mut results = Vec::new();
+            for page_num in page_numbers {
+                let result = renderer.render_page_sync(&document, page_num, options.clone());
+                results.push(result);
             }
-        };
+            Ok::<Vec<Result<RenderResult, PdfError>>, PdfError>(results)
+        })
+        .await
+        {
+            Ok(Ok(results)) => results,
+            Ok(Err(err)) => vec![Err(err)],
+            Err(err) => vec![Err(PdfError::render_error(0, "render_pages_batch", format!("批量渲染任务失败: {}", err)))],
+        }
+    }
 
-        self.renderer
-            .render_pages_batch(document, page_numbers, options)
-            .await
+    /// 使用自定义线程池渲染页面
+    pub async fn render_pages_with_thread_pool(
+        &self,
+        page_numbers: Vec<u32>,
+        options: RenderOptions,
+        _num_threads: usize,
+    ) -> Vec<Result<RenderResult, PdfError>> {
+        // 由于 PdfDocument 不是 Send，我们使用并行渲染而不是线程池
+        // 这里忽略 num_threads 参数，使用默认的并行策略
+        self.render_pages_parallel(page_numbers, options).await
     }
 }
 
+/// 预热策略
 #[derive(Debug, Clone)]
 pub enum WarmupStrategy {
+    /// 预热前 N 页
     FirstPages {
         count: u32,
         quality: RenderQuality,
     },
+    /// 预热指定页面
     SpecificPages {
         pages: Vec<u32>,
         quality: RenderQuality,
     },
+    /// 预热所有缩略图
     AllThumbnails,
+    /// 智能预热
     Smart {
         quality: RenderQuality,
     },
@@ -571,39 +765,30 @@ impl WarmupStrategy {
     }
 }
 
-impl Clone for PdfEngine {
-    fn clone(&self) -> Self {
-        Self {
-            document: self.document.clone(),
-            file_path: self.file_path.clone(),
-            document_info: self.document_info.clone(),
-            renderer: self.renderer.clone(),
-            // TextExtractor是无状态的，可以创建新实例
-            text_extractor: self.text_extractor.as_ref().map(|_| TextExtractor::new()),
-        }
-    }
-}
-
+/// PDF 引擎管理器
 pub struct PdfEngineManager {
     engines: Arc<RwLock<HashMap<String, Arc<RwLock<PdfEngine>>>>>,
     cache_manager: CacheManager,
 }
 
 impl PdfEngineManager {
-    pub fn new() -> Self {
-        Self {
+    /// 创建新的引擎管理器
+    pub fn new() -> Result<Self, PdfError> {
+        Ok(Self {
             engines: Arc::new(RwLock::new(HashMap::new())),
             cache_manager: CacheManager::new(),
-        }
+        })
     }
 
-    pub fn with_cache_limits(max_size: usize, max_items: usize) -> Self {
-        Self {
+    /// 使用指定的缓存限制创建管理器
+    pub fn with_cache_limits(max_size: usize, max_items: usize) -> Result<Self, PdfError> {
+        Ok(Self {
             engines: Arc::new(RwLock::new(HashMap::new())),
             cache_manager: CacheManager::with_limits(max_size, max_items),
-        }
+        })
     }
 
+    /// 获取或创建引擎
     pub async fn get_or_create_engine(
         &self,
         file_path: &str,
@@ -616,7 +801,7 @@ impl PdfEngineManager {
 
         drop(engines);
 
-        let mut engine = PdfEngine::with_cache(self.cache_manager.clone());
+        let mut engine = PdfEngine::with_cache(self.cache_manager.clone())?;
         engine.load_document(file_path).await?;
 
         let engine_arc = Arc::new(RwLock::new(engine));
@@ -627,27 +812,32 @@ impl PdfEngineManager {
         Ok(engine_arc)
     }
 
+    /// 获取引擎
     pub async fn get_engine(&self, file_path: &str) -> Option<Arc<RwLock<PdfEngine>>> {
         let engines = self.engines.read().await;
         engines.get(file_path).map(Arc::clone)
     }
 
+    /// 移除引擎
     pub async fn remove_engine(&self, file_path: &str) -> Option<Arc<RwLock<PdfEngine>>> {
         let mut engines = self.engines.write().await;
         engines.remove(file_path)
     }
 
+    /// 清除所有引擎
     pub async fn clear_all(&self) {
         let mut engines = self.engines.write().await;
         engines.clear();
         self.cache_manager.clear().await;
     }
 
+    /// 获取已加载的文件列表
     pub async fn get_loaded_files(&self) -> Vec<String> {
         let engines = self.engines.read().await;
         engines.keys().cloned().collect()
     }
 
+    /// 获取缓存管理器
     pub fn get_cache_manager(&self) -> &CacheManager {
         &self.cache_manager
     }

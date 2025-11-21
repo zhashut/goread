@@ -17,7 +17,7 @@ use commands::{
     scan_pdf_files, cancel_scan, list_directory, get_root_directories,
     check_storage_permission, request_storage_permission, read_file_bytes,
     // import commands
-    batch_read_files, batch_import_books, batch_get_pdf_info,
+    batch_read_files, batch_import_books, batch_get_pdf_info, frontend_log,
 };
 use pdf_commands::*;
 use sqlx::SqlitePool;
@@ -54,6 +54,17 @@ pub fn run() {
                 
                 // 初始化PDF管理器
                 app.manage(init_pdf_manager());
+                
+                if let Ok(res_dir) = app.path().resource_dir() {
+                    #[cfg(target_os = "windows")] let sub = "pdfium/windows";
+                    #[cfg(target_os = "linux")] let sub = "pdfium/linux";
+                    #[cfg(target_os = "macos")] let sub = "pdfium/macos";
+                    #[cfg(target_os = "android")] let sub = "pdfium/android";
+                    #[cfg(target_os = "ios")] let sub = "pdfium/ios";
+                    let full = res_dir.join(sub);
+                    let p = full.to_string_lossy().replace('\\', "/");
+                    std::env::set_var("PDFIUM_LIB_DIR", p);
+                }
             });
             
             Ok(())
@@ -87,13 +98,16 @@ pub fn run() {
             batch_read_files,
             batch_import_books,
             batch_get_pdf_info,
+            frontend_log,
             // PDF相关命令
             pdf_load_document,
             pdf_render_page,
+            pdf_render_page_tile,
             pdf_render_page_base64,
             pdf_get_page_text,
             pdf_search_text,
             pdf_get_document_info,
+            pdf_get_outline,
             pdf_preload_pages,
             pdf_clear_cache,
             pdf_close_document,

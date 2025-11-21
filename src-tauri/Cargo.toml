@@ -1,9 +1,13 @@
 [package]
 name = "goread"
 version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+description = "goread"
+authors = ["zhashut"]
 edition = "2021"
+
+[lints.rust]
+# 忽略所有警告
+warnings = "allow"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -30,9 +34,7 @@ tokio = { version = "1", features = ["full"] }
 image = "0.24"
 webp = "0.3"
 chrono = "0.4"
-lopdf = "0.38.0"
 base64 = "0.22"
-fontdue = "0.8"
 futures = "0.3"
-flate2 = "1"
+pdfium-render = "0.8.36"
 

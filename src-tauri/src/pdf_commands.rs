@@ -76,15 +76,15 @@ pub async fn pdf_render_page(
 ) -> Result<RenderPageResponse, String> {
     let manager = manager.lock().await;
     
-    let engine_arc = match manager.get_engine(&file_path).await {
-        Some(engine) => engine,
-        None => {
+    let engine_arc = match manager.get_or_create_engine(&file_path).await {
+        Ok(engine) => engine,
+        Err(e) => {
             return Ok(RenderPageResponse {
                 success: false,
                 image_data: None,
                 width: None,
                 height: None,
-                error: Some("PDF文档未加载".to_string()),
+                error: Some(e.to_string()),
             });
         }
     };
@@ -567,6 +567,105 @@ pub async fn pdf_render_pages_with_threads(
 // 初始化PDF管理器
 pub fn init_pdf_manager() -> PdfManagerState {
     // 设置缓存限制：100MB，最多50个页面
-    let manager = PdfEngineManager::with_cache_limits(100 * 1024 * 1024, 50);
+    let manager = PdfEngineManager::with_cache_limits(100 * 1024 * 1024, 50)
+        .expect("Failed to initialize PDF manager");
     Arc::new(Mutex::new(manager))
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RenderTileRequestRegion {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+#[tauri::command]
+pub async fn pdf_render_page_tile(
+    file_path: String,
+    page_number: u32,
+    quality: String,
+    region: RenderTileRequestRegion,
+    width: Option<u32>,
+    height: Option<u32>,
+    manager: State<'_, PdfManagerState>,
+) -> Result<RenderPageResponse, String> {
+    let manager = manager.lock().await;
+
+    let engine_arc = match manager.get_engine(&file_path).await {
+        Some(engine) => engine,
+        None => {
+            return Ok(RenderPageResponse {
+                success: false,
+                image_data: None,
+                width: None,
+                height: None,
+                error: Some("PDF文档未加载".to_string()),
+            });
+        }
+    };
+
+    let engine = engine_arc.read().await;
+
+    let render_quality = match quality.as_str() {
+        "thumbnail" => RenderQuality::Thumbnail,
+        "standard" => RenderQuality::Standard,
+        "high" => RenderQuality::High,
+        "best" => RenderQuality::Best,
+        _ => RenderQuality::Standard,
+    };
+
+    let options = RenderOptions {
+        quality: render_quality,
+        width,
+        height,
+        background_color: Some([255, 255, 255, 255]),
+        fit_to_width: width.is_some(),
+        fit_to_height: height.is_some(),
+    };
+
+    let rr = RenderRegion { x: region.x, y: region.y, width: region.width, height: region.height };
+
+    match engine.render_page_tile(page_number, rr, options).await {
+        Ok(result) => Ok(RenderPageResponse {
+            success: true,
+            image_data: Some(result.image_data),
+            width: Some(result.width),
+            height: Some(result.height),
+            error: None,
+        }),
+        Err(e) => Ok(RenderPageResponse {
+            success: false,
+            image_data: None,
+            width: None,
+            height: None,
+            error: Some(e.to_string()),
+        }),
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct OutlineResponse {
+    pub success: bool,
+    pub outline: Option<PdfOutline>,
+    pub error: Option<String>,
+}
+
+#[tauri::command]
+pub async fn pdf_get_outline(
+    file_path: String,
+    manager: State<'_, PdfManagerState>,
+) -> Result<OutlineResponse, String> {
+    let manager = manager.lock().await;
+    let engine_arc = match manager.get_or_create_engine(&file_path).await {
+        Ok(e) => e,
+        Err(e) => {
+            return Ok(OutlineResponse { success: false, outline: None, error: Some(e.to_string()) });
+        }
+    };
+    let engine = engine_arc.read().await;
+    match engine.get_outline() {
+        Ok(outline) => Ok(OutlineResponse { success: true, outline: Some(outline), error: None }),
+        Err(e) => Ok(OutlineResponse { success: false, outline: None, error: Some(e.to_string()) }),
+    }
 }
