@@ -1,11 +1,12 @@
 import React, { useMemo, useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { FileRow } from "./FileRow";
-import { groupService, bookService } from "../services";
+import { bookService } from "../services";
 import { IGroup, IBook } from "../types";
 import GroupingDrawer from "./GroupingDrawer";
 import ChooseExistingGroupDrawer from "./ChooseExistingGroupDrawer";
 import { waitNextFrame } from "../services/importUtils";
+import { logError } from "../services";
 import { loadGroupsWithPreviews, assignToExistingGroupAndFinish } from "../utils/groupImport";
 
 export interface FileEntry {
@@ -21,7 +22,6 @@ export interface ScanResultItem extends FileEntry {
   type: "file";
 }
 
- const { logError } = await import("../services/index");
 
 export const ScanResults: React.FC = () => {
   const navigate = useNavigate();

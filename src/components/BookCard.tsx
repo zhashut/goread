@@ -37,7 +37,6 @@ export interface CommonBookCardProps {
 export const BookCard: React.FC<CommonBookCardProps> = ({
   book,
   onClick,
-  onDelete,
   draggable,
   onDragStart,
   onDragOver,

@@ -2,11 +2,12 @@ import React, { useMemo, useRef, useState, useEffect } from "react";
 import { FileRow } from "./FileRow";
 import { useNavigate, useLocation } from "react-router-dom";
 import { IBook, IGroup } from "../types";
-import { groupService, bookService } from "../services";
+import { bookService } from "../services";
 import { fileSystemService } from "../services/fileSystemService";
 import GroupingDrawer from "./GroupingDrawer";
 import ChooseExistingGroupDrawer from "./ChooseExistingGroupDrawer";
 import { waitNextFrame } from "../services/importUtils";
+import { logError } from "../services";
 import { loadGroupsWithPreviews, assignToExistingGroupAndFinish } from "../utils/groupImport";
 import { isSupportedFile } from "../constants/fileTypes";
 
@@ -37,7 +38,6 @@ const fmtDate = (t?: number) => {
   return `${y}/${m}/${day} ${hh}:${mm}`;
 };
 
- const { logError } = await import("../services/index");
 
 
 export const ImportFiles: React.FC = () => {

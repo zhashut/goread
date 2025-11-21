@@ -9,8 +9,6 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { IBook, IGroup } from "../types";
   import {
       GRID_GAP_BOOK_CARDS,
-      GRID_GAP_GROUP_ROW,
-      GRID_GAP_GROUP_COLUMN,
       GROUP_NAME_FONT_SIZE,
       GROUP_META_FONT_SIZE,
       GROUP_NAME_FONT_WEIGHT,
