@@ -3,17 +3,8 @@
  * 用于管理多个Web Workers进行并行PDF页面渲染
  */
 
-interface RenderTask {
-    page: any;
-    viewport: any;
-    resolve: (canvas: HTMLCanvasElement) => void;
-    reject: (error: Error) => void;
-}
-
 export class WorkerPool {
     private workers: Worker[] = [];
-    private availableWorkers: Worker[] = [];
-    private taskQueue: RenderTask[] = [];
     private workerCount: number;
 
     constructor(workerCount: number = navigator.hardwareConcurrency || 4) {
@@ -155,7 +146,5 @@ export class WorkerPool {
     destroy(): void {
         this.workers.forEach(worker => worker.terminate());
         this.workers = [];
-        this.availableWorkers = [];
-        this.taskQueue = [];
     }
 }

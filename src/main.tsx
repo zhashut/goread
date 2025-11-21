@@ -6,8 +6,17 @@ import App from "./App";
 const setupApp = async () => {
   try {
     // 动态导入Tauri API
-    const { invoke } = await import('@tauri-apps/api/core');
+    await import('@tauri-apps/api/core');
     console.log('Tauri API loaded successfully');
+    try {
+      const { logError } = await import('./services');
+      window.addEventListener('error', async (e) => {
+        try { await logError('window error', { message: e.message, filename: e.filename, lineno: e.lineno, colno: e.colno }); } catch {}
+      });
+      window.addEventListener('unhandledrejection', async (e) => {
+        try { await logError('unhandled rejection', { reason: String(e.reason) }); } catch {}
+      });
+    } catch {}
     
     ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
       <React.StrictMode>

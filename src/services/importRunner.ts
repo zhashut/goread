@@ -1,5 +1,3 @@
-import * as pdfjs from "pdfjs-dist";
-import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { bookService, groupService } from "./index";
 import { pathToTitle, waitNextFrame } from "./importUtils";
 
@@ -41,40 +39,33 @@ export const importPathsToExistingGroup = async (
       // 让出一帧，以确保UI刷新
       await waitNextFrame();
     }
-
-    // 读取与解析PDF，生成封面
-    // 使用 Rust 后端命令读取文件，因为 @tauri-apps/plugin-fs 有安全限制
     const invoke = await import("../services/index").then(m => m.getInvoke());
-    const fileData = await invoke('read_file_bytes', { path: filePath });
-    (pdfjs as any).GlobalWorkerOptions.workerSrc = workerUrl;
-    let pdf: any;
-    try {
-      pdf = await (pdfjs as any).getDocument({ data: fileData }).promise;
-    } catch (e: any) {
-      const msg = String(e?.message || e);
-      if (msg.includes("GlobalWorkerOptions.workerSrc")) {
-        pdf = await (pdfjs as any).getDocument({
-          data: fileData,
-          disableWorker: true,
-        }).promise;
-      } else {
-        throw e;
-      }
-    }
-    const page = await pdf.getPage(1);
-    const viewport = page.getViewport({ scale: 0.5 });
+    const info = await invoke('pdf_load_document', { filePath });
+    const dataUrl: string = await invoke('pdf_render_page_base64', {
+      filePath: filePath,
+      pageNumber: 1,
+      quality: 'thumbnail',
+      width: 256,
+      height: null,
+    });
+    const img = new Image();
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = (e) => reject(e);
+      img.src = dataUrl;
+    });
     const canvas = document.createElement("canvas");
     const context = canvas.getContext("2d")!;
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
-    await page.render({ canvasContext: context, viewport }).promise;
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    context.drawImage(img, 0, 0);
     const coverImage = canvas.toDataURL("image/jpeg", 0.8).split(",")[1];
     const title = pathToTitle(filePath) || "Unknown";
     const saved = await bookService.addBook(
       filePath,
       title,
       coverImage,
-      pdf.numPages
+      (info?.info.page_count ?? 0)
     );
     await groupService.moveBookToGroup(saved.id, groupId);
 

@@ -236,3 +236,14 @@ export const saveReaderSettings = (settings: Partial<ReaderSettings>) => {
     return getReaderSettings();
   }
 };
+
+export const logError = async (message: string, context?: any) => {
+  const invoke = await getInvoke();
+  try {
+    await invoke('frontend_log', {
+      level: 'error',
+      message,
+      context: context ? JSON.stringify(context) : null,
+    });
+  } catch {}
+};

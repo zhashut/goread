@@ -7,6 +7,7 @@ import { fileSystemService } from "../services/fileSystemService";
 import GroupingDrawer from "./GroupingDrawer";
 import ChooseExistingGroupDrawer from "./ChooseExistingGroupDrawer";
 import { waitNextFrame } from "../services/importUtils";
+import { loadGroupsWithPreviews, assignToExistingGroupAndFinish } from "../utils/groupImport";
 import { isSupportedFile } from "../constants/fileTypes";
 
 type TabKey = "scan" | "browse";
@@ -35,6 +36,9 @@ const fmtDate = (t?: number) => {
   const mm = `${d.getMinutes()}`.padStart(2, "0");
   return `${y}/${m}/${day} ${hh}:${mm}`;
 };
+
+ const { logError } = await import("../services/index");
+
 
 export const ImportFiles: React.FC = () => {
   const navigate = useNavigate();
@@ -270,18 +274,8 @@ export const ImportFiles: React.FC = () => {
 
   const openChooseGroup = async () => {
     try {
-      const gs = await groupService.getAllGroups();
-      setAllGroups(gs || []);
-      const previews: Record<number, string[]> = {};
-      for (const g of gs || []) {
-        try {
-          const books = await groupService.getBooksByGroup(g.id);
-          previews[g.id] = (books || [])
-            .map((b) => b.cover_image)
-            .filter(Boolean)
-            .slice(0, 4) as string[];
-        } catch { }
-      }
+      const { groups, previews } = await loadGroupsWithPreviews();
+      setAllGroups(groups || []);
       setGroupPreviews(previews);
       setChooseGroupOpen(true);
     } catch (e) {
@@ -294,21 +288,14 @@ export const ImportFiles: React.FC = () => {
   const assignToGroupAndFinish = async (groupId: number) => {
     try {
       setGroupingLoading(true);
-      // 立即跳转到“全部”，并关闭抽屉
       setGroupingOpen(false);
       setChooseGroupOpen(false);
-      navigate("/?tab=all");
-      // 等待下一帧，确保首页（Bookshelf）已挂载并开始监听事件
-      await waitNextFrame();
-
-      // 使用共享导入服务
-      const { importPathsToExistingGroup } = await import("../services/importRunner");
-      await importPathsToExistingGroup(pendingImportPaths, groupId);
+      await assignToExistingGroupAndFinish(pendingImportPaths, groupId, (p) => navigate(p));
       setGroupingLoading(false);
     } catch (e) {
       setGroupingLoading(false);
       alert("分组保存失败，请重试");
-      console.error(e);
+      await logError('assignToGroupAndFinish failed', { error: String(e), groupId: groupId });
     }
   };
 
@@ -316,7 +303,6 @@ export const ImportFiles: React.FC = () => {
     if (!name.trim()) return;
     try {
       setGroupingLoading(true);
-      await groupService.addGroup(name.trim());
 
       // 立即跳转到“全部”，并关闭抽屉
       setGroupingOpen(false);
@@ -331,7 +317,7 @@ export const ImportFiles: React.FC = () => {
     } catch (e) {
       setGroupingLoading(false);
       alert("创建分组失败，请重试");
-      console.error(e);
+      await logError('createGroupAndFinish failed', { error: String(e), name: name.trim() });
     }
   };
 
@@ -379,9 +365,6 @@ export const ImportFiles: React.FC = () => {
   };
 
   const Header: React.FC = () => {
-    const canSelectAll = currentBrowse.some(
-      (it) => it.type === "file" && isSupportedFile(it.path)
-    );
     return (
       <div
         style={{ display: "flex", alignItems: "center", padding: "12px 12px" }}

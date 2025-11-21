@@ -164,7 +164,6 @@ export class MemoryOptimizer {
      * 优化canvas尺寸
      */
     optimizeCanvasSize(
-        canvas: HTMLCanvasElement,
         targetWidth: number,
         targetHeight: number,
         maxSize: number = 2048
@@ -193,7 +192,6 @@ export class MemoryOptimizer {
         maxSize: number = 2048
     ): { canvas: HTMLCanvasElement; scale: number } {
         const optimized = this.optimizeCanvasSize(
-            document.createElement('canvas'),
             width,
             height,
             maxSize
