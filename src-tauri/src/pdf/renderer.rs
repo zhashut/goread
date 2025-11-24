@@ -55,7 +55,7 @@ impl PdfRenderer {
         self.performance_monitor.as_ref()
     }
 
-    /// 渲染单个页面（同步版本）
+    /// 渲染单个页面（同步版本）- 优化：优先检查缓存，快速返回
     pub fn render_page_sync(
         &self,
         document: &PdfDocument<'_>,
@@ -77,18 +77,60 @@ impl PdfRenderer {
         let (target_width, target_height) =
             self.calculate_dimensions(base_width, base_height, &options);
 
+        // 同步检查缓存（使用 blocking 方式）
+        let cache_key = CacheKey::new(
+            page_number,
+            options.quality.clone(),
+            target_width,
+            target_height,
+        );
+
+        // 使用 tokio 的 block_in_place 来同步访问缓存
+        let cached = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                if matches!(options.quality, RenderQuality::Thumbnail) {
+                    self.thumb_cache.get(&cache_key).await
+                } else {
+                    self.cache.get(&cache_key).await
+                }
+            })
+        });
+
+        if let Some(result) = cached {
+            return Ok(result);
+        }
+
         // 渲染页面
         let image = self.render_page_to_image(&page, page_number, target_width, target_height, &options)?;
 
-        // 编码图像
-        let image_data = self.encode_image(&image, ImageFormat::Png)?;
+        // 编码图像（按质量选择格式）
+        let out_format = match options.quality {
+            RenderQuality::Thumbnail => ImageFormat::Png,
+            RenderQuality::Standard => ImageFormat::WebP,
+            RenderQuality::High => ImageFormat::WebP,
+            RenderQuality::Best => ImageFormat::Png,
+        };
+        let image_data = self.encode_image(&image, out_format.clone())?;
 
         let result = RenderResult {
             image_data,
             width: target_width,
             height: target_height,
-            format: ImageFormat::Png,
+            format: out_format,
         };
+
+        // 异步缓存结果（不阻塞返回）
+        let cache_key_clone = cache_key.clone();
+        let result_clone = result.clone();
+        let cache = if matches!(options.quality, RenderQuality::Thumbnail) {
+            self.thumb_cache.clone()
+        } else {
+            self.cache.clone()
+        };
+        
+        tokio::task::spawn(async move {
+            let _ = cache.put(cache_key_clone, result_clone).await;
+        });
 
         Ok(result)
     }
@@ -151,14 +193,20 @@ impl PdfRenderer {
         // 渲染页面
         let image = self.render_page_to_image(&page, page_number, target_width, target_height, &options)?;
 
-        // 编码图像
-        let image_data = self.encode_image(&image, ImageFormat::Png)?;
+        // 编码图像（按质量选择格式）
+        let out_format = match options.quality {
+            RenderQuality::Thumbnail => ImageFormat::Png,
+            RenderQuality::Standard => ImageFormat::WebP,
+            RenderQuality::High => ImageFormat::WebP,
+            RenderQuality::Best => ImageFormat::Png,
+        };
+        let image_data = self.encode_image(&image, out_format.clone())?;
 
         let result = RenderResult {
             image_data,
             width: target_width,
             height: target_height,
-            format: ImageFormat::Png,
+            format: out_format,
         };
 
         // 缓存结果

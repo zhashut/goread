@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { TOP_DRAWER_RADIUS, BOTTOM_DRAWER_RADIUS } from "../constants/ui";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { IBook, IBookmark } from "../types";
-// @ts-ignore
-import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import {
   bookService,
   bookmarkService,
@@ -13,12 +12,8 @@ import {
 } from "../services";
 import {
   PageCacheManager,
-  ProgressiveRenderer,
-  PagePreloader,
-  WorkerPool,
-  SmartPredictor,
-  MemoryOptimizer,
 } from "../utils/pdfOptimization";
+import { log } from "../services/index";
 
 export const Reader: React.FC = () => {
   const { bookId } = useParams<{ bookId: string }>();
@@ -29,7 +24,8 @@ export const Reader: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
-  const [pdf, setPdf] = useState<any>(null);
+  
+  
   const [bookmarks, setBookmarks] = useState<IBookmark[]>([]);
   type TocNode = {
     title: string;
@@ -61,18 +57,15 @@ export const Reader: React.FC = () => {
   // 纵向阅读容器与懒加载渲染引用
   const mainViewRef = useRef<HTMLDivElement>(null);
   const verticalCanvasRefs = useRef<Map<number, HTMLCanvasElement>>(new Map());
+  const currentPageRef = useRef<number>(1);
+  const modeVersionRef = useRef<number>(0);
+  const lastSeekTsRef = useRef<number>(0);
   const renderedPagesRef = useRef<Set<number>>(new Set());
   const verticalScrollRef = useRef<HTMLDivElement>(null);
   const verticalScrollRafRef = useRef<number | null>(null);
-  const verticalInitFramesRef = useRef<number>(0);
-  const verticalInitRafRef = useRef<number | null>(null);
   // 优化工具实例
-  const pageCacheRef = useRef<PageCacheManager>(new PageCacheManager(50, 200));
-  const progressiveRendererRef = useRef<ProgressiveRenderer>(new ProgressiveRenderer());
-  const preloaderRef = useRef<PagePreloader>(new PagePreloader(3));
-  const workerPoolRef = useRef<WorkerPool>(new WorkerPool());
-  const smartPredictorRef = useRef<SmartPredictor>(new SmartPredictor());
-  const memoryOptimizerRef = useRef<MemoryOptimizer>(new MemoryOptimizer(200));
+  const pageCacheRef = useRef<PageCacheManager>(new PageCacheManager(100, 500));
+  const [verticalLazyReady, setVerticalLazyReady] = useState(false);
   // 书签提示气泡
   const [bookmarkToastVisible, setBookmarkToastVisible] = useState(false);
   const [bookmarkToastText, setBookmarkToastText] = useState("");
@@ -97,34 +90,26 @@ export const Reader: React.FC = () => {
   }, [settings.readingMode]);
 
   useEffect(() => {
+    // 切换书籍时，清理所有状态和缓存
+    pageCacheRef.current.clear();
+    renderedPagesRef.current.clear();
+    verticalCanvasRefs.current.clear();
+    setLoading(true);
+    setCurrentPage(1);
+    setTotalPages(1);
+    
     loadBook();
-    
-    // 启动内存自动清理
-    const memoryOptimizer = memoryOptimizerRef.current;
-    
-    // 注册缓存清理回调
-    memoryOptimizer.registerCleanupCallback(() => {
-      // 清理最旧的缓存项
-      const cache = pageCacheRef.current;
-      const stats = cache.getStats();
-      if (stats.size > 30) {
-        // 保留最近30页的缓存
-        cache.clear();
-      }
-    });
-    
-    // 启动自动内存清理（每30秒检查一次）
-    const stopAutoCleanup = memoryOptimizer.startAutoCleanup(30000);
     
     // 清理函数：组件卸载或切换书籍时清理缓存
     return () => {
       pageCacheRef.current.clear();
-      preloaderRef.current.stop();
-      smartPredictorRef.current.clear();
-      stopAutoCleanup();
-      memoryOptimizer.destroy();
+      renderedPagesRef.current.clear();
     };
   }, [bookId]);
+
+  useEffect(() => {
+    currentPageRef.current = currentPage;
+  }, [currentPage]);
 
   const loadBook = async () => {
     try {
@@ -149,88 +134,74 @@ export const Reader: React.FC = () => {
         console.warn("标记书籍已打开失败", e);
       }
 
-      // 加载PDF文件
-      // 使用 Rust 后端命令读取文件，因为 @tauri-apps/plugin-fs 有安全限制
       const { getInvoke } = await import("../services/index");
       const invoke = await getInvoke();
-      const fileData = await invoke('read_file_bytes', { path: targetBook.file_path });
-
-      const pdfjs = await import("pdfjs-dist");
-      // 设置 workerSrc，避免 "No GlobalWorkerOptions.workerSrc specified" 报错
-      (pdfjs as any).GlobalWorkerOptions.workerSrc = workerUrl;
+      const infoResp = await invoke('pdf_load_document', { filePath: targetBook.file_path });
+      const pageCount = Math.max(1, Number(infoResp?.info?.page_count ?? targetBook.total_pages ?? 1));
       
-      // 优化的PDF加载配置
-      const loadingTask = (pdfjs as any).getDocument({
-        data: fileData,
-        // 启用Worker以提升性能
-        useWorkerFetch: false,
-        isEvalSupported: false,
-        // 优化内存使用
-        maxImageSize: 16777216, // 16MB
-        // 禁用字体缓存以减少内存
-        disableFontFace: false,
-        // 启用范围请求优化（虽然我们用的是data，但设置不会有害）
-        rangeChunkSize: 65536, // 64KB
+      setTotalPages(pageCount);
+      setLoading(false);
+
+      // 不在这里直接渲染，而是通过 useEffect 监听 loading 状态变化后再渲染
+      // 这样可以确保 DOM 已经准备好
+      
+      // 轻量预热：仅缩略图、前后各1页，避免阻塞首屏
+      Promise.resolve().then(async () => {
+        try {
+          const startPage = Math.max(1, targetBook.current_page - 1);
+          const endPage = Math.min(pageCount, targetBook.current_page + 1);
+          await invoke('pdf_preload_pages', {
+            filePath: targetBook.file_path,
+            startPage,
+            endPage,
+            quality: 'thumbnail',
+          });
+        } catch (e) {
+          console.warn('后台预加载失败', e);
+        }
       });
-      
-      const loadedPdf = await loadingTask.promise;
-      setPdf(loadedPdf);
-
-      // 渲染当前页面（仅在横向模式下立即渲染；纵向模式交由懒加载）
-      if (readingMode === "horizontal") {
-        await renderPage(targetBook.current_page, loadedPdf);
-      }
       
       // 后台加载目录和书签（不阻塞首屏显示）
       // 加载目录（Outline）——保留层级结构，支持字符串/数组 dest
-      setTimeout(async () => {
+      Promise.resolve().then(async () => {
         try {
-          const outline = await loadedPdf.getOutline();
-            const resolvePage = async (node: any): Promise<number | undefined> => {
-              const key = node?.dest || node?.a?.dest;
-              try {
-                if (!key) return undefined;
-                if (Array.isArray(key)) {
-                  const ref = key[0];
-                  if (ref) return (await loadedPdf.getPageIndex(ref)) + 1;
-                }
-                if (typeof key === "string") {
-                  const dest = await loadedPdf.getDestination(key);
-                  const ref = dest && dest[0];
-                  if (ref) return (await loadedPdf.getPageIndex(ref)) + 1;
-                }
-              } catch (e) {
-                console.warn("解析目录目标失败", e);
+          const outlineResp = await invoke('pdf_get_outline', { filePath: targetBook.file_path });
+          const outline = outlineResp?.outline?.bookmarks || [];
+          const toToc = (nodes: any[], level = 0): TocNode[] => {
+            return (nodes || []).map((n: any) => ({
+              title: n.title || '无标题',
+              page: n.page_number || undefined,
+              children: toToc(n.children || [], level + 1),
+              expanded: level === 0,
+            }));
+          };
+          const parsed = toToc(outline, 0);
+          if (parsed.length > 0) {
+            setToc(parsed);
+          } else {
+            try {
+              const infoResp2 = await invoke('pdf_get_document_info', { filePath: targetBook.file_path });
+              const pages = Number(infoResp2?.info?.page_count || 0);
+              if (pages > 0) {
+                setToc([{ title: targetBook.title || '目录', page: 1, children: [], expanded: true }]);
+              } else {
+                setToc([]);
               }
-              return undefined;
-            };
-            const parseNodes = async (
-              nodes: any[] | undefined,
-              level = 0
-            ): Promise<TocNode[]> => {
-              if (!nodes || !Array.isArray(nodes)) return [];
-              const result: TocNode[] = [];
-              for (const n of nodes) {
-                const title = n?.title || "无标题";
-                const page = await resolvePage(n);
-                const children = await parseNodes(
-                  n?.items || n?.children,
-                  level + 1
-                );
-                result.push({ title, page, children, expanded: level === 0 });
-              }
-              return result;
-            };
-            const root = await parseNodes(outline as any[], 0);
-            setToc(root || []);
-          } catch (e) {
-            console.warn("获取PDF目录失败", e);
-            setToc([]);
+            } catch {
+              setToc([]);
+            }
           }
-        }, 100);
+        } catch (e) {
+          try {
+            const { logError } = await import("../services/index");
+            await logError('pdf_get_outline failed', { error: String(e), filePath: targetBook.file_path });
+          } catch {}
+          setToc([]);
+        }
+      });
 
         // 加载书签
-        setTimeout(async () => {
+        Promise.resolve().then(async () => {
           try {
             const list = await bookmarkService.getBookmarks(targetBook.id);
             setBookmarks(Array.isArray(list) ? list : []);
@@ -238,275 +209,202 @@ export const Reader: React.FC = () => {
             console.warn("获取书签失败", e);
             setBookmarks([]);
           }
-        }, 100);
+        });
 
-        // 缓存预热：在加载完成后才开始预热（避免阻塞首屏）
-        if ('requestIdleCallback' in window) {
-          requestIdleCallback(() => {
-            warmupCache(loadedPdf, targetBook.current_page, targetBook.total_pages);
-          }, { timeout: 2000 });
-        } else {
-          setTimeout(() => {
-            warmupCache(loadedPdf, targetBook.current_page, targetBook.total_pages);
-          }, 2000);
-        }
+
     } catch (error) {
       console.error("Failed to load book:", error);
       alert("加载书籍失败");
-    } finally {
-      setLoading(false);
     }
   };
 
-  // 缓存预热：后台预加载常用页面
-  const warmupCache = async (pdfDoc: any, currentPageNum: number, total: number) => {
-    if (!pdfDoc) return;
+  
 
-    try {
-      // 预热策略：只预热前后2页（减少预热数量，加快首屏）
-      const pagesToWarmup: number[] = [];
-      const start = Math.max(1, currentPageNum - 2);
-      const end = Math.min(total, currentPageNum + 2);
-      
-      for (let i = start; i <= end; i++) {
-        if (i !== currentPageNum) { // 当前页已经渲染
-          pagesToWarmup.push(i);
-        }
-      }
-
-      // 逐个预加载（避免一次性占用太多资源）
-      for (const pageNum of pagesToWarmup) {
-        // 检查是否已缓存
-        if (pageCacheRef.current.has(pageNum, 1.0)) {
-          continue;
-        }
-
-        try {
-          const page = await pdfDoc.getPage(pageNum);
-          const viewport = page.getViewport({ scale: 1.0 });
-          
-          // 创建临时canvas
-          const tempCanvas = document.createElement('canvas');
-          tempCanvas.width = viewport.width;
-          tempCanvas.height = viewport.height;
-          const tempContext = tempCanvas.getContext('2d');
-          
-          if (tempContext) {
-            if ((tempContext as any).resetTransform) {
-              (tempContext as any).resetTransform();
-            } else {
-              tempContext.setTransform(1, 0, 0, 1, 0, 0);
-            }
-            await page.render({
-              canvasContext: tempContext,
-              viewport: viewport,
-            }).promise;
-
-            // 缓存
-            const imageData = tempContext.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
-            pageCacheRef.current.set(pageNum, imageData, tempCanvas.width, tempCanvas.height, 1.0);
-          }
-        } catch (error) {
-          console.warn(`Warmup page ${pageNum} failed:`, error);
-        }
-
-        // 每预加载一页后短暂休息，避免阻塞
-        await new Promise(resolve => setTimeout(resolve, 150));
-      }
-
-      console.log('Cache warmup completed');
-    } catch (error) {
-      console.warn('Cache warmup failed:', error);
-    }
-  };
-
-  const renderPage = async (pageNum: number, pdfDoc?: any) => {
-    const pdfToUse = pdfDoc || pdf;
-    if (!pdfToUse || !canvasRef.current) return;
+  const renderPage = async (pageNum: number, forceRender: boolean = false) => {
+    if (!book || !canvasRef.current) return;
 
     const canvas = canvasRef.current;
     const context = canvas.getContext("2d");
     if (!context) return;
+    const localModeVer = modeVersionRef.current;
 
-    try {
-      const scale = 1.0;
-      const pageCache = pageCacheRef.current;
-      const memoryOptimizer = memoryOptimizerRef.current;
+    const existingRender = renderQueueRef.current.get(pageNum);
+    if (existingRender) {
+      try { await existingRender; } catch {}
+      return;
+    }
 
-      // 检查缓存
-      const cached = pageCache.get(pageNum, scale);
-      if (cached) {
-        // 使用缓存的页面
-        canvas.width = cached.width;
-        canvas.height = cached.height;
+    const renderPromise = (async () => {
+      try {
+        const scale = 1.0;
+        const pageCache = pageCacheRef.current;
+
+        // 检查前端缓存（如果有缓存，立即显示，无黑屏）
+        if (!forceRender) {
+          const cached = pageCache.get(pageNum, scale);
+          if (cached) {
+            log(`[renderPage] 页面 ${pageNum} 从前端缓存加载`);
+            canvas.width = cached.width;
+            canvas.height = cached.height;
+            if ((context as any).resetTransform) {
+              (context as any).resetTransform();
+            } else {
+              context.setTransform(1, 0, 0, 1, 0, 0);
+            }
+            context.clearRect(0, 0, canvas.width, canvas.height);
+            context.putImageData(cached.imageData, 0, 0);
+            canvas.style.opacity = "1";
+            canvas.style.backgroundColor = "transparent";
+            return;
+          }
+        }
+
+        log(`[renderPage] 页面 ${pageNum} 开始渲染（前端无缓存）`);
+        const startTime = performance.now();
+
+        // 显示加载状态（灰色背景，避免黑屏）
+        canvas.style.backgroundColor = "#2a2a2a";
+
+        const { getInvoke } = await import("../services/index");
+        const invoke = await getInvoke();
+        const viewW = canvas.parentElement?.clientWidth || 800;
+        const dpr = Math.max(1, Math.min(3, (window as any).devicePixelRatio || 1));
+        const containerWidth = Math.min(4096, Math.floor(viewW * dpr));
+
+        const renderStartTime = performance.now();
+        const filePath: string = await invoke('pdf_render_page_to_file', {
+          filePath: book.file_path,
+          pageNumber: pageNum,
+          quality: 'standard',
+          width: containerWidth,
+          height: null,
+        });
+        const renderEndTime = performance.now();
+        log(`[renderPage] 页面 ${pageNum} 后端渲染耗时: ${(renderEndTime - renderStartTime).toFixed(0)}ms`);
         
-        // 清除之前的内容前重置2D变换，避免翻转
+        const decodeStartTime = performance.now();
+        let standardImg: any;
+        try {
+          const imageUrl = convertFileSrc(filePath);
+          const response = await fetch(imageUrl);
+          const blob = await response.blob();
+          standardImg = await createImageBitmap(blob);
+        } catch (eAsset) {
+          try {
+            const dataUrl: string = await invoke('pdf_render_page_base64', {
+              filePath: book.file_path,
+              pageNumber: pageNum,
+              quality: 'standard',
+              width: containerWidth,
+              height: null,
+            });
+            const resp2 = await fetch(dataUrl);
+            const blob2 = await resp2.blob();
+            standardImg = await createImageBitmap(blob2);
+          } catch (e2) {
+            const imageUrl = convertFileSrc(filePath);
+            const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+              const im = new Image();
+              im.onload = () => resolve(im);
+              im.onerror = (err) => reject(err);
+              im.src = imageUrl;
+            });
+            standardImg = img;
+          }
+        }
+        const decodeEndTime = performance.now();
+        log(`[renderPage] 页面 ${pageNum} 图片解码耗时: ${(decodeEndTime - decodeStartTime).toFixed(0)}ms`);
+
+        if (pageNum !== currentPageRef.current) {
+          return;
+        }
+        if (localModeVer !== modeVersionRef.current) {
+          return;
+        }
+        if (readingMode !== "horizontal") {
+          return;
+        }
+        canvas.width = standardImg.width;
+        canvas.height = standardImg.height;
         if ((context as any).resetTransform) {
           (context as any).resetTransform();
         } else {
           context.setTransform(1, 0, 0, 1, 0, 0);
         }
         context.clearRect(0, 0, canvas.width, canvas.height);
-        
-        // 绘制缓存的图像
-        context.putImageData(cached.imageData, 0, 0);
-        
-        // 确保canvas可见
+        context.fillStyle = '#ffffff';
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(standardImg, 0, 0);
         canvas.style.opacity = "1";
-        
-        // 注册canvas到内存优化器
-        memoryOptimizer.registerCanvas(canvas);
-        return;
+        canvas.style.backgroundColor = "transparent";
+
+        const endTime = performance.now();
+        log(`[renderPage] 页面 ${pageNum} 渲染完成，总耗时: ${(endTime - startTime).toFixed(0)}ms`);
+
+        // 缓存结果
+        try {
+          const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+          pageCache.set(pageNum, imageData, canvas.width, canvas.height, scale);
+        } catch (e) {
+          console.warn("Failed to cache page:", e);
+        }
+
+        // 预加载相邻页面（后台静默加载，不显示）
+        preloadAdjacentPages(pageNum);
+      } catch (error) {
+        log(`[renderPage] 页面 ${pageNum} 渲染失败: ${error}`, 'error');
+      } finally {
+        renderQueueRef.current.delete(pageNum);
       }
+    })();
 
-      // 获取PDF页面
-      const page = await pdfToUse.getPage(pageNum);
-      const viewport = page.getViewport({ scale });
+    renderQueueRef.current.set(pageNum, renderPromise);
+    return renderPromise;
+  };
 
-      // 直接设置canvas尺寸（不使用优化器，避免尺寸不匹配）
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
+  // 预加载相邻页面（后台静默加载到缓存）
+  const preloadAdjacentPages = async (currentPageNum: number) => {
+    if (!book) return;
+    
+    // 使用后端批量预加载功能，更高效
+    try {
+      const { getInvoke } = await import("../services/index");
+      const invoke = await getInvoke();
       
-      // 注册canvas到内存优化器
-      memoryOptimizer.registerCanvas(canvas);
-
-      // 在渲染前重置任何残留的2D变换，避免页面被翻转
-      if ((context as any).resetTransform) {
-        (context as any).resetTransform();
-      } else {
-        context.setTransform(1, 0, 0, 1, 0, 0);
-      }
-      // 清除canvas内容前重置2D变换，避免翻转
-      if ((context as any).resetTransform) {
-        (context as any).resetTransform();
-      } else {
-        context.setTransform(1, 0, 0, 1, 0, 0);
-      }
-      context.clearRect(0, 0, canvas.width, canvas.height);
-      context.fillStyle = '#ffffff';
-      context.fillRect(0, 0, canvas.width, canvas.height);
-
-      // 直接渲染（不使用渐进式渲染，避免黑屏问题）
-      if (settings.pageTransition) {
-        canvas.style.transition = "opacity 200ms ease";
-        canvas.style.opacity = "0";
-      }
-
-      // 渲染页面
-      await page.render({
-        canvasContext: context,
-        viewport: viewport,
-      }).promise;
-
-      if (settings.pageTransition) {
-        canvas.style.opacity = "1";
-      } else {
-        canvas.style.opacity = "1";
-      }
-
-      // 缓存渲染结果
-      try {
-        const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-        pageCache.set(pageNum, imageData, canvas.width, canvas.height, scale);
-      } catch (e) {
-        console.warn("Failed to cache page:", e);
-      }
-
-      // 触发预加载相邻页面
-      triggerPreload(pageNum);
-    } catch (error) {
-      console.error("Failed to render page:", error);
+      // 预加载前后各1页，缩略图，降低负载
+      const startPage = Math.max(1, currentPageNum - 1);
+      const endPage = Math.min(totalPages, currentPageNum + 1);
+      
+      await invoke('pdf_preload_pages', {
+        filePath: book.file_path,
+        startPage,
+        endPage,
+        quality: 'thumbnail',
+      });
+    } catch (e) {
+      console.warn('预加载相邻页面失败', e);
     }
   };
 
-  // 触发预加载相邻页面
-  const triggerPreload = (currentPageNum: number) => {
-    if (!pdf) return;
-
-    const preloader = preloaderRef.current;
-    const smartPredictor = smartPredictorRef.current;
-    
-    // 记录页面访问，用于智能预测
-    smartPredictor.recordPageVisit(currentPageNum);
-    
-    // 使用智能预测器预测下一步可能访问的页面
-    const predictedPages = smartPredictor.predictNextPages(
-      currentPageNum,
-      totalPages,
-      readingMode
-    );
-    
-    // 获取阅读行为分析
-    const behavior = smartPredictor.analyzeReadingBehavior();
-    
-    // 根据预测结果生成预加载任务
-    const tasks = predictedPages.map(pageNum => ({
-      pageNumber: pageNum,
-      priority: smartPredictor.getPriority(pageNum, currentPageNum, behavior),
-      scale: 1.0,
-    }));
-
-    // 添加任务到队列
-    preloader.addTasks(tasks);
-
-    // 开始预加载（非阻塞）
-    preloader.startPreload(async (pageNum, scale) => {
-      // 检查是否已缓存
-      if (pageCacheRef.current.has(pageNum, scale)) {
-        return;
-      }
-
-      try {
-        const page = await pdf.getPage(pageNum);
-        
-        // 创建临时canvas进行后台渲染
-        const tempCanvas = document.createElement('canvas');
-        const viewport = page.getViewport({ scale });
-        tempCanvas.width = viewport.width;
-        tempCanvas.height = viewport.height;
-        const tempContext = tempCanvas.getContext('2d');
-        
-        if (tempContext) {
-          if ((tempContext as any).resetTransform) {
-            (tempContext as any).resetTransform();
-          } else {
-            tempContext.setTransform(1, 0, 0, 1, 0, 0);
-          }
-          await page.render({
-            canvasContext: tempContext,
-            viewport: viewport,
-          }).promise;
-
-          // 缓存渲染结果
-          const imageData = tempContext.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
-          pageCacheRef.current.set(pageNum, imageData, tempCanvas.width, tempCanvas.height, scale);
-        }
-      } catch (error) {
-        console.warn(`Preload page ${pageNum} failed:`, error);
-      }
-    }).catch(err => {
-      console.warn('Preload error:', err);
-    });
-  };
+  
 
   const goToPage = async (pageNum: number) => {
     if (pageNum < 1 || pageNum > totalPages) return;
 
     setCurrentPage(pageNum);
     if (readingMode === "horizontal") {
-      await renderPage(pageNum);
+await renderPage(pageNum, true);
     } else {
       // 纵向模式：滚动到对应页的 canvas
       const target = verticalCanvasRefs.current.get(pageNum);
       if (target) {
         target.scrollIntoView({ behavior: "auto", block: "start" });
       }
-      // 若尚未渲染，尝试渲染该页
+      // 若尚未渲染，使用渐进式渲染
       if (!renderedPagesRef.current.has(pageNum)) {
-        await renderPageToTarget(pageNum, target || null);
+await renderPageToTarget(pageNum, target || null);
       }
-      // 触发预加载
-      triggerPreload(pageNum);
+      
     }
 
     // 保存阅读进度
@@ -518,7 +416,7 @@ export const Reader: React.FC = () => {
   const nextPage = () => goToPage(currentPage + 1);
   const prevPage = () => goToPage(currentPage - 1);
 
-  // 计算当前章节页（<= currentPage 的最大章节页）
+  // 计算当前章节页（<= current_page 的最大章节页）
   const findCurrentChapterPage = (nodes: TocNode[]): number | undefined => {
     const pages: number[] = [];
     const collect = (ns: TocNode[]) => {
@@ -600,13 +498,22 @@ export const Reader: React.FC = () => {
     }
   };
 
-  // 将指定页渲染到给定 canvas（用于纵向模式）
+  // 渲染队列：避免多个页面同时请求导致 IPC 阻塞
+  const renderQueueRef = useRef<Map<number, Promise<void>>>(new Map());
+
+  // 渐进式渲染（纵向模式）：先显示缩略图，再加载标准质量
   const renderPageToTarget = async (
     pageNum: number,
     canvasEl: HTMLCanvasElement | null
   ) => {
-    const pdfToUse = pdf;
-    if (!pdfToUse) return;
+    if (!book) return;
+    const localModeVer = modeVersionRef.current;
+    
+    // 如果已经在渲染队列中，等待完成
+    const existingRender = renderQueueRef.current.get(pageNum);
+    if (existingRender) {
+      return existingRender;
+    }
     
     const canvas = canvasEl || verticalCanvasRefs.current.get(pageNum);
     if (!canvas) return;
@@ -614,53 +521,98 @@ export const Reader: React.FC = () => {
     const context = canvas.getContext("2d");
     if (!context) return;
 
-    try {
-      const page = await pdfToUse.getPage(pageNum);
-      const viewport = page.getViewport({ scale: 1.0 });
-      const containerWidth = mainViewRef.current?.clientWidth || viewport.width;
-      const scale = Math.max(0.5, Math.min(2, containerWidth / viewport.width));
-      
-      const pageCache = pageCacheRef.current;
-      const memoryOptimizer = memoryOptimizerRef.current;
+    // 创建渲染 Promise 并加入队列
+    const renderPromise = (async () => {
+      try {
+        const viewW = mainViewRef.current?.clientWidth || 800;
+        const dpr = Math.max(1, Math.min(3, (window as any).devicePixelRatio || 1));
+        const containerWidth = Math.min(4096, Math.floor(viewW * dpr));
+        const scale = 1.0;
+        const pageCache = pageCacheRef.current;
 
-      // 检查缓存
-      const cached = pageCache.get(pageNum, scale);
-      if (cached) {
-        canvas.width = cached.width;
-        canvas.height = cached.height;
-        
-        // 清除之前的内容前重置2D变换，避免翻转
-        if ((context as any).resetTransform) {
-          (context as any).resetTransform();
-        } else {
-          context.setTransform(1, 0, 0, 1, 0, 0);
+        // 检查前端缓存（如果有缓存，立即显示）
+        const cached = pageCache.get(pageNum, scale);
+        if (cached) {
+          log(`[renderPageToTarget] 页面 ${pageNum} 从前端缓存加载`);
+          canvas.width = cached.width;
+          canvas.height = cached.height;
+          if ((context as any).resetTransform) {
+            (context as any).resetTransform();
+          } else {
+            context.setTransform(1, 0, 0, 1, 0, 0);
+          }
+          context.clearRect(0, 0, canvas.width, canvas.height);
+          context.putImageData(cached.imageData, 0, 0);
+          canvas.style.opacity = "1";
+          canvas.style.backgroundColor = "transparent";
+          renderedPagesRef.current.add(pageNum);
+          return;
         }
-        context.clearRect(0, 0, canvas.width, canvas.height);
-        
-        // 绘制缓存的图像
-        context.putImageData(cached.imageData, 0, 0);
-        
-        // 确保canvas可见
-        canvas.style.opacity = "1";
-        
-        // 注册canvas到内存优化器
-        memoryOptimizer.registerCanvas(canvas);
-        
-        renderedPagesRef.current.add(pageNum);
+
+        log(`[renderPageToTarget] 页面 ${pageNum} 开始渲染（前端无缓存）`);
+        const startTime = performance.now();
+
+      // 显示加载状态（保持 minHeight，避免布局跳动）
+      canvas.style.backgroundColor = "#2a2a2a";
+
+      const { getInvoke } = await import("../services/index");
+      const invoke = await getInvoke();
+
+      const renderStartTime = performance.now();
+      const filePath: string = await invoke('pdf_render_page_to_file', {
+        filePath: book.file_path,
+        pageNumber: pageNum,
+        quality: 'standard',
+        width: containerWidth,
+        height: null,
+      });
+      const renderEndTime = performance.now();
+      log(`[renderPageToTarget] 页面 ${pageNum} 后端渲染耗时: ${(renderEndTime - renderStartTime).toFixed(0)}ms`);
+      
+      const decodeStartTime = performance.now();
+      let img: any;
+      try {
+        const imageUrl = convertFileSrc(filePath);
+        const response = await fetch(imageUrl);
+        const blob = await response.blob();
+        img = await createImageBitmap(blob);
+      } catch (eAsset) {
+        try {
+          const dataUrl: string = await invoke('pdf_render_page_base64', {
+            filePath: book.file_path,
+            pageNumber: pageNum,
+            quality: 'standard',
+            width: containerWidth,
+            height: null,
+          });
+          const resp2 = await fetch(dataUrl);
+          const blob2 = await resp2.blob();
+          img = await createImageBitmap(blob2);
+        } catch (e2) {
+          const imageUrl = convertFileSrc(filePath);
+          const im = await new Promise<HTMLImageElement>((resolve, reject) => {
+            const ii = new Image();
+            ii.onload = () => resolve(ii);
+            ii.onerror = (err) => reject(err);
+            ii.src = imageUrl;
+          });
+          img = im;
+        }
+      }
+      const decodeEndTime = performance.now();
+      log(`[renderPageToTarget] 页面 ${pageNum} 图片解码耗时: ${(decodeEndTime - decodeStartTime).toFixed(0)}ms`);
+
+      if (localModeVer !== modeVersionRef.current) {
         return;
       }
-
-      // 渲染页面
-      const scaledViewport = page.getViewport({ scale });
-      
-      // 直接设置canvas尺寸（不使用优化器，避免尺寸不匹配）
-      canvas.width = scaledViewport.width;
-      canvas.height = scaledViewport.height;
-      
-      // 注册canvas到内存优化器
-      memoryOptimizer.registerCanvas(canvas);
-      
-      // 清除canvas内容，确保没有残留
+      if (readingMode !== "vertical") {
+        return;
+      }
+      if (!document.contains(canvas)) {
+        return;
+      }
+      canvas.width = img.width;
+      canvas.height = img.height;
       if ((context as any).resetTransform) {
         (context as any).resetTransform();
       } else {
@@ -669,95 +621,174 @@ export const Reader: React.FC = () => {
       context.clearRect(0, 0, canvas.width, canvas.height);
       context.fillStyle = '#ffffff';
       context.fillRect(0, 0, canvas.width, canvas.height);
-      
-      // 确保canvas可见
       canvas.style.opacity = "1";
-      
-      await page.render({ canvasContext: context, viewport: scaledViewport })
-        .promise;
-      
+      canvas.style.backgroundColor = "transparent";
+      context.drawImage(img, 0, 0);
       renderedPagesRef.current.add(pageNum);
 
-      // 缓存渲染结果
-      try {
-        const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-        pageCache.set(pageNum, imageData, canvas.width, canvas.height, scale);
-      } catch (e) {
-        console.warn("Failed to cache vertical page:", e);
+      const endTime = performance.now();
+      log(`[renderPageToTarget] 页面 ${pageNum} 渲染完成，总耗时: ${(endTime - startTime).toFixed(0)}ms`);
+
+        // 缓存结果
+        try {
+          const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+          pageCache.set(pageNum, imageData, canvas.width, canvas.height, scale);
+        } catch (e) {
+          console.warn("Failed to cache vertical page:", e);
+        }
+      } catch (error) {
+        log(`[renderPageToTarget] 页面 ${pageNum} 渲染失败: ${error}`, 'error');
+      } finally {
+        // 从队列中移除
+        renderQueueRef.current.delete(pageNum);
       }
-    } catch (error) {
-      console.error("Failed to render vertical page:", error);
-    }
+    })();
+
+    // 加入队列
+    renderQueueRef.current.set(pageNum, renderPromise);
+    return renderPromise;
   };
 
   // 纵向模式懒加载：在进入可视区域时渲染页面（不在此处更新 currentPage）
   useEffect(() => {
-    if (readingMode !== "vertical" || !pdf) return;
+    if (readingMode !== "vertical" || !book || totalPages === 0 || !verticalLazyReady) return;
+    
     let observer: IntersectionObserver | null = null;
+    
+    // 延迟创建 observer，确保 DOM 已经渲染
+    const timer = setTimeout(() => {
+      const rootEl = verticalScrollRef.current || mainViewRef.current || undefined;
+      const canvases = Array.from(verticalCanvasRefs.current.values());
+      
+      if (!rootEl || canvases.length === 0) return;
 
-    const rootEl =
-      verticalScrollRef.current || mainViewRef.current || undefined;
-    const canvases = Array.from(verticalCanvasRefs.current.values());
-    if (!rootEl || canvases.length === 0) return () => {};
-
-    observer = new IntersectionObserver(
-      async (entries) => {
-        for (const entry of entries) {
-          const target = entry.target as HTMLCanvasElement;
-          const pageAttr = target.getAttribute("data-page");
-          const pageNum = pageAttr ? Number(pageAttr) : NaN;
-          if (isNaN(pageNum)) continue;
-          if (entry.isIntersecting && !renderedPagesRef.current.has(pageNum)) {
-            await renderPageToTarget(pageNum, target);
+      observer = new IntersectionObserver(
+        async (entries) => {
+          for (const entry of entries) {
+            const target = entry.target as HTMLCanvasElement;
+            const pageAttr = target.getAttribute("data-page");
+            const pageNum = pageAttr ? Number(pageAttr) : NaN;
+            if (isNaN(pageNum)) continue;
+            
+            if (entry.isIntersecting) {
+              log(`[IntersectionObserver] 页面 ${pageNum} 进入可视区域，已渲染: ${renderedPagesRef.current.has(pageNum)}`);
+              if (!renderedPagesRef.current.has(pageNum)) {
+                // 渲染页面
+                await renderPageToTarget(pageNum, target);
+              }
+            }
           }
-        }
-      },
-      // 扩大预渲染范围，缓解快速向上滚动时的空白
-      { root: rootEl, rootMargin: "400px 0px 800px 0px" }
-    );
+        },
+        // 扩大预渲染范围，确保滚动时提前加载
+        { root: rootEl, rootMargin: "800px 0px 800px 0px", threshold: 0.01 }
+      );
 
-    canvases.forEach((el) => observer!.observe(el));
+      canvases.forEach((el) => observer!.observe(el));
+    }, 100);
+
     return () => {
+      clearTimeout(timer);
       observer && observer.disconnect();
     };
-  }, [readingMode, pdf, totalPages]);
+  }, [readingMode, totalPages, book, verticalLazyReady]);
 
-  // 切换阅读模式时，确保重新渲染当前页（横向）或滚动到当前页（纵向）
+  // 切换阅读模式时，清理渲染标记
   useEffect(() => {
-    if (!pdf) return;
-    if (readingMode === "horizontal") {
-      // 横向模式：渲染当前页到单一 canvas
-      renderPage(currentPage);
-      // 清理纵向模式的渲染标记，防止引用残留
-      renderedPagesRef.current.clear();
-    } else {
-      // 纵向模式：尝试滚动至当前页的 canvas
-      const target = verticalCanvasRefs.current.get(currentPage);
-      if (target && target.height > 0) {
-        target.scrollIntoView({ behavior: "auto", block: "start" });
-      }
+    if (!book || totalPages === 0) return;
+    
+    // 清理渲染标记，让统一的渲染 useEffect 重新渲染
+    renderedPagesRef.current.clear();
+    modeVersionRef.current += 1;
+    renderQueueRef.current.clear();
+    setVerticalLazyReady(false);
+    if (verticalScrollRafRef.current !== null) {
+      cancelAnimationFrame(verticalScrollRafRef.current);
+      verticalScrollRafRef.current = null;
     }
-  }, [readingMode, pdf]);
+  }, [readingMode]);
 
-  // 纵向模式：首次进入时主动渲染当前页及相邻页，确保滚动监听有尺寸参考
+  // 首次加载完成后，立即渲染当前页（横向和纵向模式）
   useEffect(() => {
-    if (!pdf || readingMode !== "vertical") return;
+    if (loading || !book || totalPages === 0) return;
+    
+    log(`[Reader] 开始首次渲染，模式: ${readingMode}, 当前页: ${currentPage}`);
+    
     const renderInitial = async () => {
-      const cur = verticalCanvasRefs.current.get(currentPage);
-      if (cur && cur.height === 0) {
-        await renderPageToTarget(currentPage, cur);
-      }
-      const nextPageNum = Math.min(totalPages, currentPage + 1);
-      const next = verticalCanvasRefs.current.get(nextPageNum);
-      if (next && next.height === 0 && nextPageNum !== currentPage) {
-        await renderPageToTarget(nextPageNum, next);
+      if (readingMode === "horizontal") {
+        // 横向模式：等待 canvas 准备好后渲染
+        const waitForCanvas = () => {
+          return new Promise<void>((resolve) => {
+            const checkCanvas = () => {
+              if (canvasRef.current) {
+                log('[Reader] 横向模式 canvas 已准备好');
+                resolve();
+              } else {
+                setTimeout(checkCanvas, 50);
+              }
+            };
+            checkCanvas();
+          });
+        };
+        
+        await waitForCanvas();
+        log(`[Reader] 开始渲染横向模式页面: ${currentPage}`);
+        await renderPage(currentPage);
+        log('[Reader] 横向模式页面渲染完成');
+        
+        // 预加载前后页（后台加载，不阻塞当前页显示；不写入横向 canvas）
+        setTimeout(() => {
+          try { preloadAdjacentPages(currentPage); } catch {}
+        }, 100);
+      } else {
+        // 纵向模式：等待 canvas 准备好后渲染
+        const waitForCanvases = () => {
+          return new Promise<void>((resolve) => {
+            const checkCanvases = () => {
+              const canvas = verticalCanvasRefs.current.get(currentPage);
+              if (canvas) {
+                log('[Reader] 纵向模式 canvas 已准备好');
+                resolve();
+              } else {
+                log('[Reader] 等待纵向模式 canvas...');
+                setTimeout(checkCanvases, 50);
+              }
+            };
+            checkCanvases();
+          });
+        };
+        
+        await waitForCanvases();
+        
+        // 渲染当前页及前后各1页，确保有内容显示
+        const pagesToRender = [
+          Math.max(1, currentPage - 1),
+          currentPage,
+          Math.min(totalPages, currentPage + 1),
+        ];
+        
+        log(`[Reader] 开始渲染纵向模式页面: ${JSON.stringify(pagesToRender)}`);
+        for (const pageNum of pagesToRender) {
+          const canvas = verticalCanvasRefs.current.get(pageNum);
+          if (canvas && !renderedPagesRef.current.has(pageNum)) {
+            await renderPageToTarget(pageNum, canvas);
+          }
+        }
+        log('[Reader] 纵向模式页面渲染完成');
+        
+        // 渲染完成后，滚动到当前页
+        const currentCanvas = verticalCanvasRefs.current.get(currentPage);
+        if (currentCanvas) {
+          setTimeout(() => {
+            currentCanvas.scrollIntoView({ behavior: "auto", block: "start" });
+            setVerticalLazyReady(true);
+          }, 100);
+        }
       }
     };
-    // 下一帧执行，确保 DOM 已挂载
-    requestAnimationFrame(() => {
-      renderInitial();
-    });
-  }, [pdf, readingMode, currentPage, totalPages]);
+    
+    // 立即执行
+    renderInitial();
+  }, [loading, book, totalPages, readingMode]);
 
   // 纵向模式：滚动时动态更新当前页（以视口中心线为准；不进行程序化对齐）
   useEffect(() => {
@@ -768,7 +799,16 @@ export const Reader: React.FC = () => {
     const updateFromScroll = () => {
       verticalScrollRafRef.current = null;
       // 滑动期间不回写 currentPage，避免与滑动条中途状态互相干扰
-      if (isSeeking) return;
+      if (isSeeking) {
+        const now = Date.now();
+        if (now - lastSeekTsRef.current <= 400) {
+          log('[updateFromScroll] 跳过更新（正在拖动进度条）');
+          return;
+        }
+        // 保护：拖动结束但事件丢失时，自动退出 seeking
+        setIsSeeking(false);
+        setSeekPage(null);
+      }
       // 选择活动滚动容器（优先内层，其次外层），否则使用窗口视口
       const hasVsScroll = !!(vs && vs.scrollHeight > vs.clientHeight + 2);
       const hasMvScroll = !!(mv && mv.scrollHeight > mv.clientHeight + 2);
@@ -785,7 +825,7 @@ export const Reader: React.FC = () => {
           pageUnderCenter = pageNum;
         }
       });
-      let bestPage = pageUnderCenter ?? currentPage;
+      let bestPage = pageUnderCenter ?? currentPageRef.current;
       if (pageUnderCenter === null) {
         let bestDist = Infinity;
         verticalCanvasRefs.current.forEach((canvas, pageNum) => {
@@ -811,7 +851,8 @@ export const Reader: React.FC = () => {
           });
         }
       }
-      if (bestPage !== currentPage) {
+      if (bestPage !== currentPageRef.current) {
+        log(`[updateFromScroll] 页码更新: ${currentPageRef.current} -> ${bestPage}`);
         setCurrentPage(bestPage);
         if (book) {
           bookService.updateBookProgress(book.id!, bestPage).catch(() => {});
@@ -831,44 +872,19 @@ export const Reader: React.FC = () => {
       mv.addEventListener("scroll", onScroll, { passive: true });
     }
     window.addEventListener("scroll", onScroll, { passive: true });
-    // 绑定 wheel 事件，确保某些环境下仅 wheel 不触发 scroll 时也能更新
-    if (vs) {
-      vs.addEventListener("wheel", onScroll, { passive: true });
-    }
-    if (mv) {
-      mv.addEventListener("wheel", onScroll, { passive: true });
-    }
-    window.addEventListener("wheel", onScroll, { passive: true });
     // 初次挂载后立即计算一次，保证进入后不滑动也同步当前页
-    requestAnimationFrame(updateFromScroll);
-    // 首次进入时短暂轮询，确保画布尺寸与滚动容器就绪后立即更新页码
-    verticalInitFramesRef.current = 0;
-    const initTick = () => {
-      verticalInitRafRef.current = null;
-      if (verticalInitFramesRef.current >= 12) return; // 约 12 帧 ~200ms
-      verticalInitFramesRef.current += 1;
-      updateFromScroll();
-      verticalInitRafRef.current = requestAnimationFrame(initTick);
-    };
-    verticalInitRafRef.current = requestAnimationFrame(initTick);
+    updateFromScroll();
     return () => {
       if (vs) {
         vs.removeEventListener("scroll", onScroll);
-        vs.removeEventListener("wheel", onScroll);
       }
       if (mv) {
         mv.removeEventListener("scroll", onScroll);
-        mv.removeEventListener("wheel", onScroll);
       }
       window.removeEventListener("scroll", onScroll);
-      window.removeEventListener("wheel", onScroll);
       if (verticalScrollRafRef.current !== null) {
         cancelAnimationFrame(verticalScrollRafRef.current);
         verticalScrollRafRef.current = null;
-      }
-      if (verticalInitRafRef.current !== null) {
-        cancelAnimationFrame(verticalInitRafRef.current);
-        verticalInitRafRef.current = null;
       }
     };
   }, [readingMode, book, isSeeking, totalPages]);
@@ -1204,10 +1220,13 @@ export const Reader: React.FC = () => {
           {readingMode === "horizontal" ? (
             <canvas
               ref={canvasRef}
+              width={800}
+              height={1000}
               style={{
                 width: "100%",
                 height: "auto",
                 boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+                backgroundColor: loading ? "#2a2a2a" : "transparent",
               }}
             />
           ) : (
@@ -1218,16 +1237,24 @@ export const Reader: React.FC = () => {
             >
               {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
                 <canvas
-                  key={p}
+                  key={`${bookId}-${p}`}
                   data-page={p}
                   ref={(el) => {
-                    if (el) verticalCanvasRefs.current.set(p, el);
+                    if (el) {
+                      verticalCanvasRefs.current.set(p, el);
+                      // 设置初始高度，避免黑屏
+                      if (el.height === 0) {
+                        el.height = 800; // 临时高度，渲染后会更新
+                      }
+                    }
                   }}
                   style={{
                     width: "100%",
+                    minHeight: "600px", // 设置最小高度，确保 IntersectionObserver 能触发
                     display: "block",
                     margin: `0 auto ${settings.pageGap}px`,
                     boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+                    backgroundColor: "#2a2a2a", // 添加背景色，避免完全黑屏
                   }}
                 />
               ))}
@@ -1662,14 +1689,17 @@ export const Reader: React.FC = () => {
                       onMouseDown={(e) => {
                         e.stopPropagation();
                         setIsSeeking(true);
+                        lastSeekTsRef.current = Date.now();
                       }}
                       onTouchStart={(e) => {
                         e.stopPropagation();
                         setIsSeeking(true);
+                        lastSeekTsRef.current = Date.now();
                       }}
                       onInput={(e) => {
                         const v = Number((e.target as HTMLInputElement).value);
                         setSeekPage(v);
+                        lastSeekTsRef.current = Date.now();
                       }}
                       onMouseUp={async (e) => {
                         e.stopPropagation();
@@ -1677,6 +1707,7 @@ export const Reader: React.FC = () => {
                         // 提交后立刻结束 seeking，让滚动监听按照内容更新预览
                         setSeekPage(null);
                         setIsSeeking(false);
+                        lastSeekTsRef.current = 0;
                         await goToPage(v);
                       }}
                       onTouchEnd={async (e) => {
@@ -1685,6 +1716,7 @@ export const Reader: React.FC = () => {
                         // 提交后立刻结束 seeking，让滚动监听按照内容更新预览
                         setSeekPage(null);
                         setIsSeeking(false);
+                        lastSeekTsRef.current = 0;
                         await goToPage(v);
                       }}
                       style={{

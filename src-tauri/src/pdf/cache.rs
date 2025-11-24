@@ -1,24 +1,17 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use moka::future::Cache as MokaCache;
 use crate::pdf::types::{CacheKey, RenderResult, PdfError};
 
-const DEFAULT_MAX_CACHE_SIZE: usize = 100 * 1024 * 1024; // 100MB
-const DEFAULT_MAX_CACHE_ITEMS: usize = 50;
-
-#[derive(Debug)]
-struct CacheEntry {
-    data: RenderResult,
-    size: usize,
-    last_access: std::time::Instant,
-    access_count: u32,
-}
+const DEFAULT_MAX_CACHE_SIZE: usize = 100 * 1024 * 1024; // 100MB（按权重表示字节数）
+const DEFAULT_MAX_CACHE_ITEMS: usize = 50; // 仅用于统计展示
 
 pub struct CacheManager {
-    cache: Arc<RwLock<HashMap<CacheKey, CacheEntry>>>,
+    cache: MokaCache<CacheKey, RenderResult>,
+    sizes: Arc<RwLock<HashMap<CacheKey, usize>>>,
     max_size: usize,
     max_items: usize,
-    current_size: Arc<RwLock<usize>>,
 }
 
 impl CacheManager {
@@ -27,174 +20,76 @@ impl CacheManager {
     }
 
     pub fn with_limits(max_size: usize, max_items: usize) -> Self {
+        let builder = MokaCache::builder()
+            .weigher(|_k: &CacheKey, v: &RenderResult| v.image_data.len() as u32)
+            .max_capacity(max_size as u64);
+        let cache = builder.build();
         Self {
-            cache: Arc::new(RwLock::new(HashMap::new())),
+            cache,
+            sizes: Arc::new(RwLock::new(HashMap::new())),
             max_size,
             max_items,
-            current_size: Arc::new(RwLock::new(0)),
         }
     }
 
     pub async fn get(&self, key: &CacheKey) -> Option<RenderResult> {
-        let mut cache = self.cache.write().await;
-        
-        if let Some(entry) = cache.get_mut(key) {
-            entry.last_access = std::time::Instant::now();
-            entry.access_count += 1;
-            Some(entry.data.clone())
-        } else {
-            None
-        }
+        self.cache.get(key).await
     }
 
     pub async fn put(&self, key: CacheKey, data: RenderResult) -> Result<(), PdfError> {
-        let data_size = data.image_data.len();
-        
-        // 检查是否需要清理缓存
-        self.ensure_space(data_size).await?;
-
-        let mut cache = self.cache.write().await;
-        let mut current_size = self.current_size.write().await;
-
-        // 如果key已存在，先减去旧数据的大小
-        if let Some(old_entry) = cache.get(&key) {
-            *current_size -= old_entry.size;
-        }
-
-        let entry = CacheEntry {
-            data,
-            size: data_size,
-            last_access: std::time::Instant::now(),
-            access_count: 1,
-        };
-
-        cache.insert(key, entry);
-        *current_size += data_size;
-
-        Ok(())
-    }
-
-    async fn ensure_space(&self, required_size: usize) -> Result<(), PdfError> {
-        let current_size = *self.current_size.read().await;
-        let cache_len = self.cache.read().await.len();
-
-        // 如果需要的空间超过最大缓存大小，返回错误
-        if required_size > self.max_size {
-            return Err(PdfError::CacheError {
-                operation: "ensure_space".to_string(),
-                message: format!("数据大小 {} 超过最大缓存限制 {}", required_size, self.max_size),
-            });
-        }
-
-        // 如果当前大小加上需要的大小超过限制，或者项目数超过限制，进行清理
-        if current_size + required_size > self.max_size || cache_len >= self.max_items {
-            self.evict_entries(required_size).await?;
-        }
-
-        Ok(())
-    }
-
-    async fn evict_entries(&self, required_size: usize) -> Result<(), PdfError> {
-        let mut cache = self.cache.write().await;
-        let mut current_size = self.current_size.write().await;
-
-        // 计算需要释放的空间
-        let target_size = if *current_size + required_size > self.max_size {
-            self.max_size - required_size - (self.max_size / 10) // 额外释放10%空间
-        } else {
-            *current_size
-        };
-
-        // 使用LRU策略：按最后访问时间和访问次数排序
-        let mut entries: Vec<_> = cache.iter().map(|(k, v)| {
-            let score = v.last_access.elapsed().as_secs_f64() / (v.access_count as f64 + 1.0);
-            (k.clone(), score)
-        }).collect();
-
-        // 按分数降序排序（分数越高越应该被淘汰）
-        entries.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
-
-        // 删除条目直到满足大小要求或项目数要求
-        let mut freed_size = 0;
-        let mut removed_count = 0;
-
-        for (key, _) in entries {
-            if *current_size - freed_size <= target_size && (cache.len() - removed_count) < self.max_items {
-                break;
-            }
-
-            if let Some(entry) = cache.remove(&key) {
-                freed_size += entry.size;
-                removed_count += 1;
-            }
-            if *current_size - freed_size <= target_size && (cache.len() - removed_count) <= self.max_items {
-                break;
-            }
-        }
-
-        *current_size -= freed_size;
-
+        let size = data.image_data.len();
+        self.cache.insert(key.clone(), data).await;
+        let mut sizes = self.sizes.write().await;
+        sizes.insert(key, size);
         Ok(())
     }
 
     pub async fn remove(&self, key: &CacheKey) -> Option<RenderResult> {
-        let mut cache = self.cache.write().await;
-        let mut current_size = self.current_size.write().await;
-
-        if let Some(entry) = cache.remove(key) {
-            *current_size -= entry.size;
-            Some(entry.data)
-        } else {
-            None
-        }
+        let val = self.cache.get(key).await;
+        self.cache.invalidate(key).await;
+        let mut sizes = self.sizes.write().await;
+        sizes.remove(key);
+        val
     }
 
     pub async fn clear(&self) {
-        let mut cache = self.cache.write().await;
-        let mut current_size = self.current_size.write().await;
-
-        cache.clear();
-        *current_size = 0;
+        self.cache.invalidate_all();
+        let mut sizes = self.sizes.write().await;
+        sizes.clear();
     }
 
     pub async fn clear_page(&self, page_number: u32) {
-        let mut cache = self.cache.write().await;
-        let mut current_size = self.current_size.write().await;
-
-        let keys_to_remove: Vec<_> = cache
-            .keys()
-            .filter(|k| k.page_number == page_number)
-            .cloned()
-            .collect();
-
-        for key in keys_to_remove {
-            if let Some(entry) = cache.remove(&key) {
-                *current_size -= entry.size;
-            }
+        let keys: Vec<CacheKey> = {
+            let sizes = self.sizes.read().await;
+            sizes.keys().filter(|k| k.page_number == page_number).cloned().collect()
+        };
+        for k in keys.iter() {
+            self.cache.invalidate(k).await;
         }
+        let mut sizes = self.sizes.write().await;
+        for k in keys { sizes.remove(&k); }
     }
 
     pub async fn get_stats(&self) -> CacheStats {
-        let cache = self.cache.read().await;
-        let current_size = *self.current_size.read().await;
-
+        let sizes = self.sizes.read().await;
+        let total_size: usize = sizes.values().copied().sum();
         CacheStats {
-            item_count: cache.len(),
-            total_size: current_size,
+            item_count: sizes.len(),
+            total_size,
             max_size: self.max_size,
             max_items: self.max_items,
-            hit_rate: 0.0, // 可以通过跟踪命中/未命中来计算
+            hit_rate: 0.0,
         }
     }
 
     pub async fn contains(&self, key: &CacheKey) -> bool {
-        let cache = self.cache.read().await;
-        cache.contains_key(key)
+        // get 不改变缓存内容，但会克隆；为避免克隆，这里使用 contains_key
+        self.cache.contains_key(key)
     }
 
     pub async fn get_cached_pages(&self) -> Vec<u32> {
-        let cache = self.cache.read().await;
-        let mut pages: Vec<_> = cache.keys().map(|k| k.page_number).collect();
+        let sizes = self.sizes.read().await;
+        let mut pages: Vec<_> = sizes.keys().map(|k| k.page_number).collect();
         pages.sort_unstable();
         pages.dedup();
         pages
@@ -202,6 +97,20 @@ impl CacheManager {
 
     pub fn set_max_size(&mut self, max_size: usize) {
         self.max_size = max_size;
+        // 重新构建缓存容量（注意：这会丢失内部策略状态，但不影响功能）
+        let new = MokaCache::builder()
+            .weigher(|_k: &CacheKey, v: &RenderResult| v.image_data.len() as u32)
+            .max_capacity(max_size as u64)
+            .build();
+        // 将旧缓存中可见的键值迁移（通过 sizes 表）
+        let sizes = futures::executor::block_on(self.sizes.read());
+        for (k, _) in sizes.iter() {
+            if let Some(v) = futures::executor::block_on(self.cache.get(k)) {
+                futures::executor::block_on(new.insert(k.clone(), v));
+            }
+        }
+        drop(sizes);
+        self.cache = new;
     }
 
     pub fn set_max_items(&mut self, max_items: usize) {
@@ -212,10 +121,10 @@ impl CacheManager {
 impl Clone for CacheManager {
     fn clone(&self) -> Self {
         Self {
-            cache: Arc::clone(&self.cache),
+            cache: self.cache.clone(),
+            sizes: Arc::clone(&self.sizes),
             max_size: self.max_size,
             max_items: self.max_items,
-            current_size: Arc::clone(&self.current_size),
         }
     }
 }

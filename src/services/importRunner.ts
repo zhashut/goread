@@ -39,35 +39,60 @@ export const importPathsToExistingGroup = async (
       // 让出一帧，以确保UI刷新
       await waitNextFrame();
     }
+
     const invoke = await import("../services/index").then(m => m.getInvoke());
-    const info = await invoke('pdf_load_document', { filePath });
-    const dataUrl: string = await invoke('pdf_render_page_base64', {
-      filePath: filePath,
-      pageNumber: 1,
-      quality: 'thumbnail',
-      width: 256,
-      height: null,
-    });
-    const img = new Image();
-    await new Promise<void>((resolve, reject) => {
-      img.onload = () => resolve();
-      img.onerror = (e) => reject(e);
-      img.src = dataUrl;
-    });
-    const canvas = document.createElement("canvas");
-    const context = canvas.getContext("2d")!;
-    canvas.width = img.naturalWidth;
-    canvas.height = img.naturalHeight;
-    context.drawImage(img, 0, 0);
-    const coverImage = canvas.toDataURL("image/jpeg", 0.8).split(",")[1];
+    const { logError } = await import('./index');
+    let info: any = null;
+    try {
+      info = await (await invoke)('pdf_load_document', { filePath });
+    } catch (err) {
+      await logError('pdf_load_document failed during import', { error: String(err), filePath });
+    }
+    let coverImage: string | undefined = undefined;
+    try {
+      const dataUrl: string = await (await invoke)('pdf_render_page_base64', {
+        filePath,
+        pageNumber: 1,
+        quality: 'thumbnail',
+        width: 256,
+        height: null,
+      });
+      const img = new Image();
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = (e) => reject(e);
+        img.src = dataUrl;
+      });
+      const canvas = document.createElement("canvas");
+      const context = canvas.getContext("2d")!;
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      context.drawImage(img, 0, 0);
+      coverImage = canvas.toDataURL("image/jpeg", 0.8).split(",")[1];
+    } catch (err) {
+      await logError('pdf_render_page_base64 failed during import', { error: String(err), filePath });
+    }
     const title = pathToTitle(filePath) || "Unknown";
+    const totalPages = Math.max(1, Number(info?.info?.page_count ?? 0));
     const saved = await bookService.addBook(
       filePath,
       title,
       coverImage,
-      (info?.info.page_count ?? 0)
+      totalPages,
     );
     await groupService.moveBookToGroup(saved.id, groupId);
+    
+    // 预热缓存：导入时预渲染前5页，提升首次打开速度
+    try {
+      await (await invoke)('pdf_warmup_cache', {
+        filePath,
+        strategy: 'first_pages',
+        pageCount: 5,
+      });
+    } catch (err) {
+      // 预热失败不影响导入流程
+      await logError('pdf_warmup_cache failed during import', { error: String(err), filePath });
+    }
 
     // 完成一册后同步进度与标题
     window.dispatchEvent(

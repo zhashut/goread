@@ -5,8 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "copy-worker": "copyfiles -f ./node_modules/pdfjs-dist/build/pdf.worker.min.js ./public/",
-    "build": "npm run copy-worker && tsc && vite build",
+    "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri"
   },
@@ -16,7 +15,6 @@
     "@tauri-apps/plugin-fs": "^2.4.4",
     "@tauri-apps/plugin-sql": "^2.3.1",
     "@types/react-router-dom": "^5.3.3",
-    "pdfjs-dist": "^4.8.69",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^7.9.5"

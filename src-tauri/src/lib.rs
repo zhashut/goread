@@ -102,6 +102,7 @@ pub fn run() {
             // PDF相关命令
             pdf_load_document,
             pdf_render_page,
+            pdf_render_page_to_file,
             pdf_render_page_tile,
             pdf_render_page_base64,
             pdf_get_page_text,

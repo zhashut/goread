@@ -94,6 +94,11 @@ impl PdfEngine {
 
     /// 加载 PDF 文档
     pub async fn load_document(&mut self, path: &str) -> Result<PdfDocumentInfo, PdfError> {
+        // 如果切换到不同的文档，清理旧文档的缓存
+        if !self.file_path.is_empty() && self.file_path != path {
+            self.cache.clear().await;
+        }
+        
         let pdfium = Self::create_pdfium()?;
         let document = pdfium
             .load_pdf_from_file(path, None)
@@ -177,10 +182,42 @@ impl PdfEngine {
             });
         }
 
+        // 提前检查缓存（在加载文档之前）
+        if let Some(page_info) = self.document_info.as_ref().and_then(|info| info.pages.get((page_number - 1) as usize)) {
+            let base_width = page_info.width;
+            let base_height = page_info.height;
+            
+            // 计算目标尺寸（与 renderer 中的逻辑一致）
+            let (target_width, target_height) = if let Some(w) = options.width {
+                let aspect_ratio = base_height / base_width;
+                (w, (w as f32 * aspect_ratio) as u32)
+            } else if let Some(h) = options.height {
+                let aspect_ratio = base_width / base_height;
+                ((h as f32 * aspect_ratio) as u32, h)
+            } else {
+                (base_width as u32, base_height as u32)
+            };
+            
+            let cache_key = CacheKey::new(
+                page_number,
+                options.quality.clone(),
+                target_width,
+                target_height,
+            );
+            
+            // 检查缓存
+            if let Some(cached) = self.cache.get(&cache_key).await {
+                println!("[backend] 页面 {} 从缓存加载（跳过文档加载）", page_number);
+                return Ok(cached);
+            }
+        }
+
         let file_path = self.file_path.clone();
         let cache = self.cache.clone();
         
         tokio::task::spawn_blocking(move || {
+            let start = std::time::Instant::now();
+            
             let pdfium = Arc::new(Self::create_pdfium()?);
             let document = pdfium
                 .load_pdf_from_file(&file_path, None)
@@ -189,11 +226,73 @@ impl PdfEngine {
                     source: e.to_string(),
                 })?;
             
+            let load_time = start.elapsed();
+            println!("[backend] 页面 {} 文档加载耗时: {}ms", page_number, load_time.as_millis());
+            
+            let render_start = std::time::Instant::now();
             let renderer = PdfRenderer::with_cache(pdfium.clone(), cache);
-            renderer.render_page_sync(&document, page_number, options)
+            let result = renderer.render_page_sync(&document, page_number, options)?;
+            
+            let render_time = render_start.elapsed();
+            let total_time = start.elapsed();
+            println!("[backend] 页面 {} 渲染耗时: {}ms, 总耗时: {}ms", 
+                page_number, render_time.as_millis(), total_time.as_millis());
+            
+            Ok(result)
         })
         .await
         .map_err(|e| PdfError::render_error(page_number, "render_page", format!("渲染任务失败: {}", e)))?
+    }
+
+    pub async fn render_page_to_file(
+        &self,
+        page_number: u32,
+        options: RenderOptions,
+    ) -> Result<String, PdfError> {
+        if page_number < 1 || page_number > self.get_page_count() {
+            return Err(PdfError::PageNotFound { page: page_number, total_pages: self.get_page_count() });
+        }
+
+        let (target_width, target_height) = if let Some(info) = self.document_info.as_ref().and_then(|i| i.pages.get((page_number - 1) as usize)) {
+            let base_width = info.width;
+            let base_height = info.height;
+            if let Some(w) = options.width {
+                let aspect = base_height / base_width;
+                (w, (w as f32 * aspect) as u32)
+            } else if let Some(h) = options.height {
+                let aspect = base_width / base_height;
+                ((h as f32 * aspect) as u32, h)
+            } else {
+                let scale = options.quality.scale_factor();
+                ((base_width * scale) as u32, (base_height * scale) as u32)
+            }
+        } else {
+            (options.width.unwrap_or(800), options.height.unwrap_or(1000))
+        };
+
+        let quality_str = match options.quality { RenderQuality::Thumbnail => "thumb", RenderQuality::Standard => "std", RenderQuality::High => "high", RenderQuality::Best => "best" };
+        let cache_key = CacheKey::new(page_number, options.quality.clone(), target_width, target_height);
+
+        // 命中缓存：用缓存的格式命名文件
+        if let Some(cached) = self.cache.get(&cache_key).await {
+            let ext = cached.format.extension();
+            let quality_str = match options.quality { RenderQuality::Thumbnail => "thumb", RenderQuality::Standard => "std", RenderQuality::High => "high", RenderQuality::Best => "best" };
+            let temp_dir = std::env::temp_dir();
+            let path = temp_dir.join(format!("goread_{}_{}_{}x{}.{}", page_number, quality_str, target_width, target_height, ext));
+            if std::path::Path::new(&path).exists() {
+                return Ok(path.to_string_lossy().to_string());
+            }
+            std::fs::write(&path, &cached.image_data).map_err(|e| PdfError::io_error(Some(path.to_string_lossy().to_string()), e))?;
+            return Ok(path.to_string_lossy().to_string());
+        }
+
+        // 未命中缓存：先渲染，再按输出格式命名文件
+        let result = self.render_page(page_number, options).await?;
+        let ext = result.format.extension();
+        let temp_dir = std::env::temp_dir();
+        let path = temp_dir.join(format!("goread_{}_{}_{}x{}.{}", page_number, quality_str, target_width, target_height, ext));
+        std::fs::write(&path, &result.image_data).map_err(|e| PdfError::io_error(Some(path.to_string_lossy().to_string()), e))?;
+        Ok(path.to_string_lossy().to_string())
     }
 
     /// 渲染页面分块

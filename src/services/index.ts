@@ -44,6 +44,17 @@ export const getInvoke = async () => {
   }
   return await invokePromise;
 };
+
+// 日志工具函数
+export const log = async (message: string, level: 'info' | 'warn' | 'error' = 'info', context?: any) => {
+  const invoke = await getInvoke();
+  await invoke('frontend_log', {
+    level,
+    message,
+    context: context ? JSON.stringify(context) : undefined
+  }).catch(() => {}); // 忽略日志错误
+};
+
 import { IBook, IGroup, IBookmark } from '../types';
 
 // 书籍服务接口
@@ -131,7 +142,19 @@ export class TauriBookService implements IBookService {
 export class TauriGroupService implements IGroupService {
   async addGroup(name: string): Promise<IGroup> {
     const invoke = await getInvoke();
-    return await invoke('add_group', { name });
+    try {
+      return await invoke('add_group', { name });
+    } catch (e) {
+      console.error('Failed to create group:', e);
+      try {
+        await invoke('frontend_log', {
+          level: 'error',
+          message: 'addGroup failed',
+          context: JSON.stringify({ name, error: String(e) })
+        });
+      } catch {}
+      throw e;
+    }
   }
 
   async getAllGroups(): Promise<IGroup[]> {
@@ -181,6 +204,17 @@ export class TauriBookmarkService implements IBookmarkService {
 export const bookService = new TauriBookService();
 export const groupService = new TauriGroupService();
 export const bookmarkService = new TauriBookmarkService();
+
+export const logError = async (message: string, context?: any) => {
+  const invoke = await getInvoke();
+  try {
+    await invoke('frontend_log', {
+      level: 'error',
+      message,
+      context: context ? JSON.stringify(context) : null,
+    });
+  } catch {}
+};
 
 // --------------- 阅读器设置持久化 ---------------
 export type ReaderSettings = {
@@ -235,15 +269,4 @@ export const saveReaderSettings = (settings: Partial<ReaderSettings>) => {
     console.warn('Save settings failed', e);
     return getReaderSettings();
   }
-};
-
-export const logError = async (message: string, context?: any) => {
-  const invoke = await getInvoke();
-  try {
-    await invoke('frontend_log', {
-      level: 'error',
-      message,
-      context: context ? JSON.stringify(context) : null,
-    });
-  } catch {}
 };

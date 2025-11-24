@@ -127,6 +127,49 @@ pub async fn pdf_render_page(
 }
 
 #[tauri::command]
+pub async fn pdf_render_page_to_file(
+    file_path: String,
+    page_number: u32,
+    quality: String,
+    width: Option<u32>,
+    height: Option<u32>,
+    manager: State<'_, PdfManagerState>,
+) -> Result<String, String> {
+    let manager = manager.lock().await;
+
+    let engine_arc = match manager.get_or_create_engine(&file_path).await {
+        Ok(engine) => engine,
+        Err(e) => {
+            return Err(e.to_string());
+        }
+    };
+
+    let engine = engine_arc.read().await;
+
+    let render_quality = match quality.as_str() {
+        "thumbnail" => RenderQuality::Thumbnail,
+        "standard" => RenderQuality::Standard,
+        "high" => RenderQuality::High,
+        "best" => RenderQuality::Best,
+        _ => RenderQuality::Standard,
+    };
+
+    let options = RenderOptions {
+        quality: render_quality,
+        width,
+        height,
+        background_color: Some([255, 255, 255, 255]),
+        fit_to_width: width.is_some(),
+        fit_to_height: height.is_some(),
+    };
+
+    engine
+        .render_page_to_file(page_number, options)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn pdf_render_page_base64(
     file_path: String,
     page_number: u32,
@@ -135,12 +178,13 @@ pub async fn pdf_render_page_base64(
     height: Option<u32>,
     manager: State<'_, PdfManagerState>,
 ) -> Result<String, String> {
-    let response = pdf_render_page(file_path, page_number, quality, width, height, manager).await?;
+    let response = pdf_render_page(file_path, page_number, quality.clone(), width, height, manager).await?;
     
     if response.success {
         if let Some(image_data) = response.image_data {
+            let mime = match quality.as_str() { "thumbnail" => "image/png", "best" => "image/png", _ => "image/webp" };
             let base64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &image_data);
-            Ok(format!("data:image/png;base64,{}", base64))
+            Ok(format!("data:{};base64,{}", mime, base64))
         } else {
             Err("渲染失败：无图像数据".to_string())
         }
