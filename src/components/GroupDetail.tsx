@@ -1,12 +1,27 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  rectSortingStrategy,
+} from "@dnd-kit/sortable";
 import { IBook } from "../types";
 import { CARD_WIDTH_COMPACT, GRID_GAP_GROUP_DETAIL } from "../constants/ui";
 import { groupService, bookService } from "../services";
-import { BookCard } from "./BookCard";
+import { SortableBookItem } from "./SortableBookItem";
 import ConfirmDeleteDrawer from "./ConfirmDeleteDrawer";
 
-// 使用通用 BookCard 组件替换内联实现
+// 使用 dnd-kit 实现拖拽排序
 
 export const GroupDetail: React.FC<{
   groupIdProp?: number;
@@ -17,12 +32,22 @@ export const GroupDetail: React.FC<{
   const id = typeof groupIdProp === "number" ? groupIdProp : Number(groupId);
   const [books, setBooks] = useState<IBook[]>([]);
   const [loading, setLoading] = useState(true);
-  const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedBookIds, setSelectedBookIds] = useState<Set<number>>(new Set());
   const [confirmOpen, setConfirmOpen] = useState(false);
   const booksRef = useRef<IBook[]>([]);
   const selectedRef = useRef<Set<number>>(new Set());
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
 
   useEffect(() => {
     const run = async () => {
@@ -59,6 +84,23 @@ export const GroupDetail: React.FC<{
     const g = (allGroups || []).find((x) => x.id === id) || null;
     if (!g || (list || []).length === 0) {
       onClose?.();
+    }
+  };
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+
+    if (over && active.id !== over.id) {
+      setBooks((items) => {
+        const oldIndex = items.findIndex((b) => b.id === active.id);
+        const newIndex = items.findIndex((b) => b.id === over.id);
+        const newItems = arrayMove(items, oldIndex, newIndex);
+        
+        // 异步保存顺序
+        groupService.reorderGroupBooks(id, newItems.map((b) => b.id)).catch(console.warn);
+        
+        return newItems;
+      });
     }
   };
 
@@ -207,49 +249,32 @@ export const GroupDetail: React.FC<{
             alignContent: "start",
           }}
         >
-          {books.map((b, idx) => (
-            <BookCard
-              key={b.id}
-              book={b}
-              onClick={() =>
-                navigate(`/reader/${b.id}`, { state: { fromGroupId: id } })
-              }
-              onLongPress={() => onBookLongPress(b.id)}
-              selectable={selectionMode}
-              selected={selectedBookIds.has(b.id)}
-              onToggleSelect={() => toggleSelectBook(b.id)}
-              draggable
-              onDragStart={(e) => {
-                setDragIndex(idx);
-                e.dataTransfer.setData("text/plain", String(idx));
-                e.stopPropagation();
-              }}
-              onDragOver={(e) => {
-                e.preventDefault();
-              }}
-              onDrop={async (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                const from =
-                  dragIndex ?? Number(e.dataTransfer.getData("text/plain"));
-                const to = idx;
-                if (isNaN(from) || from === to) return;
-                const next = books.slice();
-                const [moved] = next.splice(from, 1);
-                next.splice(to, 0, moved);
-                setBooks(next);
-                try {
-                  const orderedIds = next.map((x) => x.id);
-                  await groupService.reorderGroupBooks(id, orderedIds);
-                } catch (err) {
-                  console.warn("Reorder failed", err);
-                } finally {
-                  setDragIndex(null);
-                }
-              }}
-              onDelete={() => handleDeleteInGroup(b)}
-            />
-          ))}
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext
+              items={books.map((b) => b.id)}
+              strategy={rectSortingStrategy}
+            >
+              {books.map((b) => (
+                <SortableBookItem
+                  key={b.id}
+                  id={b.id}
+                  book={b}
+                  onClick={() =>
+                    navigate(`/reader/${b.id}`, { state: { fromGroupId: id } })
+                  }
+                  onLongPress={() => onBookLongPress(b.id)}
+                  selectable={selectionMode}
+                  selected={selectedBookIds.has(b.id)}
+                  onToggleSelect={() => toggleSelectBook(b.id)}
+                  onDelete={() => handleDeleteInGroup(b)}
+                />
+              ))}
+            </SortableContext>
+          </DndContext>
         </div>
       )}
       <ConfirmDeleteDrawer

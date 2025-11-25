@@ -27,6 +27,45 @@ import { BookCard } from "./BookCard";
 import GroupCoverGrid from "./GroupCoverGrid";
 import ImportProgressDrawer from "./ImportProgressDrawer";
 import ConfirmDeleteDrawer from "./ConfirmDeleteDrawer";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  rectSortingStrategy,
+} from "@dnd-kit/sortable";
+import { SortableItem } from "./SortableItem";
+import { SortableBookItem } from "./SortableBookItem";
+
+const applySortOrder = <T extends { id: number }>(items: T[], orderKey: string): T[] => {
+  try {
+    const orderStr = localStorage.getItem(orderKey);
+    if (!orderStr) return items;
+    const order = JSON.parse(orderStr) as number[];
+    if (!Array.isArray(order)) return items;
+    const itemMap = new Map(items.map((i) => [i.id, i]));
+    const sorted: T[] = [];
+    order.forEach((id) => {
+      const item = itemMap.get(id);
+      if (item) {
+        sorted.push(item);
+        itemMap.delete(id);
+      }
+    });
+    itemMap.forEach((item) => sorted.push(item));
+    return sorted;
+  } catch {
+    return items;
+  }
+};
 
 // 使用通用 BookCard 组件
 
@@ -95,6 +134,46 @@ export const Bookshelf: React.FC = () => {
   const selectedCount =
     activeTab === "recent" ? selectedBookIds.size : selectedGroupIds.size;
   const [confirmOpen, setConfirmOpen] = useState(false);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 8,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    if (activeTab === "recent") {
+      setBooks((items) => {
+        const oldIndex = items.findIndex((b) => b.id === active.id);
+        const newIndex = items.findIndex((b) => b.id === over.id);
+        const newItems = arrayMove(items, oldIndex, newIndex);
+        localStorage.setItem(
+          "recent_books_order",
+          JSON.stringify(newItems.map((b) => b.id))
+        );
+        return newItems;
+      });
+    } else {
+      setGroups((items) => {
+        const oldIndex = items.findIndex((g) => g.id === active.id);
+        const newIndex = items.findIndex((g) => g.id === over.id);
+        const newItems = arrayMove(items, oldIndex, newIndex);
+        localStorage.setItem(
+          "groups_order",
+          JSON.stringify(newItems.map((g) => g.id))
+        );
+        return newItems;
+      });
+    }
+  };
 
   // 导入进度抽屉状态
   const [importOpen, setImportOpen] = useState(false);
@@ -201,7 +280,7 @@ export const Bookshelf: React.FC = () => {
             .slice(0, limit);
         }
       }
-      setBooks(list);
+      setBooks(applySortOrder(list, "recent_books_order"));
     } catch (error) {
       console.error("Failed to load books:", error);
       setBooks([]);
@@ -213,7 +292,7 @@ export const Bookshelf: React.FC = () => {
   const loadGroups = async () => {
     try {
       const allGroups = await groupService.getAllGroups();
-      setGroups(allGroups || []);
+      setGroups(applySortOrder(allGroups || [], "groups_order"));
     } catch (error) {
       console.error("Failed to load groups:", error);
       setGroups([]);
@@ -1047,6 +1126,11 @@ export const Bookshelf: React.FC = () => {
       )}
 
       <div className="no-scrollbar" style={{ flex: 1, overflowY: "auto" }}>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+        >
         {/* 选择模式顶部栏已合并到上方最近/全部标签区域 */}
         {activeTab === "recent" ? (
           filteredBooks.length === 0 ? (
@@ -1068,33 +1152,69 @@ export const Bookshelf: React.FC = () => {
               </div>
             </div>
           ) : (
-            <div
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                gap: GRID_GAP_BOOK_CARDS + "px",
-              }}
-            >
-              {filteredBooks.map((book) => (
-                <BookCard
-                  key={book.id}
-                  book={book}
-                  onClick={() => handleBookClick(book)}
-                  onLongPress={() => onBookLongPress(book.id)}
-                  selectable={selectionMode}
-                  selected={selectedBookIds.has(book.id)}
-                  onToggleSelect={() => {
-                    setSelectedBookIds((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(book.id)) next.delete(book.id);
-                      else next.add(book.id);
-                      return next;
-                    });
+            !query ? (
+              <SortableContext
+                items={filteredBooks.map((b) => b.id)}
+                strategy={rectSortingStrategy}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: GRID_GAP_BOOK_CARDS + "px",
                   }}
-                  onDelete={() => handleDeleteBook(book)}
-                />
-              ))}
-            </div>
+                >
+                  {filteredBooks.map((book) => (
+                    <SortableBookItem
+                      key={book.id}
+                      id={book.id}
+                      book={book}
+                      onClick={() => handleBookClick(book)}
+                      onLongPress={() => onBookLongPress(book.id)}
+                      selectable={selectionMode}
+                      selected={selectedBookIds.has(book.id)}
+                      onToggleSelect={() => {
+                        setSelectedBookIds((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(book.id)) next.delete(book.id);
+                          else next.add(book.id);
+                          return next;
+                        });
+                      }}
+                      onDelete={() => handleDeleteBook(book)}
+                    />
+                  ))}
+                </div>
+              </SortableContext>
+            ) : (
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: GRID_GAP_BOOK_CARDS + "px",
+                }}
+              >
+                {filteredBooks.map((book) => (
+                  <BookCard
+                    key={book.id}
+                    book={book}
+                    onClick={() => handleBookClick(book)}
+                    onLongPress={() => onBookLongPress(book.id)}
+                    selectable={selectionMode}
+                    selected={selectedBookIds.has(book.id)}
+                    onToggleSelect={() => {
+                      setSelectedBookIds((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(book.id)) next.delete(book.id);
+                        else next.add(book.id);
+                        return next;
+                      });
+                    }}
+                    onDelete={() => handleDeleteBook(book)}
+                  />
+                ))}
+              </div>
+            )
           )
         ) : filteredGroups.length === 0 ? (
           <div
@@ -1115,167 +1235,364 @@ export const Bookshelf: React.FC = () => {
             </div>
           </div>
         ) : (
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: GRID_GAP_BOOK_CARDS + "px",
-            }}
-          >
-            {filteredGroups.map((g) => (
+          !query ? (
+            <SortableContext
+              items={filteredGroups.map((g) => g.id)}
+              strategy={rectSortingStrategy}
+            >
               <div
-                key={g.id}
                 style={{
-                  width: CARD_WIDTH_COMPACT + "px",
-                  margin: 0,
-                  cursor: "pointer",
-                  position: "relative",
-                }}
-                onClick={() => {
-                  if (selectionMode) {
-                    setSelectedGroupIds((prev) => {
-                      const next = new Set(prev);
-                      if (next.has(g.id)) next.delete(g.id);
-                      else next.add(g.id);
-                      return next;
-                    });
-                  } else {
-                    setOverlayGroupId(g.id);
-                    setGroupOverlayOpen(true);
-                  }
-                }}
-                onPointerDown={(e) => {
-                  if (selectionMode) return;
-                  const target = e.currentTarget;
-                  const timer = window.setTimeout(() => {
-                    onGroupLongPress(g.id);
-                  }, 500);
-                  const clear = () => window.clearTimeout(timer);
-                  const up = () => {
-                    clear();
-                    target.removeEventListener("pointerup", up as any);
-                    target.removeEventListener("pointerleave", leave as any);
-                    target.removeEventListener("pointercancel", cancel as any);
-                  };
-                  const leave = () => up();
-                  const cancel = () => up();
-                  target.addEventListener("pointerup", up as any, {
-                    once: true,
-                  });
-                  target.addEventListener("pointerleave", leave as any, {
-                    once: true,
-                  });
-                  target.addEventListener("pointercancel", cancel as any, {
-                    once: true,
-                  });
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: GRID_GAP_BOOK_CARDS + "px",
                 }}
               >
-                <div style={{ position: "relative" }}>
-                  <GroupCoverGrid
-                    covers={groupCovers[g.id] || []}
-                    tileRatio="3 / 4"
-                  />
-                  {selectionMode && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setSelectedGroupIds((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(g.id)) next.delete(g.id);
-                          else next.add(g.id);
-                          return next;
+                {filteredGroups.map((g) => (
+                  <SortableItem
+                    key={g.id}
+                    id={g.id}
+                    style={{
+                      width: CARD_WIDTH_COMPACT + "px",
+                      margin: 0,
+                      cursor: "pointer",
+                      position: "relative",
+                    }}
+                    className=""
+                  >
+                    <div
+                      onClick={() => {
+                        if (selectionMode) {
+                          setSelectedGroupIds((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(g.id)) next.delete(g.id);
+                            else next.add(g.id);
+                            return next;
+                          });
+                        } else {
+                          setOverlayGroupId(g.id);
+                          setGroupOverlayOpen(true);
+                        }
+                      }}
+                      onPointerDown={(e) => {
+                        if (selectionMode) return;
+                        const target = e.currentTarget;
+                        const timer = window.setTimeout(() => {
+                          onGroupLongPress(g.id);
+                        }, 500);
+                        const clear = () => window.clearTimeout(timer);
+                        const up = () => {
+                          clear();
+                          target.removeEventListener("pointerup", up as any);
+                          target.removeEventListener(
+                            "pointerleave",
+                            leave as any
+                          );
+                          target.removeEventListener(
+                            "pointercancel",
+                            cancel as any
+                          );
+                        };
+                        const leave = () => up();
+                        const cancel = () => up();
+                        target.addEventListener("pointerup", up as any, {
+                          once: true,
+                        });
+                        target.addEventListener("pointerleave", leave as any, {
+                          once: true,
+                        });
+                        target.addEventListener("pointercancel", cancel as any, {
+                          once: true,
                         });
                       }}
-                      title={selectedGroupIds.has(g.id) ? "取消选择" : "选择"}
+                    >
+                      <div style={{ position: "relative" }}>
+                        <GroupCoverGrid
+                          covers={groupCovers[g.id] || []}
+                          tileRatio="3 / 4"
+                        />
+                        {selectionMode && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedGroupIds((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(g.id)) next.delete(g.id);
+                                else next.add(g.id);
+                                return next;
+                              });
+                            }}
+                            title={
+                              selectedGroupIds.has(g.id) ? "取消选择" : "选择"
+                            }
+                            style={{
+                              position: "absolute",
+                              top:
+                                GROUP_COVER_PADDING +
+                                SELECTION_ICON_OFFSET_TOP +
+                                "px",
+                              right:
+                                GROUP_COVER_PADDING +
+                                SELECTION_ICON_OFFSET_RIGHT +
+                                "px",
+                              width: SELECTION_ICON_SIZE + "px",
+                              height: SELECTION_ICON_SIZE + "px",
+                              background: "none",
+                              border: "none",
+                              boxShadow: "none",
+                              borderRadius: 0,
+                              WebkitAppearance: "none",
+                              appearance: "none",
+                              outline: "none",
+                              WebkitTapHighlightColor: "transparent",
+                              padding: 0,
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              cursor: "pointer",
+                            }}
+                          >
+                            {selectedGroupIds.has(g.id) ? (
+                              <svg
+                                width="24"
+                                height="24"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                              >
+                                <circle cx="12" cy="12" r="9" fill="#d23c3c" />
+                                <path
+                                  d="M9 12l2 2 4-4"
+                                  stroke="#fff"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                />
+                              </svg>
+                            ) : (
+                              <svg
+                                width="24"
+                                height="24"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                              >
+                                <circle
+                                  cx="12"
+                                  cy="12"
+                                  r="9"
+                                  fill="#fff"
+                                  stroke="#d23c3c"
+                                  strokeWidth="2"
+                                />
+                              </svg>
+                            )}
+                          </button>
+                        )}
+                      </div>
+                      <div style={{ marginTop: CARD_INFO_MARGIN_TOP + "px" }}>
+                        <div
+                          style={{
+                            fontSize: GROUP_NAME_FONT_SIZE + "px",
+                            fontWeight: GROUP_NAME_FONT_WEIGHT,
+                            color: "#333",
+                            lineHeight: 1.5,
+                            overflow: "hidden",
+                            textAlign: "left",
+                            display: "-webkit-box",
+                            WebkitLineClamp: 1,
+                            WebkitBoxOrient: "vertical" as any,
+                            marginTop: GROUP_NAME_MARGIN_TOP + "px",
+                          }}
+                        >
+                          {g.name}
+                        </div>
+                        <div
+                          style={{
+                            marginTop: GROUP_META_MARGIN_TOP + "px",
+                            fontSize: GROUP_META_FONT_SIZE + "px",
+                            color: "#888",
+                            textAlign: "left",
+                          }}
+                        >
+                          共 {g.book_count} 本
+                        </div>
+                      </div>
+                    </div>
+                  </SortableItem>
+                ))}
+              </div>
+            </SortableContext>
+          ) : (
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: GRID_GAP_BOOK_CARDS + "px",
+              }}
+            >
+              {filteredGroups.map((g) => (
+                <div
+                  key={g.id}
+                  style={{
+                    width: CARD_WIDTH_COMPACT + "px",
+                    margin: 0,
+                    cursor: "pointer",
+                    position: "relative",
+                  }}
+                  onClick={() => {
+                    if (selectionMode) {
+                      setSelectedGroupIds((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(g.id)) next.delete(g.id);
+                        else next.add(g.id);
+                        return next;
+                      });
+                    } else {
+                      setOverlayGroupId(g.id);
+                      setGroupOverlayOpen(true);
+                    }
+                  }}
+                  onPointerDown={(e) => {
+                    if (selectionMode) return;
+                    const target = e.currentTarget;
+                    const timer = window.setTimeout(() => {
+                      onGroupLongPress(g.id);
+                    }, 500);
+                    const clear = () => window.clearTimeout(timer);
+                    const up = () => {
+                      clear();
+                      target.removeEventListener("pointerup", up as any);
+                      target.removeEventListener("pointerleave", leave as any);
+                      target.removeEventListener(
+                        "pointercancel",
+                        cancel as any
+                      );
+                    };
+                    const leave = () => up();
+                    const cancel = () => up();
+                    target.addEventListener("pointerup", up as any, {
+                      once: true,
+                    });
+                    target.addEventListener("pointerleave", leave as any, {
+                      once: true,
+                    });
+                    target.addEventListener("pointercancel", cancel as any, {
+                      once: true,
+                    });
+                  }}
+                >
+                  <div style={{ position: "relative" }}>
+                    <GroupCoverGrid
+                      covers={groupCovers[g.id] || []}
+                      tileRatio="3 / 4"
+                    />
+                    {selectionMode && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedGroupIds((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(g.id)) next.delete(g.id);
+                            else next.add(g.id);
+                            return next;
+                          });
+                        }}
+                        title={selectedGroupIds.has(g.id) ? "取消选择" : "选择"}
+                        style={{
+                          position: "absolute",
+                          top:
+                            GROUP_COVER_PADDING +
+                            SELECTION_ICON_OFFSET_TOP +
+                            "px",
+                          right:
+                            GROUP_COVER_PADDING +
+                            SELECTION_ICON_OFFSET_RIGHT +
+                            "px",
+                          width: SELECTION_ICON_SIZE + "px",
+                          height: SELECTION_ICON_SIZE + "px",
+                          background: "none",
+                          border: "none",
+                          boxShadow: "none",
+                          borderRadius: 0,
+                          WebkitAppearance: "none",
+                          appearance: "none",
+                          outline: "none",
+                          WebkitTapHighlightColor: "transparent",
+                          padding: 0,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {selectedGroupIds.has(g.id) ? (
+                          <svg
+                            width="24"
+                            height="24"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                          >
+                            <circle cx="12" cy="12" r="9" fill="#d23c3c" />
+                            <path
+                              d="M9 12l2 2 4-4"
+                              stroke="#fff"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        ) : (
+                          <svg
+                            width="24"
+                            height="24"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                          >
+                            <circle
+                              cx="12"
+                              cy="12"
+                              r="9"
+                              fill="#fff"
+                              stroke="#d23c3c"
+                              strokeWidth="2"
+                            />
+                          </svg>
+                        )}
+                      </button>
+                    )}
+                  </div>
+                  <div style={{ marginTop: CARD_INFO_MARGIN_TOP + "px" }}>
+                    <div
                       style={{
-                        position: "absolute",
-                        top: (GROUP_COVER_PADDING + SELECTION_ICON_OFFSET_TOP) + "px",
-                        right: (GROUP_COVER_PADDING + SELECTION_ICON_OFFSET_RIGHT) + "px",
-                        width: SELECTION_ICON_SIZE + "px",
-                        height: SELECTION_ICON_SIZE + "px",
-                        background: "none",
-                        border: "none",
-                        boxShadow: "none",
-                        borderRadius: 0,
-                        WebkitAppearance: "none",
-                        appearance: "none",
-                        outline: "none",
-                        WebkitTapHighlightColor: "transparent",
-                        padding: 0,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        cursor: "pointer",
+                        fontSize: GROUP_NAME_FONT_SIZE + "px",
+                        fontWeight: GROUP_NAME_FONT_WEIGHT,
+                        color: "#333",
+                        lineHeight: 1.5,
+                        overflow: "hidden",
+                        textAlign: "left",
+                        display: "-webkit-box",
+                        WebkitLineClamp: 1,
+                        WebkitBoxOrient: "vertical" as any,
+                        marginTop: GROUP_NAME_MARGIN_TOP + "px",
                       }}
                     >
-                      {selectedGroupIds.has(g.id) ? (
-                        <svg
-                          width="24"
-                          height="24"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                        >
-                          <circle cx="12" cy="12" r="9" fill="#d23c3c" />
-                          <path
-                            d="M9 12l2 2 4-4"
-                            stroke="#fff"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
-                      ) : (
-                        <svg
-                          width="24"
-                          height="24"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                        >
-                          <circle
-                            cx="12"
-                            cy="12"
-                            r="9"
-                            fill="#fff"
-                            stroke="#d23c3c"
-                            strokeWidth="2"
-                          />
-                        </svg>
-                      )}
-                    </button>
-                  )}
-                </div>
-                <div style={{ marginTop: CARD_INFO_MARGIN_TOP + "px" }}>
-                  <div
-                    style={{
-                      fontSize: GROUP_NAME_FONT_SIZE + "px",
-                      fontWeight: GROUP_NAME_FONT_WEIGHT,
-                      color: "#333",
-                      lineHeight: 1.5,
-                      overflow: "hidden",
-                      textAlign: "left",
-                      display: "-webkit-box",
-                      WebkitLineClamp: 1,
-                      WebkitBoxOrient: "vertical" as any,
-                      marginTop: GROUP_NAME_MARGIN_TOP + "px",
-                    }}
-                  >
-                    {g.name}
-                  </div>
-                  <div
-                    style={{
-                      marginTop: GROUP_META_MARGIN_TOP + "px",
-                      fontSize: GROUP_META_FONT_SIZE + "px",
-                      color: "#888",
-                      textAlign: "left",
-                    }}
-                  >
-                    共 {g.book_count} 本
+                      {g.name}
+                    </div>
+                    <div
+                      style={{
+                        marginTop: GROUP_META_MARGIN_TOP + "px",
+                        fontSize: GROUP_META_FONT_SIZE + "px",
+                        color: "#888",
+                        textAlign: "left",
+                      }}
+                    >
+                      共 {g.book_count} 本
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )
         )}
+        </DndContext>
       </div>
 
       {groupOverlayOpen && overlayGroupId !== null && (
