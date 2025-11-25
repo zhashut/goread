@@ -38,7 +38,125 @@ const fmtDate = (t?: number) => {
   return `${y}/${m}/${day} ${hh}:${mm}`;
 };
 
+interface SearchHeaderProps {
+  value: string;
+  onChange: (val: string) => void;
+  onClose: () => void;
+  onClear: () => void;
+}
 
+const SearchHeader: React.FC<SearchHeaderProps> = ({
+  value,
+  onChange,
+  onClose,
+  onClear,
+}) => {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    // 稍微延迟聚焦，确保动画或渲染完成
+    const timer = setTimeout(() => {
+      inputRef.current?.focus();
+    }, 50);
+    return () => clearTimeout(timer);
+  }, []);
+
+  return (
+    <div style={{ padding: "10px 12px" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          background: "#efefef",
+          borderRadius: 12,
+          height: 40,
+          padding: "0 8px",
+          overflow: "hidden",
+        }}
+      >
+        <button
+          onClick={onClose}
+          aria-label="返回"
+          title="返回"
+          style={{
+            background: "transparent",
+            border: "none",
+            width: 32,
+            height: "100%",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 0,
+            margin: 0,
+            cursor: "pointer",
+            color: "#666",
+            boxShadow: "none",
+            borderRadius: 0,
+          }}
+        >
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+            <path
+              d="M15 18l-6-6 6-6"
+              stroke="#666"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+        <input
+          ref={inputRef}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="搜索设备内书籍文件…"
+          style={{
+            flex: 1,
+            padding: "0 6px",
+            border: "none",
+            background: "transparent",
+            outline: "none",
+            fontSize: 14,
+            color: "#333",
+            caretColor: "#d15158",
+            height: "100%",
+            boxShadow: "none",
+            WebkitAppearance: "none",
+            appearance: "none",
+            borderRadius: 0,
+          }}
+        />
+        {value && (
+          <button
+            onClick={onClear}
+            title="清除"
+            aria-label="清除"
+            style={{
+              background: "transparent",
+              border: "none",
+              padding: "0 4px",
+              height: "100%",
+              display: "flex",
+              alignItems: "center",
+              cursor: "pointer",
+              boxShadow: "none",
+              borderRadius: 0,
+            }}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="10" stroke="#999" strokeWidth="2" />
+              <path
+                d="M9 9l6 6m0-6l-6 6"
+                stroke="#999"
+                strokeWidth="2"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};
 
 export const ImportFiles: React.FC = () => {
   const navigate = useNavigate();
@@ -502,104 +620,6 @@ export const ImportFiles: React.FC = () => {
     );
   };
 
-  // 顶部搜索样式：参考书架页面的图1设计
-  const SearchOverlay: React.FC = () =>
-    activeTab === "browse" && searchOpen ? (
-      <div style={{ padding: "10px 12px" }}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            background: "#efefef",
-            borderRadius: 12,
-            height: 40,
-            padding: "0 8px",
-            overflow: "hidden",
-          }}
-        >
-          <button
-            onClick={() => setSearchOpen(false)}
-            aria-label="返回"
-            title="返回"
-            style={{
-              background: "transparent",
-              border: "none",
-              width: 32,
-              height: "100%",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: 0,
-              margin: 0,
-              cursor: "pointer",
-              color: "#666",
-              boxShadow: "none",
-              borderRadius: 0,
-            }}
-          >
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-              <path
-                d="M15 18l-6-6 6-6"
-                stroke="#666"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </button>
-          <input
-            value={browseSearch}
-            onChange={(e) => setBrowseSearch(e.target.value)}
-            placeholder="搜索设备内书籍文件…"
-            autoFocus
-            style={{
-              flex: 1,
-              padding: "0 6px",
-              border: "none",
-              background: "transparent",
-              outline: "none",
-              fontSize: 14,
-              color: "#333",
-              caretColor: "#d15158",
-              height: "100%",
-              boxShadow: "none",
-              WebkitAppearance: "none",
-              appearance: "none",
-              borderRadius: 0,
-            }}
-          />
-          {browseSearch && (
-            <button
-              onClick={() => setBrowseSearch("")}
-              title="清除"
-              aria-label="清除"
-              style={{
-                background: "transparent",
-                border: "none",
-                padding: "0 4px",
-                height: "100%",
-                display: "flex",
-                alignItems: "center",
-                cursor: "pointer",
-                boxShadow: "none",
-                borderRadius: 0,
-              }}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                <circle cx="12" cy="12" r="10" stroke="#999" strokeWidth="2" />
-                <path
-                  d="M9 9l6 6m0-6l-6 6"
-                  stroke="#999"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                />
-              </svg>
-            </button>
-          )}
-        </div>
-      </div>
-    ) : null;
-
   const Tabs: React.FC = () => (
     <div style={{ display: "flex", padding: "8px 0 0 0" }}>
       {(["scan", "browse"] as TabKey[]).map((key) => (
@@ -908,7 +928,12 @@ export const ImportFiles: React.FC = () => {
       }}
     >
       {searchOpen && activeTab === "browse" ? (
-        <SearchOverlay />
+        <SearchHeader
+          value={browseSearch}
+          onChange={setBrowseSearch}
+          onClose={() => setSearchOpen(false)}
+          onClear={() => setBrowseSearch("")}
+        />
       ) : (
         <>
           <Header />
