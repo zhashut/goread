@@ -454,6 +454,7 @@ export const Reader: React.FC = () => {
     if (pageNum < 1 || pageNum > totalPages) return;
 
     setCurrentPage(pageNum);
+    currentPageRef.current = pageNum;
     if (readingMode === "horizontal") {
 await renderPage(pageNum, true);
     } else {
@@ -1850,7 +1851,7 @@ await renderPageToTarget(pageNum, target || null);
                     }}
                     title="阅读方式"
                   >
-                    ▉▉
+                    {readingMode === "horizontal" ? "▤" : "▮"}
                   </button>
                   <div
                     style={{
@@ -1885,7 +1886,7 @@ await renderPageToTarget(pageNum, target || null);
                       cursor: "pointer",
                       fontSize: "clamp(16px, 3.2vw, 18px)",
                     }}
-                    title="自动滚动"
+                    title={readingMode === "horizontal" ? "自动翻页" : "自动滚动"}
                   >
                     ☰
                   </button>
@@ -1896,7 +1897,7 @@ await renderPageToTarget(pageNum, target || null);
                       marginTop: "6px",
                     }}
                   >
-                    自动滚动
+                    {readingMode === "horizontal" ? "自动翻页" : "自动滚动"}
                   </div>
                 </div>
                 <div
