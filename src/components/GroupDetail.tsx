@@ -191,7 +191,10 @@ export const GroupDetail: React.FC<{
         </div>
       ) : (
         <div
+          className="no-scrollbar"
           style={{
+            flex: 1,
+            overflowY: "auto",
             width: "100%",
             padding: "12px 16px 16px",
             display: "grid",
