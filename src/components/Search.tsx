@@ -38,9 +38,17 @@ export const Search: React.FC = () => {
   }, [books, query]);
 
   return (
-    <div style={{ minHeight: "100vh", background: "#fafafa" }}>
-      {/* 顶部搜索栏（贴近图1样式）*/}
-      <div style={{ padding: "10px 12px" }}>
+    <div
+      style={{
+        height: "100vh",
+        display: "flex",
+        flexDirection: "column",
+        background: "#fafafa",
+        overflow: "hidden",
+      }}
+    >
+      {/* 顶部搜索栏 */}
+      <div style={{ padding: "10px 12px", flexShrink: 0 }}>
         <div
           style={{
             display: "flex",
@@ -152,119 +160,133 @@ export const Search: React.FC = () => {
       </div>
 
       {/* 结果区域 */}
-      {loading ? (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            height: "60vh",
-            color: "#666",
-          }}
-        >
-          加载中…
-        </div>
-      ) : !query ? (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            height: "60vh",
-            color: "#bbb",
-            flexDirection: "column",
-          }}
-        >
-          <svg
-            width="64"
-            height="64"
-            viewBox="0 0 24 24"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-            style={{ marginBottom: "8px" }}
+      <div className="no-scrollbar" style={{ flex: 1, overflowY: "auto" }}>
+        {loading ? (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              height: "100%",
+              color: "#666",
+            }}
           >
-            <rect
-              x="4"
-              y="3"
-              width="16"
-              height="18"
-              rx="2"
-              stroke="#ccc"
-              strokeWidth="2"
-            />
-            <line x1="7" y1="8" x2="17" y2="8" stroke="#ccc" strokeWidth="2" />
-            <line
-              x1="7"
-              y1="12"
-              x2="17"
-              y2="12"
-              stroke="#ccc"
-              strokeWidth="2"
-            />
-          </svg>
-          <div>没有文件信息</div>
-        </div>
-      ) : results.length === 0 ? (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            height: "60vh",
-            color: "#bbb",
-            flexDirection: "column",
-          }}
-        >
-          <svg
-            width="64"
-            height="64"
-            viewBox="0 0 24 24"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-            style={{ marginBottom: "8px" }}
+            加载中…
+          </div>
+        ) : !query ? (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              height: "100%",
+              color: "#bbb",
+              flexDirection: "column",
+            }}
           >
-            <rect
-              x="4"
-              y="3"
-              width="16"
-              height="18"
-              rx="2"
-              stroke="#ccc"
-              strokeWidth="2"
-            />
-            <line x1="7" y1="8" x2="17" y2="8" stroke="#ccc" strokeWidth="2" />
-            <line
-              x1="7"
-              y1="12"
-              x2="17"
-              y2="12"
-              stroke="#ccc"
-              strokeWidth="2"
-            />
-          </svg>
-          <div>没有文件信息</div>
-        </div>
-      ) : (
-        <div
-          style={{
-            padding: "12px",
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, 160px)",
-            gap: GRID_GAP_BOOK_CARDS + "px",
-            justifyItems: "center",
-          }}
-        >
-          {results.map((b) => (
-            <BookCard
-              key={b.id}
-              book={b}
-              width={160}
-              aspectRatio={COVER_ASPECT_RATIO_COMPACT}
-              onClick={() => navigate(`/reader/${b.id}`)}
-            />
-          ))}
-        </div>
-      )}
+            <svg
+              width="64"
+              height="64"
+              viewBox="0 0 24 24"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+              style={{ marginBottom: "8px" }}
+            >
+              <rect
+                x="4"
+                y="3"
+                width="16"
+                height="18"
+                rx="2"
+                stroke="#ccc"
+                strokeWidth="2"
+              />
+              <line
+                x1="7"
+                y1="8"
+                x2="17"
+                y2="8"
+                stroke="#ccc"
+                strokeWidth="2"
+              />
+              <line
+                x1="7"
+                y1="12"
+                x2="17"
+                y2="12"
+                stroke="#ccc"
+                strokeWidth="2"
+              />
+            </svg>
+            <div>没有文件信息</div>
+          </div>
+        ) : results.length === 0 ? (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              height: "100%",
+              color: "#bbb",
+              flexDirection: "column",
+            }}
+          >
+            <svg
+              width="64"
+              height="64"
+              viewBox="0 0 24 24"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+              style={{ marginBottom: "8px" }}
+            >
+              <rect
+                x="4"
+                y="3"
+                width="16"
+                height="18"
+                rx="2"
+                stroke="#ccc"
+                strokeWidth="2"
+              />
+              <line
+                x1="7"
+                y1="8"
+                x2="17"
+                y2="8"
+                stroke="#ccc"
+                strokeWidth="2"
+              />
+              <line
+                x1="7"
+                y1="12"
+                x2="17"
+                y2="12"
+                stroke="#ccc"
+                strokeWidth="2"
+              />
+            </svg>
+            <div>没有文件信息</div>
+          </div>
+        ) : (
+          <div
+            style={{
+              padding: "12px 8px 12px 16px",
+              display: "flex",
+              flexWrap: "wrap",
+              gap: GRID_GAP_BOOK_CARDS + "px",
+            }}
+          >
+            {results.map((b) => (
+              <BookCard
+                key={b.id}
+                book={b}
+                aspectRatio={COVER_ASPECT_RATIO_COMPACT}
+                onClick={() => navigate(`/reader/${b.id}`)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 };
