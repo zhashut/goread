@@ -132,6 +132,41 @@ export const Reader: React.FC = () => {
     currentPageRef.current = currentPage;
   }, [currentPage]);
 
+  // 监听窗口大小变化（解决拉伸模糊问题，适配横向/纵向模式）
+  useEffect(() => {
+    let resizeTimer: number | null = null;
+    const handleResize = () => {
+      if (resizeTimer) window.clearTimeout(resizeTimer);
+      resizeTimer = window.setTimeout(() => {
+        log('[handleResize] 窗口大小改变，触发重绘以恢复清晰度');
+        
+        // 1. 清理所有缓存（确保下次渲染使用适配当前窗口尺寸的新分辨率图片）
+        pageCacheRef.current.clear();
+        preloadedBitmapsRef.current.forEach((bmp) => bmp.close && bmp.close());
+        preloadedBitmapsRef.current.clear();
+        preloadingTasksRef.current.clear();
+        
+        // 2. 根据模式触发重绘
+        if (readingMode === "horizontal") {
+          // 横向模式：强制重绘当前页
+          renderPage(currentPageRef.current, true);
+        } else {
+          // 纵向模式：清理渲染标记，并触发 IntersectionObserver 重新检测渲染
+          renderedPagesRef.current.clear();
+          // 通过重置 verticalLazyReady 状态来重启 Observer
+          setVerticalLazyReady(false);
+          setTimeout(() => setVerticalLazyReady(true), 50);
+        }
+      }, 300); // 300ms 防抖，等待拖动结束
+    };
+
+    window.addEventListener("resize", handleResize);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      if (resizeTimer) window.clearTimeout(resizeTimer);
+    };
+  }, [readingMode]);
+
   // 统一的页面加载函数（支持 Promise 复用）
   const loadPageBitmap = async (pageNum: number): Promise<ImageBitmap> => {
     // 1. 内存缓存命中
