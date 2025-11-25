@@ -792,6 +792,7 @@ await renderPageToTarget(pageNum, target || null);
 
   // 纵向模式：滚动时动态更新当前页（以视口中心线为准；不进行程序化对齐）
   useEffect(() => {
+    if (loading) return;
     if (readingMode !== "vertical") return;
     const vs = verticalScrollRef.current;
     const mv = mainViewRef.current;
@@ -887,7 +888,7 @@ await renderPageToTarget(pageNum, target || null);
         verticalScrollRafRef.current = null;
       }
     };
-  }, [readingMode, book, isSeeking, totalPages]);
+  }, [readingMode, book, isSeeking, totalPages, loading]);
 
   // 自动滚动：根据阅读模式分别处理（横向自动翻页，纵向持续滚动）
   useEffect(() => {
