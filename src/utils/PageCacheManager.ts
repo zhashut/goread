@@ -28,7 +28,7 @@ export class PageCacheManager {
     /**
      * 生成缓存键
      */
-    private getCacheKey(pageNumber: number, scale: number): string {
+    private getCacheKey(pageNumber: number, scale?: number): string {
         const s = typeof scale === 'number' ? scale : 1.0;
         return `${pageNumber}_${s.toFixed(2)}`;
     }
@@ -44,7 +44,7 @@ export class PageCacheManager {
     /**
      * 获取缓存的页面
      */
-    get(pageNumber: number, scale: number): CachedPage | null {
+    get(pageNumber: number, scale?: number): CachedPage | null {
         const key = this.getCacheKey(pageNumber, scale);
         const cached = this.cache.get(key);
 
@@ -63,7 +63,7 @@ export class PageCacheManager {
     /**
      * 添加页面到缓存
      */
-    set(pageNumber: number, imageData: ImageData, width: number, height: number, scale: number): void {
+    set(pageNumber: number, imageData: ImageData, width: number, height: number, scale?: number): void {
         const key = this.getCacheKey(pageNumber, scale);
         const memoryMB = this.calculateMemoryMB(imageData);
 
@@ -89,7 +89,7 @@ export class PageCacheManager {
             imageData,
             width,
             height,
-            scale,
+            scale : 1.0,
             timestamp: Date.now(),
         };
 
@@ -169,7 +169,7 @@ export class PageCacheManager {
     /**
      * 检查是否有缓存
      */
-    has(pageNumber: number, scale: number): boolean {
+    has(pageNumber: number, scale?: number): boolean {
         const key = this.getCacheKey(pageNumber, scale);
         return this.cache.has(key);
     }

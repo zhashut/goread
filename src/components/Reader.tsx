@@ -77,6 +77,15 @@ export const Reader: React.FC = () => {
   const [bookmarkToastText, setBookmarkToastText] = useState("");
   // 设置：本地持久化
   const [settings, setSettings] = useState<ReaderSettings>(getReaderSettings());
+  
+  // 获取当前渲染倍率 (Scale)
+  // 在 App/Web 端，这通常对应设备的像素密度 (DPR)。
+  // 因为没有手动缩放按钮，所以 Scale 仅由屏幕素质决定。
+  // 限制在 1-3 之间，防止超高清屏显存爆炸。
+  const getCurrentScale = () => {
+    return Math.max(1, Math.min(3, (window as any).devicePixelRatio || 1));
+  };
+
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
       if (e.key === "reader_settings_v1") {
@@ -141,6 +150,7 @@ export const Reader: React.FC = () => {
         log('[handleResize] 窗口大小改变，触发重绘以恢复清晰度');
         
         // 1. 清理所有缓存（确保下次渲染使用适配当前窗口尺寸的新分辨率图片）
+        // 因为 resize 后宽度变了，旧的缓存图片尺寸不对，必须清除。
         pageCacheRef.current.clear();
         preloadedBitmapsRef.current.forEach((bmp) => bmp.close && bmp.close());
         preloadedBitmapsRef.current.clear();
@@ -184,7 +194,9 @@ export const Reader: React.FC = () => {
         const { getInvoke } = await import("../services/index");
         const invoke = await getInvoke();
         const viewW = canvasRef.current?.parentElement?.clientWidth || mainViewRef.current?.clientWidth || 800;
-        const dpr = Math.max(1, Math.min(3, (window as any).devicePixelRatio || 1));
+        
+        // 使用与 getCurrentScale 一致的逻辑获取 DPR
+        const dpr = getCurrentScale();
         const containerWidth = Math.min(4096, Math.floor(viewW * dpr));
 
         const renderStartTime = performance.now();
@@ -369,7 +381,8 @@ export const Reader: React.FC = () => {
 
     const renderPromise = (async () => {
       try {
-        const scale = 1.0;
+        // 使用当前设备的 DPR 作为 scale
+        const scale = getCurrentScale();
         const pageCache = pageCacheRef.current;
 
         // 检查前端缓存（如果有缓存，立即显示，无黑屏）
@@ -449,6 +462,7 @@ export const Reader: React.FC = () => {
         // 缓存结果
         try {
           const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+          // 存入缓存时使用 scale (DPR)
           pageCache.set(pageNum, imageData, canvas.width, canvas.height, scale);
         } catch (e) {
           console.warn("Failed to cache page:", e);
@@ -470,11 +484,13 @@ export const Reader: React.FC = () => {
     
     // 预加载下两页，确保连续翻页流畅
     const pagesToPreload = [currentPageNum + 1, currentPageNum + 2];
+    // 获取当前 Scale，确保检查缓存的 Key 与渲染时一致
+    const scale = getCurrentScale();
     
     for (const nextPage of pagesToPreload) {
       if (nextPage <= totalPages) {
         // 1. 检查是否已有 ImageData 缓存
-        if (pageCacheRef.current.has(nextPage)) continue;
+        if (pageCacheRef.current.has(nextPage, scale)) continue;
         
         // 2. 调用统一加载函数（内部会自动检查 preloadedBitmapsRef 和 preloadingTasksRef）
         // 这样可以确保如果用户快速翻页，renderPage 可以直接复用这里发起的 Promise
@@ -491,7 +507,7 @@ export const Reader: React.FC = () => {
     setCurrentPage(pageNum);
     currentPageRef.current = pageNum;
     if (readingMode === "horizontal") {
-await renderPage(pageNum, true);
+      await renderPage(pageNum, true);
     } else {
       // 纵向模式：滚动到对应页的 canvas
       const target = verticalCanvasRefs.current.get(pageNum);
@@ -500,7 +516,7 @@ await renderPage(pageNum, true);
       }
       // 若尚未渲染，使用渐进式渲染
       if (!renderedPagesRef.current.has(pageNum)) {
-await renderPageToTarget(pageNum, target || null);
+        await renderPageToTarget(pageNum, target || null);
       }
       
     }
@@ -623,12 +639,14 @@ await renderPageToTarget(pageNum, target || null);
     const renderPromise = (async () => {
       try {
         const viewW = mainViewRef.current?.clientWidth || 800;
-        const dpr = Math.max(1, Math.min(3, (window as any).devicePixelRatio || 1));
+        // 统一使用 getCurrentScale 获取 DPR
+        const scale = getCurrentScale();
+        const dpr = scale; // 别名，方便下面理解
         const containerWidth = Math.min(4096, Math.floor(viewW * dpr));
-        const scale = 1.0;
         const pageCache = pageCacheRef.current;
 
         // 检查前端缓存（如果有缓存，立即显示）
+        // 使用动态 Scale 检查缓存
         const cached = pageCache.get(pageNum, scale);
         if (cached) {
           log(`[renderPageToTarget] 页面 ${pageNum} 从前端缓存加载`);
@@ -730,6 +748,7 @@ await renderPageToTarget(pageNum, target || null);
         // 缓存结果
         try {
           const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+          // 存入缓存时使用 scale
           pageCache.set(pageNum, imageData, canvas.width, canvas.height, scale);
         } catch (e) {
           console.warn("Failed to cache vertical page:", e);
