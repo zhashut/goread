@@ -29,7 +29,8 @@ export class PageCacheManager {
      * 生成缓存键
      */
     private getCacheKey(pageNumber: number, scale: number): string {
-        return `${pageNumber}_${scale.toFixed(2)}`;
+        const s = typeof scale === 'number' ? scale : 1.0;
+        return `${pageNumber}_${s.toFixed(2)}`;
     }
 
     /**
@@ -156,10 +157,11 @@ export class PageCacheManager {
         memoryMB: number;
         maxMemoryMB: number;
     } {
+        const mem = typeof this.currentMemoryMB === 'number' ? this.currentMemoryMB : 0;
         return {
             size: this.cache.size,
             maxSize: this.maxCacheSize,
-            memoryMB: parseFloat(this.currentMemoryMB.toFixed(2)),
+            memoryMB: parseFloat(mem.toFixed(2)),
             maxMemoryMB: this.maxMemoryMB,
         };
     }

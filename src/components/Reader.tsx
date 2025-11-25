@@ -63,8 +63,14 @@ export const Reader: React.FC = () => {
   const renderedPagesRef = useRef<Set<number>>(new Set());
   const verticalScrollRef = useRef<HTMLDivElement>(null);
   const verticalScrollRafRef = useRef<number | null>(null);
+  // 预加载防抖定时器
+  const preloadTimerRef = useRef<any>(null);
   // 优化工具实例
   const pageCacheRef = useRef<PageCacheManager>(new PageCacheManager(100, 500));
+  // 预加载图片资源缓存（显式管理 ImageBitmap，确保 App 端缓存有效性）
+  const preloadedBitmapsRef = useRef<Map<number, ImageBitmap>>(new Map());
+  // 预加载任务队列（Promise 复用，防止重复请求）
+  const preloadingTasksRef = useRef<Map<number, Promise<ImageBitmap>>>(new Map());
   const [verticalLazyReady, setVerticalLazyReady] = useState(false);
   // 书签提示气泡
   const [bookmarkToastVisible, setBookmarkToastVisible] = useState(false);
@@ -92,8 +98,17 @@ export const Reader: React.FC = () => {
   useEffect(() => {
     // 切换书籍时，清理所有状态和缓存
     pageCacheRef.current.clear();
+    // 清理预加载的 Bitmap 资源
+    preloadedBitmapsRef.current.forEach(bmp => bmp.close && bmp.close());
+    preloadedBitmapsRef.current.clear();
+    preloadingTasksRef.current.clear();
+    
     renderedPagesRef.current.clear();
     verticalCanvasRefs.current.clear();
+    if (preloadTimerRef.current) {
+      clearTimeout(preloadTimerRef.current);
+      preloadTimerRef.current = null;
+    }
     setLoading(true);
     setCurrentPage(1);
     setTotalPages(1);
@@ -103,13 +118,96 @@ export const Reader: React.FC = () => {
     // 清理函数：组件卸载或切换书籍时清理缓存
     return () => {
       pageCacheRef.current.clear();
+      preloadedBitmapsRef.current.forEach(bmp => bmp.close && bmp.close());
+      preloadedBitmapsRef.current.clear();
+      preloadingTasksRef.current.clear();
       renderedPagesRef.current.clear();
+      if (preloadTimerRef.current) {
+        clearTimeout(preloadTimerRef.current);
+      }
     };
   }, [bookId]);
 
   useEffect(() => {
     currentPageRef.current = currentPage;
   }, [currentPage]);
+
+  // 统一的页面加载函数（支持 Promise 复用）
+  const loadPageBitmap = async (pageNum: number): Promise<ImageBitmap> => {
+    // 1. 内存缓存命中
+    if (preloadedBitmapsRef.current.has(pageNum)) {
+      return preloadedBitmapsRef.current.get(pageNum)!;
+    }
+    // 2. 任务复用命中
+    if (preloadingTasksRef.current.has(pageNum)) {
+      return preloadingTasksRef.current.get(pageNum)!;
+    }
+
+    // 3. 发起新任务
+    const task = (async () => {
+      try {
+        const { getInvoke } = await import("../services/index");
+        const invoke = await getInvoke();
+        const viewW = canvasRef.current?.parentElement?.clientWidth || mainViewRef.current?.clientWidth || 800;
+        const dpr = Math.max(1, Math.min(3, (window as any).devicePixelRatio || 1));
+        const containerWidth = Math.min(4096, Math.floor(viewW * dpr));
+
+        const renderStartTime = performance.now();
+        const filePath: string = await invoke('pdf_render_page_to_file', {
+          filePath: book!.file_path,
+          pageNumber: pageNum,
+          quality: 'standard',
+          width: containerWidth,
+          height: null,
+        });
+        const renderEndTime = performance.now();
+        log(`[loadPageBitmap] 页面 ${pageNum} 后端渲染耗时: ${Math.round(renderEndTime - renderStartTime)}ms`);
+        
+        const decodeStartTime = performance.now();
+        let bitmap: ImageBitmap;
+        try {
+          const imageUrl = convertFileSrc(filePath);
+          const response = await fetch(imageUrl);
+          const blob = await response.blob();
+          bitmap = await createImageBitmap(blob);
+        } catch (eAsset) {
+          try {
+            const dataUrl: string = await invoke('pdf_render_page_base64', {
+              filePath: book!.file_path,
+              pageNumber: pageNum,
+              quality: 'standard',
+              width: containerWidth,
+              height: null,
+            });
+            const resp2 = await fetch(dataUrl);
+            const blob2 = await resp2.blob();
+            bitmap = await createImageBitmap(blob2);
+          } catch (e2) {
+            const imageUrl = convertFileSrc(filePath);
+            const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+              const im = new Image();
+              im.onload = () => resolve(im);
+              im.onerror = (err) => reject(err);
+              im.src = imageUrl;
+            });
+            bitmap = await createImageBitmap(img);
+          }
+        }
+        const decodeEndTime = performance.now();
+        log(`[loadPageBitmap] 页面 ${pageNum} 图片解码耗时: ${Math.round(decodeEndTime - decodeStartTime)}ms`);
+        
+        // 存入缓存
+        preloadedBitmapsRef.current.set(pageNum, bitmap);
+        return bitmap;
+      } finally {
+        // 任务完成（无论成功失败），从队列移除
+        preloadingTasksRef.current.delete(pageNum);
+      }
+    })();
+
+    preloadingTasksRef.current.set(pageNum, task);
+    return task;
+  };
 
   const loadBook = async () => {
     try {
@@ -145,16 +243,16 @@ export const Reader: React.FC = () => {
       // 不在这里直接渲染，而是通过 useEffect 监听 loading 状态变化后再渲染
       // 这样可以确保 DOM 已经准备好
       
-      // 轻量预热：仅缩略图、前后各1页，避免阻塞首屏
+      // 轻量预热：前后各2页，使用 standard 质量，确保首屏附近翻页流畅
       Promise.resolve().then(async () => {
         try {
-          const startPage = Math.max(1, targetBook.current_page - 1);
-          const endPage = Math.min(pageCount, targetBook.current_page + 1);
+          const startPage = Math.max(1, targetBook.current_page - 2);
+          const endPage = Math.min(pageCount, targetBook.current_page + 2);
           await invoke('pdf_preload_pages', {
             filePath: targetBook.file_path,
             startPage,
             endPage,
-            quality: 'thumbnail',
+            quality: 'standard',
           });
         } catch (e) {
           console.warn('后台预加载失败', e);
@@ -255,9 +353,15 @@ export const Reader: React.FC = () => {
             context.putImageData(cached.imageData, 0, 0);
             canvas.style.opacity = "1";
             canvas.style.backgroundColor = "transparent";
+            // 即使命中缓存，也触发预加载（确保下一页准备好）
+            preloadAdjacentPages(pageNum);
             return;
           }
         }
+
+        // 立即触发下一页预加载（并行请求，不等待当前页渲染）
+        // 这样可以确保在当前页渲染耗时期间，下一页的请求已经发给后端
+        preloadAdjacentPages(pageNum);
 
         log(`[renderPage] 页面 ${pageNum} 开始渲染（前端无缓存）`);
         const startTime = performance.now();
@@ -265,55 +369,21 @@ export const Reader: React.FC = () => {
         // 显示加载状态（灰色背景，避免黑屏）
         canvas.style.backgroundColor = "#2a2a2a";
 
-        const { getInvoke } = await import("../services/index");
-        const invoke = await getInvoke();
-        const viewW = canvas.parentElement?.clientWidth || 800;
-        const dpr = Math.max(1, Math.min(3, (window as any).devicePixelRatio || 1));
-        const containerWidth = Math.min(4096, Math.floor(viewW * dpr));
+        let standardImg: any = null;
 
-        const renderStartTime = performance.now();
-        const filePath: string = await invoke('pdf_render_page_to_file', {
-          filePath: book.file_path,
-          pageNumber: pageNum,
-          quality: 'standard',
-          width: containerWidth,
-          height: null,
-        });
-        const renderEndTime = performance.now();
-        log(`[renderPage] 页面 ${pageNum} 后端渲染耗时: ${(renderEndTime - renderStartTime).toFixed(0)}ms`);
-        
-        const decodeStartTime = performance.now();
-        let standardImg: any;
         try {
-          const imageUrl = convertFileSrc(filePath);
-          const response = await fetch(imageUrl);
-          const blob = await response.blob();
-          standardImg = await createImageBitmap(blob);
-        } catch (eAsset) {
-          try {
-            const dataUrl: string = await invoke('pdf_render_page_base64', {
-              filePath: book.file_path,
-              pageNumber: pageNum,
-              quality: 'standard',
-              width: containerWidth,
-              height: null,
-            });
-            const resp2 = await fetch(dataUrl);
-            const blob2 = await resp2.blob();
-            standardImg = await createImageBitmap(blob2);
-          } catch (e2) {
-            const imageUrl = convertFileSrc(filePath);
-            const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-              const im = new Image();
-              im.onload = () => resolve(im);
-              im.onerror = (err) => reject(err);
-              im.src = imageUrl;
-            });
-            standardImg = img;
+          // 使用统一的加载函数，支持 Promise 复用
+          standardImg = await loadPageBitmap(pageNum);
+          
+          // 渲染后从预加载缓存中移除（因为即将转为 ImageData 缓存到 pageCacheRef）
+          // 注意：loadPageBitmap 会自动 set 到 preloadedBitmapsRef，这里取出后清理以释放内存
+          if (preloadedBitmapsRef.current.has(pageNum)) {
+            preloadedBitmapsRef.current.delete(pageNum);
           }
+        } catch (error) {
+          log(`[renderPage] 页面 ${pageNum} 加载失败: ${error}`, 'error');
+          throw error;
         }
-        const decodeEndTime = performance.now();
-        log(`[renderPage] 页面 ${pageNum} 图片解码耗时: ${(decodeEndTime - decodeStartTime).toFixed(0)}ms`);
 
         if (pageNum !== currentPageRef.current) {
           return;
@@ -339,7 +409,7 @@ export const Reader: React.FC = () => {
         canvas.style.backgroundColor = "transparent";
 
         const endTime = performance.now();
-        log(`[renderPage] 页面 ${pageNum} 渲染完成，总耗时: ${(endTime - startTime).toFixed(0)}ms`);
+        log(`[renderPage] 页面 ${pageNum} 渲染完成，总耗时: ${Math.round(endTime - startTime)}ms`);
 
         // 缓存结果
         try {
@@ -348,9 +418,6 @@ export const Reader: React.FC = () => {
         } catch (e) {
           console.warn("Failed to cache page:", e);
         }
-
-        // 预加载相邻页面（后台静默加载，不显示）
-        preloadAdjacentPages(pageNum);
       } catch (error) {
         log(`[renderPage] 页面 ${pageNum} 渲染失败: ${error}`, 'error');
       } finally {
@@ -366,23 +433,18 @@ export const Reader: React.FC = () => {
   const preloadAdjacentPages = async (currentPageNum: number) => {
     if (!book) return;
     
-    // 使用后端批量预加载功能，更高效
-    try {
-      const { getInvoke } = await import("../services/index");
-      const invoke = await getInvoke();
-      
-      // 预加载前后各1页，缩略图，降低负载
-      const startPage = Math.max(1, currentPageNum - 1);
-      const endPage = Math.min(totalPages, currentPageNum + 1);
-      
-      await invoke('pdf_preload_pages', {
-        filePath: book.file_path,
-        startPage,
-        endPage,
-        quality: 'thumbnail',
-      });
-    } catch (e) {
-      console.warn('预加载相邻页面失败', e);
+    // 预加载下两页，确保连续翻页流畅
+    const pagesToPreload = [currentPageNum + 1, currentPageNum + 2];
+    
+    for (const nextPage of pagesToPreload) {
+      if (nextPage <= totalPages) {
+        // 1. 检查是否已有 ImageData 缓存
+        if (pageCacheRef.current.has(nextPage)) continue;
+        
+        // 2. 调用统一加载函数（内部会自动检查 preloadedBitmapsRef 和 preloadingTasksRef）
+        // 这样可以确保如果用户快速翻页，renderPage 可以直接复用这里发起的 Promise
+        loadPageBitmap(nextPage).catch(e => console.warn(`预加载页面 ${nextPage} 失败`, e));
+      }
     }
   };
 
@@ -567,7 +629,7 @@ await renderPageToTarget(pageNum, target || null);
         height: null,
       });
       const renderEndTime = performance.now();
-      log(`[renderPageToTarget] 页面 ${pageNum} 后端渲染耗时: ${(renderEndTime - renderStartTime).toFixed(0)}ms`);
+      log(`[renderPageToTarget] 页面 ${pageNum} 后端渲染耗时: ${Math.round(renderEndTime - renderStartTime)}ms`);
       
       const decodeStartTime = performance.now();
       let img: any;
@@ -600,7 +662,7 @@ await renderPageToTarget(pageNum, target || null);
         }
       }
       const decodeEndTime = performance.now();
-      log(`[renderPageToTarget] 页面 ${pageNum} 图片解码耗时: ${(decodeEndTime - decodeStartTime).toFixed(0)}ms`);
+      log(`[renderPageToTarget] 页面 ${pageNum} 图片解码耗时: ${Math.round(decodeEndTime - decodeStartTime)}ms`);
 
       if (localModeVer !== modeVersionRef.current) {
         return;
@@ -627,7 +689,7 @@ await renderPageToTarget(pageNum, target || null);
       renderedPagesRef.current.add(pageNum);
 
       const endTime = performance.now();
-      log(`[renderPageToTarget] 页面 ${pageNum} 渲染完成，总耗时: ${(endTime - startTime).toFixed(0)}ms`);
+      log(`[renderPageToTarget] 页面 ${pageNum} 渲染完成，总耗时: ${Math.round(endTime - startTime)}ms`);
 
         // 缓存结果
         try {
@@ -735,10 +797,7 @@ await renderPageToTarget(pageNum, target || null);
         await renderPage(currentPage);
         log('[Reader] 横向模式页面渲染完成');
         
-        // 预加载前后页（后台加载，不阻塞当前页显示；不写入横向 canvas）
-        setTimeout(() => {
-          try { preloadAdjacentPages(currentPage); } catch {}
-        }, 100);
+        // 预加载逻辑已移至 renderPage 内部，此处不再重复调用
       } else {
         // 纵向模式：等待 canvas 准备好后渲染
         const waitForCanvases = () => {
