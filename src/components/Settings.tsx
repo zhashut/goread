@@ -5,6 +5,7 @@ import {
   saveReaderSettings,
   ReaderSettings,
 } from "../services";
+import { RENDER_QUALITY_OPTIONS } from "../constants/config";
 
 export const Settings: React.FC = () => {
   const navigate = useNavigate();
@@ -184,6 +185,28 @@ export const Settings: React.FC = () => {
                 </option>
               ))}
               <option value={0}>不限</option>
+            </select>
+          }
+        />
+
+        <Row
+          label="书籍渲染质量"
+          right={
+            <select
+              value={settings.renderQuality || 'standard'}
+              onChange={(e) =>
+                setSettings((s) => ({
+                  ...s,
+                  renderQuality: e.target.value,
+                }))
+              }
+              style={{ padding: "6px 8px" }}
+            >
+              {RENDER_QUALITY_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
             </select>
           }
         />

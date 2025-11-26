@@ -12,6 +12,7 @@ import {
 import {
   PageCacheManager,
 } from "../utils/pdfOptimization";
+import { QUALITY_SCALE_MAP } from "../constants/config";
 import { log } from "../services/index";
 import { TopBar } from "./reader/TopBar";
 import { BottomBar } from "./reader/BottomBar";
@@ -133,11 +134,11 @@ export const Reader: React.FC = () => {
   };
 
   // 获取当前渲染倍率 (Scale)
-  // 在 App/Web 端，这通常对应设备的像素密度 (DPR)。
-  // 因为没有手动缩放按钮，所以 Scale 仅由屏幕素质决定。
-  // 限制在 1-3 之间，防止超高清屏显存爆炸。
+  // 结合设备像素密度 (DPR) 和用户设置的渲染质量
   const getCurrentScale = () => {
-    return Math.max(1, Math.min(3, (window as any).devicePixelRatio || 1));
+    const dpr = Math.max(1, Math.min(3, (window as any).devicePixelRatio || 1));
+    const qualityScale = QUALITY_SCALE_MAP[settings.renderQuality || 'standard'] || 1.0;
+    return dpr * qualityScale;
   };
 
   useEffect(() => {
@@ -257,7 +258,7 @@ export const Reader: React.FC = () => {
         const filePath: string = await invoke('pdf_render_page_to_file', {
           filePath: book!.file_path,
           pageNumber: pageNum,
-          quality: 'standard',
+          quality: settings.renderQuality || 'standard',
           width: containerWidth,
           height: null,
         });
@@ -276,7 +277,7 @@ export const Reader: React.FC = () => {
             const dataUrl: string = await invoke('pdf_render_page_base64', {
               filePath: book!.file_path,
               pageNumber: pageNum,
-              quality: 'standard',
+              quality: settings.renderQuality || 'standard',
               width: containerWidth,
               height: null,
             });
@@ -726,7 +727,7 @@ export const Reader: React.FC = () => {
       const filePath: string = await invoke('pdf_render_page_to_file', {
         filePath: book.file_path,
         pageNumber: pageNum,
-        quality: 'standard',
+        quality: settings.renderQuality || 'standard',
         width: containerWidth,
         height: null,
       });
@@ -745,7 +746,7 @@ export const Reader: React.FC = () => {
           const dataUrl: string = await invoke('pdf_render_page_base64', {
             filePath: book.file_path,
             pageNumber: pageNum,
-            quality: 'standard',
+            quality: settings.renderQuality || 'standard',
             width: containerWidth,
             height: null,
           });
