@@ -12,8 +12,6 @@ interface BottomBarProps {
   tocOverlayOpen: boolean;
   modeOverlayOpen: boolean;
   moreDrawerOpen: boolean;
-  bookmarkToastVisible: boolean;
-  bookmarkToastText: string;
   
   onSeekStart: () => void;
   onSeekChange: (val: number) => void;
@@ -38,8 +36,6 @@ export const BottomBar: React.FC<BottomBarProps> = ({
   tocOverlayOpen,
   modeOverlayOpen,
   moreDrawerOpen,
-  bookmarkToastVisible,
-  bookmarkToastText,
   onSeekStart,
   onSeekChange,
   onSeekEnd,
@@ -332,27 +328,6 @@ export const BottomBar: React.FC<BottomBarProps> = ({
           </div>
         </div>
       </div>
-
-      {/* 书签提示气泡：覆盖显示，不影响布局与交互 */}
-      {bookmarkToastVisible && (
-        <div
-          style={{
-            position: "absolute",
-            bottom: "8px",
-            left: "50%",
-            transform: "translateX(-50%)",
-            padding: "6px 12px",
-            borderRadius: "16px",
-            backgroundColor: "rgba(0,0,0,0.8)",
-            color: "#fff",
-            fontSize: "12px",
-            boxShadow: "0 2px 6px rgba(0,0,0,0.3)",
-            pointerEvents: "none",
-          }}
-        >
-          {bookmarkToastText}
-        </div>
-      )}
     </div>
   );
 };

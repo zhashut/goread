@@ -1,21 +1,25 @@
 import React, { useState, useRef } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
-import { writeFile } from "@tauri-apps/plugin-fs";
+import { invoke } from "@tauri-apps/api/core";
+import { log } from "../../services";
 import { CropRect, InteractionType, ResizeHandle } from "./types";
 
 interface CropOverlayProps {
   visible: boolean;
   capturedImage: string | null;
   onClose: () => void;
+  onSaveSuccess?: () => void;
+  onSaveError?: (msg: string) => void;
 }
 
 export const CropOverlay: React.FC<CropOverlayProps> = ({
   visible,
   capturedImage,
   onClose,
+  onSaveSuccess,
+  onSaveError,
 }) => {
   const [cropRect, setCropRect] = useState<CropRect | null>(null);
-  const [saveToastVisible, setSaveToastVisible] = useState(false);
   const [interactionState, setInteractionState] = useState<{
     type: InteractionType;
     handle?: ResizeHandle;
@@ -69,22 +73,53 @@ export const CropOverlay: React.FC<CropOverlayProps> = ({
           binaryData[i] = binaryString.charCodeAt(i);
         }
         
-        const path = await save({
-            filters: [{
-                name: 'Image',
-                extensions: ['png', 'jpg']
-            }],
-            defaultPath: `goread_capture_${Date.now()}.png`
-        });
+        // Detect mobile
+        const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+        await log("Is mobile: " + isMobile);
         
-        if (path) {
-            await writeFile(path, binaryData);
-            setSaveToastVisible(true);
-            setTimeout(() => setSaveToastVisible(false), 2000);
+        let savePath = null;
+        
+        if (!isMobile) {
+            await log("Opening save dialog...");
+            savePath = await save({
+                filters: [{
+                    name: 'Image',
+                    extensions: ['png', 'jpg']
+                }],
+                defaultPath: `goread_capture_${Date.now()}.png`
+            });
+            await log("Save dialog result: " + savePath);
+            
+            if (!savePath) {
+                await log("User cancelled save dialog");
+                return; // User cancelled
+            }
+        }
+        
+        await log("Invoking save_image_to_gallery with path: " + savePath);
+        const result = await invoke('save_image_to_gallery', {
+            data: Array.from(binaryData),
+            filename: `goread_capture_${Date.now()}.png`,
+            path: savePath
+        });
+        await log("Save result: " + result);
+        
+        if (onSaveSuccess) {
+          onSaveSuccess();
         }
       }
     } catch (e) {
-      console.error("Save failed", e);
+      await log("Save failed", 'error', e);
+      if (onSaveError) {
+        let msg = "未知错误";
+        if (typeof e === 'string') msg = e;
+        else if (e instanceof Error) msg = e.message;
+        else msg = JSON.stringify(e);
+        onSaveError(msg);
+      } else {
+        // 即使没有提供错误回调，也不要弹出 alert，避免打断用户体验
+        console.error("Save failed:", e);
+      }
     } finally {
       // 无论保存成功与否（包括用户取消），都退出裁切视图
       onClose();
@@ -315,7 +350,7 @@ export const CropOverlay: React.FC<CropOverlayProps> = ({
           draggable={false}
         />
         
-             {/* 裁切框与遮罩 */}
+      {/* 裁切框与遮罩 */}
         {cropRect && imageRef.current && (
            <div
              style={{
@@ -363,28 +398,6 @@ export const CropOverlay: React.FC<CropOverlayProps> = ({
            </div>
         )}
       </div>
-
-      {/* 保存成功提示 */}
-      {saveToastVisible && (
-        <div
-          style={{
-            position: "fixed",
-            top: "50%",
-            left: "50%",
-            transform: "translate(-50%, -50%)",
-            backgroundColor: "rgba(0, 0, 0, 0.8)",
-            color: "#fff",
-            padding: "12px 24px",
-            borderRadius: "8px",
-            zIndex: 200,
-            fontSize: "16px",
-            pointerEvents: "none",
-            animation: "fadeIn 0.2s ease-out",
-          }}
-        >
-          保存成功
-        </div>
-      )}
     </div>
   );
 };

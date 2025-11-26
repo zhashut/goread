@@ -1378,8 +1378,6 @@ export const Reader: React.FC = () => {
             tocOverlayOpen={tocOverlayOpen}
             modeOverlayOpen={modeOverlayOpen}
             moreDrawerOpen={moreDrawerOpen}
-            bookmarkToastVisible={bookmarkToastVisible}
-            bookmarkToastText={bookmarkToastText}
             onSeekStart={() => {
               setIsSeeking(true);
               lastSeekTsRef.current = Date.now();
@@ -1453,7 +1451,42 @@ export const Reader: React.FC = () => {
               setCapturedImage(null);
               setUiVisible(false);
             }}
+            onSaveSuccess={() => {
+              setBookmarkToastText("保存成功");
+              setBookmarkToastVisible(true);
+              setTimeout(() => setBookmarkToastVisible(false), 2000);
+            }}
+            onSaveError={(msg) => {
+              // 移除可能存在的 "Error: " 前缀，使提示更友好
+              const cleanMsg = msg.replace(/^Error:\s*/i, '');
+              setBookmarkToastText(`保存失败: ${cleanMsg}`);
+              setBookmarkToastVisible(true);
+              setTimeout(() => setBookmarkToastVisible(false), 3000);
+            }}
           />
+          
+          {/* 全局 Toast 提示 */}
+          {bookmarkToastVisible && (
+            <div
+              style={{
+                position: "fixed",
+                bottom: "80px",
+                left: "50%",
+                transform: "translateX(-50%)",
+                padding: "8px 16px",
+                borderRadius: "20px",
+                backgroundColor: "rgba(0,0,0,0.8)",
+                color: "#fff",
+                fontSize: "14px",
+                boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+                pointerEvents: "none",
+                zIndex: 2000,
+                animation: "fadeIn 0.2s ease-out",
+              }}
+            >
+              {bookmarkToastText}
+            </div>
+          )}
         </div>
       </div>
     </div>

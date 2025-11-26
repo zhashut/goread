@@ -16,6 +16,7 @@ use commands::{
     // filesystem commands
     scan_pdf_files, cancel_scan, list_directory, get_root_directories,
     check_storage_permission, request_storage_permission, read_file_bytes,
+    save_image_to_gallery,
     // import commands
     batch_read_files, batch_import_books, batch_get_pdf_info, frontend_log,
 };
@@ -94,6 +95,7 @@ pub fn run() {
             check_storage_permission,
             request_storage_permission,
             read_file_bytes,
+            save_image_to_gallery,
             // 批量导入优化命令
             batch_read_files,
             batch_import_books,
