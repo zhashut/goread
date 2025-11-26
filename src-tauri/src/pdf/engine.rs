@@ -539,30 +539,39 @@ impl PdfEngine {
     }
 
     /// 提取书签
-    /// 使用 document.bookmarks().iter() 进行深度优先遍历，并利用 children_len 重建树结构
+    /// 直接通过 `PdfBookmark::children()` 递归构建树，避免依赖 `children_len()` 在部分文档上返回不准确导致层级被扁平化
     fn extract_bookmarks(&self, document: &PdfDocument<'_>) -> Result<Vec<Bookmark>, PdfError> {
-        let bookmarks_collection = document.bookmarks();
-        let mut iter = bookmarks_collection.iter();
         let mut roots = Vec::new();
+        let bookmarks = document.bookmarks();
+        if let Some(root) = bookmarks.root() {
+            fn add_node<'a>(engine: &PdfEngine, roots: &mut Vec<Bookmark>, bm: &PdfBookmark<'a>) -> Result<(), PdfError> {
+                let node = engine.build_bookmark_tree(bm, 0)?;
+                let duplicated = roots
+                    .iter()
+                    .any(|b: &Bookmark| b.title == node.title && b.page_number == node.page_number);
+                if !duplicated {
+                    roots.push(node);
+                }
+                Ok(())
+            }
 
-        // 遍历迭代器。由于迭代器是深度优先的，每次 process_bookmark_node 调用
-        // 会递归地消费掉该节点的所有子孙节点。
-        // 因此，外层循环这里拿到的总是顶层（root）节点。
-        while let Some(bookmark) = iter.next() {
-            let root = self.process_bookmark_node(bookmark, &mut iter, 0)?;
-            roots.push(root);
+            add_node(self, &mut roots, &root)?;
+
+            for top in root.iter_siblings() {
+                add_node(self, &mut roots, &top)?;
+            }
+
+            if roots.is_empty() {
+                for child in root.iter_direct_children() {
+                    add_node(self, &mut roots, &child)?;
+                }
+            }
         }
-
         Ok(roots)
     }
 
-    /// 处理单个书签节点，并递归处理其子节点
-    fn process_bookmark_node<'a>(
-        &self,
-        pdf_bookmark: PdfBookmark<'a>,
-        iter: &mut impl Iterator<Item = PdfBookmark<'a>>,
-        level: u32,
-    ) -> Result<Bookmark, PdfError> {
+    /// 递归构建书签树
+    fn build_bookmark_tree<'a>(&self, pdf_bookmark: &PdfBookmark<'a>, level: u32) -> Result<Bookmark, PdfError> {
         let title = pdf_bookmark.title().unwrap_or_default();
         let page_number = if let Some(dest) = pdf_bookmark.destination() {
             dest.page_index().unwrap_or(0) as u32 + 1
@@ -570,30 +579,12 @@ impl PdfEngine {
             0
         };
 
-        // 获取子节点数量
-        let children_count = pdf_bookmark.children_len();
         let mut children = Vec::new();
-
-        // 因为迭代器是 Pre-Order Depth-First (父 -> 子1 -> 子2)，
-        // 紧接着父节点后面的 `children_count` 个 "兄弟块" (siblings at next level) 就是它的子节点。
-        // 注意：每个子节点本身可能是一棵树，process_bookmark_node 会负责消费完那棵子树。
-        for _ in 0..children_count {
-            if let Some(child_bookmark) = iter.next() {
-                let child = self.process_bookmark_node(child_bookmark, iter, level + 1)?;
-                children.push(child);
-            } else {
-                // 如果预期有子节点但迭代器结束了，说明 PDF 结构可能有误，或者迭代器行为不符。
-                // 这里选择停止处理子节点。
-                break;
-            }
+        for child in pdf_bookmark.iter_direct_children() {
+            children.push(self.build_bookmark_tree(&child, level + 1)?);
         }
 
-        Ok(Bookmark {
-            title,
-            page_number,
-            level,
-            children,
-        })
+        Ok(Bookmark { title, page_number, level, children })
     }
 
     /// 获取页面信息
