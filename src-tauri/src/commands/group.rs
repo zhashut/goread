@@ -68,7 +68,7 @@ pub async fn get_books_by_group(group_id: i64, db: DbState<'_>) -> Result<Vec<Bo
     let pool = db.lock().await;
 
     let books = sqlx::query_as::<_, Book>(
-        "SELECT * FROM books WHERE group_id = ? ORDER BY position_in_group IS NULL, position_in_group ASC, created_at DESC"
+        "SELECT * FROM books WHERE group_id = ? ORDER BY position_in_group IS NULL, position_in_group DESC, created_at DESC"
     )
     .bind(group_id)
     .fetch_all(&*pool).await?;
@@ -139,9 +139,11 @@ pub async fn reorder_group_books(
 ) -> Result<(), Error> {
     let pool = db.lock().await;
     let mut tx = (&*pool).begin().await?;
+    let total = ordered_ids.len() as i64;
     for (idx, bid) in ordered_ids.iter().enumerate() {
+        let pos_desc = total - (idx as i64); // 让列表前面的书具有更大的 position 值
         sqlx::query("UPDATE books SET position_in_group = ? WHERE id = ? AND group_id = ?")
-            .bind((idx as i64) + 1)
+            .bind(pos_desc)
             .bind(bid)
             .bind(group_id)
             .execute(&mut *tx)
