@@ -263,9 +263,24 @@ export const GroupDetail: React.FC<{
                   key={b.id}
                   id={b.id}
                   book={b}
-                  onClick={() =>
-                    navigate(`/reader/${b.id}`, { state: { fromGroupId: id } })
-                  }
+                  onClick={() => {
+                    try {
+                      const orderStr = localStorage.getItem("recent_books_order");
+                      let order: number[] = [];
+                      if (orderStr) {
+                        try {
+                          const parsed = JSON.parse(orderStr);
+                          if (Array.isArray(parsed)) order = parsed;
+                        } catch {}
+                      }
+                      order = order.filter((oid) => oid !== b.id);
+                      order.unshift(b.id);
+                      localStorage.setItem("recent_books_order", JSON.stringify(order));
+                    } catch (e) {
+                      console.error("Failed to update recent order", e);
+                    }
+                    navigate(`/reader/${b.id}`, { state: { fromGroupId: id } });
+                  }}
                   onLongPress={() => onBookLongPress(b.id)}
                   selectable={selectionMode}
                   selected={selectedBookIds.has(b.id)}

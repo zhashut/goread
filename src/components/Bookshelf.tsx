@@ -309,6 +309,24 @@ export const Bookshelf: React.FC = () => {
       });
       return;
     }
+    // Update sort order: move this book to top
+    try {
+      const orderStr = localStorage.getItem("recent_books_order");
+      let order: number[] = [];
+      if (orderStr) {
+        try {
+          const parsed = JSON.parse(orderStr);
+          if (Array.isArray(parsed)) order = parsed;
+        } catch {}
+      }
+      // Remove if exists
+      order = order.filter((id) => id !== book.id);
+      // Add to front
+      order.unshift(book.id);
+      localStorage.setItem("recent_books_order", JSON.stringify(order));
+    } catch (e) {
+      console.error("Failed to update recent order", e);
+    }
     navigate(`/reader/${book.id}`, { state: { fromTab: activeTab } });
   };
 
@@ -1152,41 +1170,11 @@ export const Bookshelf: React.FC = () => {
               </div>
             </div>
           ) : (
-            !query ? (
-              <SortableContext
-                items={filteredBooks.map((b) => b.id)}
-                strategy={rectSortingStrategy}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    flexWrap: "wrap",
-                    gap: GRID_GAP_BOOK_CARDS + "px",
-                  }}
-                >
-                  {filteredBooks.map((book) => (
-                    <SortableBookItem
-                      key={book.id}
-                      id={book.id}
-                      book={book}
-                      onClick={() => handleBookClick(book)}
-                      onLongPress={() => onBookLongPress(book.id)}
-                      selectable={selectionMode}
-                      selected={selectedBookIds.has(book.id)}
-                      onToggleSelect={() => {
-                        setSelectedBookIds((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(book.id)) next.delete(book.id);
-                          else next.add(book.id);
-                          return next;
-                        });
-                      }}
-                      onDelete={() => handleDeleteBook(book)}
-                    />
-                  ))}
-                </div>
-              </SortableContext>
-            ) : (
+          !query ? (
+            <SortableContext
+              items={filteredBooks.map((b) => b.id)}
+              strategy={rectSortingStrategy}
+            >
               <div
                 style={{
                   display: "flex",
@@ -1195,8 +1183,9 @@ export const Bookshelf: React.FC = () => {
                 }}
               >
                 {filteredBooks.map((book) => (
-                  <BookCard
+                  <SortableBookItem
                     key={book.id}
+                    id={book.id}
                     book={book}
                     onClick={() => handleBookClick(book)}
                     onLongPress={() => onBookLongPress(book.id)}
@@ -1214,7 +1203,36 @@ export const Bookshelf: React.FC = () => {
                   />
                 ))}
               </div>
-            )
+            </SortableContext>
+          ) : (
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: GRID_GAP_BOOK_CARDS + "px",
+              }}
+            >
+              {filteredBooks.map((book) => (
+                <BookCard
+                  key={book.id}
+                  book={book}
+                  onClick={() => handleBookClick(book)}
+                  onLongPress={() => onBookLongPress(book.id)}
+                  selectable={selectionMode}
+                  selected={selectedBookIds.has(book.id)}
+                  onToggleSelect={() => {
+                    setSelectedBookIds((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(book.id)) next.delete(book.id);
+                      else next.add(book.id);
+                      return next;
+                    });
+                  }}
+                  onDelete={() => handleDeleteBook(book)}
+                />
+              ))}
+            </div>
+          )
           )
         ) : filteredGroups.length === 0 ? (
           <div
