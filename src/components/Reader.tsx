@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { TOP_DRAWER_RADIUS, BOTTOM_DRAWER_RADIUS } from "../constants/ui";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { IBook, IBookmark } from "../types";
 import {
@@ -14,8 +13,13 @@ import {
   PageCacheManager,
 } from "../utils/pdfOptimization";
 import { log } from "../services/index";
-import { save } from "@tauri-apps/plugin-dialog";
-import { writeFile } from "@tauri-apps/plugin-fs";
+import { TopBar } from "./reader/TopBar";
+import { BottomBar } from "./reader/BottomBar";
+import { TocOverlay } from "./reader/TocOverlay";
+import { ModeOverlay } from "./reader/ModeOverlay";
+import { MoreDrawer } from "./reader/MoreDrawer";
+import { CropOverlay } from "./reader/CropOverlay";
+import { TocNode } from "./reader/types";
 
 export const Reader: React.FC = () => {
   const { bookId } = useParams<{ bookId: string }>();
@@ -26,22 +30,12 @@ export const Reader: React.FC = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
-  
-  
   const [bookmarks, setBookmarks] = useState<IBookmark[]>([]);
-  type TocNode = {
-    title: string;
-    page?: number;
-    children?: TocNode[];
-    expanded?: boolean;
-  };
   const [toc, setToc] = useState<TocNode[]>([]);
-  const tocItemRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   // UI 可见与进度滑动状态
   const [uiVisible, setUiVisible] = useState(false);
   const [isSeeking, setIsSeeking] = useState(false);
   const [seekPage, setSeekPage] = useState<number | null>(null);
-  const [leftTab, setLeftTab] = useState<"toc" | "bookmark">("toc");
   // 目录弹层开关
   const [tocOverlayOpen, setTocOverlayOpen] = useState(false);
   // 阅读方式：horizontal(横向分页) / vertical(纵向连续)
@@ -85,21 +79,6 @@ export const Reader: React.FC = () => {
   // 截图裁切
   const [cropMode, setCropMode] = useState(false);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
-  const [cropRect, setCropRect] = useState<{x: number, y: number, w: number, h: number} | null>(null);
-  const [saveToastVisible, setSaveToastVisible] = useState(false);
-  
-  // 裁切交互状态
-  type InteractionType = 'none' | 'creating' | 'moving' | 'resizing';
-  type ResizeHandle = 'nw' | 'ne' | 'sw' | 'se';
-  const [interactionState, setInteractionState] = useState<{
-    type: InteractionType;
-    handle?: ResizeHandle;
-    startX: number;
-    startY: number;
-    startRect?: { x: number; y: number; w: number; h: number };
-  }>({ type: 'none', startX: 0, startY: 0 });
-
-  const imageRef = useRef<HTMLImageElement>(null);
 
   const handleCapture = async () => {
     let dataUrl = "";
@@ -153,192 +132,6 @@ export const Reader: React.FC = () => {
     }
   };
 
-  const handleSaveCrop = async () => {
-    if (!capturedImage || !imageRef.current) return;
-    try {
-      const img = imageRef.current;
-      // 如果没有裁切框，默认使用全图
-      const currentRect = cropRect || {
-        x: 0,
-        y: 0,
-        w: img.width,
-        h: img.height
-      };
-
-      const canvas = document.createElement("canvas");
-      const scaleX = img.naturalWidth / img.width;
-      const scaleY = img.naturalHeight / img.height;
-      
-      canvas.width = currentRect.w * scaleX;
-      canvas.height = currentRect.h * scaleY;
-      const ctx = canvas.getContext("2d");
-      if (ctx) {
-        ctx.drawImage(
-          img,
-          currentRect.x * scaleX,
-          currentRect.y * scaleY,
-          currentRect.w * scaleX,
-          currentRect.h * scaleY,
-          0,
-          0,
-          canvas.width,
-          canvas.height
-        );
-        
-        const dataUrl = canvas.toDataURL("image/png");
-        const base64Data = dataUrl.split(',')[1];
-        const binaryString = atob(base64Data);
-        const len = binaryString.length;
-        const binaryData = new Uint8Array(len);
-        for (let i = 0; i < len; i++) {
-          binaryData[i] = binaryString.charCodeAt(i);
-        }
-        
-        const path = await save({
-            filters: [{
-                name: 'Image',
-                extensions: ['png', 'jpg']
-            }],
-            defaultPath: `goread_capture_${Date.now()}.png`
-        });
-        
-        if (path) {
-            await writeFile(path, binaryData);
-            setSaveToastVisible(true);
-            setTimeout(() => setSaveToastVisible(false), 2000);
-        }
-      }
-    } catch (e) {
-      console.error("Save failed", e);
-    } finally {
-      // 无论保存成功与否（包括用户取消），都退出裁切视图
-      setCropMode(false);
-      setCapturedImage(null);
-      setCropRect(null);
-      setUiVisible(false);
-    }
-  };
-
-  const getEventPos = (e: React.MouseEvent | React.TouchEvent | MouseEvent | TouchEvent) => {
-    if ('touches' in e) {
-      return { x: e.touches[0].clientX, y: e.touches[0].clientY };
-    }
-    return { x: (e as React.MouseEvent).clientX, y: (e as React.MouseEvent).clientY };
-  };
-
-  const handleInteractionStart = (
-    e: React.MouseEvent | React.TouchEvent, 
-    type: InteractionType, 
-    handle?: ResizeHandle
-  ) => {
-    // 仅在非多点触控时阻止默认行为（防止滚动）
-    if ('touches' in e && e.touches.length > 1) return;
-    // e.preventDefault(); // 暂时注释，以免影响某些点击行为，视情况开启
-
-    if (!imageRef.current) return;
-    const { x, y } = getEventPos(e);
-    
-    if (type === 'creating') {
-      const rect = imageRef.current.getBoundingClientRect();
-      const relX = x - rect.left;
-      const relY = y - rect.top;
-      setCropRect({ x: relX, y: relY, w: 0, h: 0 });
-      setInteractionState({
-        type,
-        startX: relX,
-        startY: relY,
-      });
-    } else {
-      e.stopPropagation(); // 阻止冒泡，防止触发 creating
-      setInteractionState({
-        type,
-        handle,
-        startX: x,
-        startY: y,
-        startRect: cropRect ? { ...cropRect } : undefined
-      });
-    }
-  };
-
-  const handleInteractionMove = (e: React.MouseEvent | React.TouchEvent) => {
-    const state = interactionState;
-    if (state.type === 'none' || !imageRef.current) return;
-    e.preventDefault(); // 拖动时阻止滚动
-
-    const { x: clientX, y: clientY } = getEventPos(e);
-    const imgRect = imageRef.current.getBoundingClientRect();
-    
-    // 限制坐标在图片范围内
-    const relX = Math.max(0, Math.min(clientX - imgRect.left, imgRect.width));
-    const relY = Math.max(0, Math.min(clientY - imgRect.top, imgRect.height));
-
-    if (state.type === 'creating') {
-      const startX = state.startX;
-      const startY = state.startY;
-      
-      const newX = Math.min(startX, relX);
-      const newY = Math.min(startY, relY);
-      const w = Math.abs(relX - startX);
-      const h = Math.abs(relY - startY);
-      
-      setCropRect({ x: newX, y: newY, w, h });
-    } else if (state.type === 'moving' && state.startRect) {
-      const dx = clientX - state.startX;
-      const dy = clientY - state.startY;
-      
-      let newX = state.startRect.x + dx;
-      let newY = state.startRect.y + dy;
-      
-      // 边界检查
-      newX = Math.max(0, Math.min(newX, imgRect.width - state.startRect.w));
-      newY = Math.max(0, Math.min(newY, imgRect.height - state.startRect.h));
-      
-      setCropRect({ ...state.startRect, x: newX, y: newY });
-    } else if (state.type === 'resizing' && state.startRect && state.handle) {
-      const oldRect = state.startRect;
-      // 使用 relX, relY (已限制在图片范围内) 直接计算，避免溢出
-      
-      let newX = oldRect.x;
-      let newY = oldRect.y;
-      let newW = oldRect.w;
-      let newH = oldRect.h;
-      
-      // 计算当前的右边界和下边界
-      const oldRight = oldRect.x + oldRect.w;
-      const oldBottom = oldRect.y + oldRect.h;
-
-      if (state.handle.includes('w')) {
-        // 左侧调整：x 变为 relX，但不能超过原右边界（减去最小宽度）
-        const constrainedX = Math.min(relX, oldRight - 10);
-        newX = constrainedX;
-        newW = oldRight - constrainedX;
-      }
-      if (state.handle.includes('e')) {
-        // 右侧调整：宽度变为 relX - newX
-        // 限制 relX > newX + 10
-        const constrainedX = Math.max(relX, newX + 10);
-        newW = constrainedX - newX;
-      }
-      if (state.handle.includes('n')) {
-        // 上侧调整
-        const constrainedY = Math.min(relY, oldBottom - 10);
-        newY = constrainedY;
-        newH = oldBottom - constrainedY;
-      }
-      if (state.handle.includes('s')) {
-        // 下侧调整
-        const constrainedY = Math.max(relY, newY + 10);
-        newH = constrainedY - newY;
-      }
-
-      setCropRect({ x: newX, y: newY, w: newW, h: newH });
-    }
-  };
-
-  const handleInteractionEnd = () => {
-    setInteractionState({ type: 'none', startX: 0, startY: 0 });
-  };
-  
   // 获取当前渲染倍率 (Scale)
   // 在 App/Web 端，这通常对应设备的像素密度 (DPR)。
   // 因为没有手动缩放按钮，所以 Scale 仅由屏幕素质决定。
@@ -809,15 +602,6 @@ export const Reader: React.FC = () => {
     }
     return target;
   };
-
-  // 侧栏自动滚动至当前章节
-  useEffect(() => {
-    const chapterPage = findCurrentChapterPage(toc);
-    if (typeof chapterPage === "number") {
-      const el = tocItemRefs.current.get(chapterPage);
-      if (el) el.scrollIntoView({ block: "center" });
-    }
-  }, [currentPage, toc]);
 
   const currentChapterPageVal = findCurrentChapterPage(toc);
 
@@ -1367,89 +1151,7 @@ export const Reader: React.FC = () => {
     }
   }, [settings.showStatusBar]);
 
-  // 渲染目录树（组件内，可访问状态与方法）
-  const renderTocTree = (nodes: TocNode[], level: number): React.ReactNode => {
-    const indent = 10 + level * 14;
-    return nodes.map((node, idx) => {
-      const hasChildren = !!(node.children && node.children.length);
-      const caret = hasChildren ? (node.expanded ? "▼" : "▶") : "•";
-      const isActive =
-        typeof currentChapterPageVal === "number" &&
-        node.page === currentChapterPageVal;
-      return (
-        <div key={`${level}-${idx}`} style={{ marginLeft: indent }}>
-          <div
-            ref={(el) => {
-              if (el && typeof node.page === "number") {
-                tocItemRefs.current.set(node.page, el as HTMLDivElement);
-              }
-            }}
-            style={{
-              padding: "8px",
-              borderRadius: "6px",
-              cursor: "default",
-              backgroundColor: isActive ? "#333" : "transparent",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = isActive
-                ? "#333"
-                : "#2a2a2a";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = isActive
-                ? "#333"
-                : "transparent";
-            }}
-          >
-            <span
-              onClick={(e) => {
-                e.stopPropagation();
-                if (hasChildren) {
-                  node.expanded = !node.expanded;
-                  setToc([...toc]);
-                }
-              }}
-              style={{
-                marginRight: 12,
-                fontSize: "11px",
-                lineHeight: "1",
-                color: "#ffffff",
-                opacity: 0.7,
-                cursor: hasChildren ? "pointer" : "default",
-              }}
-            >
-              {caret}
-            </span>
-            <span
-              onClick={(e) => {
-                e.stopPropagation();
-                if (typeof node.page === "number") {
-                  goToPage(node.page);
-                  setTocOverlayOpen(false);
-                  setUiVisible(false);
-                }
-              }}
-              style={{
-                fontSize: "13px",
-                color: isActive ? "#d15158" : "#ffffff",
-                cursor: typeof node.page === "number" ? "pointer" : "default",
-              }}
-            >
-              {node.title}
-            </span>
-            {typeof node.page === "number" && (
-              <span style={{ fontSize: "12px", opacity: 0.7, marginLeft: 6 }}>
-                第 {node.page} 页
-              </span>
-            )}
-          </div>
-          {hasChildren &&
-            node.expanded &&
-            renderTocTree(node.children!, level + 1)}
-        </div>
-      );
-    });
-  };
+
 
   if (loading) {
     return (
@@ -1526,73 +1228,24 @@ export const Reader: React.FC = () => {
           }}
           ref={mainViewRef}
         >
-          {/* 顶部工具栏覆盖层：与底部控制栏一致的显示/隐藏逻辑 */}
-          {(uiVisible || isSeeking || tocOverlayOpen) && !moreDrawerOpen && (
-            <div
-              onClick={(e) => e.stopPropagation()}
-              onMouseDown={(e) => e.stopPropagation()}
-              onMouseUp={(e) => e.stopPropagation()}
-              onTouchStart={(e) => e.stopPropagation()}
-              onTouchEnd={(e) => e.stopPropagation()}
-              onWheel={(e) => e.stopPropagation()}
-              style={{
-                position: "absolute",
-                top: 0,
-                left: 0,
-                right: 0,
-                transform: "none",
-                boxSizing: "border-box",
-                backgroundColor: "rgba(26,26,26,0.92)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                color: "white",
-                borderRadius: `0 0 ${TOP_DRAWER_RADIUS}px ${TOP_DRAWER_RADIUS}px`,
-                padding: "8px 12px",
-                boxShadow: "0 6px 24px rgba(0,0,0,0.35)",
-                zIndex: 12,
-              }}
-            >
-              <button
-                onClick={() => {
-                  const state: any = location.state || {};
-                  if (typeof state.fromGroupId === "number") {
-                    navigate(`/?tab=all&group=${state.fromGroupId}`);
-                  } else if (state.fromTab === "all") {
-                    navigate("/?tab=all");
-                  } else if (state.fromTab === "recent") {
-                    navigate("/");
-                  } else if (window.history.length > 1) {
-                    navigate(-1);
-                  } else {
-                    navigate("/");
-                  }
-                }}
-                style={{
-                  background: "none",
-                  border: "none",
-                  color: "#fff",
-                  cursor: "pointer",
-                  fontSize: "16px",
-                }}
-                title="返回"
-              >
-                {"<"}
-              </button>
-              <div
-                style={{
-                  fontSize: "16px",
-                  fontWeight: 500,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {book?.title}
-              </div>
-              <div style={{ width: "24px" }} />
-            </div>
-          )}
+          <TopBar
+            visible={(uiVisible || isSeeking || tocOverlayOpen) && !moreDrawerOpen}
+            bookTitle={book?.title}
+            onBack={() => {
+              const state: any = location.state || {};
+              if (typeof state.fromGroupId === "number") {
+                navigate(`/?tab=all&group=${state.fromGroupId}`);
+              } else if (state.fromTab === "all") {
+                navigate("/?tab=all");
+              } else if (state.fromTab === "recent") {
+                navigate("/");
+              } else if (window.history.length > 1) {
+                navigate(-1);
+              } else {
+                navigate("/");
+              }
+            }}
+          />
           {readingMode === "horizontal" ? (
             <canvas
               ref={canvasRef}
@@ -1674,905 +1327,133 @@ export const Reader: React.FC = () => {
               );
             })()}
 
-          {/* 目录蒙版弹层：占据页面90%，点击外部收回 */}
-          {tocOverlayOpen && (
-            <div
-              onClick={(e) => {
-                e.stopPropagation();
-                setTocOverlayOpen(false);
+          <TocOverlay
+            visible={tocOverlayOpen}
+            toc={toc}
+            bookmarks={bookmarks}
+            currentChapterPage={currentChapterPageVal}
+            onClose={() => {
+              setTocOverlayOpen(false);
+              setUiVisible(false);
+            }}
+            onGoToPage={(page) => {
+              goToPage(page);
+              setTocOverlayOpen(false);
+              setUiVisible(false);
+            }}
+            onDeleteBookmark={deleteBookmark}
+            setToc={setToc}
+          />
+
+          <ModeOverlay
+            visible={modeOverlayOpen}
+            readingMode={readingMode}
+            onClose={() => {
+              setModeOverlayOpen(false);
+              setUiVisible(false);
+            }}
+            onChangeMode={(mode) => {
+              setReadingMode(mode);
+              setSettings((prev) => {
+                const next = {
+                  ...prev,
+                  readingMode: mode,
+                } as ReaderSettings;
+                saveReaderSettings({ readingMode: mode });
+                return next;
+              });
+              setModeOverlayOpen(false);
+              setUiVisible(false);
+            }}
+          />
+
+          <BottomBar
+            visible={(uiVisible || isSeeking) && !tocOverlayOpen && !modeOverlayOpen && !moreDrawerOpen}
+            currentPage={currentPage}
+            totalPages={totalPages}
+            isSeeking={isSeeking}
+            seekPage={seekPage}
+            readingMode={readingMode}
+            autoScroll={autoScroll}
+            tocOverlayOpen={tocOverlayOpen}
+            modeOverlayOpen={modeOverlayOpen}
+            moreDrawerOpen={moreDrawerOpen}
+            bookmarkToastVisible={bookmarkToastVisible}
+            bookmarkToastText={bookmarkToastText}
+            onSeekStart={() => {
+              setIsSeeking(true);
+              lastSeekTsRef.current = Date.now();
+            }}
+            onSeekChange={(v) => {
+              setSeekPage(v);
+              lastSeekTsRef.current = Date.now();
+            }}
+            onSeekEnd={async (v) => {
+              setSeekPage(null);
+              setIsSeeking(false);
+              lastSeekTsRef.current = 0;
+              await goToPage(v);
+            }}
+            onPrevChapter={() => {
+              const page = findCurrentChapterPage(toc);
+              if (typeof page === "number" && page < currentPage) {
+                goToPage(page);
+              } else {
+                prevPage();
+              }
+            }}
+            onNextChapter={() => {
+              const pages: number[] = [];
+              const collect = (ns: TocNode[]) => {
+                for (const n of ns) {
+                  if (typeof n.page === "number") pages.push(n.page);
+                  if (n.children && n.children.length)
+                    collect(n.children);
+                }
+              };
+              collect(toc);
+              pages.sort((a, b) => a - b);
+              const target = pages.find((p) => p > currentPage);
+              if (typeof target === "number") {
+                goToPage(target);
+              } else {
+                nextPage();
+              }
+            }}
+            onToggleToc={() => setTocOverlayOpen(true)}
+            onToggleMode={() => setModeOverlayOpen(true)}
+            onToggleAutoScroll={() => {
+              if (!autoScroll) {
+                setAutoScroll(true);
                 setUiVisible(false);
-              }}
-              style={{
-                position: "absolute",
-                inset: 0,
-                backgroundColor: "rgba(0,0,0,0.6)",
-                display: "flex",
-                alignItems: "stretch",
-                justifyContent: "flex-start",
-                overflow: "hidden",
-                zIndex: 20,
-              }}
-            >
-              <div
-                onClick={(e) => e.stopPropagation()}
-                style={{
-                  width: "75%",
-                  height: "100%",
-                  backgroundColor: "#1f1f1f",
-                  color: "#fff",
-                  borderRadius: "0 10px 10px 0",
-                  overflowY: "auto",
-                  padding: "16px",
-                  boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
-                }}
-                className="no-scrollbar"
-              >
-                {/* 顶部页签：目录 / 书签（图标与文字贴近） */}
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "16px",
-                    marginBottom: "12px",
-                  }}
-                >
-                  <button
-                    onClick={() => setLeftTab("toc")}
-                    style={{
-                      background: "none",
-                      border: "none",
-                      color: leftTab === "toc" ? "#d15158" : "#fff",
-                      cursor: "pointer",
-                      fontSize: "14px",
-                      padding: "4px 6px",
-                      borderBottom:
-                        leftTab === "toc"
-                          ? "2px solid #d15158"
-                          : "2px solid transparent",
-                    }}
-                  >
-                    <span style={{ marginRight: "6px" }}>≡</span>
-                    <span>目录</span>
-                  </button>
-                  <button
-                    onClick={() => setLeftTab("bookmark")}
-                    style={{
-                      background: "none",
-                      border: "none",
-                      color: leftTab === "bookmark" ? "#d15158" : "#fff",
-                      cursor: "pointer",
-                      fontSize: "14px",
-                      padding: "4px 6px",
-                      borderBottom:
-                        leftTab === "bookmark"
-                          ? "2px solid #d15158"
-                          : "2px solid transparent",
-                    }}
-                  >
-                    <span style={{ marginRight: "6px" }}>🔖</span>
-                    <span>书签</span>
-                  </button>
-                </div>
-                {/* 内容区：目录或书签列表 */}
-                {leftTab === "toc" ? (
-                  toc.length === 0 ? (
-                    <div style={{ fontSize: "13px", opacity: 0.6 }}>
-                      无目录信息
-                    </div>
-                  ) : (
-                    <div>{renderTocTree(toc, 0)}</div>
-                  )
-                ) : bookmarks.length === 0 ? (
-                  <div
-                    style={{
-                      fontSize: "13px",
-                      opacity: 0.6,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      height: "100%",
-                    }}
-                  >
-                    没有添加书签
-                  </div>
-                ) : (
-                  <div>
-                    {bookmarks.map((bm) => (
-                      <div
-                        key={bm.id}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          padding: "6px 8px",
-                          borderRadius: "6px",
-                          cursor: "pointer",
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.backgroundColor = "#2a2a2a";
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.backgroundColor = "transparent";
-                        }}
-                        onClick={() => {
-                          goToPage(bm.page_number);
-                          setTocOverlayOpen(false);
-                          setUiVisible(false);
-                        }}
-                      >
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "8px",
-                          }}
-                        >
-                          <span style={{ fontSize: "13px", color: "#fff" }}>
-                            {bm.title}
-                          </span>
-                          <span style={{ fontSize: "12px", opacity: 0.7 }}>
-                            第 {bm.page_number} 页
-                          </span>
-                        </div>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            deleteBookmark(bm.id);
-                          }}
-                          style={{
-                            background: "none",
-                            border: "none",
-                            color: "#ccc",
-                            cursor: "pointer",
-                            fontSize: "12px",
-                          }}
-                          title="删除书签"
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* 阅读方式抽屉：贴底部的下拉面板（Bottom Sheet），选择横向/纵向 */}
-          {modeOverlayOpen && (
-            <div
-              onClick={(e) => {
-                e.stopPropagation();
-                setModeOverlayOpen(false);
-                setUiVisible(false);
-              }}
-              style={{
-                position: "absolute",
-                inset: 0,
-                backgroundColor: "rgba(0,0,0,0.6)",
-                display: "flex",
-                flexDirection: "column",
-                justifyContent: "flex-end",
-                alignItems: "center",
-                overflow: "hidden",
-                zIndex: 20,
-              }}
-            >
-              <div
-                onClick={(e) => e.stopPropagation()}
-                style={{
-                  width: "min(720px, calc(100% - 32px))",
-                  backgroundColor: "#1f1f1f",
-                  color: "#fff",
-                  borderTopLeftRadius: "12px",
-                  borderTopRightRadius: "12px",
-                  padding: "18px",
-                  paddingBottom: "calc(18px + env(safe-area-inset-bottom))",
-                  margin: "0 auto 0",
-                  boxShadow: "0 -8px 32px rgba(0,0,0,0.5)",
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "16px",
-                  }}
-                >
-                  <button
-                    onClick={() => {
-                      setReadingMode("horizontal");
-                      setSettings((prev) => {
-                        const next = {
-                          ...prev,
-                          readingMode: "horizontal",
-                        } as ReaderSettings;
-                        saveReaderSettings({ readingMode: "horizontal" });
-                        return next;
-                      });
-                      setModeOverlayOpen(false);
-                      setUiVisible(false);
-                    }}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "12px",
-                      background: "none",
-                      border: "1px solid #333",
-                      color: readingMode === "horizontal" ? "#d15158" : "#fff",
-                      cursor: "pointer",
-                      borderRadius: "8px",
-                      padding: "10px 12px",
-                      textAlign: "left",
-                    }}
-                  >
-                    <span style={{ fontSize: "18px" }}>▤</span>
-                    <div>
-                      <div style={{ fontSize: "14px" }}>横向阅读</div>
-                      <div style={{ fontSize: "12px", opacity: 0.7 }}>
-                        左右翻页，适合分页浏览
-                      </div>
-                    </div>
-                  </button>
-                  <button
-                    onClick={() => {
-                      setReadingMode("vertical");
-                      setSettings((prev) => {
-                        const next = {
-                          ...prev,
-                          readingMode: "vertical",
-                        } as ReaderSettings;
-                        saveReaderSettings({ readingMode: "vertical" });
-                        return next;
-                      });
-                      setModeOverlayOpen(false);
-                      setUiVisible(false);
-                    }}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "12px",
-                      background: "none",
-                      border: "1px solid #333",
-                      color: readingMode === "vertical" ? "#d15158" : "#fff",
-                      cursor: "pointer",
-                      borderRadius: "8px",
-                      padding: "10px 12px",
-                      textAlign: "left",
-                    }}
-                  >
-                    <span style={{ fontSize: "18px" }}>▮</span>
-                    <div>
-                      <div style={{ fontSize: "14px" }}>纵向阅读</div>
-                      <div style={{ fontSize: "12px", opacity: 0.7 }}>
-                        向下滚动，连续阅读
-                      </div>
-                    </div>
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* 覆盖式底部控制栏（绝对定位），不挤压内容；抽屉打开时隐藏 */}
-          {(uiVisible || isSeeking) && !tocOverlayOpen && !modeOverlayOpen && !moreDrawerOpen && (
-            <div
-              onClick={(e) => e.stopPropagation()}
-              onMouseDown={(e) => e.stopPropagation()}
-              onMouseUp={(e) => e.stopPropagation()}
-              onTouchStart={(e) => e.stopPropagation()}
-              onTouchEnd={(e) => e.stopPropagation()}
-              onWheel={(e) => e.stopPropagation()}
-              style={{
-                position: "absolute",
-                left: 0,
-                right: 0,
-                transform: "none",
-                bottom: 0,
-                boxSizing: "border-box",
-                backgroundColor: "rgba(26,26,26,0.92)",
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "center",
-                color: "white",
-                borderRadius: `${BOTTOM_DRAWER_RADIUS}px ${BOTTOM_DRAWER_RADIUS}px 0 0`,
-                padding: "14px 18px",
-                paddingBottom: "calc(14px + env(safe-area-inset-bottom))",
-                boxShadow: "0 6px 24px rgba(0,0,0,0.35)",
-                zIndex: 10,
-              }}
-            >
-              {/* 上方进度滑条 + 两端上一章/下一章文案 */}
-              <div
-                style={{
-                  width: "100%",
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "stretch",
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    fontSize: "clamp(10px, 1.6vw, 12px)",
-                    color: "#bbb",
-                    marginBottom: "8px",
-                  }}
-                >
-                  <span
-                    onClick={() => {
-                      const page = findCurrentChapterPage(toc);
-                      if (typeof page === "number" && page < currentPage) {
-                        goToPage(page);
-                      } else {
-                        prevPage();
-                      }
-                    }}
-                    style={{
-                      cursor: currentPage <= 1 ? "default" : "pointer",
-                      opacity: currentPage <= 1 ? 0.5 : 1,
-                    }}
-                  >
-                    上一章
-                  </span>
-                  <span
-                    onClick={() => {
-                      const pages: number[] = [];
-                      const collect = (ns: TocNode[]) => {
-                        for (const n of ns) {
-                          if (typeof n.page === "number") pages.push(n.page);
-                          if (n.children && n.children.length)
-                            collect(n.children);
-                        }
-                      };
-                      collect(toc);
-                      pages.sort((a, b) => a - b);
-                      const target = pages.find((p) => p > currentPage);
-                      if (typeof target === "number") {
-                        goToPage(target);
-                      } else {
-                        nextPage();
-                      }
-                    }}
-                    style={{
-                      cursor: currentPage >= totalPages ? "default" : "pointer",
-                      opacity: currentPage >= totalPages ? 0.5 : 1,
-                    }}
-                  >
-                    下一章
-                  </span>
-                </div>
-                {(() => {
-                  const sliderVal =
-                    isSeeking && seekPage !== null ? seekPage : currentPage;
-                  const pct = Math.max(
-                    0,
-                    Math.min(
-                      100,
-                      Math.round((sliderVal / Math.max(1, totalPages)) * 100)
-                    )
-                  );
-                  const track = `linear-gradient(to right, #d15158 0%, #d15158 ${pct}%, #3a3a3a ${pct}%, #3a3a3a 100%)`;
-                  return (
-                    <input
-                      className="reader-range"
-                      type="range"
-                      min={1}
-                      max={totalPages}
-                      value={sliderVal}
-                      onMouseDown={(e) => {
-                        e.stopPropagation();
-                        setIsSeeking(true);
-                        lastSeekTsRef.current = Date.now();
-                      }}
-                      onTouchStart={(e) => {
-                        e.stopPropagation();
-                        setIsSeeking(true);
-                        lastSeekTsRef.current = Date.now();
-                      }}
-                      onInput={(e) => {
-                        const v = Number((e.target as HTMLInputElement).value);
-                        setSeekPage(v);
-                        lastSeekTsRef.current = Date.now();
-                      }}
-                      onMouseUp={async (e) => {
-                        e.stopPropagation();
-                        const v = Number((e.target as HTMLInputElement).value);
-                        // 提交后立刻结束 seeking，让滚动监听按照内容更新预览
-                        setSeekPage(null);
-                        setIsSeeking(false);
-                        lastSeekTsRef.current = 0;
-                        await goToPage(v);
-                      }}
-                      onTouchEnd={async (e) => {
-                        e.stopPropagation();
-                        const v = Number((e.target as HTMLInputElement).value);
-                        // 提交后立刻结束 seeking，让滚动监听按照内容更新预览
-                        setSeekPage(null);
-                        setIsSeeking(false);
-                        lastSeekTsRef.current = 0;
-                        await goToPage(v);
-                      }}
-                      style={{
-                        width: "100%",
-                        height: "6px",
-                        borderRadius: "6px",
-                        background: track,
-                        outline: "none",
-                      }}
-                    />
-                  );
-                })()}
-              </div>
-              {/* 下方图标操作区：5等分网格，窄屏也不拥挤 */}
-              <div
-                style={{
-                  marginTop: "14px",
-                  display: "grid",
-                  gridTemplateColumns: "repeat(5, 1fr)",
-                  alignItems: "center",
-                  justifyItems: "center",
-                  width: "100%",
-                  gap: "8px",
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                  }}
-                >
-                  <button
-                    onClick={() => setTocOverlayOpen(true)}
-                    style={{
-                      background: "none",
-                      border: "none",
-                      color: tocOverlayOpen ? "#d15158" : "#fff",
-                      cursor: "pointer",
-                      fontSize: "clamp(16px, 3.2vw, 18px)",
-                    }}
-                    title="目录"
-                  >
-                    ≡
-                  </button>
-                  <div
-                    style={{
-                      fontSize: "clamp(10px, 1.6vw, 12px)",
-                      color: tocOverlayOpen ? "#d15158" : "#ccc",
-                      marginTop: "6px",
-                    }}
-                  >
-                    目录
-                  </div>
-                </div>
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                  }}
-                >
-                  <button
-                    onClick={() => setModeOverlayOpen(true)}
-                    style={{
-                      background: "none",
-                      border: "none",
-                      color: "#fff",
-                      cursor: "pointer",
-                      fontSize: "clamp(16px, 3.2vw, 18px)",
-                    }}
-                    title="阅读方式"
-                  >
-                    {readingMode === "horizontal" ? "▤" : "▮"}
-                  </button>
-                  <div
-                    style={{
-                      fontSize: "clamp(10px, 1.6vw, 12px)",
-                      color: "#ccc",
-                      marginTop: "6px",
-                    }}
-                  >
-                    阅读方式
-                  </div>
-                </div>
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                  }}
-                >
-                  <button
-                    onClick={() => {
-                      if (!autoScroll) {
-                        setAutoScroll(true);
-                        setUiVisible(false);
-                      } else {
-                        setAutoScroll(false);
-                      }
-                    }}
-                    style={{
-                      background: "none",
-                      border: "none",
-                      color: autoScroll ? "#d15158" : "#fff",
-                      cursor: "pointer",
-                      fontSize: "clamp(16px, 3.2vw, 18px)",
-                    }}
-                    title={readingMode === "horizontal" ? "自动翻页" : "自动滚动"}
-                  >
-                    ☰
-                  </button>
-                  <div
-                    style={{
-                      fontSize: "clamp(10px, 1.6vw, 12px)",
-                      color: autoScroll ? "#d15158" : "#ccc",
-                      marginTop: "6px",
-                    }}
-                  >
-                    {readingMode === "horizontal" ? "自动翻页" : "自动滚动"}
-                  </div>
-                </div>
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                  }}
-                >
-                  <button
-                    onClick={addBookmark}
-                    style={{
-                      background: "none",
-                      border: "none",
-                      color: "#fff",
-                      cursor: "pointer",
-                      fontSize: "clamp(16px, 3.2vw, 18px)",
-                    }}
-                    title="书签"
-                  >
-                    🔖
-                  </button>
-                  <div
-                    style={{
-                      fontSize: "clamp(10px, 1.6vw, 12px)",
-                      color: "#ccc",
-                      marginTop: "6px",
-                    }}
-                  >
-                    书签
-                  </div>
-                </div>
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                  }}
-                >
-                  <button
-                    onClick={() => setMoreDrawerOpen(true)}
-                    style={{
-                      background: "none",
-                      border: "none",
-                      color: "#fff",
-                      cursor: "pointer",
-                      fontSize: "clamp(16px, 3.2vw, 18px)",
-                    }}
-                    title="更多"
-                  >
-                    …
-                  </button>
-                  <div
-                    style={{
-                      fontSize: "clamp(10px, 1.6vw, 12px)",
-                      color: "#ccc",
-                      marginTop: "6px",
-                    }}
-                  >
-                    更多
-                  </div>
-                </div>
-              </div>
-
-              {/* 书签提示气泡：覆盖显示，不影响布局与交互 */}
-              {bookmarkToastVisible && (
-                <div
-                  style={{
-                    position: "absolute",
-                    bottom: "8px",
-                    left: "50%",
-                    transform: "translateX(-50%)",
-                    padding: "6px 12px",
-                    borderRadius: "16px",
-                    backgroundColor: "rgba(0,0,0,0.8)",
-                    color: "#fff",
-                    fontSize: "12px",
-                    boxShadow: "0 2px 6px rgba(0,0,0,0.3)",
-                    pointerEvents: "none",
-                  }}
-                >
-                  {bookmarkToastText}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* 更多选项抽屉 */}
-          {moreDrawerOpen && (
-            <div
-              onClick={(e) => {
-                e.stopPropagation();
-                setMoreDrawerOpen(false);
-                setUiVisible(false);
-              }}
-              style={{
-                position: "absolute",
-                inset: 0,
-                backgroundColor: "rgba(0,0,0,0.5)",
-                zIndex: 20,
-                display: "flex",
-                flexDirection: "column",
-                justifyContent: "flex-end",
-              }}
-            >
-              <div
-                onClick={(e) => e.stopPropagation()}
-                style={{
-                  backgroundColor: "#1f1f1f",
-                  borderRadius: `${BOTTOM_DRAWER_RADIUS}px ${BOTTOM_DRAWER_RADIUS}px 0 0`,
-                  padding: "12px 0",
-                  paddingBottom: "calc(12px + env(safe-area-inset-bottom))",
-                  display: "flex",
-                  flexDirection: "column",
-                  animation: "slideUp 0.3s ease-out",
-                }}
-              >
-                <div
-                  onClick={handleCapture}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    padding: "16px 24px",
-                    cursor: "pointer",
-                    color: "#fff",
-                  }}
-                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = "#2a2a2a"}
-                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = "transparent"}
-                >
-                  <div style={{ 
-                    fontSize: "20px", 
-                    marginRight: "16px",
-                    width: "24px",
-                    textAlign: "center"
-                  }}>
-                    📷
-                  </div>
-                  <span style={{ fontSize: "16px" }}>导出图片</span>
-                </div>
-
-                <div
-                  onClick={() => {
-                    setMoreDrawerOpen(false);
-                    navigate("/settings");
-                  }}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    padding: "16px 24px",
-                    cursor: "pointer",
-                    color: "#fff",
-                  }}
-                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = "#2a2a2a"}
-                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = "transparent"}
-                >
-                  <div style={{ 
-                    fontSize: "20px", 
-                    marginRight: "16px",
-                    width: "24px",
-                    textAlign: "center"
-                  }}>
-                    ⚙️
-                  </div>
-                  <span style={{ fontSize: "16px" }}>设置</span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* 截图裁切层 */}
-          {cropMode && capturedImage && (
-            <div
-              style={{
-                position: "fixed",
-                inset: 0,
-                backgroundColor: "#000",
-                zIndex: 100,
-                display: "flex",
-                flexDirection: "column",
-                touchAction: "none", // 防止触摸滚动
-              }}
-              onClick={(e) => e.stopPropagation()}
-              onMouseMove={handleInteractionMove}
-              onTouchMove={handleInteractionMove}
-              onMouseUp={handleInteractionEnd}
-              onTouchEnd={handleInteractionEnd}
-              onMouseLeave={handleInteractionEnd}
-            >
-              {/* 顶部栏 */}
-              <div
-                style={{
-                  height: "56px",
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  padding: "0 16px",
-                  backgroundColor: "#000",
-                  color: "#fff",
-                  boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
-                  zIndex: 10,
-                }}
-              >
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setCropMode(false);
-                    setCapturedImage(null);
-                    setCropRect(null);
-                  }}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    color: "#fff",
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    padding: "8px",
-                    opacity: 0.8,
-                  }}
-                >
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="18" y1="6" x2="6" y2="18"></line>
-                    <line x1="6" y1="6" x2="18" y2="18"></line>
-                  </svg>
-                </button>
-                <span style={{ fontSize: "18px", fontWeight: 500 }}>裁切</span>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleSaveCrop();
-                  }}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    color: "#d15158",
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    padding: "8px",
-                  }}
-                >
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="20 6 9 17 4 12"></polyline>
-                  </svg>
-                </button>
-              </div>
-              
-              {/* 图片区域 */}
-              <div
-                style={{
-                  flex: 1,
-                  position: "relative",
-                  overflow: "hidden",
-                  display: "flex",
-                  justifyContent: "center",
-                  alignItems: "center",
-                  backgroundColor: "#121212",
-                  userSelect: "none",
-                  padding: "32px",
-                }}
-                onMouseDown={(e) => handleInteractionStart(e, 'creating')}
-                onTouchStart={(e) => handleInteractionStart(e, 'creating')}
-              >
-                <img
-                  ref={imageRef}
-                  src={capturedImage}
-                  alt="Capture"
-                  onLoad={(e) => {
-                    const img = e.currentTarget;
-                    setCropRect({
-                      x: 0,
-                      y: 0,
-                      w: img.width,
-                      h: img.height
-                    });
-                  }}
-                  style={{
-                    maxWidth: "100%",
-                    maxHeight: "100%",
-                    display: "block",
-                    pointerEvents: "none",
-                  }}
-                  draggable={false}
-                />
-                
-                     {/* 裁切框与遮罩 */}
-                {cropRect && imageRef.current && (
-                   <div
-                     style={{
-                       position: "absolute",
-                       left: imageRef.current.offsetLeft + cropRect.x,
-                       top: imageRef.current.offsetTop + cropRect.y,
-                       width: cropRect.w,
-                       height: cropRect.h,
-                       border: "2px solid #fff",
-                       boxShadow: "0 0 0 9999px rgba(0, 0, 0, 0.5)",
-                       pointerEvents: "auto", // 允许交互
-                       cursor: "move",
-                       boxSizing: "border-box", // 防止边框导致尺寸溢出
-                     }}
-                     onMouseDown={(e) => handleInteractionStart(e, 'moving')}
-                     onTouchStart={(e) => handleInteractionStart(e, 'moving')}
-                   >
-                     {/* 裁切手柄 */}
-                     {[
-                       { h: 'nw', top: '-8px', left: '-8px', cursor: 'nw-resize' },
-                       { h: 'ne', top: '-8px', left: 'calc(100% - 8px)', cursor: 'ne-resize' },
-                       { h: 'sw', top: 'calc(100% - 8px)', left: '-8px', cursor: 'sw-resize' },
-                       { h: 'se', top: 'calc(100% - 8px)', left: 'calc(100% - 8px)', cursor: 'se-resize' },
-                     ].map((item) => (
-                       <div
-                         key={item.h}
-                         style={{
-                           position: "absolute",
-                           top: item.top,
-                           left: item.left,
-                           width: "16px",
-                           height: "16px",
-                           backgroundColor: "#fff",
-                           border: "2px solid #d15158",
-                           borderRadius: "50%",
-                           cursor: item.cursor,
-                           zIndex: 10,
-                           boxShadow: "0 2px 4px rgba(0,0,0,0.3)",
-                           boxSizing: "border-box",
-                         }}
-                         onMouseDown={(e) => handleInteractionStart(e, 'resizing', item.h as ResizeHandle)}
-                         onTouchStart={(e) => handleInteractionStart(e, 'resizing', item.h as ResizeHandle)}
-                       />
-                     ))}
-                   </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* 保存成功提示 */}
-          {saveToastVisible && (
-            <div
-              style={{
-                position: "fixed",
-                top: "50%",
-                left: "50%",
-                transform: "translate(-50%, -50%)",
-                backgroundColor: "rgba(0, 0, 0, 0.8)",
-                color: "#fff",
-                padding: "12px 24px",
-                borderRadius: "8px",
-                zIndex: 200,
-                fontSize: "16px",
-                pointerEvents: "none",
-                animation: "fadeIn 0.2s ease-out",
-              }}
-            >
-              保存成功
-            </div>
-          )}
-
+              } else {
+                setAutoScroll(false);
+              }
+            }}
+            onAddBookmark={addBookmark}
+            onOpenMore={() => setMoreDrawerOpen(true)}
+          />
+          <MoreDrawer
+            visible={moreDrawerOpen}
+            onClose={() => {
+              setMoreDrawerOpen(false);
+              setUiVisible(false);
+            }}
+            onCapture={handleCapture}
+            onSettings={() => {
+              setMoreDrawerOpen(false);
+              navigate("/settings");
+            }}
+          />
+          <CropOverlay
+            visible={cropMode}
+            capturedImage={capturedImage}
+            onClose={() => {
+              setCropMode(false);
+              setCapturedImage(null);
+              setUiVisible(false);
+            }}
+          />
         </div>
       </div>
     </div>
