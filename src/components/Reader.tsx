@@ -624,6 +624,7 @@ export const Reader: React.FC = () => {
       // 展示短暂气泡提示
       setBookmarkToastText("书签已添加");
       setBookmarkToastVisible(true);
+      setUiVisible(false);
       setTimeout(() => setBookmarkToastVisible(false), 1200);
     } catch (e) {
       console.error("添加书签失败", e);
