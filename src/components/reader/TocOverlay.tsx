@@ -25,6 +25,7 @@ export const TocOverlay: React.FC<TocOverlayProps> = ({
 }) => {
   const [leftTab, setLeftTab] = useState<"toc" | "bookmark">("toc");
   const tocItemRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // 自动滚动到当前章节
   React.useEffect(() => {
@@ -32,8 +33,16 @@ export const TocOverlay: React.FC<TocOverlayProps> = ({
       // 稍微延迟以确保渲染完成
       setTimeout(() => {
         const el = tocItemRefs.current.get(currentChapterPage);
-        if (el) {
-          el.scrollIntoView({ block: "center", behavior: "auto" });
+        const container = scrollContainerRef.current;
+        if (el && container) {
+          const top = el.offsetTop;
+          const containerHeight = container.clientHeight;
+          const elHeight = el.offsetHeight;
+
+          container.scrollTo({
+            top: top - containerHeight / 2 + elHeight / 2,
+            behavior: "auto",
+          });
         }
       }, 100);
     }
@@ -147,15 +156,17 @@ export const TocOverlay: React.FC<TocOverlayProps> = ({
           backgroundColor: "#1f1f1f",
           color: "#fff",
           borderRadius: "0 10px 10px 0",
-          overflowY: "auto",
-          padding: "16px",
+          display: "flex",
+          flexDirection: "column",
           boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+          overflow: "hidden",
         }}
-        className="no-scrollbar"
       >
-        {/* 顶部页签：目录 / 书签（图标与文字贴近） */}
+        {/* 顶部页签：目录 / 书签（固定在顶部） */}
         <div
           style={{
+            padding: "16px 16px 0 16px",
+            flexShrink: 0,
             display: "flex",
             alignItems: "center",
             gap: "16px",
@@ -199,85 +210,97 @@ export const TocOverlay: React.FC<TocOverlayProps> = ({
             <span>书签</span>
           </button>
         </div>
-        {/* 内容区：目录或书签列表 */}
-        {leftTab === "toc" ? (
-          toc.length === 0 ? (
-            <div style={{ fontSize: "13px", opacity: 0.6 }}>
-              无目录信息
+
+        {/* 内容区：目录或书签列表（可滚动） */}
+        <div
+          ref={scrollContainerRef}
+          className="no-scrollbar"
+          style={{
+            flex: 1,
+            overflowY: "auto",
+            padding: "0 16px 16px 16px",
+            position: "relative",
+          }}
+        >
+          {leftTab === "toc" ? (
+            toc.length === 0 ? (
+              <div style={{ fontSize: "13px", opacity: 0.6 }}>
+                无目录信息
+              </div>
+            ) : (
+              <div>{renderTocTree(toc, 0)}</div>
+            )
+          ) : bookmarks.length === 0 ? (
+            <div
+              style={{
+                fontSize: "13px",
+                opacity: 0.6,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                height: "100%",
+              }}
+            >
+              没有添加书签
             </div>
           ) : (
-            <div>{renderTocTree(toc, 0)}</div>
-          )
-        ) : bookmarks.length === 0 ? (
-          <div
-            style={{
-              fontSize: "13px",
-              opacity: 0.6,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              height: "100%",
-            }}
-          >
-            没有添加书签
-          </div>
-        ) : (
-          <div>
-            {bookmarks.map((bm) => (
-              <div
-                key={bm.id}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  padding: "6px 8px",
-                  borderRadius: "6px",
-                  cursor: "pointer",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.backgroundColor = "#2a2a2a";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = "transparent";
-                }}
-                onClick={() => {
-                  onGoToPage(bm.page_number);
-                }}
-              >
+            <div>
+              {bookmarks.map((bm) => (
                 <div
+                  key={bm.id}
                   style={{
                     display: "flex",
                     alignItems: "center",
-                    gap: "8px",
-                  }}
-                >
-                  <span style={{ fontSize: "13px", color: "#fff" }}>
-                    {bm.title}
-                  </span>
-                  <span style={{ fontSize: "12px", opacity: 0.7 }}>
-                    第 {bm.page_number} 页
-                  </span>
-                </div>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDeleteBookmark(bm.id);
-                  }}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    color: "#ccc",
+                    justifyContent: "space-between",
+                    padding: "6px 8px",
+                    borderRadius: "6px",
                     cursor: "pointer",
-                    fontSize: "12px",
                   }}
-                  title="删除书签"
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = "#2a2a2a";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = "transparent";
+                  }}
+                  onClick={() => {
+                    onGoToPage(bm.page_number);
+                  }}
                 >
-                  ✕
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                    }}
+                  >
+                    <span style={{ fontSize: "13px", color: "#fff" }}>
+                      {bm.title}
+                    </span>
+                    <span style={{ fontSize: "12px", opacity: 0.7 }}>
+                      第 {bm.page_number} 页
+                    </span>
+                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDeleteBookmark(bm.id);
+                    }}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "#ccc",
+                      cursor: "pointer",
+                      fontSize: "12px",
+                    }}
+                    title="删除书签"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
