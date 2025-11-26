@@ -33,6 +33,56 @@ import { MoreDrawer } from "./reader/MoreDrawer";
 import { CropOverlay } from "./reader/CropOverlay";
 import { TocNode } from "./reader/types";
 
+const findActiveNodeSignature = (
+  current: number,
+  progress: number,
+  isPageFullyVisible: boolean,
+  nodes: TocNode[]
+): string | null => {
+  // 1. 收集当前页的所有节点
+  const nodesOnPage: { node: TocNode, level: number }[] = [];
+  const traverse = (list: TocNode[], level: number) => {
+    for (const node of list) {
+      if (node.page === current) {
+        nodesOnPage.push({ node, level });
+      }
+      if (node.children) traverse(node.children, level + 1);
+    }
+  };
+  traverse(nodes, 0);
+
+  if (nodesOnPage.length > 0) {
+    if (isPageFullyVisible) {
+      // 如果页面完全可见，选中该页最后一个节点（视为已阅读完该页内容）
+      const target = nodesOnPage[nodesOnPage.length - 1];
+      return `${target.node.title}|${target.node.page}|${target.level}`;
+    }
+    // 根据进度选择节点
+    const index = Math.min(Math.floor(progress * nodesOnPage.length), nodesOnPage.length - 1);
+    const target = nodesOnPage[index];
+    return `${target.node.title}|${target.node.page}|${target.level}`;
+  }
+
+  // 2. 如果当前页无节点，查找当前页之前的最后一个节点
+  let lastNode: { node: TocNode, level: number } | null = null;
+  const traverseLast = (list: TocNode[], level: number) => {
+    for (const node of list) {
+        if (node.page && node.page < current) {
+            lastNode = { node, level };
+        }
+        if (node.children) traverseLast(node.children, level + 1);
+    }
+  };
+  traverseLast(nodes, 0);
+  
+  if (lastNode) {
+      const n = lastNode as { node: TocNode, level: number };
+      return `${n.node.title}|${n.node.page}|${n.level}`;
+  }
+  
+  return null;
+}
+
 export const Reader: React.FC = () => {
   const { bookId } = useParams<{ bookId: string }>();
   const navigate = useNavigate();
@@ -89,6 +139,7 @@ export const Reader: React.FC = () => {
   // 截图裁切
   const [cropMode, setCropMode] = useState(false);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [activeNodeSignature, setActiveNodeSignature] = useState<string | undefined>(undefined);
 
   const handleCapture = async () => {
     let dataUrl = "";
@@ -203,7 +254,11 @@ export const Reader: React.FC = () => {
 
   useEffect(() => {
     currentPageRef.current = currentPage;
-  }, [currentPage]);
+    if (readingMode === "horizontal") {
+      const sig = findActiveNodeSignature(currentPage, 1.0, true, toc);
+      setActiveNodeSignature(sig || undefined);
+    }
+  }, [currentPage, readingMode, toc]);
 
   // 监听窗口大小变化（解决拉伸模糊问题，适配横向/纵向模式）
   useEffect(() => {
@@ -616,23 +671,6 @@ export const Reader: React.FC = () => {
   };
 
   const currentChapterPageVal = findCurrentChapterPage(toc);
-  const findCurrentChapterLevel = (nodes: TocNode[], targetPage?: number): number | undefined => {
-    if (typeof targetPage !== 'number') return undefined;
-    let bestLevel: number | undefined = undefined;
-    const walk = (ns: TocNode[], level: number) => {
-      for (const n of ns) {
-        if (n.page === targetPage) {
-          if (bestLevel === undefined || level > bestLevel) bestLevel = level;
-        }
-        if (n.children && n.children.length) walk(n.children, level + 1);
-      }
-    };
-    walk(nodes, 0);
-    return bestLevel;
-  };
-  const currentChapterLevelVal = findCurrentChapterLevel(toc, currentChapterPageVal);
-
-  // 根据当前位置生成书签标题：优先使用章节标题，否则使用“第 X 页”
   const getBookmarkTitleForCurrent = (): string => {
     const chapterPage = currentChapterPageVal;
     if (typeof chapterPage === "number") {
@@ -1054,6 +1092,19 @@ export const Reader: React.FC = () => {
           bookService.updateBookProgress(book.id!, bestPage).catch(() => {});
         }
       }
+
+      // 计算当前页阅读进度和对应的目录节点
+      const canvas = verticalCanvasRefs.current.get(bestPage);
+      if (canvas && activeContainer) {
+        const rect = canvas.getBoundingClientRect();
+        // 计算视口中心在页面中的相对位置作为进度
+        let progress = (centerY - rect.top) / rect.height;
+        progress = Math.max(0, Math.min(1, progress));
+        
+        const isPageFullyVisible = rect.height <= activeContainer.clientHeight;
+        const sig = findActiveNodeSignature(bestPage, progress, isPageFullyVisible, toc);
+        setActiveNodeSignature(sig || undefined);
+      }
     };
 
     const onScroll = () => {
@@ -1083,7 +1134,7 @@ export const Reader: React.FC = () => {
         verticalScrollRafRef.current = null;
       }
     };
-  }, [readingMode, book, isSeeking, totalPages, loading]);
+  }, [readingMode, book, isSeeking, totalPages, loading, toc]);
 
   // 自动滚动：根据阅读模式分别处理（横向自动翻页，纵向持续滚动）
   useEffect(() => {
@@ -1370,8 +1421,7 @@ export const Reader: React.FC = () => {
         visible={tocOverlayOpen}
         toc={toc}
         bookmarks={bookmarks}
-        currentChapterPage={currentChapterPageVal}
-        currentChapterLevel={currentChapterLevelVal}
+        activeSignature={activeNodeSignature}
         onClose={() => {
           setTocOverlayOpen(false);
           setUiVisible(false);

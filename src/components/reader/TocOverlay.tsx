@@ -6,8 +6,7 @@ interface TocOverlayProps {
   visible: boolean;
   toc: TocNode[];
   bookmarks: IBookmark[];
-  currentChapterPage: number | undefined;
-  currentChapterLevel?: number | undefined;
+  activeSignature?: string | undefined;
   onClose: () => void;
   onGoToPage: (page: number) => void;
   onDeleteBookmark: (id: number) => void;
@@ -18,8 +17,7 @@ export const TocOverlay: React.FC<TocOverlayProps> = ({
   visible,
   toc,
   bookmarks,
-  currentChapterPage,
-  currentChapterLevel,
+  activeSignature,
   onClose,
   onGoToPage,
   onDeleteBookmark,
@@ -28,13 +26,12 @@ export const TocOverlay: React.FC<TocOverlayProps> = ({
   const [leftTab, setLeftTab] = useState<"toc" | "bookmark">("toc");
   const tocItemRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const [activeSig, setActiveSig] = useState<string | undefined>(undefined);
 
   // 自动滚动到当前章节
   React.useEffect(() => {
-    if (visible && activeSig) {
+    if (visible && activeSignature) {
       setTimeout(() => {
-        const el = tocItemRefs.current.get(activeSig);
+        const el = tocItemRefs.current.get(activeSignature);
         const container = scrollContainerRef.current;
         if (el && container) {
           const top = el.offsetTop;
@@ -47,7 +44,7 @@ export const TocOverlay: React.FC<TocOverlayProps> = ({
         }
       }, 100);
     }
-  }, [visible, activeSig]);
+  }, [visible, activeSignature]);
 
   const renderTocTree = (nodes: TocNode[], level: number): React.ReactNode => {
     const indent = 10 + level * 14;
@@ -55,7 +52,7 @@ export const TocOverlay: React.FC<TocOverlayProps> = ({
       const hasChildren = !!(node.children && node.children.length);
       const caret = hasChildren ? (node.expanded ? "▼" : "▶") : "•";
       const sig = `${node.title}|${typeof node.page === "number" ? node.page : -1}|${level}`;
-      const isActive = activeSig === sig;
+      const isActive = activeSignature === sig;
       return (
         <div key={`${level}-${idx}`} style={{ marginLeft: indent }}>
           <div
@@ -132,32 +129,29 @@ export const TocOverlay: React.FC<TocOverlayProps> = ({
   // 自动展开当前章节路径，仅在弹层打开时执行
   React.useEffect(() => {
     if (!visible) return;
-    if (typeof currentChapterPage !== "number") return;
-    // 寻找最深匹配节点路径
+    if (!activeSignature) return;
+
+    // 解析 signature 获取目标信息，或者直接通过 signature 匹配节点路径
     const findPath = (nodes: TocNode[], level: number, path: TocNode[]): TocNode[] | null => {
-      let best: TocNode[] | null = null;
       for (const n of nodes) {
+        const currentSig = `${n.title}|${typeof n.page === "number" ? n.page : -1}|${level}`;
         const nextPath = [...path, n];
-        const isMatch = n.page === currentChapterPage &&
-          (typeof currentChapterLevel !== "number" || currentChapterLevel === level);
-        if (isMatch) {
-          best = nextPath;
+        
+        if (currentSig === activeSignature) {
+            return nextPath;
         }
+
         if (n.children && n.children.length) {
-          const childBest = findPath(n.children, level + 1, nextPath);
-          if (childBest) {
-            // 选择更深的路径
-            if (!best || childBest.length > best.length) best = childBest;
-          }
+          const childResult = findPath(n.children, level + 1, nextPath);
+          if (childResult) return childResult;
         }
       }
-      return best;
+      return null;
     };
 
     const path = findPath(toc, 0, []);
     if (!path) return;
-    const last = path[path.length - 1];
-    setActiveSig(`${last.title}|${typeof last.page === "number" ? last.page : -1}|${path.length - 1}`);
+
     // 根据路径展开父链，其余保持当前状态
     const expandAlongPath = (nodes: TocNode[], level: number): TocNode[] => {
       return nodes.map((n) => {
@@ -172,7 +166,7 @@ export const TocOverlay: React.FC<TocOverlayProps> = ({
     };
     setToc(expandAlongPath(toc, 0));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, currentChapterPage, currentChapterLevel]);
+  }, [visible, activeSignature]);
 
   if (!visible) return null;
 
