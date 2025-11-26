@@ -11,6 +11,7 @@ use crate::pdf::performance::{PerformanceMonitor, PerformanceTimer};
 
 /// PDF 渲染器，负责将 PDF 页面渲染为图像
 pub struct PdfRenderer {
+    file_path: String,
     cache: CacheManager,
     thumb_cache: CacheManager,
     performance_monitor: Option<PerformanceMonitor>,
@@ -19,8 +20,9 @@ pub struct PdfRenderer {
 
 impl PdfRenderer {
     /// 创建新的渲染器
-    pub fn new(pdfium: Arc<Pdfium>) -> Self {
+    pub fn new(file_path: String, pdfium: Arc<Pdfium>) -> Self {
         Self {
+            file_path,
             cache: CacheManager::new(),
             thumb_cache: CacheManager::with_limits(16 * 1024 * 1024, 64),
             performance_monitor: Some(PerformanceMonitor::new()),
@@ -29,8 +31,9 @@ impl PdfRenderer {
     }
 
     /// 使用指定的缓存管理器创建渲染器
-    pub fn with_cache(pdfium: Arc<Pdfium>, cache: CacheManager) -> Self {
+    pub fn with_cache(file_path: String, pdfium: Arc<Pdfium>, cache: CacheManager) -> Self {
         Self {
+            file_path,
             cache,
             thumb_cache: CacheManager::with_limits(16 * 1024 * 1024, 64),
             performance_monitor: Some(PerformanceMonitor::new()),
@@ -79,6 +82,7 @@ impl PdfRenderer {
 
         // 同步检查缓存（使用 blocking 方式）
         let cache_key = CacheKey::new(
+            self.file_path.clone(),
             page_number,
             options.quality.clone(),
             target_width,
@@ -165,6 +169,7 @@ impl PdfRenderer {
 
         // 检查缓存
         let cache_key = CacheKey::new(
+            self.file_path.clone(),
             page_number,
             options.quality.clone(),
             target_width,
@@ -684,13 +689,14 @@ impl PdfRenderer {
 
     /// 清除指定页面的缓存
     pub async fn clear_page_cache(&self, page_number: u32) {
-        self.cache.clear_page(page_number).await;
+        self.cache.clear_page(&self.file_path, page_number).await;
     }
 }
 
 impl Clone for PdfRenderer {
     fn clone(&self) -> Self {
         Self {
+            file_path: self.file_path.clone(),
             cache: self.cache.clone(),
             thumb_cache: self.thumb_cache.clone(),
             performance_monitor: self.performance_monitor.clone(),

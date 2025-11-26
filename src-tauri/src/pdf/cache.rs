@@ -58,10 +58,10 @@ impl CacheManager {
         sizes.clear();
     }
 
-    pub async fn clear_page(&self, page_number: u32) {
+    pub async fn clear_page(&self, file_path: &str, page_number: u32) {
         let keys: Vec<CacheKey> = {
             let sizes = self.sizes.read().await;
-            sizes.keys().filter(|k| k.page_number == page_number).cloned().collect()
+            sizes.keys().filter(|k| k.file_path == file_path && k.page_number == page_number).cloned().collect()
         };
         for k in keys.iter() {
             self.cache.invalidate(k).await;
@@ -147,7 +147,7 @@ mod tests {
     async fn test_cache_basic_operations() {
         let cache = CacheManager::with_limits(1024 * 1024, 10);
         
-        let key = CacheKey::new(1, RenderQuality::Standard, 800, 600);
+        let key = CacheKey::new("test.pdf".to_string(), 1, RenderQuality::Standard, 800, 600);
         let data = RenderResult {
             image_data: vec![0u8; 1000],
             width: 800,
@@ -177,7 +177,7 @@ mod tests {
         
         // 插入3个条目
         for i in 1..=3 {
-            let key = CacheKey::new(i, RenderQuality::Standard, 800, 600);
+            let key = CacheKey::new("test.pdf".to_string(), i, RenderQuality::Standard, 800, 600);
             let data = RenderResult {
                 image_data: vec![0u8; 1000],
                 width: 800,
@@ -188,11 +188,11 @@ mod tests {
         }
 
         // 访问第1个条目，增加其访问计数
-        let key1 = CacheKey::new(1, RenderQuality::Standard, 800, 600);
+        let key1 = CacheKey::new("test.pdf".to_string(), 1, RenderQuality::Standard, 800, 600);
         cache.get(&key1).await;
 
         // 插入第4个条目，应该触发淘汰
-        let key4 = CacheKey::new(4, RenderQuality::Standard, 800, 600);
+        let key4 = CacheKey::new("test.pdf".to_string(), 4, RenderQuality::Standard, 800, 600);
         let data4 = RenderResult {
             image_data: vec![0u8; 1000],
             width: 800,

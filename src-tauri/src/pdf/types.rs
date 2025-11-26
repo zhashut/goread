@@ -154,6 +154,7 @@ pub struct PdfOutline {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct CacheKey {
+    pub file_path: String,
     pub page_number: u32,
     pub quality: RenderQuality,
     pub width: u32,
@@ -161,8 +162,9 @@ pub struct CacheKey {
 }
 
 impl CacheKey {
-    pub fn new(page_number: u32, quality: RenderQuality, width: u32, height: u32) -> Self {
+    pub fn new(file_path: String, page_number: u32, quality: RenderQuality, width: u32, height: u32) -> Self {
         Self {
+            file_path,
             page_number,
             quality,
             width,

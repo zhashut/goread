@@ -199,6 +199,7 @@ impl PdfEngine {
             };
             
             let cache_key = CacheKey::new(
+                self.file_path.clone(),
                 page_number,
                 options.quality.clone(),
                 target_width,
@@ -230,7 +231,7 @@ impl PdfEngine {
             println!("[backend] 页面 {} 文档加载耗时: {}ms", page_number, load_time.as_millis());
             
             let render_start = std::time::Instant::now();
-            let renderer = PdfRenderer::with_cache(pdfium.clone(), cache);
+            let renderer = PdfRenderer::with_cache(file_path.clone(), pdfium.clone(), cache);
             let result = renderer.render_page_sync(&document, page_number, options)?;
             
             let render_time = render_start.elapsed();
@@ -271,7 +272,7 @@ impl PdfEngine {
         };
 
         let quality_str = match options.quality { RenderQuality::Thumbnail => "thumb", RenderQuality::Standard => "std", RenderQuality::High => "high", RenderQuality::Best => "best" };
-        let cache_key = CacheKey::new(page_number, options.quality.clone(), target_width, target_height);
+        let cache_key = CacheKey::new(self.file_path.clone(), page_number, options.quality.clone(), target_width, target_height);
 
         // 命中缓存：用缓存的格式命名文件
         if let Some(cached) = self.cache.get(&cache_key).await {
@@ -315,7 +316,7 @@ impl PdfEngine {
                 .load_pdf_from_file(&file_path, None)
                 .map_err(|e| PdfError::FileNotFound { path: file_path.clone(), source: e.to_string() })?;
 
-            let renderer = PdfRenderer::with_cache(pdfium.clone(), cache);
+            let renderer = PdfRenderer::with_cache(file_path.clone(), pdfium.clone(), cache);
             renderer.render_page_tile_sync(&document, page_number, region, options)
         })
         .await
@@ -345,7 +346,7 @@ impl PdfEngine {
                     source: e.to_string(),
                 })?;
             
-            let renderer = PdfRenderer::with_cache(pdfium.clone(), cache);
+            let renderer = PdfRenderer::with_cache(file_path.clone(), pdfium.clone(), cache);
             let mut results = Vec::new();
             for page_num in start..=end {
                 let result = renderer.render_page_sync(&document, page_num, options.clone())?;
@@ -382,7 +383,7 @@ impl PdfEngine {
                             source: e.to_string(),
                         })?;
                     
-                    let renderer = PdfRenderer::with_cache(pdfium.clone(), cache);
+                    let renderer = PdfRenderer::with_cache(file_path.clone(), pdfium.clone(), cache);
                     renderer.render_page_sync(&document, page_num, options)
                 })
             })
@@ -643,7 +644,7 @@ impl PdfEngine {
 
     /// 清除指定页面的缓存
     pub async fn clear_page_cache(&self, page_number: u32) {
-        self.cache.clear_page(page_number).await;
+        self.cache.clear_page(&self.file_path, page_number).await;
     }
 
     /// 关闭文档
@@ -669,7 +670,7 @@ impl PdfEngine {
                     source: e.to_string(),
                 })?;
             
-            let renderer = PdfRenderer::with_cache(pdfium.clone(), cache);
+            let renderer = PdfRenderer::with_cache(file_path.clone(), pdfium.clone(), cache);
             for page in pages_to_render {
                 let options = RenderOptions {
                     quality: quality.clone(),
@@ -705,7 +706,7 @@ impl PdfEngine {
                     source: e.to_string(),
                 })?;
             
-            let renderer = PdfRenderer::with_cache(pdfium.clone(), cache);
+            let renderer = PdfRenderer::with_cache(file_path.clone(), pdfium.clone(), cache);
             for page in start..=end {
                 let options = RenderOptions {
                     quality: quality.clone(),
@@ -746,7 +747,7 @@ impl PdfEngine {
                     source: e.to_string(),
                 })?;
             
-            let renderer = PdfRenderer::with_cache(pdfium.clone(), cache);
+            let renderer = PdfRenderer::with_cache(file_path.clone(), pdfium.clone(), cache);
             
             // 渐进式渲染：先低质量，再高质量
             let qualities = vec![RenderQuality::Thumbnail, RenderQuality::Standard, RenderQuality::High];
@@ -781,7 +782,7 @@ impl PdfEngine {
                     source: e.to_string(),
                 })?;
             
-            let renderer = PdfRenderer::with_cache(pdfium.clone(), cache);
+            let renderer = PdfRenderer::with_cache(file_path.clone(), pdfium.clone(), cache);
             let mut results = Vec::new();
             for page_num in page_numbers {
                 let result = renderer.render_page_sync(&document, page_num, options.clone());
