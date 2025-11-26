@@ -53,8 +53,10 @@ export const BookCard: React.FC<CommonBookCardProps> = ({
   if (onLongPress) {
     useLongPress(cardRef as any, () => onLongPress(), { delay: 500 });
   }
+  // 如果没有阅读时间，视为未读（避免刚导入显示0.1%）
+  const isUnread = !book.last_read_time;
   const progress =
-    book.total_pages > 0
+    !isUnread && book.total_pages > 0
       ? Math.min(
           100,
           Math.round((book.current_page / book.total_pages) * 1000) / 10
