@@ -58,7 +58,7 @@ export const BottomBar: React.FC<BottomBarProps> = ({
       onTouchEnd={(e) => e.stopPropagation()}
       onWheel={(e) => e.stopPropagation()}
       style={{
-        position: "absolute",
+        position: "fixed",
         left: 0,
         right: 0,
         transform: "none",

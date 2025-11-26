@@ -1209,6 +1209,7 @@ export const Reader: React.FC = () => {
               }
             }
           }}
+          className="no-scrollbar"
           style={{
             flex: 1,
             display: "flex",
@@ -1220,24 +1221,6 @@ export const Reader: React.FC = () => {
           }}
           ref={mainViewRef}
         >
-          <TopBar
-            visible={(uiVisible || isSeeking || tocOverlayOpen) && !moreDrawerOpen}
-            bookTitle={book?.title}
-            onBack={() => {
-              const state: any = location.state || {};
-              if (typeof state.fromGroupId === "number") {
-                navigate(`/?tab=all&group=${state.fromGroupId}`);
-              } else if (state.fromTab === "all") {
-                navigate("/?tab=all");
-              } else if (state.fromTab === "recent") {
-                navigate("/");
-              } else if (window.history.length > 1) {
-                navigate(-1);
-              } else {
-                navigate("/");
-              }
-            }}
-          />
           {readingMode === "horizontal" ? (
             <canvas
               ref={canvasRef}
@@ -1282,205 +1265,223 @@ export const Reader: React.FC = () => {
             </div>
           )}
 
-          {/* 顶部页码气泡：贴紧顶部栏最左侧下方，顶部栏可见时下移；不因“显示状态栏”而强制显示 */}
-          {(uiVisible || isSeeking) && !moreDrawerOpen &&
-            (() => {
-              const toolbarVisible = uiVisible || isSeeking || tocOverlayOpen;
-              const baseOffsetPx = toolbarVisible ? 72 : 14;
-              const safeInset = settings.showStatusBar
-                ? "env(safe-area-inset-top)"
-                : "0px";
-              return (
-                <div
-                  style={{
-                    position: "absolute",
-                    top: `calc(${safeInset} + ${baseOffsetPx}px)`,
-                    // 顶部覆盖层已满宽，严格对齐其左内边距（含安全区）
-                    left: "calc(env(safe-area-inset-left) + 12px)",
-                    display: "block",
-                    pointerEvents: "none",
-                    zIndex: 11,
-                  }}
-                >
-                  <div
-                    style={{
-                      padding: "6px 12px",
-                      borderRadius: "18px",
-                      backgroundColor: "rgba(0,0,0,0.75)",
-                      color: "#fff",
-                      fontSize: "12px",
-                      boxShadow: "0 2px 6px rgba(0,0,0,0.25)",
-                    }}
-                  >
-                    {isSeeking && seekPage !== null ? seekPage : currentPage} /{" "}
-                    {totalPages}
-                  </div>
-                </div>
-              );
-            })()}
-
-          <TocOverlay
-            visible={tocOverlayOpen}
-            toc={toc}
-            bookmarks={bookmarks}
-            currentChapterPage={currentChapterPageVal}
-            onClose={() => {
-              setTocOverlayOpen(false);
-              setUiVisible(false);
-            }}
-            onGoToPage={(page) => {
-              goToPage(page);
-              setTocOverlayOpen(false);
-              setUiVisible(false);
-            }}
-            onDeleteBookmark={deleteBookmark}
-            setToc={setToc}
-          />
-
-          <ModeOverlay
-            visible={modeOverlayOpen}
-            readingMode={readingMode}
-            onClose={() => {
-              setModeOverlayOpen(false);
-              setUiVisible(false);
-            }}
-            onChangeMode={(mode) => {
-              setReadingMode(mode);
-              setSettings((prev) => {
-                const next = {
-                  ...prev,
-                  readingMode: mode,
-                } as ReaderSettings;
-                saveReaderSettings({ readingMode: mode });
-                return next;
-              });
-              setModeOverlayOpen(false);
-              setUiVisible(false);
-            }}
-          />
-
-          <BottomBar
-            visible={(uiVisible || isSeeking) && !tocOverlayOpen && !modeOverlayOpen && !moreDrawerOpen}
-            currentPage={currentPage}
-            totalPages={totalPages}
-            isSeeking={isSeeking}
-            seekPage={seekPage}
-            readingMode={readingMode}
-            autoScroll={autoScroll}
-            tocOverlayOpen={tocOverlayOpen}
-            modeOverlayOpen={modeOverlayOpen}
-            moreDrawerOpen={moreDrawerOpen}
-            onSeekStart={() => {
-              setIsSeeking(true);
-              lastSeekTsRef.current = Date.now();
-            }}
-            onSeekChange={(v) => {
-              setSeekPage(v);
-              lastSeekTsRef.current = Date.now();
-            }}
-            onSeekEnd={async (v) => {
-              setSeekPage(null);
-              setIsSeeking(false);
-              lastSeekTsRef.current = 0;
-              await goToPage(v);
-            }}
-            onPrevChapter={() => {
-              const page = findCurrentChapterPage(toc);
-              if (typeof page === "number" && page < currentPage) {
-                goToPage(page);
-              } else {
-                prevPage();
-              }
-            }}
-            onNextChapter={() => {
-              const pages: number[] = [];
-              const collect = (ns: TocNode[]) => {
-                for (const n of ns) {
-                  if (typeof n.page === "number") pages.push(n.page);
-                  if (n.children && n.children.length)
-                    collect(n.children);
-                }
-              };
-              collect(toc);
-              pages.sort((a, b) => a - b);
-              const target = pages.find((p) => p > currentPage);
-              if (typeof target === "number") {
-                goToPage(target);
-              } else {
-                nextPage();
-              }
-            }}
-            onToggleToc={() => setTocOverlayOpen(true)}
-            onToggleMode={() => setModeOverlayOpen(true)}
-            onToggleAutoScroll={() => {
-              if (!autoScroll) {
-                setAutoScroll(true);
-                setUiVisible(false);
-              } else {
-                setAutoScroll(false);
-              }
-            }}
-            onAddBookmark={addBookmark}
-            onOpenMore={() => setMoreDrawerOpen(true)}
-          />
-          <MoreDrawer
-            visible={moreDrawerOpen}
-            onClose={() => {
-              setMoreDrawerOpen(false);
-              setUiVisible(false);
-            }}
-            onCapture={handleCapture}
-            onSettings={() => {
-              setMoreDrawerOpen(false);
-              navigate("/settings");
-            }}
-          />
-          <CropOverlay
-            visible={cropMode}
-            capturedImage={capturedImage}
-            onClose={() => {
-              setCropMode(false);
-              setCapturedImage(null);
-              setUiVisible(false);
-            }}
-            onSaveSuccess={() => {
-              setBookmarkToastText("保存成功");
-              setBookmarkToastVisible(true);
-              setTimeout(() => setBookmarkToastVisible(false), 2000);
-            }}
-            onSaveError={(msg) => {
-              // 移除可能存在的 "Error: " 前缀，使提示更友好
-              const cleanMsg = msg.replace(/^Error:\s*/i, '');
-              setBookmarkToastText(`保存失败: ${cleanMsg}`);
-              setBookmarkToastVisible(true);
-              setTimeout(() => setBookmarkToastVisible(false), 3000);
-            }}
-          />
-          
-          {/* 全局 Toast 提示 */}
-          {bookmarkToastVisible && (
+        </div>
+      </div>
+      <TopBar
+        visible={(uiVisible || isSeeking || tocOverlayOpen) && !moreDrawerOpen}
+        bookTitle={book?.title}
+        onBack={() => {
+          const state: any = location.state || {};
+          if (typeof state.fromGroupId === "number") {
+            navigate(`/?tab=all&group=${state.fromGroupId}`);
+          } else if (state.fromTab === "all") {
+            navigate("/?tab=all");
+          } else if (state.fromTab === "recent") {
+            navigate("/");
+          } else if (window.history.length > 1) {
+            navigate(-1);
+          } else {
+            navigate("/");
+          }
+        }}
+      />
+      {/* 顶部页码气泡：贴紧顶部栏最左侧下方，顶部栏可见时下移；不因“显示状态栏”而强制显示 */}
+      {(uiVisible || isSeeking) && !moreDrawerOpen &&
+        (() => {
+          const toolbarVisible = uiVisible || isSeeking || tocOverlayOpen;
+          const baseOffsetPx = toolbarVisible ? 72 : 14;
+          const safeInset = settings.showStatusBar
+            ? "env(safe-area-inset-top)"
+            : "0px";
+          return (
             <div
               style={{
                 position: "fixed",
-                bottom: "80px",
-                left: "50%",
-                transform: "translateX(-50%)",
-                padding: "8px 16px",
-                borderRadius: "20px",
-                backgroundColor: "rgba(0,0,0,0.8)",
-                color: "#fff",
-                fontSize: "14px",
-                boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+                top: `calc(${safeInset} + ${baseOffsetPx}px)`,
+                // 顶部覆盖层已满宽，严格对齐其左内边距（含安全区）
+                left: "calc(env(safe-area-inset-left) + 12px)",
+                display: "block",
                 pointerEvents: "none",
-                zIndex: 2000,
-                animation: "fadeIn 0.2s ease-out",
+                zIndex: 11,
               }}
             >
-              {bookmarkToastText}
+              <div
+                style={{
+                  padding: "6px 12px",
+                  borderRadius: "18px",
+                  backgroundColor: "rgba(0,0,0,0.75)",
+                  color: "#fff",
+                  fontSize: "12px",
+                  boxShadow: "0 2px 6px rgba(0,0,0,0.25)",
+                }}
+              >
+                {isSeeking && seekPage !== null ? seekPage : currentPage} /{" "}
+                {totalPages}
+              </div>
             </div>
-          )}
+          );
+        })()}
+
+      <TocOverlay
+        visible={tocOverlayOpen}
+        toc={toc}
+        bookmarks={bookmarks}
+        currentChapterPage={currentChapterPageVal}
+        onClose={() => {
+          setTocOverlayOpen(false);
+          setUiVisible(false);
+        }}
+        onGoToPage={(page) => {
+          goToPage(page);
+          setTocOverlayOpen(false);
+          setUiVisible(false);
+        }}
+        onDeleteBookmark={deleteBookmark}
+        setToc={setToc}
+      />
+
+      <ModeOverlay
+        visible={modeOverlayOpen}
+        readingMode={readingMode}
+        onClose={() => {
+          setModeOverlayOpen(false);
+          setUiVisible(false);
+        }}
+        onChangeMode={(mode) => {
+          setReadingMode(mode);
+          setSettings((prev) => {
+            const next = {
+              ...prev,
+              readingMode: mode,
+            } as ReaderSettings;
+            saveReaderSettings({ readingMode: mode });
+            return next;
+          });
+          setModeOverlayOpen(false);
+          setUiVisible(false);
+        }}
+      />
+
+      <BottomBar
+        visible={(uiVisible || isSeeking) && !tocOverlayOpen && !modeOverlayOpen && !moreDrawerOpen}
+        currentPage={currentPage}
+        totalPages={totalPages}
+        isSeeking={isSeeking}
+        seekPage={seekPage}
+        readingMode={readingMode}
+        autoScroll={autoScroll}
+        tocOverlayOpen={tocOverlayOpen}
+        modeOverlayOpen={modeOverlayOpen}
+        moreDrawerOpen={moreDrawerOpen}
+        onSeekStart={() => {
+          setIsSeeking(true);
+          lastSeekTsRef.current = Date.now();
+        }}
+        onSeekChange={(v) => {
+          setSeekPage(v);
+          lastSeekTsRef.current = Date.now();
+        }}
+        onSeekEnd={async (v) => {
+          setSeekPage(null);
+          setIsSeeking(false);
+          lastSeekTsRef.current = 0;
+          await goToPage(v);
+        }}
+        onPrevChapter={() => {
+          const page = findCurrentChapterPage(toc);
+          if (typeof page === "number" && page < currentPage) {
+            goToPage(page);
+          } else {
+            prevPage();
+          }
+        }}
+        onNextChapter={() => {
+          const pages: number[] = [];
+          const collect = (ns: TocNode[]) => {
+            for (const n of ns) {
+              if (typeof n.page === "number") pages.push(n.page);
+              if (n.children && n.children.length)
+                collect(n.children);
+            }
+          };
+          collect(toc);
+          pages.sort((a, b) => a - b);
+          const target = pages.find((p) => p > currentPage);
+          if (typeof target === "number") {
+            goToPage(target);
+          } else {
+            nextPage();
+          }
+        }}
+        onToggleToc={() => setTocOverlayOpen(true)}
+        onToggleMode={() => setModeOverlayOpen(true)}
+        onToggleAutoScroll={() => {
+          if (!autoScroll) {
+            setAutoScroll(true);
+            setUiVisible(false);
+          } else {
+            setAutoScroll(false);
+          }
+        }}
+        onAddBookmark={addBookmark}
+        onOpenMore={() => setMoreDrawerOpen(true)}
+      />
+      <MoreDrawer
+        visible={moreDrawerOpen}
+        onClose={() => {
+          setMoreDrawerOpen(false);
+          setUiVisible(false);
+        }}
+        onCapture={handleCapture}
+        onSettings={() => {
+          setMoreDrawerOpen(false);
+          navigate("/settings");
+        }}
+      />
+      <CropOverlay
+        visible={cropMode}
+        capturedImage={capturedImage}
+        onClose={() => {
+          setCropMode(false);
+          setCapturedImage(null);
+          setUiVisible(false);
+        }}
+        onSaveSuccess={() => {
+          setBookmarkToastText("保存成功");
+          setBookmarkToastVisible(true);
+          setTimeout(() => setBookmarkToastVisible(false), 2000);
+        }}
+        onSaveError={(msg) => {
+          // 移除可能存在的 "Error: " 前缀，使提示更友好
+          const cleanMsg = msg.replace(/^Error:\s*/i, '');
+          setBookmarkToastText(`保存失败: ${cleanMsg}`);
+          setBookmarkToastVisible(true);
+          setTimeout(() => setBookmarkToastVisible(false), 3000);
+        }}
+      />
+      
+      {/* 全局 Toast 提示 */}
+      {bookmarkToastVisible && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: "80px",
+            left: "50%",
+            transform: "translateX(-50%)",
+            padding: "8px 16px",
+            borderRadius: "20px",
+            backgroundColor: "rgba(0,0,0,0.8)",
+            color: "#fff",
+            fontSize: "14px",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+            pointerEvents: "none",
+            zIndex: 2000,
+            animation: "fadeIn 0.2s ease-out",
+          }}
+        >
+          {bookmarkToastText}
         </div>
-      </div>
+      )}
     </div>
   );
 };

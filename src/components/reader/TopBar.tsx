@@ -19,7 +19,7 @@ export const TopBar: React.FC<TopBarProps> = ({ visible, bookTitle, onBack }) =>
       onTouchEnd={(e) => e.stopPropagation()}
       onWheel={(e) => e.stopPropagation()}
       style={{
-        position: "absolute",
+        position: "fixed",
         top: 0,
         left: 0,
         right: 0,
