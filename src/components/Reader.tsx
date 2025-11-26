@@ -14,6 +14,8 @@ import {
   PageCacheManager,
 } from "../utils/pdfOptimization";
 import { log } from "../services/index";
+import { save } from "@tauri-apps/plugin-dialog";
+import { writeFile } from "@tauri-apps/plugin-fs";
 
 export const Reader: React.FC = () => {
   const { bookId } = useParams<{ bookId: string }>();
@@ -77,6 +79,135 @@ export const Reader: React.FC = () => {
   const [bookmarkToastText, setBookmarkToastText] = useState("");
   // 设置：本地持久化
   const [settings, setSettings] = useState<ReaderSettings>(getReaderSettings());
+
+  // 更多抽屉
+  const [moreDrawerOpen, setMoreDrawerOpen] = useState(false);
+  // 截图裁切
+  const [cropMode, setCropMode] = useState(false);
+  const [capturedImage, setCapturedImage] = useState<string | null>(null);
+  const [cropRect, setCropRect] = useState<{x: number, y: number, w: number, h: number} | null>(null);
+  const [isSelecting, setIsSelecting] = useState(false);
+  const [startPos, setStartPos] = useState<{x: number, y: number} | null>(null);
+  const imageRef = useRef<HTMLImageElement>(null);
+
+  const handleCapture = async () => {
+    let dataUrl = "";
+    try {
+      if (readingMode === "horizontal") {
+        if (canvasRef.current) {
+          dataUrl = canvasRef.current.toDataURL("image/png");
+        }
+      } else {
+        if (verticalScrollRef.current) {
+          const container = verticalScrollRef.current;
+          const width = container.clientWidth;
+          const height = container.clientHeight;
+          const canvas = document.createElement("canvas");
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          if (ctx) {
+            ctx.fillStyle = "#2a2a2a";
+            ctx.fillRect(0, 0, width, height);
+            verticalCanvasRefs.current.forEach((vCanvas, page) => {
+              const rect = vCanvas.getBoundingClientRect();
+              const containerRect = container.getBoundingClientRect();
+              const relativeTop = rect.top - containerRect.top;
+              const relativeLeft = rect.left - containerRect.left;
+              if (relativeTop < height && relativeTop + rect.height > 0) {
+                 ctx.drawImage(vCanvas, relativeLeft, relativeTop);
+              }
+            });
+            dataUrl = canvas.toDataURL("image/png");
+          }
+        }
+      }
+      if (dataUrl) {
+        setCapturedImage(dataUrl);
+        setCropMode(true);
+        setMoreDrawerOpen(false);
+        setUiVisible(false);
+      }
+    } catch (e) {
+      console.error("Capture failed", e);
+    }
+  };
+
+  const handleSaveCrop = async () => {
+    if (!capturedImage || !cropRect || !imageRef.current) return;
+    try {
+      const img = imageRef.current;
+      const canvas = document.createElement("canvas");
+      const scaleX = img.naturalWidth / img.width;
+      const scaleY = img.naturalHeight / img.height;
+      
+      canvas.width = cropRect.w * scaleX;
+      canvas.height = cropRect.h * scaleY;
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.drawImage(
+          img,
+          cropRect.x * scaleX,
+          cropRect.y * scaleY,
+          cropRect.w * scaleX,
+          cropRect.h * scaleY,
+          0,
+          0,
+          canvas.width,
+          canvas.height
+        );
+        
+        const dataUrl = canvas.toDataURL("image/png");
+        const base64Data = dataUrl.split(',')[1];
+        const binaryData = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
+        
+        const path = await save({
+            filters: [{
+                name: 'Image',
+                extensions: ['png', 'jpg']
+            }],
+            defaultPath: `goread_capture_${Date.now()}.png`
+        });
+        
+        if (path) {
+            await writeFile(path, binaryData);
+            setCropMode(false);
+            setCapturedImage(null);
+            setCropRect(null);
+        }
+      }
+    } catch (e) {
+      console.error("Save failed", e);
+    }
+  };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (!imageRef.current) return;
+    const rect = imageRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    setStartPos({ x, y });
+    setIsSelecting(true);
+    setCropRect({ x, y, w: 0, h: 0 });
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (!isSelecting || !startPos || !imageRef.current) return;
+    const rect = imageRef.current.getBoundingClientRect();
+    const currentX = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+    const currentY = Math.max(0, Math.min(e.clientY - rect.top, rect.height));
+    
+    const x = Math.min(startPos.x, currentX);
+    const y = Math.min(startPos.y, currentY);
+    const w = Math.abs(currentX - startPos.x);
+    const h = Math.abs(currentY - startPos.y);
+    
+    setCropRect({ x, y, w, h });
+  };
+
+  const handleMouseUp = () => {
+    setIsSelecting(false);
+  };
   
   // 获取当前渲染倍率 (Scale)
   // 在 App/Web 端，这通常对应设备的像素密度 (DPR)。
@@ -1266,7 +1397,7 @@ export const Reader: React.FC = () => {
           ref={mainViewRef}
         >
           {/* 顶部工具栏覆盖层：与底部控制栏一致的显示/隐藏逻辑 */}
-          {(uiVisible || isSeeking || tocOverlayOpen) && (
+          {(uiVisible || isSeeking || tocOverlayOpen) && !moreDrawerOpen && (
             <div
               onClick={(e) => e.stopPropagation()}
               onMouseDown={(e) => e.stopPropagation()}
@@ -1377,7 +1508,7 @@ export const Reader: React.FC = () => {
           )}
 
           {/* 顶部页码气泡：贴紧顶部栏最左侧下方，顶部栏可见时下移；不因“显示状态栏”而强制显示 */}
-          {(uiVisible || isSeeking) &&
+          {(uiVisible || isSeeking) && !moreDrawerOpen &&
             (() => {
               const toolbarVisible = uiVisible || isSeeking || tocOverlayOpen;
               const baseOffsetPx = toolbarVisible ? 72 : 14;
@@ -1694,7 +1825,7 @@ export const Reader: React.FC = () => {
           )}
 
           {/* 覆盖式底部控制栏（绝对定位），不挤压内容；抽屉打开时隐藏 */}
-          {(uiVisible || isSeeking) && !tocOverlayOpen && !modeOverlayOpen && (
+          {(uiVisible || isSeeking) && !tocOverlayOpen && !modeOverlayOpen && !moreDrawerOpen && (
             <div
               onClick={(e) => e.stopPropagation()}
               onMouseDown={(e) => e.stopPropagation()}
@@ -1992,7 +2123,7 @@ export const Reader: React.FC = () => {
                   }}
                 >
                   <button
-                    onClick={() => navigate("/settings")}
+                    onClick={() => setMoreDrawerOpen(true)}
                     style={{
                       background: "none",
                       border: "none",
@@ -2038,6 +2169,194 @@ export const Reader: React.FC = () => {
               )}
             </div>
           )}
+
+          {/* 更多选项抽屉 */}
+          {moreDrawerOpen && (
+            <div
+              onClick={(e) => {
+                e.stopPropagation();
+                setMoreDrawerOpen(false);
+                setUiVisible(false);
+              }}
+              style={{
+                position: "absolute",
+                inset: 0,
+                backgroundColor: "rgba(0,0,0,0.5)",
+                zIndex: 20,
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "flex-end",
+              }}
+            >
+              <div
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  backgroundColor: "#1f1f1f",
+                  borderRadius: `${BOTTOM_DRAWER_RADIUS}px ${BOTTOM_DRAWER_RADIUS}px 0 0`,
+                  padding: "12px 0",
+                  paddingBottom: "calc(12px + env(safe-area-inset-bottom))",
+                  display: "flex",
+                  flexDirection: "column",
+                  animation: "slideUp 0.3s ease-out",
+                }}
+              >
+                <div
+                  onClick={handleCapture}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    padding: "16px 24px",
+                    cursor: "pointer",
+                    color: "#fff",
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = "#2a2a2a"}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = "transparent"}
+                >
+                  <div style={{ 
+                    fontSize: "20px", 
+                    marginRight: "16px",
+                    width: "24px",
+                    textAlign: "center"
+                  }}>
+                    📷
+                  </div>
+                  <span style={{ fontSize: "16px" }}>导出图片</span>
+                </div>
+
+                <div
+                  onClick={() => {
+                    setMoreDrawerOpen(false);
+                    navigate("/settings");
+                  }}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    padding: "16px 24px",
+                    cursor: "pointer",
+                    color: "#fff",
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = "#2a2a2a"}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = "transparent"}
+                >
+                  <div style={{ 
+                    fontSize: "20px", 
+                    marginRight: "16px",
+                    width: "24px",
+                    textAlign: "center"
+                  }}>
+                    ⚙️
+                  </div>
+                  <span style={{ fontSize: "16px" }}>设置</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 截图裁切层 */}
+          {cropMode && capturedImage && (
+            <div
+              style={{
+                position: "fixed",
+                inset: 0,
+                backgroundColor: "#000",
+                zIndex: 100,
+                display: "flex",
+                flexDirection: "column",
+              }}
+            >
+              {/* 顶部栏 */}
+              <div
+                style={{
+                  height: "50px",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  padding: "0 16px",
+                  backgroundColor: "#1f1f1f",
+                  color: "#fff",
+                }}
+              >
+                <button
+                  onClick={() => {
+                    setCropMode(false);
+                    setCapturedImage(null);
+                    setCropRect(null);
+                  }}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "#fff",
+                    fontSize: "16px",
+                    cursor: "pointer",
+                  }}
+                >
+                  取消
+                </button>
+                <span>裁切图片</span>
+                <button
+                  onClick={handleSaveCrop}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "#d15158",
+                    fontSize: "16px",
+                    cursor: "pointer",
+                    fontWeight: "bold",
+                  }}
+                >
+                  ✔
+                </button>
+              </div>
+              
+              {/* 图片区域 */}
+              <div
+                style={{
+                  flex: 1,
+                  position: "relative",
+                  overflow: "hidden",
+                  display: "flex",
+                  justifyContent: "center",
+                  alignItems: "center",
+                  backgroundColor: "#000",
+                  userSelect: "none",
+                }}
+                onMouseDown={handleMouseDown}
+                onMouseMove={handleMouseMove}
+                onMouseUp={handleMouseUp}
+                onMouseLeave={handleMouseUp}
+              >
+                <img
+                  ref={imageRef}
+                  src={capturedImage}
+                  alt="Capture"
+                  style={{
+                    maxWidth: "100%",
+                    maxHeight: "100%",
+                    display: "block",
+                    pointerEvents: "none",
+                  }}
+                  draggable={false}
+                />
+                
+                {/* 裁切框与遮罩 */}
+                {cropRect && imageRef.current && (
+                   <div
+                     style={{
+                       position: "absolute",
+                       left: imageRef.current.offsetLeft + cropRect.x,
+                       top: imageRef.current.offsetTop + cropRect.y,
+                       width: cropRect.w,
+                       height: cropRect.h,
+                       border: "2px solid #fff",
+                       boxShadow: "0 0 0 9999px rgba(0, 0, 0, 0.5)",
+                       pointerEvents: "none",
+                     }}
+                   />
+                )}
+              </div>
+            </div>
+          )}
+
         </div>
       </div>
     </div>
