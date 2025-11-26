@@ -97,7 +97,12 @@ export const GroupDetail: React.FC<{
         const newItems = arrayMove(items, oldIndex, newIndex);
         
         // 异步保存顺序
-        groupService.reorderGroupBooks(id, newItems.map((b) => b.id)).catch(console.warn);
+        groupService.reorderGroupBooks(id, newItems.map((b) => b.id))
+          .then(() => {
+            // 通知外部更新分组封面（因为前4本书可能变了）
+            window.dispatchEvent(new CustomEvent("goread:groups:changed"));
+          })
+          .catch(console.warn);
         
         return newItems;
       });
