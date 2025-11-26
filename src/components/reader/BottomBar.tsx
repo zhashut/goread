@@ -51,6 +51,7 @@ export const BottomBar: React.FC<BottomBarProps> = ({
 
   return (
     <div
+      data-overlay-state={modeOverlayOpen || moreDrawerOpen ? 'open' : 'closed'}
       onClick={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
       onMouseUp={(e) => e.stopPropagation()}

@@ -111,7 +111,7 @@ export const Reader: React.FC = () => {
           if (ctx) {
             ctx.fillStyle = "#2a2a2a";
             ctx.fillRect(0, 0, canvas.width, canvas.height);
-            verticalCanvasRefs.current.forEach((vCanvas, page) => {
+            verticalCanvasRefs.current.forEach((vCanvas) => {
               const rect = vCanvas.getBoundingClientRect();
               const containerRect = container.getBoundingClientRect();
               const relativeTop = rect.top - containerRect.top;
@@ -383,7 +383,7 @@ export const Reader: React.FC = () => {
               title: n.title || '无标题',
               page: n.page_number || undefined,
               children: toToc(n.children || [], level + 1),
-              expanded: level === 0,
+              expanded: false,
             }));
           };
           const parsed = toToc(outline, 0);
@@ -616,6 +616,21 @@ export const Reader: React.FC = () => {
   };
 
   const currentChapterPageVal = findCurrentChapterPage(toc);
+  const findCurrentChapterLevel = (nodes: TocNode[], targetPage?: number): number | undefined => {
+    if (typeof targetPage !== 'number') return undefined;
+    let bestLevel: number | undefined = undefined;
+    const walk = (ns: TocNode[], level: number) => {
+      for (const n of ns) {
+        if (n.page === targetPage) {
+          if (bestLevel === undefined || level > bestLevel) bestLevel = level;
+        }
+        if (n.children && n.children.length) walk(n.children, level + 1);
+      }
+    };
+    walk(nodes, 0);
+    return bestLevel;
+  };
+  const currentChapterLevelVal = findCurrentChapterLevel(toc, currentChapterPageVal);
 
   // 根据当前位置生成书签标题：优先使用章节标题，否则使用“第 X 页”
   const getBookmarkTitleForCurrent = (): string => {
@@ -1356,6 +1371,7 @@ export const Reader: React.FC = () => {
         toc={toc}
         bookmarks={bookmarks}
         currentChapterPage={currentChapterPageVal}
+        currentChapterLevel={currentChapterLevelVal}
         onClose={() => {
           setTocOverlayOpen(false);
           setUiVisible(false);

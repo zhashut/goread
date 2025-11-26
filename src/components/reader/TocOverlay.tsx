@@ -7,6 +7,7 @@ interface TocOverlayProps {
   toc: TocNode[];
   bookmarks: IBookmark[];
   currentChapterPage: number | undefined;
+  currentChapterLevel?: number | undefined;
   onClose: () => void;
   onGoToPage: (page: number) => void;
   onDeleteBookmark: (id: number) => void;
@@ -18,27 +19,27 @@ export const TocOverlay: React.FC<TocOverlayProps> = ({
   toc,
   bookmarks,
   currentChapterPage,
+  currentChapterLevel,
   onClose,
   onGoToPage,
   onDeleteBookmark,
   setToc,
 }) => {
   const [leftTab, setLeftTab] = useState<"toc" | "bookmark">("toc");
-  const tocItemRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const tocItemRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [activeSig, setActiveSig] = useState<string | undefined>(undefined);
 
   // 自动滚动到当前章节
   React.useEffect(() => {
-    if (visible && typeof currentChapterPage === "number") {
-      // 稍微延迟以确保渲染完成
+    if (visible && activeSig) {
       setTimeout(() => {
-        const el = tocItemRefs.current.get(currentChapterPage);
+        const el = tocItemRefs.current.get(activeSig);
         const container = scrollContainerRef.current;
         if (el && container) {
           const top = el.offsetTop;
           const containerHeight = container.clientHeight;
           const elHeight = el.offsetHeight;
-
           container.scrollTo({
             top: top - containerHeight / 2 + elHeight / 2,
             behavior: "auto",
@@ -46,24 +47,21 @@ export const TocOverlay: React.FC<TocOverlayProps> = ({
         }
       }, 100);
     }
-  }, [visible, currentChapterPage]);
-
-  if (!visible) return null;
+  }, [visible, activeSig]);
 
   const renderTocTree = (nodes: TocNode[], level: number): React.ReactNode => {
     const indent = 10 + level * 14;
     return nodes.map((node, idx) => {
       const hasChildren = !!(node.children && node.children.length);
       const caret = hasChildren ? (node.expanded ? "▼" : "▶") : "•";
-      const isActive =
-        typeof currentChapterPage === "number" &&
-        node.page === currentChapterPage;
+      const sig = `${node.title}|${typeof node.page === "number" ? node.page : -1}|${level}`;
+      const isActive = activeSig === sig;
       return (
         <div key={`${level}-${idx}`} style={{ marginLeft: indent }}>
           <div
             ref={(el) => {
-              if (el && typeof node.page === "number") {
-                tocItemRefs.current.set(node.page, el as HTMLDivElement);
+              if (el) {
+                tocItemRefs.current.set(sig, el as HTMLDivElement);
               }
             }}
             style={{
@@ -130,6 +128,53 @@ export const TocOverlay: React.FC<TocOverlayProps> = ({
       );
     });
   };
+
+  // 自动展开当前章节路径，仅在弹层打开时执行
+  React.useEffect(() => {
+    if (!visible) return;
+    if (typeof currentChapterPage !== "number") return;
+    // 寻找最深匹配节点路径
+    const findPath = (nodes: TocNode[], level: number, path: TocNode[]): TocNode[] | null => {
+      let best: TocNode[] | null = null;
+      for (const n of nodes) {
+        const nextPath = [...path, n];
+        const isMatch = n.page === currentChapterPage &&
+          (typeof currentChapterLevel !== "number" || currentChapterLevel === level);
+        if (isMatch) {
+          best = nextPath;
+        }
+        if (n.children && n.children.length) {
+          const childBest = findPath(n.children, level + 1, nextPath);
+          if (childBest) {
+            // 选择更深的路径
+            if (!best || childBest.length > best.length) best = childBest;
+          }
+        }
+      }
+      return best;
+    };
+
+    const path = findPath(toc, 0, []);
+    if (!path) return;
+    const last = path[path.length - 1];
+    setActiveSig(`${last.title}|${typeof last.page === "number" ? last.page : -1}|${path.length - 1}`);
+    // 根据路径展开父链，其余保持当前状态
+    const expandAlongPath = (nodes: TocNode[], level: number): TocNode[] => {
+      return nodes.map((n) => {
+        const inPath = path.includes(n);
+        const children = n.children ? expandAlongPath(n.children, level + 1) : undefined;
+        return {
+          ...n,
+          expanded: inPath ? true : n.expanded || false,
+          children,
+        };
+      });
+    };
+    setToc(expandAlongPath(toc, 0));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, currentChapterPage, currentChapterLevel]);
+
+  if (!visible) return null;
 
   return (
     <div
