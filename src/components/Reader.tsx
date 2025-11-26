@@ -86,13 +86,25 @@ export const Reader: React.FC = () => {
   const [cropMode, setCropMode] = useState(false);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [cropRect, setCropRect] = useState<{x: number, y: number, w: number, h: number} | null>(null);
-  const [isSelecting, setIsSelecting] = useState(false);
-  const [startPos, setStartPos] = useState<{x: number, y: number} | null>(null);
+  const [saveToastVisible, setSaveToastVisible] = useState(false);
+  
+  // 裁切交互状态
+  type InteractionType = 'none' | 'creating' | 'moving' | 'resizing';
+  type ResizeHandle = 'nw' | 'ne' | 'sw' | 'se';
+  const [interactionState, setInteractionState] = useState<{
+    type: InteractionType;
+    handle?: ResizeHandle;
+    startX: number;
+    startY: number;
+    startRect?: { x: number; y: number; w: number; h: number };
+  }>({ type: 'none', startX: 0, startY: 0 });
+
   const imageRef = useRef<HTMLImageElement>(null);
 
   const handleCapture = async () => {
     let dataUrl = "";
     try {
+      const dpr = getCurrentScale();
       if (readingMode === "horizontal") {
         if (canvasRef.current) {
           dataUrl = canvasRef.current.toDataURL("image/png");
@@ -103,19 +115,27 @@ export const Reader: React.FC = () => {
           const width = container.clientWidth;
           const height = container.clientHeight;
           const canvas = document.createElement("canvas");
-          canvas.width = width;
-          canvas.height = height;
+          // 使用 DPR 提升截图清晰度
+          canvas.width = width * dpr;
+          canvas.height = height * dpr;
           const ctx = canvas.getContext("2d");
           if (ctx) {
             ctx.fillStyle = "#2a2a2a";
-            ctx.fillRect(0, 0, width, height);
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
             verticalCanvasRefs.current.forEach((vCanvas, page) => {
               const rect = vCanvas.getBoundingClientRect();
               const containerRect = container.getBoundingClientRect();
               const relativeTop = rect.top - containerRect.top;
               const relativeLeft = rect.left - containerRect.left;
               if (relativeTop < height && relativeTop + rect.height > 0) {
-                 ctx.drawImage(vCanvas, relativeLeft, relativeTop);
+                 // 绘制时考虑 DPR 缩放
+                 ctx.drawImage(
+                   vCanvas, 
+                   relativeLeft * dpr, 
+                   relativeTop * dpr,
+                   rect.width * dpr,
+                   rect.height * dpr
+                 );
               }
             });
             dataUrl = canvas.toDataURL("image/png");
@@ -134,23 +154,31 @@ export const Reader: React.FC = () => {
   };
 
   const handleSaveCrop = async () => {
-    if (!capturedImage || !cropRect || !imageRef.current) return;
+    if (!capturedImage || !imageRef.current) return;
     try {
       const img = imageRef.current;
+      // 如果没有裁切框，默认使用全图
+      const currentRect = cropRect || {
+        x: 0,
+        y: 0,
+        w: img.width,
+        h: img.height
+      };
+
       const canvas = document.createElement("canvas");
       const scaleX = img.naturalWidth / img.width;
       const scaleY = img.naturalHeight / img.height;
       
-      canvas.width = cropRect.w * scaleX;
-      canvas.height = cropRect.h * scaleY;
+      canvas.width = currentRect.w * scaleX;
+      canvas.height = currentRect.h * scaleY;
       const ctx = canvas.getContext("2d");
       if (ctx) {
         ctx.drawImage(
           img,
-          cropRect.x * scaleX,
-          cropRect.y * scaleY,
-          cropRect.w * scaleX,
-          cropRect.h * scaleY,
+          currentRect.x * scaleX,
+          currentRect.y * scaleY,
+          currentRect.w * scaleX,
+          currentRect.h * scaleY,
           0,
           0,
           canvas.width,
@@ -159,7 +187,12 @@ export const Reader: React.FC = () => {
         
         const dataUrl = canvas.toDataURL("image/png");
         const base64Data = dataUrl.split(',')[1];
-        const binaryData = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
+        const binaryString = atob(base64Data);
+        const len = binaryString.length;
+        const binaryData = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          binaryData[i] = binaryString.charCodeAt(i);
+        }
         
         const path = await save({
             filters: [{
@@ -171,42 +204,139 @@ export const Reader: React.FC = () => {
         
         if (path) {
             await writeFile(path, binaryData);
-            setCropMode(false);
-            setCapturedImage(null);
-            setCropRect(null);
+            setSaveToastVisible(true);
+            setTimeout(() => setSaveToastVisible(false), 2000);
         }
       }
     } catch (e) {
       console.error("Save failed", e);
+    } finally {
+      // 无论保存成功与否（包括用户取消），都退出裁切视图
+      setCropMode(false);
+      setCapturedImage(null);
+      setCropRect(null);
+      setUiVisible(false);
     }
   };
 
-  const handleMouseDown = (e: React.MouseEvent) => {
+  const getEventPos = (e: React.MouseEvent | React.TouchEvent | MouseEvent | TouchEvent) => {
+    if ('touches' in e) {
+      return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    }
+    return { x: (e as React.MouseEvent).clientX, y: (e as React.MouseEvent).clientY };
+  };
+
+  const handleInteractionStart = (
+    e: React.MouseEvent | React.TouchEvent, 
+    type: InteractionType, 
+    handle?: ResizeHandle
+  ) => {
+    // 仅在非多点触控时阻止默认行为（防止滚动）
+    if ('touches' in e && e.touches.length > 1) return;
+    // e.preventDefault(); // 暂时注释，以免影响某些点击行为，视情况开启
+
     if (!imageRef.current) return;
-    const rect = imageRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    setStartPos({ x, y });
-    setIsSelecting(true);
-    setCropRect({ x, y, w: 0, h: 0 });
+    const { x, y } = getEventPos(e);
+    
+    if (type === 'creating') {
+      const rect = imageRef.current.getBoundingClientRect();
+      const relX = x - rect.left;
+      const relY = y - rect.top;
+      setCropRect({ x: relX, y: relY, w: 0, h: 0 });
+      setInteractionState({
+        type,
+        startX: relX,
+        startY: relY,
+      });
+    } else {
+      e.stopPropagation(); // 阻止冒泡，防止触发 creating
+      setInteractionState({
+        type,
+        handle,
+        startX: x,
+        startY: y,
+        startRect: cropRect ? { ...cropRect } : undefined
+      });
+    }
   };
 
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isSelecting || !startPos || !imageRef.current) return;
-    const rect = imageRef.current.getBoundingClientRect();
-    const currentX = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
-    const currentY = Math.max(0, Math.min(e.clientY - rect.top, rect.height));
+  const handleInteractionMove = (e: React.MouseEvent | React.TouchEvent) => {
+    const state = interactionState;
+    if (state.type === 'none' || !imageRef.current) return;
+    e.preventDefault(); // 拖动时阻止滚动
+
+    const { x: clientX, y: clientY } = getEventPos(e);
+    const imgRect = imageRef.current.getBoundingClientRect();
     
-    const x = Math.min(startPos.x, currentX);
-    const y = Math.min(startPos.y, currentY);
-    const w = Math.abs(currentX - startPos.x);
-    const h = Math.abs(currentY - startPos.y);
-    
-    setCropRect({ x, y, w, h });
+    // 限制坐标在图片范围内
+    const relX = Math.max(0, Math.min(clientX - imgRect.left, imgRect.width));
+    const relY = Math.max(0, Math.min(clientY - imgRect.top, imgRect.height));
+
+    if (state.type === 'creating') {
+      const startX = state.startX;
+      const startY = state.startY;
+      
+      const newX = Math.min(startX, relX);
+      const newY = Math.min(startY, relY);
+      const w = Math.abs(relX - startX);
+      const h = Math.abs(relY - startY);
+      
+      setCropRect({ x: newX, y: newY, w, h });
+    } else if (state.type === 'moving' && state.startRect) {
+      const dx = clientX - state.startX;
+      const dy = clientY - state.startY;
+      
+      let newX = state.startRect.x + dx;
+      let newY = state.startRect.y + dy;
+      
+      // 边界检查
+      newX = Math.max(0, Math.min(newX, imgRect.width - state.startRect.w));
+      newY = Math.max(0, Math.min(newY, imgRect.height - state.startRect.h));
+      
+      setCropRect({ ...state.startRect, x: newX, y: newY });
+    } else if (state.type === 'resizing' && state.startRect && state.handle) {
+      const oldRect = state.startRect;
+      // 使用 relX, relY (已限制在图片范围内) 直接计算，避免溢出
+      
+      let newX = oldRect.x;
+      let newY = oldRect.y;
+      let newW = oldRect.w;
+      let newH = oldRect.h;
+      
+      // 计算当前的右边界和下边界
+      const oldRight = oldRect.x + oldRect.w;
+      const oldBottom = oldRect.y + oldRect.h;
+
+      if (state.handle.includes('w')) {
+        // 左侧调整：x 变为 relX，但不能超过原右边界（减去最小宽度）
+        const constrainedX = Math.min(relX, oldRight - 10);
+        newX = constrainedX;
+        newW = oldRight - constrainedX;
+      }
+      if (state.handle.includes('e')) {
+        // 右侧调整：宽度变为 relX - newX
+        // 限制 relX > newX + 10
+        const constrainedX = Math.max(relX, newX + 10);
+        newW = constrainedX - newX;
+      }
+      if (state.handle.includes('n')) {
+        // 上侧调整
+        const constrainedY = Math.min(relY, oldBottom - 10);
+        newY = constrainedY;
+        newH = oldBottom - constrainedY;
+      }
+      if (state.handle.includes('s')) {
+        // 下侧调整
+        const constrainedY = Math.max(relY, newY + 10);
+        newH = constrainedY - newY;
+      }
+
+      setCropRect({ x: newX, y: newY, w: newW, h: newH });
+    }
   };
 
-  const handleMouseUp = () => {
-    setIsSelecting(false);
+  const handleInteractionEnd = () => {
+    setInteractionState({ type: 'none', startX: 0, startY: 0 });
   };
   
   // 获取当前渲染倍率 (Scale)
@@ -2262,22 +2392,32 @@ export const Reader: React.FC = () => {
                 zIndex: 100,
                 display: "flex",
                 flexDirection: "column",
+                touchAction: "none", // 防止触摸滚动
               }}
+              onClick={(e) => e.stopPropagation()}
+              onMouseMove={handleInteractionMove}
+              onTouchMove={handleInteractionMove}
+              onMouseUp={handleInteractionEnd}
+              onTouchEnd={handleInteractionEnd}
+              onMouseLeave={handleInteractionEnd}
             >
               {/* 顶部栏 */}
               <div
                 style={{
-                  height: "50px",
+                  height: "56px",
                   display: "flex",
                   justifyContent: "space-between",
                   alignItems: "center",
                   padding: "0 16px",
-                  backgroundColor: "#1f1f1f",
+                  backgroundColor: "#000",
                   color: "#fff",
+                  boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+                  zIndex: 10,
                 }}
               >
                 <button
-                  onClick={() => {
+                  onClick={(e) => {
+                    e.stopPropagation();
                     setCropMode(false);
                     setCapturedImage(null);
                     setCropRect(null);
@@ -2286,25 +2426,39 @@ export const Reader: React.FC = () => {
                     background: "none",
                     border: "none",
                     color: "#fff",
-                    fontSize: "16px",
                     cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    padding: "8px",
+                    opacity: 0.8,
                   }}
                 >
-                  取消
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                  </svg>
                 </button>
-                <span>裁切图片</span>
+                <span style={{ fontSize: "18px", fontWeight: 500 }}>裁切</span>
                 <button
-                  onClick={handleSaveCrop}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleSaveCrop();
+                  }}
                   style={{
                     background: "none",
                     border: "none",
                     color: "#d15158",
-                    fontSize: "16px",
                     cursor: "pointer",
-                    fontWeight: "bold",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    padding: "8px",
                   }}
                 >
-                  ✔
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                  </svg>
                 </button>
               </div>
               
@@ -2317,18 +2471,26 @@ export const Reader: React.FC = () => {
                   display: "flex",
                   justifyContent: "center",
                   alignItems: "center",
-                  backgroundColor: "#000",
+                  backgroundColor: "#121212",
                   userSelect: "none",
+                  padding: "32px",
                 }}
-                onMouseDown={handleMouseDown}
-                onMouseMove={handleMouseMove}
-                onMouseUp={handleMouseUp}
-                onMouseLeave={handleMouseUp}
+                onMouseDown={(e) => handleInteractionStart(e, 'creating')}
+                onTouchStart={(e) => handleInteractionStart(e, 'creating')}
               >
                 <img
                   ref={imageRef}
                   src={capturedImage}
                   alt="Capture"
+                  onLoad={(e) => {
+                    const img = e.currentTarget;
+                    setCropRect({
+                      x: 0,
+                      y: 0,
+                      w: img.width,
+                      h: img.height
+                    });
+                  }}
                   style={{
                     maxWidth: "100%",
                     maxHeight: "100%",
@@ -2338,7 +2500,7 @@ export const Reader: React.FC = () => {
                   draggable={false}
                 />
                 
-                {/* 裁切框与遮罩 */}
+                     {/* 裁切框与遮罩 */}
                 {cropRect && imageRef.current && (
                    <div
                      style={{
@@ -2349,11 +2511,65 @@ export const Reader: React.FC = () => {
                        height: cropRect.h,
                        border: "2px solid #fff",
                        boxShadow: "0 0 0 9999px rgba(0, 0, 0, 0.5)",
-                       pointerEvents: "none",
+                       pointerEvents: "auto", // 允许交互
+                       cursor: "move",
+                       boxSizing: "border-box", // 防止边框导致尺寸溢出
                      }}
-                   />
+                     onMouseDown={(e) => handleInteractionStart(e, 'moving')}
+                     onTouchStart={(e) => handleInteractionStart(e, 'moving')}
+                   >
+                     {/* 裁切手柄 */}
+                     {[
+                       { h: 'nw', top: '-8px', left: '-8px', cursor: 'nw-resize' },
+                       { h: 'ne', top: '-8px', left: 'calc(100% - 8px)', cursor: 'ne-resize' },
+                       { h: 'sw', top: 'calc(100% - 8px)', left: '-8px', cursor: 'sw-resize' },
+                       { h: 'se', top: 'calc(100% - 8px)', left: 'calc(100% - 8px)', cursor: 'se-resize' },
+                     ].map((item) => (
+                       <div
+                         key={item.h}
+                         style={{
+                           position: "absolute",
+                           top: item.top,
+                           left: item.left,
+                           width: "16px",
+                           height: "16px",
+                           backgroundColor: "#fff",
+                           border: "2px solid #d15158",
+                           borderRadius: "50%",
+                           cursor: item.cursor,
+                           zIndex: 10,
+                           boxShadow: "0 2px 4px rgba(0,0,0,0.3)",
+                           boxSizing: "border-box",
+                         }}
+                         onMouseDown={(e) => handleInteractionStart(e, 'resizing', item.h as ResizeHandle)}
+                         onTouchStart={(e) => handleInteractionStart(e, 'resizing', item.h as ResizeHandle)}
+                       />
+                     ))}
+                   </div>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* 保存成功提示 */}
+          {saveToastVisible && (
+            <div
+              style={{
+                position: "fixed",
+                top: "50%",
+                left: "50%",
+                transform: "translate(-50%, -50%)",
+                backgroundColor: "rgba(0, 0, 0, 0.8)",
+                color: "#fff",
+                padding: "12px 24px",
+                borderRadius: "8px",
+                zIndex: 200,
+                fontSize: "16px",
+                pointerEvents: "none",
+                animation: "fadeIn 0.2s ease-out",
+              }}
+            >
+              保存成功
             </div>
           )}
 
