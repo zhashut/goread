@@ -1125,7 +1125,7 @@ export const Bookshelf: React.FC = () => {
         </div>
       )}
 
-      <div className="no-scrollbar" style={{ flex: 1, overflowY: "auto" }}>
+      <div className="no-scrollbar" style={{ flex: 1, overflowY: "auto", paddingBottom: "35px" }}>
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
