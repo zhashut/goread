@@ -97,6 +97,9 @@ export const Bookshelf: React.FC = () => {
           return idNum;
         });
       }
+    } else {
+      setGroupOverlayOpen(false);
+      setOverlayGroupId(null);
     }
   }, [location.search]);
   const [query] = useState("");
@@ -285,7 +288,7 @@ export const Bookshelf: React.FC = () => {
       setImportOpen(true);
       // 不再记录打开时间，移除最短展示时长逻辑
       // 保持在“全部”标签
-      setActiveTab("all");
+      navigate("?tab=all");
     };
     const onProgress = (e: any) => {
       const detail = e?.detail || {};
@@ -309,7 +312,7 @@ export const Bookshelf: React.FC = () => {
       window.removeEventListener("goread:import:progress", onProgress as any);
       window.removeEventListener("goread:import:done", onDone as any);
     };
-  }, []);
+  }, [navigate]);
 
   const loadBooks = async () => {
     try {
@@ -866,7 +869,7 @@ export const Bookshelf: React.FC = () => {
           >
             <button
               onClick={() => {
-                setActiveTab("recent");
+                navigate("?tab=recent");
                 setAnimateUnderline(true);
               }}
               style={{
@@ -892,7 +895,7 @@ export const Bookshelf: React.FC = () => {
             </button>
             <button
               onClick={() => {
-                setActiveTab("all");
+                navigate("?tab=all");
                 setAnimateUnderline(true);
               }}
               style={{
@@ -1389,8 +1392,7 @@ export const Bookshelf: React.FC = () => {
                             return next;
                           });
                         } else {
-                          setOverlayGroupId(g.id);
-                          setGroupOverlayOpen(true);
+                          navigate(`?tab=all&group=${g.id}`);
                         }
                       }}
                       onPointerDown={(e) => {
@@ -1566,8 +1568,7 @@ export const Bookshelf: React.FC = () => {
                         return next;
                       });
                     } else {
-                      setOverlayGroupId(g.id);
-                      setGroupOverlayOpen(true);
+                      navigate(`?tab=all&group=${g.id}`);
                     }
                   }}
                   onPointerDown={(e) => {
@@ -1723,8 +1724,7 @@ export const Bookshelf: React.FC = () => {
               window.dispatchEvent(evt);
               return;
             }
-            setGroupOverlayOpen(false);
-            setActiveTab("all");
+            navigate("?tab=all");
             setGroupDetailSelectionActive(false);
             setGroupDetailSelectedCount(0);
           }}
@@ -1879,8 +1879,7 @@ export const Bookshelf: React.FC = () => {
                 <GroupDetail
                   groupIdProp={overlayGroupId}
                   onClose={() => {
-                    setGroupOverlayOpen(false);
-                    setActiveTab("all");
+                    navigate("?tab=all");
                     // 关闭抽屉时刷新分组与最近
                     loadGroups();
                     loadBooks();
