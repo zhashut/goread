@@ -350,9 +350,9 @@ impl PdfRenderer {
                     
                     // 使用 chunks_exact 优化循环
                     for chunk in row_data.chunks_exact(4) {
-                        rgba_data.push(chunk[2]); // R
+                        rgba_data.push(chunk[0]); // R
                         rgba_data.push(chunk[1]); // G
-                        rgba_data.push(chunk[0]); // B
+                        rgba_data.push(chunk[2]); // B
                         rgba_data.push(chunk[3]); // A
                     }
                 }
@@ -368,9 +368,9 @@ impl PdfRenderer {
                     let row_data = &buffer[start..end];
                     
                     for chunk in row_data.chunks_exact(3) {
-                        rgba_data.push(chunk[2]); // R
+                        rgba_data.push(chunk[0]); // R
                         rgba_data.push(chunk[1]); // G
-                        rgba_data.push(chunk[0]); // B
+                        rgba_data.push(chunk[2]); // B
                         rgba_data.push(255);      // A
                     }
                 }
@@ -454,9 +454,9 @@ impl PdfRenderer {
                         let sx = x + col;
                         let idx = (sy as usize) * stride + (sx as usize) * 4;
                         if idx + 3 >= buffer.len() { rgba_data.extend_from_slice(&[0,0,0,0]); continue; }
-                        rgba_data.push(buffer[idx + 2]);
-                        rgba_data.push(buffer[idx + 1]);
                         rgba_data.push(buffer[idx + 0]);
+                        rgba_data.push(buffer[idx + 1]);
+                        rgba_data.push(buffer[idx + 2]);
                         rgba_data.push(buffer[idx + 3]);
                     }
                 }
@@ -468,9 +468,9 @@ impl PdfRenderer {
                         let sx = x + col;
                         let idx = (sy as usize) * stride + (sx as usize) * 3;
                         if idx + 2 >= buffer.len() { rgba_data.extend_from_slice(&[0,0,0,255]); continue; }
-                        rgba_data.push(buffer[idx + 2]);
-                        rgba_data.push(buffer[idx + 1]);
                         rgba_data.push(buffer[idx + 0]);
+                        rgba_data.push(buffer[idx + 1]);
+                        rgba_data.push(buffer[idx + 2]);
                         rgba_data.push(255);
                     }
                 }
