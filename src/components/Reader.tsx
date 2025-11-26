@@ -344,22 +344,6 @@ export const Reader: React.FC = () => {
       // 不在这里直接渲染，而是通过 useEffect 监听 loading 状态变化后再渲染
       // 这样可以确保 DOM 已经准备好
       
-      // 轻量预热：前后各2页，使用 standard 质量，确保首屏附近翻页流畅
-      Promise.resolve().then(async () => {
-        try {
-          const startPage = Math.max(1, targetBook.current_page - 2);
-          const endPage = Math.min(pageCount, targetBook.current_page + 2);
-          await invoke('pdf_preload_pages', {
-            filePath: targetBook.file_path,
-            startPage,
-            endPage,
-            quality: 'standard',
-          });
-        } catch (e) {
-          console.warn('后台预加载失败', e);
-        }
-      });
-      
       // 后台加载目录和书签（不阻塞首屏显示）
       // 加载目录（Outline）——保留层级结构，支持字符串/数组 dest
       Promise.resolve().then(async () => {
@@ -919,19 +903,27 @@ export const Reader: React.FC = () => {
         await waitForCanvases();
         
         // 渲染当前页及前后各1页，确保有内容显示
-        const pagesToRender = [
-          Math.max(1, currentPage - 1),
-          currentPage,
-          Math.min(totalPages, currentPage + 1),
-        ];
-        
-        log(`[Reader] 开始渲染纵向模式页面: ${JSON.stringify(pagesToRender)}`);
-        for (const pageNum of pagesToRender) {
-          const canvas = verticalCanvasRefs.current.get(pageNum);
-          if (canvas && !renderedPagesRef.current.has(pageNum)) {
-            await renderPageToTarget(pageNum, canvas);
-          }
+        // 优化：优先渲染当前页，然后并行渲染前后页
+        const canvas = verticalCanvasRefs.current.get(currentPage);
+        if (canvas && !renderedPagesRef.current.has(currentPage)) {
+          await renderPageToTarget(currentPage, canvas);
         }
+
+        const otherPages = [
+          Math.max(1, currentPage - 1),
+          Math.min(totalPages, currentPage + 1),
+        ].filter(p => p !== currentPage);
+        
+        log(`[Reader] 开始渲染纵向模式邻近页面: ${JSON.stringify(otherPages)}`);
+        // 并行渲染邻近页，不阻塞当前流程
+        Promise.all(otherPages.map(pageNum => {
+          const c = verticalCanvasRefs.current.get(pageNum);
+          if (c && !renderedPagesRef.current.has(pageNum)) {
+            return renderPageToTarget(pageNum, c);
+          }
+          return Promise.resolve();
+        })).catch(e => console.warn("邻近页面渲染失败", e));
+
         log('[Reader] 纵向模式页面渲染完成');
         
         // 渲染完成后，滚动到当前页

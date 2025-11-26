@@ -74,18 +74,19 @@ pub async fn pdf_render_page(
     height: Option<u32>,
     manager: State<'_, PdfManagerState>,
 ) -> Result<RenderPageResponse, String> {
-    let manager = manager.lock().await;
-    
-    let engine_arc = match manager.get_or_create_engine(&file_path).await {
-        Ok(engine) => engine,
-        Err(e) => {
-            return Ok(RenderPageResponse {
-                success: false,
-                image_data: None,
-                width: None,
-                height: None,
-                error: Some(e.to_string()),
-            });
+    let engine_arc = {
+        let manager = manager.lock().await;
+        match manager.get_or_create_engine(&file_path).await {
+            Ok(engine) => engine,
+            Err(e) => {
+                return Ok(RenderPageResponse {
+                    success: false,
+                    image_data: None,
+                    width: None,
+                    height: None,
+                    error: Some(e.to_string()),
+                });
+            }
         }
     };
     
@@ -135,12 +136,13 @@ pub async fn pdf_render_page_to_file(
     height: Option<u32>,
     manager: State<'_, PdfManagerState>,
 ) -> Result<String, String> {
-    let manager = manager.lock().await;
-
-    let engine_arc = match manager.get_or_create_engine(&file_path).await {
-        Ok(engine) => engine,
-        Err(e) => {
-            return Err(e.to_string());
+    let engine_arc = {
+        let manager = manager.lock().await;
+        match manager.get_or_create_engine(&file_path).await {
+            Ok(engine) => engine,
+            Err(e) => {
+                return Err(e.to_string());
+            }
         }
     };
 
@@ -347,9 +349,11 @@ pub async fn pdf_warmup_cache(
 ) -> Result<bool, String> {
     use crate::pdf::WarmupStrategy;
     
-    let manager = manager.lock().await;
-    let engine_arc = manager.get_or_create_engine(&file_path).await
-        .map_err(|e| e.to_string())?;
+    let engine_arc = {
+        let manager = manager.lock().await;
+        manager.get_or_create_engine(&file_path).await
+            .map_err(|e| e.to_string())?
+    };
     
     let engine = engine_arc.read().await;
     
@@ -383,9 +387,11 @@ pub async fn pdf_preload_pages(
     quality: Option<String>,
     manager: State<'_, PdfManagerState>,
 ) -> Result<bool, String> {
-    let manager = manager.lock().await;
-    let engine_arc = manager.get_or_create_engine(&file_path).await
-        .map_err(|e| e.to_string())?;
+    let engine_arc = {
+        let manager = manager.lock().await;
+        manager.get_or_create_engine(&file_path).await
+            .map_err(|e| e.to_string())?
+    };
     
     let engine = engine_arc.read().await;
     
@@ -472,12 +478,13 @@ pub async fn pdf_render_pages_parallel(
     height: Option<u32>,
     manager: State<'_, PdfManagerState>,
 ) -> Result<Vec<RenderPageResponse>, String> {
-    let manager = manager.lock().await;
-    
-    let engine_arc = match manager.get_engine(&file_path).await {
-        Some(engine) => engine,
-        None => {
-            return Err("PDF文档未加载".to_string());
+    let engine_arc = {
+        let manager = manager.lock().await;
+        match manager.get_engine(&file_path).await {
+            Some(engine) => engine,
+            None => {
+                return Err("PDF文档未加载".to_string());
+            }
         }
     };
     
@@ -553,12 +560,13 @@ pub async fn pdf_render_pages_with_threads(
     height: Option<u32>,
     manager: State<'_, PdfManagerState>,
 ) -> Result<Vec<RenderPageResponse>, String> {
-    let manager = manager.lock().await;
-    
-    let engine_arc = match manager.get_engine(&file_path).await {
-        Some(engine) => engine,
-        None => {
-            return Err("PDF文档未加载".to_string());
+    let engine_arc = {
+        let manager = manager.lock().await;
+        match manager.get_engine(&file_path).await {
+            Some(engine) => engine,
+            None => {
+                return Err("PDF文档未加载".to_string());
+            }
         }
     };
     
@@ -634,18 +642,19 @@ pub async fn pdf_render_page_tile(
     height: Option<u32>,
     manager: State<'_, PdfManagerState>,
 ) -> Result<RenderPageResponse, String> {
-    let manager = manager.lock().await;
-
-    let engine_arc = match manager.get_engine(&file_path).await {
-        Some(engine) => engine,
-        None => {
-            return Ok(RenderPageResponse {
-                success: false,
-                image_data: None,
-                width: None,
-                height: None,
-                error: Some("PDF文档未加载".to_string()),
-            });
+    let engine_arc = {
+        let manager = manager.lock().await;
+        match manager.get_engine(&file_path).await {
+            Some(engine) => engine,
+            None => {
+                return Ok(RenderPageResponse {
+                    success: false,
+                    image_data: None,
+                    width: None,
+                    height: None,
+                    error: Some("PDF文档未加载".to_string()),
+                });
+            }
         }
     };
 
