@@ -146,21 +146,77 @@ export const Bookshelf: React.FC = () => {
     })
   );
 
-  const handleDragEnd = (event: DragEndEvent) => {
+  const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
 
     if (activeTab === "recent") {
-      setBooks((items) => {
-        const oldIndex = items.findIndex((b) => b.id === active.id);
-        const newIndex = items.findIndex((b) => b.id === over.id);
-        const newItems = arrayMove(items, oldIndex, newIndex);
-        localStorage.setItem(
-          "recent_books_order",
-          JSON.stringify(newItems.map((b) => b.id))
-        );
-        return newItems;
-      });
+      const oldIndex = books.findIndex((b) => b.id === active.id);
+      const newIndex = books.findIndex((b) => b.id === over.id);
+      const newItems = arrayMove(books, oldIndex, newIndex);
+      
+      setBooks(newItems);
+      localStorage.setItem(
+        "recent_books_order",
+        JSON.stringify(newItems.map((b) => b.id))
+      );
+
+      // 同步更新数据库 last_read_time，确保 Limit 限制后顺序依然正确
+      try {
+        const updates: [number, number][] = [];
+        // 确定起始时间约束
+        // 如果是第一项，使用当前时间（秒）
+        // 如果不是第一项，使用前一项的时间 - 1
+        let constraintTime = Math.floor(Date.now() / 1000);
+        
+        if (newIndex > 0) {
+            const prevBook = newItems[newIndex - 1];
+            constraintTime = (prevBook.last_read_time || 0) - 1;
+        } else {
+            // 如果是第一项，确保比第二项大（如果有第二项）
+            if (newItems.length > 1) {
+                const secondBook = newItems[1];
+                const secondTime = secondBook.last_read_time || 0;
+                if (constraintTime <= secondTime) {
+                    constraintTime = secondTime + 1;
+                }
+            }
+        }
+
+        // 从被移动的项开始，向后检查并更新时间
+        // 必须保证严格降序：time[i] < time[i-1]
+        let currentMax = constraintTime;
+        
+        for (let i = newIndex; i < newItems.length; i++) {
+            const book = newItems[i];
+            const bookTime = book.last_read_time || 0;
+            
+            // 如果当前书的时间违反约束（比允许的最大值大），或者它是被移动的书（必须更新以反映新位置）
+            if (bookTime > currentMax || i === newIndex) {
+                updates.push([book.id, currentMax]);
+                // 更新本地状态中的时间，以便后续计算正确（虽然不直接影响 React 渲染，因为已经 setBooks）
+                book.last_read_time = currentMax;
+                currentMax--;
+            } else {
+                // 如果当前书的时间满足约束（<= currentMax），则不需要更新它
+                // 但下一本书的约束变为当前书的时间 - 1
+                currentMax = bookTime - 1;
+            }
+        }
+
+        if (updates.length > 0) {
+            await bookService.updateBooksLastReadTime(updates);
+            // 更新本地状态中的时间，防止刷新后跳变
+            setBooks(prev => prev.map(b => {
+                const up = updates.find(u => u[0] === b.id);
+                if (up) return { ...b, last_read_time: up[1] };
+                return b;
+            }));
+        }
+      } catch (e) {
+        console.error("Failed to sync drag order to DB", e);
+      }
+
     } else {
       setGroups((items) => {
         const oldIndex = items.findIndex((g) => g.id === active.id);
@@ -261,7 +317,8 @@ export const Bookshelf: React.FC = () => {
       await bookService.initDatabase();
       const settings = getReaderSettings();
       let list: IBook[] = [];
-      const recentCount = settings.recentDisplayCount || 9;
+      // 明确检查 undefined，允许 0 (不限)
+      const recentCount = settings.recentDisplayCount !== undefined ? settings.recentDisplayCount : 9;
       if (recentCount === 0) {
         const allBooks = await bookService.getAllBooks();
         list = (allBooks || [])
@@ -272,6 +329,51 @@ export const Bookshelf: React.FC = () => {
         try {
           const recent = await bookService.getRecentBooks(limit);
           list = Array.isArray(recent) ? recent : [];
+
+          // 自动修复 recent_books_order：将不在 order 中的书按时间插入到正确位置
+          try {
+            const orderKey = "recent_books_order";
+            const orderStr = localStorage.getItem(orderKey);
+            let order: number[] = [];
+            if (orderStr) {
+              try {
+                order = JSON.parse(orderStr);
+              } catch {}
+            }
+
+            const bookMap = new Map(list.map((b) => [b.id, b]));
+            const orderSet = new Set(order);
+            // 找出 list 中不在 order 中的书，保持 list 中的顺序（时间倒序）
+            const missingBooks = list.filter((b) => !orderSet.has(b.id));
+
+            if (missingBooks.length > 0) {
+              const newOrder = [...order];
+              for (const book of missingBooks) {
+                let inserted = false;
+                for (let i = 0; i < newOrder.length; i++) {
+                  const orderBookId = newOrder[i];
+                  const orderBook = bookMap.get(orderBookId);
+                  // 如果 orderBook 不在 list 中，说明它比 list 中的所有书都旧（假设 list 是 top N）
+                  // 或者 book (在 list 中) 比 orderBook 新
+                  if (
+                    !orderBook ||
+                    (book.last_read_time || 0) > (orderBook.last_read_time || 0)
+                  ) {
+                    newOrder.splice(i, 0, book.id);
+                    inserted = true;
+                    break;
+                  }
+                }
+                if (!inserted) {
+                  newOrder.push(book.id);
+                }
+              }
+              order = newOrder;
+              localStorage.setItem(orderKey, JSON.stringify(order));
+            }
+          } catch (e) {
+            console.warn("Auto-fix recent order failed", e);
+          }
         } catch {
           const allBooks = await bookService.getAllBooks();
           list = (allBooks || [])

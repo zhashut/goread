@@ -7,7 +7,7 @@ mod pdf_commands;
 use commands::{
     // book commands
     init_database, add_book, get_all_books, get_recent_books,
-    update_book_progress, mark_book_opened, clear_recent_read_record, delete_book,
+    update_book_progress, mark_book_opened, clear_recent_read_record, delete_book, update_books_last_read_time,
     // group commands
     add_group, get_all_groups, delete_group, get_books_by_group,
     move_book_to_group, reorder_group_books,
@@ -79,6 +79,7 @@ pub fn run() {
             mark_book_opened,
             clear_recent_read_record,
             delete_book,
+            update_books_last_read_time,
             add_group,
             get_all_groups,
             delete_group,

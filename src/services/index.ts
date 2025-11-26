@@ -67,6 +67,7 @@ export interface IBookService {
   markBookOpened(id: number): Promise<void>;
   deleteBook(id: number): Promise<void>;
   clearRecent(bookId: number): Promise<void>;
+  updateBooksLastReadTime(updates: [number, number][]): Promise<void>;
 }
 
 // 分组服务接口
@@ -136,6 +137,11 @@ export class TauriBookService implements IBookService {
   async clearRecent(bookId: number): Promise<void> {
     const invoke = await getInvoke();
     await invoke('clear_recent_read_record', { id: bookId });
+  }
+
+  async updateBooksLastReadTime(updates: [number, number][]): Promise<void> {
+    const invoke = await getInvoke();
+    await invoke('update_books_last_read_time', { updates });
   }
 }
 

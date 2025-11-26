@@ -243,3 +243,23 @@ pub async fn clear_recent_read_record(id: i64, db: DbState<'_>) -> Result<(), Er
         .await?;
     Ok(())
 }
+
+#[tauri::command]
+pub async fn update_books_last_read_time(
+    updates: Vec<(i64, i64)>,
+    db: DbState<'_>,
+) -> Result<(), Error> {
+    let pool = db.lock().await;
+    let mut tx = pool.begin().await?;
+
+    for (id, time) in updates {
+        sqlx::query("UPDATE books SET last_read_time = ? WHERE id = ?")
+            .bind(time)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    tx.commit().await?;
+    Ok(())
+}

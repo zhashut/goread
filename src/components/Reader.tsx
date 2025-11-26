@@ -329,6 +329,24 @@ export const Reader: React.FC = () => {
       // 打开即记录最近阅读时间（不依赖进度变化）
       try {
         await bookService.markBookOpened(targetBook.id);
+        // 同时更新本地排序记录，确保该书排在最近列表首位
+        try {
+          const orderKey = "recent_books_order";
+          const orderStr = localStorage.getItem(orderKey);
+          let order: number[] = [];
+          if (orderStr) {
+            try {
+              order = JSON.parse(orderStr);
+            } catch {}
+          }
+          // 移除旧位置
+          order = order.filter((id) => id !== targetBook.id);
+          // 插入到头部
+          order.unshift(targetBook.id);
+          localStorage.setItem(orderKey, JSON.stringify(order));
+        } catch (e) {
+          console.warn("更新最近阅读顺序失败", e);
+        }
       } catch (e) {
         console.warn("标记书籍已打开失败", e);
       }
