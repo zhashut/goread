@@ -56,6 +56,7 @@ export const log = async (message: string, level: 'info' | 'warn' | 'error' = 'i
 };
 
 import { IBook, IGroup, IBookmark } from '../types';
+import { DEFAULT_SETTINGS } from '../constants/config';
 
 // 书籍服务接口
 export interface IBookService {
@@ -241,30 +242,10 @@ export const getReaderSettings = (): ReaderSettings => {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
     const parsed = raw ? JSON.parse(raw) : {};
-    const defaults: ReaderSettings = {
-      volumeKeyTurnPage: false,
-      clickTurnPage: true,
-      showStatusBar: false,
-      pageTransition: true,
-      recentDisplayCount: 9,
-      scrollSpeed: 120,
-      pageGap: 12,
-      readingMode: 'horizontal',
-      renderQuality: 'standard',
-    };
+    const defaults: ReaderSettings = { ...DEFAULT_SETTINGS };
     return { ...defaults, ...(parsed || {}) } as ReaderSettings;
   } catch {
-    return {
-      volumeKeyTurnPage: false,
-      clickTurnPage: true,
-      showStatusBar: false,
-      pageTransition: true,
-      recentDisplayCount: 9,
-      scrollSpeed: 120,
-      pageGap: 12,
-      readingMode: 'horizontal',
-      renderQuality: 'standard',
-    };
+    return { ...DEFAULT_SETTINGS };
   }
 };
 

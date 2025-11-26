@@ -5,7 +5,18 @@ import {
   saveReaderSettings,
   ReaderSettings,
 } from "../services";
-import { RENDER_QUALITY_OPTIONS } from "../constants/config";
+import {
+  RENDER_QUALITY_OPTIONS,
+  RECENT_DISPLAY_COUNT_OPTIONS,
+  RECENT_DISPLAY_COUNT_UNLIMITED,
+  SCROLL_SPEED_MIN,
+  SCROLL_SPEED_MAX,
+  SCROLL_SPEED_STEP,
+  PAGE_GAP_MIN,
+  PAGE_GAP_MAX,
+  PAGE_GAP_STEP,
+  SETTINGS_SAVE_DEBOUNCE_MS,
+} from "../constants/config";
 
 export const Settings: React.FC = () => {
   const navigate = useNavigate();
@@ -16,7 +27,7 @@ export const Settings: React.FC = () => {
     // 防抖保存
     const id = setTimeout(() => {
       saveReaderSettings(settings);
-    }, 100);
+    }, SETTINGS_SAVE_DEBOUNCE_MS);
     return () => clearTimeout(id);
   }, [settings]);
 
@@ -179,12 +190,12 @@ export const Settings: React.FC = () => {
               }
               style={{ padding: "6px 8px" }}
             >
-              {[5, 7, 9, 12, 15].map((n) => (
+              {RECENT_DISPLAY_COUNT_OPTIONS.map((n) => (
                 <option key={n} value={n}>
                   {n}
                 </option>
               ))}
-              <option value={0}>不限</option>
+              <option value={RECENT_DISPLAY_COUNT_UNLIMITED}>不限</option>
             </select>
           }
         />
@@ -226,8 +237,8 @@ export const Settings: React.FC = () => {
             </span>
           </div>
           {(() => {
-            const min = 60,
-              max = 300;
+            const min = SCROLL_SPEED_MIN,
+              max = SCROLL_SPEED_MAX;
             const val = settings.scrollSpeed;
             const pct = Math.max(
               0,
@@ -240,7 +251,7 @@ export const Settings: React.FC = () => {
                 type="range"
                 min={min}
                 max={max}
-                step={10}
+                step={SCROLL_SPEED_STEP}
                 value={val}
                 onChange={(e) =>
                   setSettings((s) => ({
@@ -269,8 +280,8 @@ export const Settings: React.FC = () => {
             </span>
           </div>
           {(() => {
-            const min = 0,
-              max = 48;
+            const min = PAGE_GAP_MIN,
+              max = PAGE_GAP_MAX;
             const val = settings.pageGap;
             const pct = Math.max(
               0,
@@ -283,7 +294,7 @@ export const Settings: React.FC = () => {
                 type="range"
                 min={min}
                 max={max}
-                step={2}
+                step={PAGE_GAP_STEP}
                 value={val}
                 onChange={(e) =>
                   setSettings((s) => ({

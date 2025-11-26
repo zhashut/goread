@@ -12,7 +12,18 @@ import {
 import {
   PageCacheManager,
 } from "../utils/pdfOptimization";
-import { QUALITY_SCALE_MAP } from "../constants/config";
+import {
+  QUALITY_SCALE_MAP,
+  AUTO_PAGE_INTERVAL_MS,
+  DEFAULT_SCROLL_SPEED_PX_PER_SEC,
+  PAGE_CACHE_SIZE,
+  PAGE_CACHE_MEMORY_LIMIT_MB,
+  RESIZE_DEBOUNCE_MS,
+  TOAST_DURATION_SHORT_MS,
+  TOAST_DURATION_LONG_MS,
+  TOAST_DURATION_ERROR_MS,
+  LAZY_LOAD_ROOT_MARGIN,
+} from "../constants/config";
 import { log } from "../services/index";
 import { TopBar } from "./reader/TopBar";
 import { BottomBar } from "./reader/BottomBar";
@@ -47,8 +58,6 @@ export const Reader: React.FC = () => {
   const [autoScroll, setAutoScroll] = useState(false);
   const autoScrollTimerRef = useRef<number | null>(null);
   const autoScrollRafRef = useRef<number | null>(null);
-  const DEFAULT_AUTO_PAGE_MS = 2000; // 横向自动翻页间隔
-  const DEFAULT_SCROLL_PX_PER_SEC = 120; // 纵向每秒滚动像素
   // 阅读方式选择弹层
   const [modeOverlayOpen, setModeOverlayOpen] = useState(false);
   // 纵向阅读容器与懒加载渲染引用
@@ -63,7 +72,7 @@ export const Reader: React.FC = () => {
   // 预加载防抖定时器
   const preloadTimerRef = useRef<any>(null);
   // 优化工具实例
-  const pageCacheRef = useRef<PageCacheManager>(new PageCacheManager(100, 500));
+  const pageCacheRef = useRef<PageCacheManager>(new PageCacheManager(PAGE_CACHE_SIZE, PAGE_CACHE_MEMORY_LIMIT_MB));
   // 预加载图片资源缓存（显式管理 ImageBitmap，确保 App 端缓存有效性）
   const preloadedBitmapsRef = useRef<Map<number, ImageBitmap>>(new Map());
   // 预加载任务队列（Promise 复用，防止重复请求）
@@ -222,7 +231,7 @@ export const Reader: React.FC = () => {
           setVerticalLazyReady(false);
           setTimeout(() => setVerticalLazyReady(true), 50);
         }
-      }, 300); // 300ms 防抖，等待拖动结束
+      }, RESIZE_DEBOUNCE_MS); // 防抖，等待拖动结束
     };
 
     window.addEventListener("resize", handleResize);
@@ -644,7 +653,7 @@ export const Reader: React.FC = () => {
       setBookmarkToastText("书签已添加");
       setBookmarkToastVisible(true);
       setUiVisible(false);
-      setTimeout(() => setBookmarkToastVisible(false), 1200);
+      setTimeout(() => setBookmarkToastVisible(false), TOAST_DURATION_SHORT_MS);
     } catch (e) {
       console.error("添加书签失败", e);
       alert("添加书签失败");
@@ -846,7 +855,7 @@ export const Reader: React.FC = () => {
           }
         },
         // 扩大预渲染范围，确保滚动时提前加载
-        { root: rootEl, rootMargin: "800px 0px 800px 0px", threshold: 0.01 }
+        { root: rootEl, rootMargin: LAZY_LOAD_ROOT_MARGIN, threshold: 0.01 }
       );
 
       canvases.forEach((el) => observer!.observe(el));
@@ -1090,13 +1099,13 @@ export const Reader: React.FC = () => {
           return;
         }
         await goToPage(currentPage + 1);
-      }, DEFAULT_AUTO_PAGE_MS);
+      }, AUTO_PAGE_INTERVAL_MS);
     } else {
       // 纵向：持续向下滚动
       stopAll();
       const el = verticalScrollRef.current || mainViewRef.current;
       if (!el) return () => stopAll();
-      const speed = settings.scrollSpeed || DEFAULT_SCROLL_PX_PER_SEC;
+      const speed = settings.scrollSpeed || DEFAULT_SCROLL_SPEED_PX_PER_SEC;
       const step = () => {
         if (!autoScroll || tocOverlayOpen || modeOverlayOpen) {
           stopAll();
@@ -1469,14 +1478,14 @@ export const Reader: React.FC = () => {
         onSaveSuccess={() => {
           setBookmarkToastText("保存成功");
           setBookmarkToastVisible(true);
-          setTimeout(() => setBookmarkToastVisible(false), 2000);
+          setTimeout(() => setBookmarkToastVisible(false), TOAST_DURATION_LONG_MS);
         }}
         onSaveError={(msg) => {
           // 移除可能存在的 "Error: " 前缀，使提示更友好
           const cleanMsg = msg.replace(/^Error:\s*/i, '');
           setBookmarkToastText(`保存失败: ${cleanMsg}`);
           setBookmarkToastVisible(true);
-          setTimeout(() => setBookmarkToastVisible(false), 3000);
+          setTimeout(() => setBookmarkToastVisible(false), TOAST_DURATION_ERROR_MS);
         }}
       />
       
