@@ -16,7 +16,7 @@ import {
   rectSortingStrategy,
 } from "@dnd-kit/sortable";
 import { IBook } from "../types";
-import { CARD_WIDTH_COMPACT, GRID_GAP_GROUP_DETAIL } from "../constants/ui";
+import { CARD_WIDTH_COMPACT, CARD_MIN_WIDTH, GRID_GAP_GROUP_DETAIL } from "../constants/ui";
 import { groupService, bookService } from "../services";
 import { SortableBookItem } from "./SortableBookItem";
 import ConfirmDeleteDrawer from "./ConfirmDeleteDrawer";
@@ -245,11 +245,10 @@ export const GroupDetail: React.FC<{
             width: "100%",
             padding: "12px 16px 16px",
             display: "grid",
-            // 固定列宽，避免第一列过宽导致卡片居中偏移
-            gridTemplateColumns: "repeat(auto-fill, " + CARD_WIDTH_COMPACT + "px)",
+            // 响应式列宽
+            gridTemplateColumns: `repeat(auto-fill, minmax(${CARD_MIN_WIDTH}px, 1fr))`,
             gap: GRID_GAP_GROUP_DETAIL + "px",
             // 卡片在栅格单元内靠左对齐
-            justifyItems: "start",
             justifyContent: "start",
             alignContent: "start",
           }}
@@ -265,6 +264,7 @@ export const GroupDetail: React.FC<{
             >
               {books.map((b) => (
                 <SortableBookItem
+                  width="100%"
                   key={b.id}
                   id={b.id}
                   book={b}

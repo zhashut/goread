@@ -13,6 +13,7 @@ interface SortableBookItemProps {
   selected: boolean;
   onToggleSelect: () => void;
   onDelete: () => void;
+  width?: number | string;
 }
 
 export const SortableBookItem: React.FC<SortableBookItemProps> = (props) => {

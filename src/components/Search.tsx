@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { IBook } from "../types";
-import { COVER_ASPECT_RATIO_COMPACT, GRID_GAP_BOOK_CARDS } from "../constants/ui";
+import { COVER_ASPECT_RATIO_COMPACT, GRID_GAP_BOOK_CARDS, CARD_MIN_WIDTH } from "../constants/ui";
 import { bookService } from "../services";
 import { BookCard } from "./BookCard";
 
@@ -270,14 +270,15 @@ export const Search: React.FC = () => {
         ) : (
           <div
             style={{
-              padding: "12px 8px 12px 16px",
-              display: "flex",
-              flexWrap: "wrap",
+              padding: "16px 8px 16px 16px",
+              display: "grid",
+              gridTemplateColumns: `repeat(auto-fill, minmax(${CARD_MIN_WIDTH}px, 1fr))`,
               gap: GRID_GAP_BOOK_CARDS + "px",
             }}
           >
             {results.map((b) => (
               <BookCard
+                width="100%"
                 key={b.id}
                 book={b}
                 aspectRatio={COVER_ASPECT_RATIO_COMPACT}

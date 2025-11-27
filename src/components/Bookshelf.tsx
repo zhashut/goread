@@ -16,6 +16,7 @@ import { IBook, IGroup } from "../types";
       GROUP_NAME_MARGIN_TOP,
       GROUP_META_MARGIN_TOP,
       CARD_WIDTH_COMPACT,
+      CARD_MIN_WIDTH,
       SELECTION_ICON_SIZE,
       SELECTION_ICON_OFFSET_TOP,
       SELECTION_ICON_OFFSET_RIGHT,
@@ -1282,13 +1283,14 @@ export const Bookshelf: React.FC = () => {
             >
               <div
                 style={{
-                  display: "flex",
-                  flexWrap: "wrap",
+                  display: "grid",
+                  gridTemplateColumns: `repeat(auto-fill, minmax(${CARD_MIN_WIDTH}px, 1fr))`,
                   gap: GRID_GAP_BOOK_CARDS + "px",
                 }}
               >
                 {filteredBooks.map((book) => (
                   <SortableBookItem
+                    width="100%"
                     key={book.id}
                     id={book.id}
                     book={book}
@@ -1312,13 +1314,14 @@ export const Bookshelf: React.FC = () => {
           ) : (
             <div
               style={{
-                display: "flex",
-                flexWrap: "wrap",
+                display: "grid",
+                gridTemplateColumns: `repeat(auto-fill, minmax(${CARD_MIN_WIDTH}px, 1fr))`,
                 gap: GRID_GAP_BOOK_CARDS + "px",
               }}
             >
               {filteredBooks.map((book) => (
                 <BookCard
+                  width="100%"
                   key={book.id}
                   book={book}
                   onClick={() => handleBookClick(book)}
@@ -1365,8 +1368,8 @@ export const Bookshelf: React.FC = () => {
             >
               <div
                 style={{
-                  display: "flex",
-                  flexWrap: "wrap",
+                  display: "grid",
+                  gridTemplateColumns: `repeat(auto-fill, minmax(${CARD_MIN_WIDTH}px, 1fr))`,
                   gap: GRID_GAP_BOOK_CARDS + "px",
                 }}
               >
@@ -1375,7 +1378,7 @@ export const Bookshelf: React.FC = () => {
                     key={g.id}
                     id={g.id}
                     style={{
-                      width: CARD_WIDTH_COMPACT + "px",
+                      width: "100%",
                       margin: 0,
                       cursor: "pointer",
                       position: "relative",
@@ -1545,8 +1548,8 @@ export const Bookshelf: React.FC = () => {
           ) : (
             <div
               style={{
-                display: "flex",
-                flexWrap: "wrap",
+                display: "grid",
+                gridTemplateColumns: `repeat(auto-fill, minmax(${CARD_MIN_WIDTH}px, 1fr))`,
                 gap: GRID_GAP_BOOK_CARDS + "px",
               }}
             >
@@ -1554,7 +1557,7 @@ export const Bookshelf: React.FC = () => {
                 <div
                   key={g.id}
                   style={{
-                    width: CARD_WIDTH_COMPACT + "px",
+                    width: "100%",
                     margin: 0,
                     cursor: "pointer",
                     position: "relative",

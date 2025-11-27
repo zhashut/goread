@@ -24,7 +24,7 @@ export interface CommonBookCardProps {
   onDragOver?: (e: React.DragEvent<HTMLDivElement>) => void;
   onDrop?: (e: React.DragEvent<HTMLDivElement>) => void;
   // 可选尺寸配置（默认与紧凑卡片一致）
-  width?: number;
+  width?: number | string;
   aspectRatio?: string;
   // 选择模式（顶部右上角圆点）
   selectable?: boolean;
@@ -72,7 +72,7 @@ export const BookCard: React.FC<CommonBookCardProps> = ({
       onDragOver={onDragOver}
       onDrop={onDrop}
       style={{
-        width: width + "px",
+        width: typeof width === "number" ? width + "px" : width,
         margin: 0,
         cursor: "pointer",
         backgroundColor: "transparent",
