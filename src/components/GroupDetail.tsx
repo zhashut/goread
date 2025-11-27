@@ -237,22 +237,18 @@ export const GroupDetail: React.FC<{
           该分组暂无书籍
         </div>
       ) : (
-        <div
-          className="no-scrollbar"
-          style={{
-            flex: 1,
-            overflowY: "auto",
-            width: "100%",
-            padding: "12px 16px 16px",
-            display: "grid",
-            // 响应式列宽
-            gridTemplateColumns: `repeat(auto-fill, minmax(${CARD_MIN_WIDTH}px, 1fr))`,
-            gap: GRID_GAP_GROUP_DETAIL + "px",
-            // 卡片在栅格单元内靠左对齐
-            justifyContent: "start",
-            alignContent: "start",
-          }}
-        >
+          <div
+            className="no-scrollbar"
+            style={{
+              flex: 1,
+              overflowY: "auto",
+              padding: "16px 8px 16px 16px",
+              display: "grid",
+              // 响应式列宽
+              gridTemplateColumns: `repeat(auto-fill, minmax(${CARD_MIN_WIDTH}px, 1fr))`,
+              gap: GRID_GAP_GROUP_DETAIL + "px",
+            }}
+          >
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}

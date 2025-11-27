@@ -33,6 +33,7 @@ export const SortableBookItem: React.FC<SortableBookItemProps> = (props) => {
     zIndex: isDragging ? 999 : "auto",
     position: "relative",
     touchAction: "none", // 防止触摸滚动干扰拖拽
+    width: "100%",
   };
 
   return (
