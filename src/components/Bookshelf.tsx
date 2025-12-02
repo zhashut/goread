@@ -6,6 +6,7 @@ import React, {
   useLayoutEffect,
 } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
+import { invoke } from "@tauri-apps/api/core";
 import { IBook, IGroup } from "../types";
   import {
       GRID_GAP_BOOK_CARDS,
@@ -240,6 +241,101 @@ export const Bookshelf: React.FC = () => {
   const [importTotal, setImportTotal] = useState(0);
   const [importCurrent, setImportCurrent] = useState(0);
   const [importTitle, setImportTitle] = useState("");
+
+  // Toast 状态
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState("");
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setToastVisible(true);
+    setTimeout(() => setToastVisible(false), 2000);
+  };
+
+  // Refs for back button handling
+  const stateRef = useRef({
+    groupOverlayOpen,
+    selectionMode,
+    menuOpen,
+    importOpen,
+    confirmOpen,
+    activeTab
+  });
+  
+  const lastBackTimeRef = useRef(0);
+
+  useEffect(() => {
+    stateRef.current = {
+      groupOverlayOpen,
+      selectionMode,
+      menuOpen,
+      importOpen,
+      confirmOpen,
+      activeTab
+    };
+  }, [groupOverlayOpen, selectionMode, menuOpen, importOpen, confirmOpen, activeTab]);
+
+  const currentUrlRef = useRef(window.location.href);
+  useEffect(() => {
+    currentUrlRef.current = window.location.href;
+  }, [location]);
+
+  useEffect(() => {
+    const handlePopState = async (e: PopStateEvent) => {
+      e.preventDefault();
+      const state = stateRef.current;
+      const currentUrl = currentUrlRef.current;
+
+      // 恢复 URL，防止页面跳转
+      window.history.pushState(null, "", currentUrl);
+
+      if (state.confirmOpen) {
+        setConfirmOpen(false);
+        return;
+      }
+      if (state.importOpen) {
+        const evt = new CustomEvent("goread:import:cancel");
+        window.dispatchEvent(evt);
+        setImportOpen(false);
+        return;
+      }
+      if (state.menuOpen) {
+        setMenuOpen(false);
+        return;
+      }
+      if (state.groupOverlayOpen) {
+        setGroupOverlayOpen(false);
+        setOverlayGroupId(null);
+        navigate("?tab=all", { replace: true });
+        return;
+      }
+      if (state.selectionMode) {
+        setSelectionMode(false);
+        setSelectedBookIds(new Set());
+        setSelectedGroupIds(new Set());
+        setConfirmOpen(false);
+        return;
+      }
+
+      const now = Date.now();
+      if (now - lastBackTimeRef.current < 2000) {
+        try {
+           await invoke('exit_app');
+        } catch (err) {
+           console.error("Exit failed", err);
+        }
+      } else {
+        lastBackTimeRef.current = now;
+        showToast("再按一次退出应用");
+      }
+    };
+
+    window.history.pushState(null, "", window.location.href);
+    window.addEventListener("popstate", handlePopState);
+
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+    };
+  }, []);
 
   useEffect(() => {
     loadBooks();
@@ -870,7 +966,7 @@ export const Bookshelf: React.FC = () => {
             >
             <button
               onClick={() => {
-                navigate("?tab=recent");
+                navigate("?tab=recent", { replace: true });
                 setAnimateUnderline(true);
               }}
               style={{
@@ -897,7 +993,7 @@ export const Bookshelf: React.FC = () => {
             </button>
             <button
               onClick={() => {
-                navigate("?tab=all");
+                navigate("?tab=all", { replace: true });
                 setAnimateUnderline(true);
               }}
               style={{
@@ -1915,6 +2011,27 @@ export const Bookshelf: React.FC = () => {
         onCancel={() => setConfirmOpen(false)}
         onConfirm={confirmDelete}
       />
+      {toastVisible && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: "80px",
+            left: "50%",
+            transform: "translateX(-50%)",
+            padding: "8px 16px",
+            borderRadius: "20px",
+            backgroundColor: "rgba(0,0,0,0.8)",
+            color: "#fff",
+            fontSize: "14px",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+            pointerEvents: "none",
+            zIndex: 2000,
+            animation: "fadeIn 0.2s ease-out",
+          }}
+        >
+          {toastMessage}
+        </div>
+      )}
     </div>
   );
 };

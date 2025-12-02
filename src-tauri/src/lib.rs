@@ -29,6 +29,11 @@ use std::sync::atomic::AtomicBool;
 use tokio::sync::Mutex;
 use tauri::Manager;
 
+#[tauri::command]
+fn exit_app() {
+    std::process::exit(0);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -122,7 +127,8 @@ pub fn run() {
             // 并行渲染命令
             pdf_render_pages_parallel,
             pdf_render_page_range_parallel,
-            pdf_render_pages_with_threads
+            pdf_render_pages_with_threads,
+            exit_app
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
