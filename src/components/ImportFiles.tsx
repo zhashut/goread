@@ -684,6 +684,7 @@ export const ImportFiles: React.FC = () => {
         justifyContent: "center",
         height: "100%", // 充满父容器
         paddingBottom: 40, // 视觉调整，避免图标过于居中偏下
+        boxSizing: "border-box",
       }}
     >
       {/* Radar-style scan icon, static (without red pointer) */}
@@ -890,7 +891,18 @@ export const ImportFiles: React.FC = () => {
       </div>
 
       {/* Content Area */}
-      <div style={{ flex: 1, overflowY: "auto", position: "relative" }}>
+      <style>
+        {`
+          .no-scrollbar::-webkit-scrollbar {
+            display: none;
+          }
+          .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+          }
+        `}
+      </style>
+      <div className="no-scrollbar" style={{ flex: 1, overflowY: "auto", position: "relative" }}>
         {activeTab === "scan" ? (
           scanList.length === 0 && globalSearch.trim() === "" && !scanLoading ? (
             <ScanEmpty />
@@ -919,7 +931,6 @@ export const ImportFiles: React.FC = () => {
         <div
           style={{
             flex: "none",
-            paddingBottom: getSafeAreaInsets().bottom,
             background: "#d23c3c",
             zIndex: 10,
             boxSizing: "border-box",

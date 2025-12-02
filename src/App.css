@@ -47,6 +47,12 @@
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   -webkit-text-size-adjust: 100%;
+  
+  /* Safe area insets - default values, will be overridden by Android native code */
+  --safe-area-inset-top: 0px;
+  --safe-area-inset-bottom: 0px;
+  --safe-area-inset-left: 0px;
+  --safe-area-inset-right: 0px;
 }
 
 /* 全局：移除页面默认外边距并隐藏窗口滚动条 */

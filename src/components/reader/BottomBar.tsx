@@ -63,6 +63,7 @@ export const BottomBar: React.FC<BottomBarProps> = ({
         left: 0,
         right: 0,
         transform: "none",
+        // Pin to bottom
         bottom: 0,
         boxSizing: "border-box",
         backgroundColor: "rgba(26,26,26,0.92)",
@@ -72,8 +73,10 @@ export const BottomBar: React.FC<BottomBarProps> = ({
         justifyContent: "center",
         color: "white",
         borderRadius: `${BOTTOM_DRAWER_RADIUS}px ${BOTTOM_DRAWER_RADIUS}px 0 0`,
-        padding: "14px 18px",
-        paddingBottom: "calc(14px + env(safe-area-inset-bottom))",
+        paddingTop: "14px",
+        paddingLeft: "18px",
+        paddingRight: "18px",
+        paddingBottom: "14px",
         boxShadow: "0 6px 24px rgba(0,0,0,0.35)",
         zIndex: 10,
       }}

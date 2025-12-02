@@ -1,6 +1,10 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { initSafeAreaInsets } from "./utils/layout";
+
+// Initialize safe area insets early (before React render)
+initSafeAreaInsets();
 
 // 等待Tauri API加载
 const setupApp = async () => {

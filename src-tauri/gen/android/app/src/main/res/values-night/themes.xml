@@ -1,6 +1,19 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Base application theme. -->
+    <!-- Base application theme (Night mode). -->
     <style name="Theme.goread" parent="Theme.MaterialComponents.DayNight.NoActionBar">
-        <!-- Customize your theme here. -->
+        <!-- Make system bars transparent for edge-to-edge -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/black</item>
+        <!-- Ensure navigation bar icons are light in dark mode -->
+        <item name="android:windowLightNavigationBar" tools:targetApi="o_mr1">false</item>
+        <!-- Don't use translucent mode, use edge-to-edge instead -->
+        <item name="android:windowTranslucentStatus">false</item>
+        <item name="android:windowTranslucentNavigation">false</item>
+        <!-- Draw behind system bars -->
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <!-- Dark status bar (light icons) for dark theme -->
+        <item name="android:windowLightStatusBar" tools:targetApi="m">false</item>
+        <!-- Handle display cutout -->
+        <item name="android:windowLayoutInDisplayCutoutMode" tools:targetApi="o_mr1">shortEdges</item>
     </style>
 </resources>
