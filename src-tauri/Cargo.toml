@@ -39,3 +39,12 @@ futures = "0.3"
 pdfium-render = "0.8.36"
 moka = { version = "0.12", features = ["future"] }
 
+[profile.dev]
+incremental = true # 以较小的步骤编译您的二进制文件。
+
+[profile.release]
+codegen-units = 1 # 允许 LLVM 执行更好的优化。
+lto = true # 启用链接时优化。
+opt-level = "s" # 优先考虑小的二进制文件大小。如果您更喜欢速度，请使用 `3`。
+panic = "abort" # 通过禁用 panic 处理程序来提高性能。
+strip = true # 确保移除调试符号。
