@@ -89,17 +89,19 @@ class MainActivity : TauriActivity() {
     
     ViewCompat.setOnApplyWindowInsetsListener(decorView) { view, insets ->
       val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+      val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
       val density = resources.displayMetrics.density
       
-      // Apply bottom padding to the root view so content sits above the navigation bar
+      // Apply bottom padding to the root view so content sits above the navigation bar and IME
       // We keep top padding 0 because we WANT the status bar to overlap (translucent)
-      view.setPadding(0, 0, 0, systemBars.bottom)
+      val bottomPadding = kotlin.math.max(systemBars.bottom, ime.bottom)
+      view.setPadding(0, 0, 0, bottomPadding)
 
       // Convert physical pixels to CSS/dp pixels
       val topPx = (systemBars.top / density).toInt()
       // Since we applied padding for the bottom bar, the safe area inset for bottom is effectively 0
       val bottomPx = 0 
-      
+
       // Store current values
       currentTop = topPx
       currentBottom = bottomPx

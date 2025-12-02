@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 
 import { getSafeAreaInsets } from "../utils/layout";
 
@@ -24,10 +24,28 @@ const GroupingDrawer: React.FC<GroupingDrawerProps> = ({
   // 本地输入状态，配合输入法合成事件，避免中文输入被打断
   const [localValue, setLocalValue] = useState<string>(newGroupName || "");
   const [isComposing, setIsComposing] = useState<boolean>(false);
+  const [isInputFocused, setIsInputFocused] = useState<boolean>(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const lastHeightRef = useRef(window.innerHeight);
 
   useEffect(() => {
     setLocalValue(newGroupName || "");
   }, [newGroupName]);
+
+  // 监听视口高度变化，处理键盘收起但未失焦的情况
+  useEffect(() => {
+    const handleResize = () => {
+      const currentHeight = window.innerHeight;
+      // 如果高度显著增加（>200px），说明键盘收起了
+      if (currentHeight - lastHeightRef.current > 200) {
+        setIsInputFocused(false);
+        inputRef.current?.blur();
+      }
+      lastHeightRef.current = currentHeight;
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   return (
     <div
@@ -43,7 +61,12 @@ const GroupingDrawer: React.FC<GroupingDrawerProps> = ({
         alignItems: "flex-end",
         zIndex: 1000,
       }}
-      onClick={onClose}
+      onPointerDown={(e) => {
+        if (e.target === e.currentTarget) {
+          e.preventDefault();
+          onClose();
+        }
+      }}
     >
       <div
         role="dialog"
@@ -72,12 +95,8 @@ const GroupingDrawer: React.FC<GroupingDrawerProps> = ({
           如何分组？
         </div>
         <input
+          ref={inputRef}
           value={localValue}
-          onFocus={(e) => {
-            setTimeout(() => {
-              e.target.scrollIntoView({ block: "center", behavior: "smooth" });
-            }, 300);
-          }}
           onChange={(e) => {
             const val = e.target.value;
             setLocalValue(val);
@@ -92,10 +111,19 @@ const GroupingDrawer: React.FC<GroupingDrawerProps> = ({
             onNewGroupNameChange(val);
           }}
           placeholder="输入新的分组名"
+          onFocus={() => setIsInputFocused(true)}
+          onBlur={() => setIsInputFocused(false)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && localValue.trim() && !loading) {
+              onConfirmName();
+              // 失去焦点以收起键盘
+              (e.target as HTMLInputElement).blur();
+            }
+          }}
           style={{
             width: "100%",
             border: "none",
-            borderBottom: "1px solid #cfcfcf",
+            borderBottom: "1px solid #d23c3c",
             outline: "none",
             fontSize: 13,
             padding: "8px 2px",
@@ -104,47 +132,49 @@ const GroupingDrawer: React.FC<GroupingDrawerProps> = ({
           }}
         />
         {/* 独立灰色分隔线，增强与操作区的分割感 */}
-        <div style={{ height: 2, background: "#cfcfcf", marginTop: 8 }} />
+        <div style={{ height: 2, background: "#d23c3c", marginTop: 8 }} />
 
-        <div
-          style={{
-            marginTop: "auto",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            paddingTop: 30,
-            paddingBottom: 8,
-            color: "#666",
-            fontSize: 13,
-          }}
-        >
-          <button
-            onClick={onChooseExistingGroup}
+        {!isInputFocused && (
+          <div
             style={{
-              background: "none",
-              border: "none",
-              color: "#999",
-              cursor: "pointer",
-              padding: 0,
+              marginTop: "auto",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              paddingTop: 30,
+              paddingBottom: 8,
+              color: "#666",
+              fontSize: 13,
             }}
           >
-            导入到现有分组
-          </button>
-          <button
-            onClick={onConfirmName}
-            disabled={!localValue.trim() || loading}
-            style={{
-              background: "none",
-              border: "none",
-              color: "#d23c3c",
-              cursor: localValue.trim() ? "pointer" : "not-allowed",
-              opacity: localValue.trim() ? 1 : 0.6,
-              padding: 0,
-            }}
-          >
-            确定命名
-          </button>
-        </div>
+            <button
+              onClick={onChooseExistingGroup}
+              style={{
+                background: "none",
+                border: "none",
+                color: "#999",
+                cursor: "pointer",
+                padding: 0,
+              }}
+            >
+              导入到现有分组
+            </button>
+            <button
+              onClick={onConfirmName}
+              disabled={!localValue.trim() || loading}
+              style={{
+                background: "none",
+                border: "none",
+                color: "#d23c3c",
+                cursor: localValue.trim() ? "pointer" : "not-allowed",
+                opacity: localValue.trim() ? 1 : 0.6,
+                padding: 0,
+              }}
+            >
+              确定命名
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
