@@ -18,6 +18,7 @@ import {
   SETTINGS_SAVE_DEBOUNCE_MS,
 } from "../constants/config";
 import { getSafeAreaInsets } from "../utils/layout";
+import { CustomSelect } from "./CustomSelect";
 
 export const Settings: React.FC = () => {
   const navigate = useNavigate();
@@ -182,45 +183,38 @@ export const Settings: React.FC = () => {
         <Row
           label="最近显示数量"
           right={
-            <select
+            <CustomSelect
               value={settings.recentDisplayCount}
-              onChange={(e) =>
+              options={[
+                ...RECENT_DISPLAY_COUNT_OPTIONS.map((n) => ({
+                  value: n,
+                  label: n,
+                })),
+                { value: RECENT_DISPLAY_COUNT_UNLIMITED, label: "不限" },
+              ]}
+              onChange={(val) =>
                 setSettings((s) => ({
                   ...s,
-                  recentDisplayCount: Number(e.target.value),
+                  recentDisplayCount: Number(val),
                 }))
               }
-              style={{ padding: "6px 8px" }}
-            >
-              {RECENT_DISPLAY_COUNT_OPTIONS.map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-              <option value={RECENT_DISPLAY_COUNT_UNLIMITED}>不限</option>
-            </select>
+            />
           }
         />
 
         <Row
           label="书籍渲染质量"
           right={
-            <select
-              value={settings.renderQuality || 'standard'}
-              onChange={(e) =>
+            <CustomSelect
+              value={settings.renderQuality || "standard"}
+              options={RENDER_QUALITY_OPTIONS}
+              onChange={(val) =>
                 setSettings((s) => ({
                   ...s,
-                  renderQuality: e.target.value,
+                  renderQuality: val as string,
                 }))
               }
-              style={{ padding: "6px 8px" }}
-            >
-              {RENDER_QUALITY_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
+            />
           }
         />
 
