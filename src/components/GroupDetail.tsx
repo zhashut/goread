@@ -243,10 +243,16 @@ export const GroupDetail: React.FC<{
               flex: 1,
               overflowY: "auto",
               padding: "16px 8px 16px 16px",
-              display: "grid",
-              // 响应式列宽
+            }}
+          >
+            <div
+              style={{
+                display: "grid",
+                // 响应式列宽
               gridTemplateColumns: `repeat(auto-fill, minmax(${CARD_MIN_WIDTH}px, 1fr))`,
               gap: GRID_GAP_GROUP_DETAIL + "px",
+              alignContent: "start",
+              gridAutoRows: "min-content",
             }}
           >
           <DndContext
@@ -291,6 +297,7 @@ export const GroupDetail: React.FC<{
               ))}
             </SortableContext>
           </DndContext>
+          </div>
         </div>
       )}
       <ConfirmDeleteDrawer

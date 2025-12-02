@@ -1382,6 +1382,8 @@ export const Bookshelf: React.FC = () => {
                   display: "grid",
                   gridTemplateColumns: `repeat(auto-fill, minmax(${CARD_MIN_WIDTH}px, 1fr))`,
                   gap: GRID_GAP_BOOK_CARDS + "px",
+                  alignContent: "start",
+                  gridAutoRows: "min-content",
                 }}
               >
                 {filteredBooks.map((book) => (
@@ -1411,10 +1413,12 @@ export const Bookshelf: React.FC = () => {
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: `repeat(auto-fill, minmax(${CARD_MIN_WIDTH}px, 1fr))`,
-                gap: GRID_GAP_BOOK_CARDS + "px",
-              }}
-            >
+                  gridTemplateColumns: `repeat(auto-fill, minmax(${CARD_MIN_WIDTH}px, 1fr))`,
+                  gap: GRID_GAP_BOOK_CARDS + "px",
+                  alignContent: "start",
+                  gridAutoRows: "min-content",
+                }}
+              >
               {filteredBooks.map((book) => (
                 <BookCard
                   width="100%"
@@ -1467,6 +1471,8 @@ export const Bookshelf: React.FC = () => {
                   display: "grid",
                   gridTemplateColumns: `repeat(auto-fill, minmax(${CARD_MIN_WIDTH}px, 1fr))`,
                   gap: GRID_GAP_BOOK_CARDS + "px",
+                  alignContent: "start",
+                  gridAutoRows: "min-content",
                 }}
               >
                 {filteredGroups.map((g) => (
@@ -1645,10 +1651,12 @@ export const Bookshelf: React.FC = () => {
             <div
               style={{
                 display: "grid",
-                gridTemplateColumns: `repeat(auto-fill, minmax(${CARD_MIN_WIDTH}px, 1fr))`,
-                gap: GRID_GAP_BOOK_CARDS + "px",
-              }}
-            >
+                  gridTemplateColumns: `repeat(auto-fill, minmax(${CARD_MIN_WIDTH}px, 1fr))`,
+                  gap: GRID_GAP_BOOK_CARDS + "px",
+                  alignContent: "start",
+                  gridAutoRows: "min-content",
+                }}
+              >
               {filteredGroups.map((g) => (
                 <div
                   key={g.id}
@@ -1829,7 +1837,10 @@ export const Bookshelf: React.FC = () => {
           }}
           style={{
             position: "fixed",
-            inset: 0,
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
             background: "rgba(225,225,225,0.6)",
             backdropFilter: "blur(12px)",
             WebkitBackdropFilter: "blur(12px)",

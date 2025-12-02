@@ -63,6 +63,19 @@ export const BookCard: React.FC<CommonBookCardProps> = ({
         )
       : 0;
 
+  // 计算 padding-bottom 比例
+  let pb = "133.33%";
+  if (aspectRatio) {
+    const parts = aspectRatio.split("/");
+    if (parts.length === 2) {
+      const w = parseFloat(parts[0]);
+      const h = parseFloat(parts[1]);
+      if (w && h) {
+        pb = `${(h / w) * 100}%`;
+      }
+    }
+  }
+
   return (
     <div
       className="book-card"
@@ -83,19 +96,43 @@ export const BookCard: React.FC<CommonBookCardProps> = ({
       <div
         style={{
           width: "100%",
-          aspectRatio,
+          paddingBottom: pb,
+          height: 0,
           backgroundColor: "#fff",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
           position: "relative",
           border: "1px solid #e5e5e5",
           borderRadius: "4px",
           boxShadow: "0 2px 6px rgba(0,0,0,0.06)",
           overflow: "hidden",
-          boxSizing: "border-box",
+          boxSizing: "content-box",
         }}
       >
+        {/* 内容容器 */}
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: "100%",
+            height: "100%",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          {book.cover_image ? (
+            <img
+              src={`data:image/jpeg;base64,${book.cover_image}`}
+              alt={book.title}
+              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            />
+          ) : (
+            <div style={{ color: "#999", fontSize: "14px", textAlign: "center" }}>
+              暂无封面
+            </div>
+          )}
+        </div>
+
         {/* 选择按钮（卡片内部右上角） */}
         {selectable && (
           <button
@@ -123,6 +160,7 @@ export const BookCard: React.FC<CommonBookCardProps> = ({
               alignItems: "center",
               justifyContent: "center",
               cursor: "pointer",
+              zIndex: 10,
             }}
           >
             {selected ? (
@@ -149,17 +187,6 @@ export const BookCard: React.FC<CommonBookCardProps> = ({
               </svg>
             )}
           </button>
-        )}
-        {book.cover_image ? (
-          <img
-            src={`data:image/jpeg;base64,${book.cover_image}`}
-            alt={book.title}
-            style={{ width: "100%", height: "100%", objectFit: "cover" }}
-          />
-        ) : (
-          <div style={{ color: "#999", fontSize: "14px", textAlign: "center" }}>
-            暂无封面
-          </div>
         )}
       </div>
       <div style={{ marginTop: CARD_INFO_MARGIN_TOP + "px" }}>
