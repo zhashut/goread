@@ -17,6 +17,7 @@ import {
   PAGE_GAP_STEP,
   SETTINGS_SAVE_DEBOUNCE_MS,
 } from "../constants/config";
+import { getSafeAreaInsets } from "../utils/layout";
 
 export const Settings: React.FC = () => {
   const navigate = useNavigate();
@@ -56,13 +57,14 @@ export const Settings: React.FC = () => {
         backgroundColor: "#fafafa",
         display: "flex",
         flexDirection: "column",
+        paddingBottom: getSafeAreaInsets().bottom,
       }}
     >
       <div
         style={{
           display: "flex",
           alignItems: "center",
-          padding: "12px 16px",
+          padding: `calc(${getSafeAreaInsets().top} + 12px) 16px 12px 16px`,
           backgroundColor: "#fff",
           boxShadow: "0 1px 6px rgba(0,0,0,0.08)",
         }}

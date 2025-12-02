@@ -10,6 +10,7 @@ import { waitNextFrame } from "../services/importUtils";
 import { logError } from "../services";
 import { loadGroupsWithPreviews, assignToExistingGroupAndFinish } from "../utils/groupImport";
 import { isSupportedFile } from "../constants/fileTypes";
+import { getSafeAreaInsets } from "../utils/layout";
 
 type TabKey = "scan" | "browse";
 
@@ -518,7 +519,7 @@ export const ImportFiles: React.FC = () => {
         </span>
         <div style={{ flex: 1 }} />
         {(activeTab === "browse" || (activeTab === "scan" && filteredScan.length > 0)) && (
-          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <div style={{ display: "flex", alignItems: "center" }}>
             {activeTab === "browse" && (
               <button
                 aria-label="搜索"
@@ -530,6 +531,7 @@ export const ImportFiles: React.FC = () => {
                   borderRadius: 0,
                   cursor: "pointer",
                   padding: 0,
+                  marginRight: 16,
                 }}
                 onClick={() => setSearchOpen((v) => !v)}
               >
@@ -665,7 +667,8 @@ export const ImportFiles: React.FC = () => {
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        height: "calc(100vh - 160px)",
+        height: "100%", // 充满父容器
+        paddingBottom: 40, // 视觉调整，避免图标过于居中偏下
       }}
     >
       {/* Radar-style scan icon, static (without red pointer) */}
@@ -680,34 +683,11 @@ export const ImportFiles: React.FC = () => {
         {/* Center dot */}
         <circle cx="12" cy="12" r="2" fill="#bbb" />
       </svg>
-      <div
-        role="button"
-        aria-disabled={scanLoading}
-        onClick={() => {
-          if (!scanLoading) startScan();
-        }}
-        style={{
-          position: "fixed",
-          bottom: 0,
-          left: 0,
-          right: 0,
-          padding: "10px 16px",
-          background: "#d23c3c",
-          color: "#fff",
-          textAlign: "center",
-          cursor: scanLoading ? "default" : "pointer",
-          userSelect: "none",
-        }}
-      >
-        <span style={{ fontSize: 14, letterSpacing: 1 }}>
-          {scanLoading ? "正在扫描…" : "立即扫描"}
-        </span>
-      </div>
     </div>
   );
 
   const ScanList: React.FC = () => (
-    <div style={{ padding: "8px 12px 56px 12px" }}>
+    <div style={{ padding: "8px 12px" }}>
       <div>
         {filteredScan.map((item) => (
           <FileRow
@@ -724,53 +704,16 @@ export const ImportFiles: React.FC = () => {
           />
         ))}
       </div>
-      <div
-        style={{
-          position: "fixed",
-          bottom: 0,
-          left: 0,
-          right: 0,
-          padding: "10px 16px",
-          background: "#d23c3c",
-          color: "#fff",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}
-      >
-        <button
-          onClick={handleImportClick}
-          style={{
-            background: "transparent",
-            border: "none",
-            color: "#fff",
-            cursor: "pointer",
-          }}
-        >
-          导入({selectedPaths.length})
-        </button>
-        <button
-          style={{
-            background: "transparent",
-            border: "none",
-            color: "#fff",
-            cursor: "pointer",
-          }}
-        >
-          下一步
-        </button>
-      </div>
     </div>
   );
 
   const BrowseList: React.FC = () => (
-    <div style={{ padding: "8px 12px 56px 12px" }}>
+    <div style={{ padding: "8px 12px" }}>
       {/* 面包屑路径：支持点击退回任意层级 */}
       <div
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 6,
           color: "#666",
           fontSize: 13,
           padding: "0 4px 8px 4px",
@@ -792,6 +735,7 @@ export const ImportFiles: React.FC = () => {
                 color: idx === browseDirStack.length - 1 ? "#999" : "#555",
                 padding: 0,
                 opacity: browseLoading ? 0.6 : 1,
+                marginRight: 6,
               }}
               title={seg.path}
               disabled={browseLoading}
@@ -799,7 +743,7 @@ export const ImportFiles: React.FC = () => {
               {seg.name}
             </button>
             {idx < browseDirStack.length - 1 && (
-              <span style={{ color: "#999" }}>›</span>
+              <span style={{ color: "#999", marginRight: 6 }}>›</span>
             )}
           </React.Fragment>
         ))}
@@ -874,24 +818,6 @@ export const ImportFiles: React.FC = () => {
           />
         )
       )}
-      <div
-        style={{
-          position: "fixed",
-          bottom: 0,
-          left: 0,
-          right: 0,
-          padding: "10px 16px",
-          background: "#d23c3c",
-          color: "#fff",
-          textAlign: "center",
-          cursor: "pointer",
-        }}
-        onClick={handleImportClick}
-        role="button"
-        aria-label={`导入(${selectedPaths.length})`}
-      >
-        <span>导入({selectedPaths.length})</span>
-      </div>
 
       {/* 分组抽屉*/}
       {groupingOpen && (
@@ -922,25 +848,34 @@ export const ImportFiles: React.FC = () => {
       className="import-page"
       style={{
         height: "100vh",
+        width: "100vw",
         overflow: "hidden",
         display: "flex",
         flexDirection: "column",
+        paddingTop: getSafeAreaInsets().top,
+        boxSizing: "border-box",
+        background: "#fff",
       }}
     >
-      {searchOpen && activeTab === "browse" ? (
-        <SearchHeader
-          value={browseSearch}
-          onChange={setBrowseSearch}
-          onClose={() => setSearchOpen(false)}
-          onClear={() => setBrowseSearch("")}
-        />
-      ) : (
-        <>
-          <Header />
-          <Tabs />
-        </>
-      )}
-      <div style={{ flex: 1, overflowY: "auto" }}>
+      {/* Header Area */}
+      <div style={{ flex: "none", zIndex: 10, boxSizing: "border-box" }}>
+        {searchOpen && activeTab === "browse" ? (
+          <SearchHeader
+            value={browseSearch}
+            onChange={setBrowseSearch}
+            onClose={() => setSearchOpen(false)}
+            onClear={() => setBrowseSearch("")}
+          />
+        ) : (
+          <>
+            <Header />
+            <Tabs />
+          </>
+        )}
+      </div>
+
+      {/* Content Area */}
+      <div style={{ flex: 1, overflowY: "auto", position: "relative" }}>
         {activeTab === "scan" ? (
           scanList.length === 0 && globalSearch.trim() === "" && !scanLoading ? (
             <ScanEmpty />
@@ -953,7 +888,7 @@ export const ImportFiles: React.FC = () => {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              height: "400px",
+              height: "100%",
               color: "#999",
             }}
           >
@@ -963,15 +898,58 @@ export const ImportFiles: React.FC = () => {
           <BrowseList />
         )}
       </div>
+
+      {/* Footer Area */}
+      {!(activeTab === "browse" && browseLoading && browseStack.length === 0) && (
+        <div
+          style={{
+            flex: "none",
+            paddingBottom: getSafeAreaInsets().bottom,
+            background: "#d23c3c",
+            zIndex: 10,
+            boxSizing: "border-box",
+          }}
+        >
+          <div
+            role="button"
+            onClick={() => {
+              if (activeTab === "scan" && scanList.length === 0 && globalSearch.trim() === "" && !scanLoading) {
+                 if (!scanLoading) startScan();
+              } else {
+                 handleImportClick();
+              }
+            }}
+            style={{
+              padding: "10px 16px",
+              color: "#fff",
+              textAlign: "center",
+              cursor: scanLoading ? "default" : "pointer",
+              userSelect: "none",
+            }}
+          >
+            <span style={{ fontSize: 14, letterSpacing: 1 }}>
+              {activeTab === "scan" && scanList.length === 0 && globalSearch.trim() === "" && !scanLoading
+                ? (scanLoading ? "正在扫描…" : "立即扫描")
+                : `导入(${selectedPaths.length})`}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* Drawers */}
       {drawerOpen && (
         <div
           aria-live="polite"
           style={{
             position: "fixed",
-            inset: 0,
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
             background: "rgba(0,0,0,0.35)",
             display: "flex",
             alignItems: "flex-end",
+            justifyContent: "center",
             zIndex: 1000,
           }}
         >
@@ -984,7 +962,7 @@ export const ImportFiles: React.FC = () => {
               background: "#fff",
               borderTopLeftRadius: 20,
               borderTopRightRadius: 20,
-              padding: "18px 16px 24px 16px",
+              padding: `18px 16px calc(24px + ${getSafeAreaInsets().bottom}) 16px`,
               boxSizing: "border-box",
             }}
           >

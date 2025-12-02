@@ -1,5 +1,6 @@
 import React from "react";
 import { TOP_DRAWER_RADIUS } from "../../constants/ui";
+import { getSafeAreaInsets } from "../../utils/layout";
 
 interface TopBarProps {
   visible: boolean;
@@ -31,7 +32,7 @@ export const TopBar: React.FC<TopBarProps> = ({ visible, bookTitle, onBack }) =>
         justifyContent: "space-between",
         color: "white",
         borderRadius: `0 0 ${TOP_DRAWER_RADIUS}px ${TOP_DRAWER_RADIUS}px`,
-        padding: "8px 12px",
+        padding: `calc(${getSafeAreaInsets().top} + 8px) 12px 8px 12px`,
         boxShadow: "0 6px 24px rgba(0,0,0,0.35)",
         zIndex: 12,
       }}

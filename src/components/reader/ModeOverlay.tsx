@@ -51,7 +51,6 @@ export const ModeOverlay: React.FC<ModeOverlayProps> = ({
           style={{
             display: "flex",
             flexDirection: "column",
-            gap: "16px",
           }}
         >
           <button
@@ -59,7 +58,6 @@ export const ModeOverlay: React.FC<ModeOverlayProps> = ({
             style={{
               display: "flex",
               alignItems: "center",
-              gap: "12px",
               background: "none",
               border: "1px solid #333",
               color: readingMode === "horizontal" ? "#d15158" : "#fff",
@@ -67,9 +65,10 @@ export const ModeOverlay: React.FC<ModeOverlayProps> = ({
               borderRadius: "8px",
               padding: "10px 12px",
               textAlign: "left",
+              marginBottom: "16px",
             }}
           >
-            <span style={{ fontSize: "18px" }}>▤</span>
+            <span style={{ fontSize: "18px", marginRight: "12px" }}>▤</span>
             <div>
               <div style={{ fontSize: "14px" }}>横向阅读</div>
               <div style={{ fontSize: "12px", opacity: 0.7 }}>
@@ -82,7 +81,6 @@ export const ModeOverlay: React.FC<ModeOverlayProps> = ({
             style={{
               display: "flex",
               alignItems: "center",
-              gap: "12px",
               background: "none",
               border: "1px solid #333",
               color: readingMode === "vertical" ? "#d15158" : "#fff",
@@ -92,7 +90,7 @@ export const ModeOverlay: React.FC<ModeOverlayProps> = ({
               textAlign: "left",
             }}
           >
-            <span style={{ fontSize: "18px" }}>▮</span>
+            <span style={{ fontSize: "18px", marginRight: "12px" }}>▮</span>
             <div>
               <div style={{ fontSize: "14px" }}>纵向阅读</div>
               <div style={{ fontSize: "12px", opacity: 0.7 }}>

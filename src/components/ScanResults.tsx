@@ -8,6 +8,7 @@ import ChooseExistingGroupDrawer from "./ChooseExistingGroupDrawer";
 import { waitNextFrame } from "../services/importUtils";
 import { logError } from "../services";
 import { loadGroupsWithPreviews, assignToExistingGroupAndFinish } from "../utils/groupImport";
+import { getSafeAreaInsets } from "../utils/layout";
 
 export interface FileEntry {
   type: "file" | "dir";
@@ -153,7 +154,16 @@ export const ScanResults: React.FC = () => {
   return (
     <div
       className="import-page"
-      style={{ height: "100vh", display: "flex", flexDirection: "column" }}
+      style={{
+        height: "100vh",
+        width: "100vw",
+        display: "flex",
+        flexDirection: "column",
+        paddingTop: getSafeAreaInsets().top,
+        boxSizing: "border-box",
+        overflow: "hidden",
+        background: "#fff",
+      }}
     >
       {/* Header / Search overlay */}
       {searchOpen ? (
@@ -293,7 +303,7 @@ export const ScanResults: React.FC = () => {
             扫描结果({results.length})
           </span>
           <div style={{ flex: 1 }} />
-          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <div style={{ display: "flex", alignItems: "center" }}>
             <button
               aria-label="搜索"
               title="搜索"
@@ -304,6 +314,7 @@ export const ScanResults: React.FC = () => {
                 borderRadius: 0,
                 cursor: "pointer",
                 padding: 0,
+                marginRight: 24,
               }}
               onClick={() => setSearchOpen(true)}
             >
@@ -386,7 +397,7 @@ export const ScanResults: React.FC = () => {
 
       {/* List */}
       <div
-        style={{ flex: 1, overflowY: "auto", padding: "8px 12px 56px 12px" }}
+        style={{ flex: 1, overflowY: "auto", padding: "8px 12px" }}
       >
         {filtered.map((item) => (
           <FileRow
@@ -428,22 +439,27 @@ export const ScanResults: React.FC = () => {
       {/* Bottom bar: centered import count (Figure 2 style) */}
       <div
         style={{
-          position: "fixed",
-          bottom: 0,
-          left: 0,
-          right: 0,
-          padding: "10px 16px",
+          flex: "none",
+          paddingBottom: getSafeAreaInsets().bottom,
           background: "#d23c3c",
-          color: "#fff",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          cursor: "pointer",
+          zIndex: 10,
+          boxSizing: "border-box",
         }}
-        onClick={handleImportClick}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span>导入({selectedPaths.length})</span>
+        <div
+          style={{
+            padding: "10px 16px",
+            color: "#fff",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            cursor: "pointer",
+          }}
+          onClick={handleImportClick}
+        >
+          <div style={{ display: "flex", alignItems: "center" }}>
+            <span>导入({selectedPaths.length})</span>
+          </div>
         </div>
       </div>
     </div>

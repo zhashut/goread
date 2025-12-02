@@ -1,6 +1,7 @@
 import React, { useState, useRef } from "react";
 import { TocNode } from "./types";
 import { IBookmark } from "../../types";
+import { getSafeAreaInsets } from "../../utils/layout";
 
 interface TocOverlayProps {
   visible: boolean;
@@ -202,31 +203,31 @@ export const TocOverlay: React.FC<TocOverlayProps> = ({
         }}
       >
         {/* 顶部页签：目录 / 书签（固定在顶部） */}
-        <div
-          style={{
-            padding: "16px 16px 0 16px",
-            flexShrink: 0,
-            display: "flex",
-            alignItems: "center",
-            gap: "16px",
-            marginBottom: "12px",
-          }}
-        >
-          <button
-            onClick={() => setLeftTab("toc")}
+          <div
             style={{
-              background: "none",
-              border: "none",
-              color: leftTab === "toc" ? "#d15158" : "#fff",
-              cursor: "pointer",
-              fontSize: "14px",
-              padding: "4px 6px",
-              borderBottom:
-                leftTab === "toc"
-                  ? "2px solid #d15158"
-                  : "2px solid transparent",
+              padding: `calc(${getSafeAreaInsets().top} + 16px) 16px 0 16px`,
+              flexShrink: 0,
+              display: "flex",
+              alignItems: "center",
+              marginBottom: "12px",
             }}
           >
+            <button
+              onClick={() => setLeftTab("toc")}
+              style={{
+                background: "none",
+                border: "none",
+                color: leftTab === "toc" ? "#d15158" : "#fff",
+                cursor: "pointer",
+                fontSize: "14px",
+                padding: "4px 6px",
+                borderBottom:
+                  leftTab === "toc"
+                    ? "2px solid #d15158"
+                    : "2px solid transparent",
+                marginRight: "16px",
+              }}
+            >
             <span style={{ marginRight: "6px" }}>≡</span>
             <span>目录</span>
           </button>
@@ -257,7 +258,7 @@ export const TocOverlay: React.FC<TocOverlayProps> = ({
           style={{
             flex: 1,
             overflowY: "auto",
-            padding: "0 16px 16px 16px",
+            padding: `0 16px calc(16px + ${getSafeAreaInsets().bottom}) 16px`,
             position: "relative",
           }}
         >
@@ -309,10 +310,9 @@ export const TocOverlay: React.FC<TocOverlayProps> = ({
                     style={{
                       display: "flex",
                       alignItems: "center",
-                      gap: "8px",
                     }}
                   >
-                    <span style={{ fontSize: "13px", color: "#fff" }}>
+                    <span style={{ fontSize: "13px", color: "#fff", marginRight: "8px" }}>
                       {bm.title}
                     </span>
                     <span style={{ fontSize: "12px", opacity: 0.7 }}>

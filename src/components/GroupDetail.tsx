@@ -16,7 +16,7 @@ import {
   rectSortingStrategy,
 } from "@dnd-kit/sortable";
 import { IBook } from "../types";
-import { CARD_WIDTH_COMPACT, CARD_MIN_WIDTH, GRID_GAP_GROUP_DETAIL } from "../constants/ui";
+import { CARD_MIN_WIDTH, GRID_GAP_GROUP_DETAIL } from "../constants/ui";
 import { groupService, bookService } from "../services";
 import { SortableBookItem } from "./SortableBookItem";
 import ConfirmDeleteDrawer from "./ConfirmDeleteDrawer";

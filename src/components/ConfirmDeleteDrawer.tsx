@@ -1,4 +1,5 @@
 import React from "react";
+import { getSafeAreaInsets } from "../utils/layout";
 
 export type DeleteContext = "recent" | "all-groups" | "group-detail";
 
@@ -89,13 +90,12 @@ const ConfirmDeleteDrawer: React.FC<ConfirmDeleteDrawerProps> = ({
               padding: 0,
               display: "flex",
               alignItems: "center",
-              gap: "8px",
               cursor: "pointer",
             }}
             title={deleteLocal ? "取消删除本地文件" : "删除本地文件"}
           >
             {deleteLocal ? (
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" style={{ marginRight: "8px" }}>
                 <circle cx="12" cy="12" r="9" fill="#d23c3c" />
                 <path
                   d="M9 12l2 2 4-4"
@@ -129,7 +129,7 @@ const ConfirmDeleteDrawer: React.FC<ConfirmDeleteDrawerProps> = ({
             display: "grid",
             gridTemplateColumns: "1fr 1fr",
             borderTop: "1px solid #eee",
-            padding: "12px 0 12px",
+            padding: `12px 0 calc(12px + ${getSafeAreaInsets().bottom})`,
           }}
         >
           <button

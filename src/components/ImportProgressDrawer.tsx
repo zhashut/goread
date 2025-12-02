@@ -1,4 +1,5 @@
 import React from "react";
+import { getSafeAreaInsets } from "../utils/layout";
 
 interface ImportProgressDrawerProps {
   open: boolean;
@@ -38,7 +39,7 @@ const ImportProgressDrawer: React.FC<ImportProgressDrawerProps> = ({
           borderTopLeftRadius: 20,
           borderTopRightRadius: 20,
           boxShadow: "0 -8px 20px rgba(0,0,0,0.15)",
-          padding: "16px 18px 20px 18px",
+          padding: `16px 18px calc(20px + ${getSafeAreaInsets().bottom}) 18px`,
           boxSizing: "border-box",
           minHeight: "22vh",
           display: "grid",
@@ -56,7 +57,6 @@ const ImportProgressDrawer: React.FC<ImportProgressDrawerProps> = ({
             width: "100%",
             display: "flex",
             alignItems: "center",
-            gap: 12,
           }}
         >
           <div
@@ -67,6 +67,7 @@ const ImportProgressDrawer: React.FC<ImportProgressDrawerProps> = ({
               borderRadius: 4,
               background: "#eee",
               overflow: "hidden",
+              marginRight: 12,
             }}
           >
             <div

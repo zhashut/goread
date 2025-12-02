@@ -3,6 +3,7 @@ import { save } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { log } from "../../services";
 import { CropRect, InteractionType, ResizeHandle } from "./types";
+import { getSafeAreaInsets } from "../../utils/layout";
 
 interface CropOverlayProps {
   visible: boolean;
@@ -256,11 +257,13 @@ export const CropOverlay: React.FC<CropOverlayProps> = ({
       {/* 顶部栏 */}
       <div
         style={{
-          height: "56px",
+          height: `calc(56px + ${getSafeAreaInsets().top})`,
+          paddingTop: getSafeAreaInsets().top,
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
-          padding: "0 16px",
+          paddingLeft: "16px",
+          paddingRight: "16px",
           backgroundColor: "#000",
           color: "#fff",
           boxShadow: "0 4px 12px rgba(0,0,0,0.3)",

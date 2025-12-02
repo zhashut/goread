@@ -4,6 +4,7 @@ import { IBook } from "../types";
 import { COVER_ASPECT_RATIO_COMPACT, GRID_GAP_BOOK_CARDS, CARD_MIN_WIDTH } from "../constants/ui";
 import { bookService } from "../services";
 import { BookCard } from "./BookCard";
+import { getSafeAreaInsets } from "../utils/layout";
 
 export const Search: React.FC = () => {
   const navigate = useNavigate();
@@ -45,6 +46,7 @@ export const Search: React.FC = () => {
         flexDirection: "column",
         background: "#fafafa",
         overflow: "hidden",
+        paddingTop: getSafeAreaInsets().top,
       }}
     >
       {/* 顶部搜索栏 */}

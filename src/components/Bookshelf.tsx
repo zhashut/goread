@@ -15,7 +15,6 @@ import { IBook, IGroup } from "../types";
       CARD_INFO_MARGIN_TOP,
       GROUP_NAME_MARGIN_TOP,
       GROUP_META_MARGIN_TOP,
-      CARD_WIDTH_COMPACT,
       CARD_MIN_WIDTH,
       SELECTION_ICON_SIZE,
       SELECTION_ICON_OFFSET_TOP,
@@ -45,6 +44,7 @@ import {
 } from "@dnd-kit/sortable";
 import { SortableItem } from "./SortableItem";
 import { SortableBookItem } from "./SortableBookItem";
+import { getSafeAreaInsets } from "../utils/layout";
 
 const applySortOrder = <T extends { id: number }>(items: T[], orderKey: string): T[] => {
   try {
@@ -672,7 +672,7 @@ export const Bookshelf: React.FC = () => {
   return (
     <div
       style={{
-        padding: "16px 8px 16px 16px",
+        padding: `calc(${getSafeAreaInsets().top} + 16px) 8px 16px 16px`,
         height: "100vh",
         backgroundColor: "#fafafa",
         display: "flex",
@@ -730,7 +730,7 @@ export const Bookshelf: React.FC = () => {
             已选中({selectedCount})
           </span>
           <div style={{ flex: 1 }} />
-          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <div style={{ display: "flex", alignItems: "center" }}>
             <button
               aria-label="删除"
               title="删除"
@@ -742,6 +742,7 @@ export const Bookshelf: React.FC = () => {
                 cursor: selectedCount === 0 ? "not-allowed" : "pointer",
                 opacity: selectedCount === 0 ? 0.4 : 1,
                 padding: 0,
+                marginRight: 16,
               }}
               disabled={selectedCount === 0}
               onClick={() => {
@@ -858,16 +859,15 @@ export const Bookshelf: React.FC = () => {
             marginBottom: "12px",
           }}
         >
-          <div
-            ref={tabsRef}
-            style={{
-              display: "flex",
-              alignItems: "flex-end",
-              gap: "18px",
-              position: "relative",
-              paddingBottom: "8px",
-            }}
-          >
+            <div
+              ref={tabsRef}
+              style={{
+                display: "flex",
+                alignItems: "flex-end",
+                position: "relative",
+                paddingBottom: "8px",
+              }}
+            >
             <button
               onClick={() => {
                 navigate("?tab=recent");
@@ -880,6 +880,7 @@ export const Bookshelf: React.FC = () => {
                 cursor: "pointer",
                 boxShadow: "none",
                 borderRadius: 0,
+                marginRight: "15px",
               }}
               title="最近"
             >
@@ -939,7 +940,6 @@ export const Bookshelf: React.FC = () => {
             style={{
               display: "flex",
               alignItems: "center",
-              gap: "20px",
               position: "relative",
             }}
           >
@@ -952,6 +952,7 @@ export const Bookshelf: React.FC = () => {
                 border: "none",
                 padding: 0,
                 margin: 0,
+                marginRight: "15px",
                 cursor: "pointer",
                 color: "#333",
                 WebkitAppearance: "none",
@@ -1050,7 +1051,6 @@ export const Bookshelf: React.FC = () => {
                     color: "#333",
                     display: "flex",
                     alignItems: "center",
-                    gap: "8px",
                     textAlign: "left",
                   }}
                   onMouseEnter={(e) => {
@@ -1061,8 +1061,8 @@ export const Bookshelf: React.FC = () => {
                   }}
                 >
                   <svg
-                    width="20"
-                    height="20"
+                    style={{ marginRight: "8px" }}
+                    width="20"                    height="20"
                     viewBox="0 0 24 24"
                     fill="none"
                     xmlns="http://www.w3.org/2000/svg"
@@ -1109,7 +1109,6 @@ export const Bookshelf: React.FC = () => {
                     color: "#333",
                     display: "flex",
                     alignItems: "center",
-                    gap: "8px",
                     textAlign: "left",
                   }}
                   onMouseEnter={(e) => {
@@ -1126,6 +1125,7 @@ export const Bookshelf: React.FC = () => {
                     fill="none"
                     xmlns="http://www.w3.org/2000/svg"
                     aria-hidden
+                    style={{ marginRight: "8px" }}
                   >
                     <circle
                       cx="12"
@@ -1208,7 +1208,6 @@ export const Bookshelf: React.FC = () => {
                     color: "#333",
                     display: "flex",
                     alignItems: "center",
-                    gap: "8px",
                     textAlign: "left",
                   }}
                   onMouseEnter={(e) => {
@@ -1225,6 +1224,7 @@ export const Bookshelf: React.FC = () => {
                     fill="none"
                     xmlns="http://www.w3.org/2000/svg"
                     aria-hidden
+                    style={{ marginRight: "8px" }}
                   >
                     <circle
                       cx="12"
@@ -1249,7 +1249,7 @@ export const Bookshelf: React.FC = () => {
         </div>
       )}
 
-      <div className="no-scrollbar" style={{ flex: 1, overflowY: "auto", paddingBottom: "35px" }}>
+      <div className="no-scrollbar" style={{ flex: 1, overflowY: "auto", paddingBottom: `calc(20px + ${getSafeAreaInsets().bottom})` }}>
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
@@ -1754,7 +1754,7 @@ export const Bookshelf: React.FC = () => {
                 background: "#fff",
                 display: "flex",
                 alignItems: "center",
-                padding: "12px 16px",
+                padding: `calc(${getSafeAreaInsets().top} + 12px) 16px 12px 16px`,
                 zIndex: 101,
               }}
             >
@@ -1787,7 +1787,7 @@ export const Bookshelf: React.FC = () => {
                 已选中({groupDetailSelectedCount})
               </span>
               <div style={{ flex: 1 }} />
-              <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+              <div style={{ display: "flex", alignItems: "center" }}>
                 <button
                   aria-label="删除"
                   title="删除"
@@ -1799,6 +1799,7 @@ export const Bookshelf: React.FC = () => {
                     cursor: groupDetailSelectedCount === 0 ? "not-allowed" : "pointer",
                     opacity: groupDetailSelectedCount === 0 ? 0.4 : 1,
                     padding: 0,
+                    marginRight: 16,
                   }}
                   disabled={groupDetailSelectedCount === 0}
                   onClick={() => {
@@ -1853,7 +1854,6 @@ export const Bookshelf: React.FC = () => {
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
-              gap: "12px",
             }}
           >
             {/* 标题在容器外居中 */}
@@ -1863,6 +1863,7 @@ export const Bookshelf: React.FC = () => {
                 fontWeight: 500,
                 color: "#333",
                 textAlign: "center",
+                marginBottom: "12px",
               }}
             >
               {groups.find((g) => g.id === overlayGroupId)?.name || "分组"}
