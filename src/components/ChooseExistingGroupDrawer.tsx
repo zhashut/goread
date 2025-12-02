@@ -1,6 +1,7 @@
 import React from "react";
 import { IGroup } from "../types";
 import GroupCoverGrid from "./GroupCoverGrid";
+import { getSafeAreaInsets } from "../utils/layout";
 
 export interface ChooseExistingGroupDrawerProps {
   open: boolean;
@@ -26,7 +27,10 @@ const ChooseExistingGroupDrawer: React.FC<ChooseExistingGroupDrawerProps> = ({
       aria-live="polite"
       style={{
         position: "fixed",
-        inset: 0,
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
         background: "rgba(0,0,0,0.35)",
         display: "flex",
         alignItems: "flex-end",
@@ -43,7 +47,7 @@ const ChooseExistingGroupDrawer: React.FC<ChooseExistingGroupDrawerProps> = ({
           background: "#fff",
           borderTopLeftRadius: 20,
           borderTopRightRadius: 20,
-          padding: "18px 16px 24px 16px",
+          padding: `18px 16px calc(24px + ${getSafeAreaInsets().bottom}) 16px`,
           boxSizing: "border-box",
           height: "50vh",
           maxHeight: "50vh",

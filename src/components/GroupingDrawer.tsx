@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from "react";
 
+import { getSafeAreaInsets } from "../utils/layout";
+
 interface GroupingDrawerProps {
   open: boolean;
   onClose: () => void;
@@ -32,7 +34,10 @@ const GroupingDrawer: React.FC<GroupingDrawerProps> = ({
       aria-live="polite"
       style={{
         position: "fixed",
-        inset: 0,
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
         background: "rgba(0,0,0,0.35)",
         display: open ? "flex" : "none",
         alignItems: "flex-end",
@@ -48,10 +53,12 @@ const GroupingDrawer: React.FC<GroupingDrawerProps> = ({
           background: "#fff",
           borderTopLeftRadius: 20,
           borderTopRightRadius: 20,
-          padding: "14px 16px",
+          padding: `14px 16px calc(14px + ${getSafeAreaInsets().bottom}) 16px`,
           boxSizing: "border-box",
           display: "flex",
           flexDirection: "column",
+          maxHeight: "90vh",
+          overflowY: "auto",
         }}
       >
         <div
@@ -65,8 +72,12 @@ const GroupingDrawer: React.FC<GroupingDrawerProps> = ({
           如何分组？
         </div>
         <input
-          autoFocus
           value={localValue}
+          onFocus={(e) => {
+            setTimeout(() => {
+              e.target.scrollIntoView({ block: "center", behavior: "smooth" });
+            }, 300);
+          }}
           onChange={(e) => {
             const val = e.target.value;
             setLocalValue(val);
