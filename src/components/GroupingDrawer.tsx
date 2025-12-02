@@ -129,6 +129,8 @@ const GroupingDrawer: React.FC<GroupingDrawerProps> = ({
             padding: "8px 2px",
             boxShadow: "none",
             borderRadius: 0,
+            color: "#333",
+            background: "transparent",
           }}
         />
         {/* 独立灰色分隔线，增强与操作区的分割感 */}
