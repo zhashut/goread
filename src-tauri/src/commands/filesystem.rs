@@ -29,8 +29,11 @@ async fn scan_pdf_files_recursive(
     dirs_to_scan.push_back(dir.to_path_buf());
     let mut last_emit_time = std::time::Instant::now();
 
+    println!("Starting scan from: {}", dir.display());
+
     while let Some(current_dir) = dirs_to_scan.pop_front() {
         if cancel_flag.load(Ordering::Relaxed) {
+            println!("Scan cancelled");
             break;
         }
         if !current_dir.is_dir() {
@@ -39,7 +42,10 @@ async fn scan_pdf_files_recursive(
 
         let mut entries = match tokio::fs::read_dir(&current_dir).await {
             Ok(entries) => entries,
-            Err(_) => continue, // 忽略权限错误
+            Err(e) => {
+                eprintln!("Failed to read directory {}: {}", current_dir.display(), e);
+                continue; // 忽略权限错误
+            }
         };
 
         while let Some(entry) = entries.next_entry().await? {
@@ -125,23 +131,45 @@ pub async fn scan_pdf_files(
     window: tauri::Window,
     cancel_flag: State<'_, Arc<AtomicBool>>,
 ) -> Result<Vec<FileEntry>, String> {
-    let root = if let Some(path) = root_path {
-        PathBuf::from(path)
+    let app_handle = window.app_handle();
+    let mut roots = Vec::new();
+
+    if let Some(path) = root_path {
+        roots.push(PathBuf::from(path));
     } else {
         // 根据平台选择根路径
         #[cfg(target_os = "android")]
-        let root = PathBuf::from("/storage/emulated/0");
+        {
+            // 尝试扫描根目录，如果不可读则扫描公共目录
+            let root = PathBuf::from("/storage/emulated/0");
+            if root.exists() && tokio::fs::read_dir(&root).await.is_ok() {
+                roots.push(root);
+            } else {
+                // 根目录不可读，尝试扫描公共目录
+                roots.push(PathBuf::from("/storage/emulated/0/Download"));
+                roots.push(PathBuf::from("/storage/emulated/0/Documents"));
+                roots.push(PathBuf::from("/storage/emulated/0/Books"));
+            }
+        }
 
         #[cfg(target_os = "ios")]
-        let root = PathBuf::from("/private/var/mobile");
+        {
+            if let Ok(doc_dir) = app_handle.path().document_dir() {
+                roots.push(doc_dir);
+            } else {
+                roots.push(PathBuf::from("/private/var/mobile/Documents"));
+            }
+        }
 
         #[cfg(target_os = "windows")]
-        let root = PathBuf::from("C:\\");
+        {
+            roots.push(PathBuf::from("C:\\"));
+        }
 
         #[cfg(not(any(target_os = "android", target_os = "ios", target_os = "windows")))]
-        let root = PathBuf::from("/");
-
-        root
+        {
+            roots.push(PathBuf::from("/"));
+        }
     };
 
     let app_handle = window.app_handle();
@@ -149,15 +177,20 @@ pub async fn scan_pdf_files(
     let mut results = Vec::new();
     let mut scanned_count = 0u32;
 
-    scan_pdf_files_recursive(
-        &root,
-        &mut results,
-        &mut scanned_count,
-        Some(&app_handle),
-        &cancel_flag,
-    )
-    .await
-    .map_err(|e| format!("扫描失败: {}", e))?;
+    for root in roots {
+        if !root.exists() {
+            continue;
+        }
+        // 忽略单个目录的错误，继续扫描其他目录
+        let _ = scan_pdf_files_recursive(
+            &root,
+            &mut results,
+            &mut scanned_count,
+            Some(&app_handle),
+            &cancel_flag,
+        )
+        .await;
+    }
 
     // 发送最终结果
     let _ = app_handle.emit(
@@ -179,28 +212,47 @@ pub async fn cancel_scan(cancel_flag: State<'_, Arc<AtomicBool>>) -> Result<(), 
 
 #[tauri::command]
 pub async fn list_directory(path: String) -> Result<Vec<FileEntry>, String> {
+    println!("list_directory called with path: {}", path);
     let dir_path = PathBuf::from(&path);
 
+    if !dir_path.exists() {
+        let err_msg = format!("路径不存在: {}", path);
+        eprintln!("{}", err_msg);
+        return Err(err_msg);
+    }
+
     if !dir_path.is_dir() {
-        return Err(format!("路径不是目录: {}", path));
+        let err_msg = format!("路径不是目录: {}", path);
+        eprintln!("{}", err_msg);
+        return Err(err_msg);
     }
 
     let mut entries = tokio::fs::read_dir(&dir_path)
         .await
-        .map_err(|e| format!("读取目录失败: {}", e))?;
+        .map_err(|e| {
+            let err_msg = format!("读取目录失败: {} (错误: {})", path, e);
+            eprintln!("{}", err_msg);
+            err_msg
+        })?;
 
     let mut results = Vec::new();
+    let mut total_entries = 0;
+    let mut pdf_count = 0;
 
     while let Some(entry) = entries
         .next_entry()
         .await
         .map_err(|e| format!("读取目录项失败: {}", e))?
     {
+        total_entries += 1;
         let path = entry.path();
-        let metadata = entry
-            .metadata()
-            .await
-            .map_err(|e| format!("获取文件信息失败: {}", e))?;
+        let metadata = match entry.metadata().await {
+            Ok(m) => m,
+            Err(e) => {
+                eprintln!("获取文件信息失败 ({}): {}", path.display(), e);
+                continue;
+            }
+        };
 
         let name = path
             .file_name()
@@ -233,6 +285,10 @@ pub async fn list_directory(path: String) -> Result<Vec<FileEntry>, String> {
 
         // 只返回目录和 PDF 文件
         if entry_type == "dir" || (entry_type == "file" && is_pdf_file(&path)) {
+            if entry_type == "file" {
+                pdf_count += 1;
+                println!("Found PDF: {}", name);
+            }
             results.push(FileEntry {
                 name,
                 path: path_str,
@@ -243,6 +299,9 @@ pub async fn list_directory(path: String) -> Result<Vec<FileEntry>, String> {
             });
         }
     }
+
+    println!("list_directory: 总共 {} 个条目, {} 个 PDF 文件, 返回 {} 个结果", 
+             total_entries, pdf_count, results.len());
 
     // 排序：目录在前，然后按名称排序
     results.sort_by(
@@ -282,7 +341,7 @@ fn is_pdf_file(path: &Path) -> bool {
 }
 
 #[tauri::command]
-pub async fn get_root_directories() -> Result<Vec<FileEntry>, String> {
+pub async fn get_root_directories(app_handle: tauri::AppHandle) -> Result<Vec<FileEntry>, String> {
     #[cfg(target_os = "android")]
     let roots = vec![
         PathBuf::from("/storage/emulated/0"),
@@ -290,7 +349,7 @@ pub async fn get_root_directories() -> Result<Vec<FileEntry>, String> {
     ];
 
     #[cfg(target_os = "ios")]
-    let roots = vec![PathBuf::from("/private/var/mobile/Documents")];
+    let roots = vec![app_handle.path().document_dir().unwrap_or_else(|_| PathBuf::from("/private/var/mobile/Documents"))];
 
     #[cfg(target_os = "windows")]
     let roots = {
@@ -339,7 +398,26 @@ pub async fn get_root_directories() -> Result<Vec<FileEntry>, String> {
 pub async fn check_storage_permission() -> Result<bool, String> {
     #[cfg(target_os = "android")]
     {
-        Ok(true)
+        // Test multiple common paths to verify storage access
+        let test_paths = vec![
+            "/storage/emulated/0",
+            "/storage/emulated/0/Download",
+            "/storage/emulated/0/Documents",
+        ];
+        
+        for path_str in test_paths {
+            let path = std::path::Path::new(path_str);
+            if path.exists() {
+                match tokio::fs::read_dir(path).await {
+                    Ok(_) => return Ok(true),
+                    Err(e) => {
+                        eprintln!("Failed to read {}: {}", path_str, e);
+                        continue;
+                    }
+                }
+            }
+        }
+        Ok(false)
     }
 
     #[cfg(target_os = "ios")]
@@ -355,20 +433,9 @@ pub async fn check_storage_permission() -> Result<bool, String> {
 
 #[tauri::command]
 pub async fn request_storage_permission() -> Result<bool, String> {
-    #[cfg(target_os = "android")]
-    {
-        Ok(true)
-    }
-
-    #[cfg(target_os = "ios")]
-    {
-        Ok(true)
-    }
-
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    {
-        Ok(true)
-    }
+    // 在 Android 上，权限请求由 MainActivity 在启动时处理。
+    // 这里我们再次检查权限状态。
+    check_storage_permission().await
 }
 
 #[tauri::command]

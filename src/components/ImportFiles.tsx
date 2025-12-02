@@ -450,6 +450,8 @@ export const ImportFiles: React.FC = () => {
         ...stack,
         { name: entry.name, path: entry.path },
       ]);
+      // Push state to support back button navigation
+      window.history.pushState(null, "");
     } catch (error: any) {
       console.error("读取目录失败:", error);
       const msg =
@@ -482,6 +484,19 @@ export const ImportFiles: React.FC = () => {
       setBrowseLoading(false);
     }
   };
+
+  // 监听返回键
+  useEffect(() => {
+    const handlePopState = (_event: PopStateEvent) => {
+      if (activeTab === "browse" && browseStack.length > 1) {
+        // 如果在子目录中，回退一级
+        goToDepth(browseStack.length - 2);
+      }
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [activeTab, browseStack]);
 
   const Header: React.FC = () => {
     return (
