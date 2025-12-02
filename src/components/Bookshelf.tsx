@@ -140,6 +140,46 @@ export const Bookshelf: React.FC = () => {
     activeTab === "recent" ? selectedBookIds.size : selectedGroupIds.size;
   const [confirmOpen, setConfirmOpen] = useState(false);
 
+  const [isDragging, setIsDragging] = useState(false);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartRef.current = {
+      x: e.touches[0].clientX,
+      y: e.touches[0].clientY,
+    };
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (!touchStartRef.current || isDragging || selectionMode) return;
+    
+    const touchEnd = {
+      x: e.changedTouches[0].clientX,
+      y: e.changedTouches[0].clientY,
+    };
+
+    const diffX = touchStartRef.current.x - touchEnd.x;
+    const diffY = touchStartRef.current.y - touchEnd.y;
+
+    touchStartRef.current = null;
+
+    if (Math.abs(diffX) > 50 && Math.abs(diffX) > Math.abs(diffY) * 1.5) {
+      if (diffX > 0) {
+        // Swipe Left -> Go to "all"
+        if (activeTab === "recent") {
+          navigate("?tab=all", { replace: true });
+          setAnimateUnderline(true);
+        }
+      } else {
+        // Swipe Right -> Go to "recent"
+        if (activeTab === "all") {
+          navigate("?tab=recent", { replace: true });
+          setAnimateUnderline(true);
+        }
+      }
+    }
+  };
+
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
@@ -1345,11 +1385,20 @@ export const Bookshelf: React.FC = () => {
         </div>
       )}
 
-      <div className="no-scrollbar" style={{ flex: 1, overflowY: "auto", paddingBottom: `calc(20px + ${getSafeAreaInsets().bottom})` }}>
+      <div
+        className="no-scrollbar"
+        style={{ flex: 1, overflowY: "auto", paddingBottom: `calc(20px + ${getSafeAreaInsets().bottom})` }}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+      >
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
-          onDragEnd={handleDragEnd}
+          onDragStart={() => setIsDragging(true)}
+          onDragEnd={(e) => {
+            setIsDragging(false);
+            handleDragEnd(e);
+          }}
         >
         {/* 选择模式顶部栏已合并到上方最近/全部标签区域 */}
         {activeTab === "recent" ? (
