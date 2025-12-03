@@ -35,46 +35,64 @@ impl PdfEngine {
 
     /// 创建 Pdfium 实例（内部使用）
     fn create_pdfium() -> Result<Pdfium, PdfError> {
-        let mut candidates: Vec<String> = Vec::new();
-        if let Ok(dir) = std::env::var("PDFIUM_LIB_DIR") { candidates.push(dir); }
-        if let Ok(exe) = std::env::current_exe() { if let Some(p) = exe.parent() { candidates.push(p.to_string_lossy().to_string()); } }
-        if let Ok(cwd) = std::env::current_dir() { candidates.push(cwd.to_string_lossy().to_string()); }
-        candidates.push("./resources".to_string());
-        candidates.push("./pdfium".to_string());
-        #[cfg(target_os = "windows")] {
-            candidates.push("./pdfium/windows".to_string());
-            candidates.push("./src/pdfium/windows".to_string());
-        }
-        #[cfg(target_os = "linux")] {
-            candidates.push("./pdfium/linux".to_string());
-            candidates.push("./src/pdfium/linux".to_string());
-        }
-        #[cfg(target_os = "macos")] {
-            candidates.push("./pdfium/macos".to_string());
-            candidates.push("./src/pdfium/macos".to_string());
-        }
-        #[cfg(target_os = "android")] {
-            candidates.push("./pdfium/android".to_string());
-            candidates.push("./src/pdfium/android".to_string());
-        }
-        #[cfg(target_os = "ios")] {
-            candidates.push("./pdfium/ios".to_string());
-            candidates.push("./src/pdfium/ios".to_string());
-        }
-
-        for dir in candidates {
-            if let Ok(bindings) = Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path(&dir)) {
+        // Android: jniLibs 中的 .so 文件会自动复制到应用的 native library 目录
+        // 直接通过库名加载即可
+        #[cfg(target_os = "android")]
+        {
+            // Try to load libpdfium.so from the app's native library directory
+            // Android automatically searches in the correct location for the current ABI
+            if let Ok(bindings) = Pdfium::bind_to_library("libpdfium.so") {
                 return Ok(Pdfium::new(bindings));
             }
+            // Fallback: try system library
+            return Ok(Pdfium::new(
+                Pdfium::bind_to_system_library().map_err(|e| PdfError::ParseError {
+                    page: None,
+                    message: "无法加载 Pdfium 库 (Android)".to_string(),
+                    source: e.to_string(),
+                })?,
+            ));
         }
 
-        Ok(Pdfium::new(
-            Pdfium::bind_to_system_library().map_err(|e| PdfError::ParseError {
-                page: None,
-                message: "无法加载 Pdfium 库".to_string(),
-                source: e.to_string(),
-            })?,
-        ))
+        #[cfg(not(target_os = "android"))]
+        {
+            let mut candidates: Vec<String> = Vec::new();
+            if let Ok(dir) = std::env::var("PDFIUM_LIB_DIR") { candidates.push(dir); }
+            if let Ok(exe) = std::env::current_exe() { if let Some(p) = exe.parent() { candidates.push(p.to_string_lossy().to_string()); } }
+            if let Ok(cwd) = std::env::current_dir() { candidates.push(cwd.to_string_lossy().to_string()); }
+            candidates.push("./resources".to_string());
+            candidates.push("./pdfium".to_string());
+            #[cfg(target_os = "windows")] {
+                candidates.push("./pdfium/windows".to_string());
+                candidates.push("./src/pdfium/windows".to_string());
+            }
+            #[cfg(target_os = "linux")] {
+                candidates.push("./pdfium/linux".to_string());
+                candidates.push("./src/pdfium/linux".to_string());
+            }
+            #[cfg(target_os = "macos")] {
+                candidates.push("./pdfium/macos".to_string());
+                candidates.push("./src/pdfium/macos".to_string());
+            }
+            #[cfg(target_os = "ios")] {
+                candidates.push("./pdfium/ios".to_string());
+                candidates.push("./src/pdfium/ios".to_string());
+            }
+
+            for dir in candidates {
+                if let Ok(bindings) = Pdfium::bind_to_library(Pdfium::pdfium_platform_library_name_at_path(&dir)) {
+                    return Ok(Pdfium::new(bindings));
+                }
+            }
+
+            Ok(Pdfium::new(
+                Pdfium::bind_to_system_library().map_err(|e| PdfError::ParseError {
+                    page: None,
+                    message: "无法加载 Pdfium 库".to_string(),
+                    source: e.to_string(),
+                })?,
+            ))
+        }
     }
 
     /// 执行需要文档的操作（内部使用）
