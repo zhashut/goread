@@ -12,6 +12,7 @@ import {
 import {
   PageCacheManager,
 } from "../utils/pdfOptimization";
+import { getSafeAreaInsets } from "../utils/layout";
 import {
   QUALITY_SCALE_MAP,
   AUTO_PAGE_INTERVAL_MS,
@@ -1326,7 +1327,7 @@ export const Reader: React.FC = () => {
         display: "flex",
         flexDirection: "column",
         backgroundColor: "#2c2c2c",
-        paddingTop: settings.showStatusBar ? "env(safe-area-inset-top)" : 0,
+        paddingTop: settings.showStatusBar ? getSafeAreaInsets().top : 0,
       }}
     >
       {/* 主体区域：仅中间渲染区（目录改为蒙版弹层） */}
@@ -1447,14 +1448,16 @@ export const Reader: React.FC = () => {
         (() => {
           const toolbarVisible = uiVisible || isSeeking || tocOverlayOpen;
           const baseOffsetPx = toolbarVisible ? 72 : 14;
-          const safeInset = settings.showStatusBar
-            ? "env(safe-area-inset-top)"
-            : "0px";
+          const safeAreaTop = getSafeAreaInsets().top;
+          const shouldIncludeSafeArea = toolbarVisible || settings.showStatusBar;
+          const topStyle = shouldIncludeSafeArea 
+            ? `calc(${safeAreaTop} + ${baseOffsetPx}px)`
+            : `${baseOffsetPx}px`;
           return (
             <div
               style={{
                 position: "fixed",
-                top: `calc(${safeInset} + ${baseOffsetPx}px)`,
+                top: topStyle,
                 // 顶部覆盖层已满宽，严格对齐其左内边距（含安全区）
                 left: "calc(env(safe-area-inset-left) + 12px)",
                 display: "block",
