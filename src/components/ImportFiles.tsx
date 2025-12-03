@@ -1,6 +1,6 @@
 import React, { useMemo, useRef, useState, useEffect } from "react";
 import { FileRow } from "./FileRow";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { IBook, IGroup } from "../types";
 import { bookService } from "../services";
 import { fileSystemService } from "../services/fileSystemService";
@@ -162,6 +162,7 @@ const SearchHeader: React.FC<SearchHeaderProps> = ({
 export const ImportFiles: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const initialTab = (location.state as any)?.initialTab as TabKey | undefined;
   const [activeTab, setActiveTab] = useState<TabKey>(initialTab ?? "scan");
   const [scanLoading, setScanLoading] = useState(false);
@@ -440,26 +441,9 @@ export const ImportFiles: React.FC = () => {
     }
   };
 
-  const goInto = async (entry: FileEntry) => {
+  const goInto = (entry: FileEntry) => {
     if (entry.type !== "dir") return;
-    setBrowseLoading(true);
-    try {
-      const children = await fileSystemService.listDirectory(entry.path);
-      setBrowseStack((stack) => [...stack, children]);
-      setBrowseDirStack((stack) => [
-        ...stack,
-        { name: entry.name, path: entry.path },
-      ]);
-      // Push state to support back button navigation
-      window.history.pushState(null, "");
-    } catch (error: any) {
-      console.error("读取目录失败:", error);
-      const msg =
-        typeof error?.message === "string" ? error.message : String(error);
-      alert(`读取目录失败\n\n原因：${msg}`);
-    } finally {
-      setBrowseLoading(false);
-    }
+    setSearchParams({ tab: "browse", path: entry.path });
   };
 
   // 目录返回通过面包屑点击实现，无需单独函数
@@ -485,74 +469,54 @@ export const ImportFiles: React.FC = () => {
     }
   };
 
-  // Refs for back button handling
-  const stateRef = useRef({
-    chooseGroupOpen,
-    groupingOpen,
-    drawerOpen,
-    searchOpen,
-    activeTab,
-    browseStackLength: browseStack.length,
-  });
-
+  // 监听 URL 参数变化，处理浏览器后退/手势返回/前进
   useEffect(() => {
-    stateRef.current = {
-      chooseGroupOpen,
-      groupingOpen,
-      drawerOpen,
-      searchOpen,
-      activeTab,
-      browseStackLength: browseStack.length,
-    };
-  }, [chooseGroupOpen, groupingOpen, drawerOpen, searchOpen, activeTab, browseStack.length]);
+    const pathParam = searchParams.get("path") || "";
+    
+    // 获取当前栈顶路径
+    const currentStack = browseDirStack;
+    const currentPath = currentStack[currentStack.length - 1]?.path || "";
 
-  // 监听返回键
-  useEffect(() => {
-    const handlePopState = (event: PopStateEvent) => {
-      event.preventDefault();
-      const state = stateRef.current;
+    if (pathParam === currentPath) return;
 
-      // Push state back to prevent actual navigation
-      window.history.pushState(null, "", window.location.href);
+    // 1. 后退操作：如果 URL 中的路径存在于当前栈中（且不是栈顶）
+    const backIndex = currentStack.findIndex((item) => item.path === pathParam);
+    if (backIndex !== -1) {
+      goToDepth(backIndex);
+      return;
+    }
 
-      // Close overlays/drawers in priority order
-      if (state.chooseGroupOpen) {
-        setChooseGroupOpen(false);
-        return;
-      }
-      if (state.groupingOpen) {
-        setGroupingOpen(false);
-        return;
-      }
-      if (state.drawerOpen) {
-        // Cancel scan if running
-        scanCancelledRef.current = true;
-        setDrawerOpen(false);
-        return;
-      }
-      if (state.searchOpen) {
-        setSearchOpen(false);
-        return;
-      }
-      if (state.activeTab === "browse" && state.browseStackLength > 1) {
-        // 如果在子目录中，回退一级
-        goToDepth(state.browseStackLength - 2);
-        return;
-      }
+    // 2. 前进操作：如果 URL 路径不在栈中，尝试从当前文件列表中查找目标目录
+    const currentFiles = browseStack[browseStack.length - 1];
+    if (currentFiles) {
+      const targetEntry = currentFiles.find(
+        (f) => f.path === pathParam && f.type === "dir"
+      );
 
-      // No overlay open, navigate back to bookshelf
-      const navState: any = location.state || {};
-      if (navState.fromTab === "all") {
-        navigate("/?tab=all", { replace: true });
-      } else {
-        navigate("/", { replace: true });
+      if (targetEntry) {
+        const loadDir = async () => {
+          setBrowseLoading(true);
+          try {
+            const children = await fileSystemService.listDirectory(targetEntry.path);
+            setBrowseStack((stack) => [...stack, children]);
+            setBrowseDirStack((stack) => [
+              ...stack,
+              { name: targetEntry.name, path: targetEntry.path },
+            ]);
+          } catch (error: any) {
+            console.error("读取目录失败:", error);
+            const msg =
+              typeof error?.message === "string" ? error.message : String(error);
+            // 这里不使用 alert 打断，因为是 URL 驱动的，可能只是打印日志
+            console.warn(`无法进入目录: ${msg}`);
+          } finally {
+            setBrowseLoading(false);
+          }
+        };
+        loadDir();
       }
-    };
-
-    window.history.pushState(null, "", window.location.href);
-    window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
-  }, [navigate, location.state]);
+    }
+  }, [searchParams, browseDirStack, browseStack]);
 
   const Header: React.FC = () => {
     return (
@@ -563,8 +527,9 @@ export const ImportFiles: React.FC = () => {
           aria-label="返回"
           onClick={() => {
             const state: any = location.state || {};
-            if (state.fromTab === "all") navigate("/?tab=all");
-            else navigate(-1);
+            // 直接退出导入页面，不再逐级返回
+            if (state.fromTab === "all") navigate("/?tab=all", { replace: true });
+            else navigate("/", { replace: true });
           }}
           style={{
             background: "none",
@@ -794,7 +759,11 @@ export const ImportFiles: React.FC = () => {
         {browseDirStack.map((seg, idx) => (
           <React.Fragment key={seg.path + idx}>
             <button
-              onClick={() => !browseLoading && goToDepth(idx)}
+              onClick={() => {
+                if (!browseLoading) {
+                  setSearchParams({ tab: "browse", path: browseDirStack[idx].path }, { replace: true });
+                }
+              }}
               style={{
                 background: "none",
                 border: "none",
