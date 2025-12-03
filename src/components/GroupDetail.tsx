@@ -72,6 +72,51 @@ export const GroupDetail: React.FC<{
     selectedRef.current = new Set(selectedBookIds);
   }, [selectedBookIds]);
 
+  // Refs for back button handling - use useRef to avoid stale closure
+  const popStateRef = useRef({
+    confirmOpen,
+    selectionMode,
+  });
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    popStateRef.current = {
+      confirmOpen,
+      selectionMode,
+    };
+  }, [confirmOpen, selectionMode]);
+
+  // Handle back button / swipe gesture - only when used as standalone route (no onClose prop)
+  useEffect(() => {
+    // Skip if used as overlay (has onClose prop) - Bookshelf handles popstate in that case
+    if (onClose) return;
+    
+    const handlePopState = (e: PopStateEvent) => {
+      e.preventDefault();
+      window.history.pushState(null, "", window.location.href);
+
+      const currentState = popStateRef.current;
+
+      // Close overlays/selection mode in priority order
+      if (currentState.confirmOpen) {
+        setConfirmOpen(false);
+        return;
+      }
+      if (currentState.selectionMode) {
+        setSelectionMode(false);
+        setSelectedBookIds(new Set());
+        return;
+      }
+
+      // No overlay open, navigate back to bookshelf
+      navigate("/?tab=all", { replace: true });
+    };
+
+    window.history.pushState(null, "", window.location.href);
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [navigate, onClose]);
+
   const reloadBooksAndGroups = async () => {
     const list = await groupService.getBooksByGroup(id);
     setBooks(list || []);

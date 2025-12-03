@@ -15,6 +15,19 @@ export const Search: React.FC = () => {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
 
+  // Handle back button / swipe gesture
+  useEffect(() => {
+    const handlePopState = (e: PopStateEvent) => {
+      e.preventDefault();
+      window.history.pushState(null, "", window.location.href);
+      navigate(`/?tab=${fromTab}`, { replace: true });
+    };
+
+    window.history.pushState(null, "", window.location.href);
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [navigate, fromTab]);
+
   useEffect(() => {
     const run = async () => {
       try {

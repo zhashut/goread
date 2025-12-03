@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
 import {
   getReaderSettings,
   saveReaderSettings,
@@ -21,9 +20,11 @@ import { getSafeAreaInsets } from "../utils/layout";
 import { CustomSelect } from "./CustomSelect";
 
 export const Settings: React.FC = () => {
-  const navigate = useNavigate();
-  const location = useLocation();
   const [settings, setSettings] = useState<ReaderSettings>(getReaderSettings());
+
+  const goBack = () => {
+    window.history.back();
+  };
 
   useEffect(() => {
     // 防抖保存
@@ -71,11 +72,7 @@ export const Settings: React.FC = () => {
         }}
       >
         <button
-          onClick={() => {
-            const state: any = location.state || {};
-            if (state.fromTab === "all") navigate("/?tab=all");
-            else navigate(-1);
-          }}
+          onClick={goBack}
           style={{
             background: "transparent",
             border: "none",

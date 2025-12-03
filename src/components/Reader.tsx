@@ -201,6 +201,68 @@ export const Reader: React.FC = () => {
     return dpr * qualityScale;
   };
 
+  // Handle back button / swipe gesture - close overlays/drawers before navigating back
+  const stateRef = useRef({
+    cropMode,
+    moreDrawerOpen,
+    tocOverlayOpen,
+    modeOverlayOpen,
+  });
+
+  useEffect(() => {
+    stateRef.current = {
+      cropMode,
+      moreDrawerOpen,
+      tocOverlayOpen,
+      modeOverlayOpen,
+    };
+  }, [cropMode, moreDrawerOpen, tocOverlayOpen, modeOverlayOpen]);
+
+  useEffect(() => {
+    const handlePopState = (e: PopStateEvent) => {
+      e.preventDefault();
+      const state = stateRef.current;
+
+      // Push state back to prevent actual navigation
+      window.history.pushState(null, "", window.location.href);
+
+      // Close overlays/drawers in priority order
+      if (state.cropMode) {
+        setCropMode(false);
+        setCapturedImage(null);
+        return;
+      }
+      if (state.moreDrawerOpen) {
+        setMoreDrawerOpen(false);
+        return;
+      }
+      if (state.tocOverlayOpen) {
+        setTocOverlayOpen(false);
+        return;
+      }
+      if (state.modeOverlayOpen) {
+        setModeOverlayOpen(false);
+        return;
+      }
+
+      // No overlay open, perform actual navigation back
+      const navState: any = location.state || {};
+      if (typeof navState.fromGroupId === "number") {
+        navigate(`/?tab=all&group=${navState.fromGroupId}`, { replace: true });
+      } else if (navState.fromTab === "all") {
+        navigate("/?tab=all", { replace: true });
+      } else if (navState.fromTab === "recent") {
+        navigate("/", { replace: true });
+      } else {
+        navigate("/", { replace: true });
+      }
+    };
+
+    window.history.pushState(null, "", window.location.href);
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [navigate, location.state]);
+
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
       if (e.key === "reader_settings_v1") {

@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { FileRow } from "./FileRow";
 import { bookService } from "../services";
@@ -76,6 +76,54 @@ export const ScanResults: React.FC = () => {
     };
     loadImportedBooks();
   }, []);
+
+  // Refs for back button handling - use useRef to avoid stale closure
+  const popStateRef = useRef({
+    chooseGroupOpen,
+    groupingOpen,
+    searchOpen,
+  });
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    popStateRef.current = {
+      chooseGroupOpen,
+      groupingOpen,
+      searchOpen,
+    };
+  }, [chooseGroupOpen, groupingOpen, searchOpen]);
+
+  // Handle back button / swipe gesture - close overlays/drawers before navigating back
+  useEffect(() => {
+    const handlePopState = (e: PopStateEvent) => {
+      e.preventDefault();
+      window.history.pushState(null, "", window.location.href);
+
+      const currentState = popStateRef.current;
+
+      // Close overlays/drawers in priority order
+      if (currentState.chooseGroupOpen) {
+        setChooseGroupOpen(false);
+        return;
+      }
+      if (currentState.groupingOpen) {
+        setGroupingOpen(false);
+        return;
+      }
+      if (currentState.searchOpen) {
+        setSearchOpen(false);
+        return;
+      }
+
+      // No overlay open, navigate back to import page (not bookshelf)
+      const fromTab = state?.fromTab;
+      navigate("/import", { replace: true, state: { fromTab } });
+    };
+
+    window.history.pushState(null, "", window.location.href);
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [navigate, state?.fromTab]);
 
   // 更新结果中的已导入标记
   const resultsWithImported: ScanResultItem[] = useMemo(() => {

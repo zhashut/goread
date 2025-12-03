@@ -27,6 +27,15 @@ export const TocOverlay: React.FC<TocOverlayProps> = ({
   const [leftTab, setLeftTab] = useState<"toc" | "bookmark">("toc");
   const tocItemRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const prevVisibleRef = useRef(false);
+
+  // Reset to toc tab when overlay opens (from false to true)
+  React.useEffect(() => {
+    if (visible && !prevVisibleRef.current) {
+      setLeftTab("toc");
+    }
+    prevVisibleRef.current = visible;
+  }, [visible]);
 
   // 自动滚动到当前章节
   React.useEffect(() => {

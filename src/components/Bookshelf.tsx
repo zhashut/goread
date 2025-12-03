@@ -319,14 +319,34 @@ export const Bookshelf: React.FC = () => {
     currentUrlRef.current = window.location.href;
   }, [location]);
 
+  // 使用单独的 ref 来保存当前 activeTab，确保 popstate 时能获取到正确的值
+  const activeTabRef = useRef(activeTab);
+  useEffect(() => {
+    activeTabRef.current = activeTab;
+  }, [activeTab]);
+
   useEffect(() => {
     const handlePopState = async (e: PopStateEvent) => {
       e.preventDefault();
       const state = stateRef.current;
-      const currentUrl = currentUrlRef.current;
 
-      // 恢复 URL，防止页面跳转
-      window.history.pushState(null, "", currentUrl);
+      // 立即使用 activeTabRef 获取当前栏目值（不受 React 状态更新影响）
+      // 恢复到当前栏目的 URL，防止栏目切换
+      const currentTab = activeTabRef.current;
+      const correctTabUrl = window.location.pathname + `?tab=${currentTab}`;
+      window.history.pushState(null, "", correctTabUrl);
+      currentUrlRef.current = correctTabUrl;
+
+      // Handle group overlay close first - need to update URL to ?tab=all without group param
+      if (state.groupOverlayOpen) {
+        setGroupOverlayOpen(false);
+        setOverlayGroupId(null);
+        // Update URL to ?tab=all without group param, and update currentUrlRef
+        const newUrl = window.location.pathname + "?tab=all";
+        window.history.pushState(null, "", newUrl);
+        currentUrlRef.current = newUrl;
+        return;
+      }
 
       if (state.confirmOpen) {
         setConfirmOpen(false);
@@ -340,12 +360,6 @@ export const Bookshelf: React.FC = () => {
       }
       if (state.menuOpen) {
         setMenuOpen(false);
-        return;
-      }
-      if (state.groupOverlayOpen) {
-        setGroupOverlayOpen(false);
-        setOverlayGroupId(null);
-        navigate("?tab=all", { replace: true });
         return;
       }
       if (state.selectionMode) {

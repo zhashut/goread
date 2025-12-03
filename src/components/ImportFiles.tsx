@@ -485,18 +485,74 @@ export const ImportFiles: React.FC = () => {
     }
   };
 
+  // Refs for back button handling
+  const stateRef = useRef({
+    chooseGroupOpen,
+    groupingOpen,
+    drawerOpen,
+    searchOpen,
+    activeTab,
+    browseStackLength: browseStack.length,
+  });
+
+  useEffect(() => {
+    stateRef.current = {
+      chooseGroupOpen,
+      groupingOpen,
+      drawerOpen,
+      searchOpen,
+      activeTab,
+      browseStackLength: browseStack.length,
+    };
+  }, [chooseGroupOpen, groupingOpen, drawerOpen, searchOpen, activeTab, browseStack.length]);
+
   // 监听返回键
   useEffect(() => {
-    const handlePopState = (_event: PopStateEvent) => {
-      if (activeTab === "browse" && browseStack.length > 1) {
+    const handlePopState = (event: PopStateEvent) => {
+      event.preventDefault();
+      const state = stateRef.current;
+
+      // Push state back to prevent actual navigation
+      window.history.pushState(null, "", window.location.href);
+
+      // Close overlays/drawers in priority order
+      if (state.chooseGroupOpen) {
+        setChooseGroupOpen(false);
+        return;
+      }
+      if (state.groupingOpen) {
+        setGroupingOpen(false);
+        return;
+      }
+      if (state.drawerOpen) {
+        // Cancel scan if running
+        scanCancelledRef.current = true;
+        setDrawerOpen(false);
+        return;
+      }
+      if (state.searchOpen) {
+        setSearchOpen(false);
+        return;
+      }
+      if (state.activeTab === "browse" && state.browseStackLength > 1) {
         // 如果在子目录中，回退一级
-        goToDepth(browseStack.length - 2);
+        goToDepth(state.browseStackLength - 2);
+        return;
+      }
+
+      // No overlay open, navigate back to bookshelf
+      const navState: any = location.state || {};
+      if (navState.fromTab === "all") {
+        navigate("/?tab=all", { replace: true });
+      } else {
+        navigate("/", { replace: true });
       }
     };
 
+    window.history.pushState(null, "", window.location.href);
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, [activeTab, browseStack]);
+  }, [navigate, location.state]);
 
   const Header: React.FC = () => {
     return (
