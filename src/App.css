@@ -60,6 +60,13 @@ body {
   margin: 0;
   overflow: hidden;
 }
+/* 全局：禁用移动端触摸高亮效果（Android/iOS 点击时的蓝色/灰色背景） */
+*,
+*::before,
+*::after {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+}
 body {
   /* Firefox */
   scrollbar-width: none;
