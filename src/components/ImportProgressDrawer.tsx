@@ -70,7 +70,7 @@ const ImportProgressDrawer: React.FC<ImportProgressDrawerProps> = ({
               borderRadius: 4,
               background: "#eee",
               overflow: "hidden",
-              marginRight: 12,
+              marginRight: 10,
             }}
           >
             <div
@@ -82,7 +82,7 @@ const ImportProgressDrawer: React.FC<ImportProgressDrawerProps> = ({
               }}
             />
           </div>
-          <div style={{ color: "#777", fontSize: 14, minWidth: 56, textAlign: "right" }}>
+          <div style={{ color: "#777", fontSize: 14 }}>
             {current} / {total}
           </div>
         </div>

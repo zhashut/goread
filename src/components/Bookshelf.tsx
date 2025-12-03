@@ -140,7 +140,7 @@ export const Bookshelf: React.FC = () => {
     activeTab === "recent" ? selectedBookIds.size : selectedGroupIds.size;
   const [confirmOpen, setConfirmOpen] = useState(false);
 
-  const [isDragging, setIsDragging] = useState(false);
+  const isDraggingRef = useRef(false);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
 
   const handleTouchStart = (e: React.TouchEvent) => {
@@ -151,7 +151,7 @@ export const Bookshelf: React.FC = () => {
   };
 
   const handleTouchEnd = (e: React.TouchEvent) => {
-    if (!touchStartRef.current || isDragging || selectionMode) return;
+    if (!touchStartRef.current || isDraggingRef.current || selectionMode) return;
     
     const touchEnd = {
       x: e.changedTouches[0].clientX,
@@ -1408,9 +1408,14 @@ export const Bookshelf: React.FC = () => {
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
-          onDragStart={() => setIsDragging(true)}
+          onDragStart={() => {
+            isDraggingRef.current = true;
+          }}
           onDragEnd={(e) => {
-            setIsDragging(false);
+            // 延迟重置拖拽状态，避免在触摸结束时触发滑动手势
+            setTimeout(() => {
+              isDraggingRef.current = false;
+            }, 100);
             handleDragEnd(e);
           }}
         >
