@@ -21,7 +21,18 @@ import { IBook, IGroup } from "../types";
       SELECTION_ICON_OFFSET_TOP,
       SELECTION_ICON_OFFSET_RIGHT,
       GROUP_COVER_PADDING,
+      TOP_BAR_TAB_FONT_SIZE,
+      TOP_BAR_ICON_SIZE,
+      TOP_BAR_TAB_PADDING_BOTTOM,
+      TOP_BAR_MARGIN_BOTTOM,
+      TOP_BAR_ICON_GAP,
   } from "../constants/ui";
+import {
+  SWIPE_EDGE_THRESHOLD,
+  SWIPE_MIN_DISTANCE,
+  SWIPE_MIN_SLOPE,
+  TOUCH_COOLDOWN_MS,
+} from "../constants/interactions";
 import { bookService, groupService, getReaderSettings } from "../services";
 import { GroupDetail } from "./GroupDetail";
 import { BookCard } from "./BookCard";
@@ -152,7 +163,7 @@ export const Bookshelf: React.FC = () => {
   const handleTouchStart = (e: React.TouchEvent) => {
     if (groupOverlayOpen || selectionMode || menuOpen || importOpen) return;
     // 防止分组关闭瞬间的误触（例如侧滑返回时手指还在屏幕上）
-    if (Date.now() - lastGroupCloseTimeRef.current < 300) return;
+    if (Date.now() - lastGroupCloseTimeRef.current < TOUCH_COOLDOWN_MS) return;
     
     touchStartRef.current = {
       x: e.touches[0].clientX,
@@ -165,8 +176,7 @@ export const Bookshelf: React.FC = () => {
 
     // 忽略屏幕边缘的滑动（防止与系统返回手势冲突）
     const startX = touchStartRef.current.x;
-    const edgeThreshold = 55;
-    if (startX < edgeThreshold || startX > window.innerWidth - edgeThreshold) {
+    if (startX < SWIPE_EDGE_THRESHOLD || startX > window.innerWidth - SWIPE_EDGE_THRESHOLD) {
       touchStartRef.current = null;
       return;
     }
@@ -181,7 +191,7 @@ export const Bookshelf: React.FC = () => {
 
     touchStartRef.current = null;
 
-    if (Math.abs(diffX) > 50 && Math.abs(diffX) > Math.abs(diffY) * 1.5) {
+    if (Math.abs(diffX) > SWIPE_MIN_DISTANCE && Math.abs(diffX) > Math.abs(diffY) * SWIPE_MIN_SLOPE) {
       if (diffX > 0) {
         // Swipe Left -> Go to "all"
         if (activeTab === "recent") {
@@ -1024,7 +1034,7 @@ export const Bookshelf: React.FC = () => {
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            marginBottom: "12px",
+            marginBottom: TOP_BAR_MARGIN_BOTTOM + "px",
           }}
         >
             <div
@@ -1033,7 +1043,7 @@ export const Bookshelf: React.FC = () => {
                 display: "flex",
                 alignItems: "flex-end",
                 position: "relative",
-                paddingBottom: "8px",
+                paddingBottom: TOP_BAR_TAB_PADDING_BOTTOM + "px",
               }}
             >
             <button
@@ -1055,7 +1065,7 @@ export const Bookshelf: React.FC = () => {
               <div
                 ref={recentLabelRef}
                 style={{
-                  fontSize: "18px",
+                  fontSize: TOP_BAR_TAB_FONT_SIZE + "px",
                   color: activeTab === "recent" ? "#000" : "#bbb",
                   transition: "color 200ms ease",
                 }}
@@ -1081,7 +1091,7 @@ export const Bookshelf: React.FC = () => {
               <div
                 ref={allLabelRef}
                 style={{
-                  fontSize: "18px",
+                  fontSize: TOP_BAR_TAB_FONT_SIZE + "px",
                   color: activeTab === "all" ? "#000" : "#bbb",
                   transition: "color 200ms ease",
                 }}
@@ -1120,7 +1130,7 @@ export const Bookshelf: React.FC = () => {
                 border: "none",
                 padding: 0,
                 margin: 0,
-                marginRight: "15px",
+                marginRight: TOP_BAR_ICON_GAP + "px",
                 cursor: "pointer",
                 color: "#333",
                 WebkitAppearance: "none",
@@ -1133,8 +1143,8 @@ export const Bookshelf: React.FC = () => {
               }}
             >
               <svg
-                width="20"
-                height="20"
+                width={TOP_BAR_ICON_SIZE}
+                height={TOP_BAR_ICON_SIZE}
                 viewBox="0 0 24 24"
                 fill="none"
                 xmlns="http://www.w3.org/2000/svg"
@@ -1173,8 +1183,8 @@ export const Bookshelf: React.FC = () => {
               }}
             >
               <svg
-                width="20"
-                height="20"
+                width={TOP_BAR_ICON_SIZE}
+                height={TOP_BAR_ICON_SIZE}
                 viewBox="0 0 24 24"
                 fill="#333"
                 xmlns="http://www.w3.org/2000/svg"

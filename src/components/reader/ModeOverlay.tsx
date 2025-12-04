@@ -1,4 +1,6 @@
 import React from "react";
+import { getSafeAreaInsets } from "../../utils/layout";
+
 
 interface ModeOverlayProps {
   visible: boolean;
@@ -45,7 +47,7 @@ export const ModeOverlay: React.FC<ModeOverlayProps> = ({
           borderTopLeftRadius: "12px",
           borderTopRightRadius: "12px",
           padding: "18px",
-          paddingBottom: "calc(18px + env(safe-area-inset-bottom))",
+          paddingBottom: `calc(18px + ${getSafeAreaInsets().bottom}px)`,
           margin: "0 auto 0",
           boxShadow: "0 -8px 32px rgba(0,0,0,0.5)",
         }}

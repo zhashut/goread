@@ -11,6 +11,11 @@ import { logError } from "../services";
 import { loadGroupsWithPreviews, assignToExistingGroupAndFinish } from "../utils/groupImport";
 import { isSupportedFile } from "../constants/fileTypes";
 import { getSafeAreaInsets } from "../utils/layout";
+import {
+  SWIPE_EDGE_THRESHOLD,
+  SWIPE_MIN_DISTANCE,
+  SWIPE_MIN_SLOPE,
+} from "../constants/interactions";
 
 type TabKey = "scan" | "browse";
 
@@ -198,6 +203,51 @@ export const ImportFiles: React.FC = () => {
     { name: string; path: string }[]
   >([]);
   const [browseSearch, setBrowseSearch] = useState("");
+
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (drawerOpen || groupingOpen || chooseGroupOpen || scanLoading || groupingLoading) return;
+    touchStartRef.current = {
+      x: e.touches[0].clientX,
+      y: e.touches[0].clientY,
+    };
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (!touchStartRef.current) return;
+
+    const startX = touchStartRef.current.x;
+    if (startX < SWIPE_EDGE_THRESHOLD || startX > window.innerWidth - SWIPE_EDGE_THRESHOLD) {
+      touchStartRef.current = null;
+      return;
+    }
+    
+    const touchEnd = {
+      x: e.changedTouches[0].clientX,
+      y: e.changedTouches[0].clientY,
+    };
+
+    const diffX = touchStartRef.current.x - touchEnd.x;
+    const diffY = touchStartRef.current.y - touchEnd.y;
+
+    touchStartRef.current = null;
+
+    if (Math.abs(diffX) > SWIPE_MIN_DISTANCE && Math.abs(diffX) > Math.abs(diffY) * SWIPE_MIN_SLOPE) {
+      if (diffX > 0) {
+        // Swipe Left -> Go to "browse"
+        if (activeTab === "scan") {
+          setActiveTab("browse");
+        }
+      } else {
+        // Swipe Right -> Go to "scan"
+        if (activeTab === "browse") {
+          setActiveTab("scan");
+        }
+      }
+    }
+  };
+
   const [browseLoading, setBrowseLoading] = useState(false);
   const ROW_HEIGHT = 60; // 统一行高，复用 FileRow 的布局
 
@@ -887,6 +937,8 @@ export const ImportFiles: React.FC = () => {
   return (
     <div
       className="import-page"
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
       style={{
         height: "100vh",
         width: "100vw",

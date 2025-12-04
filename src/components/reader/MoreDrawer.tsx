@@ -1,5 +1,6 @@
 import React from "react";
 import { BOTTOM_DRAWER_RADIUS } from "../../constants/ui";
+import { getSafeAreaInsets } from "../../utils/layout";
 
 interface MoreDrawerProps {
   visible: boolean;
@@ -41,7 +42,7 @@ export const MoreDrawer: React.FC<MoreDrawerProps> = ({
           backgroundColor: "#1f1f1f",
           borderRadius: `${BOTTOM_DRAWER_RADIUS}px ${BOTTOM_DRAWER_RADIUS}px 0 0`,
           padding: "12px 0",
-          paddingBottom: "calc(12px + env(safe-area-inset-bottom))",
+          paddingBottom: `calc(12px + ${getSafeAreaInsets().bottom}px)`,
           display: "flex",
           flexDirection: "column",
           animation: "slideUp 0.3s ease-out",
