@@ -100,8 +100,13 @@ export const Bookshelf: React.FC = () => {
         });
       }
     } else {
+      if (groupOverlayOpen) {
+        lastGroupCloseTimeRef.current = Date.now();
+      }
       setGroupOverlayOpen(false);
       setOverlayGroupId(null);
+      // 关闭分组详情时清除触摸状态，防止滑动返回时误触发切换栏目
+      touchStartRef.current = null;
     }
   }, [location.search]);
   const [query] = useState("");
@@ -142,8 +147,13 @@ export const Bookshelf: React.FC = () => {
 
   const isDraggingRef = useRef(false);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
+  const lastGroupCloseTimeRef = useRef(0);
 
   const handleTouchStart = (e: React.TouchEvent) => {
+    if (groupOverlayOpen || selectionMode || menuOpen || importOpen) return;
+    // 防止分组关闭瞬间的误触（例如侧滑返回时手指还在屏幕上）
+    if (Date.now() - lastGroupCloseTimeRef.current < 300) return;
+    
     touchStartRef.current = {
       x: e.touches[0].clientX,
       y: e.touches[0].clientY,
@@ -151,7 +161,15 @@ export const Bookshelf: React.FC = () => {
   };
 
   const handleTouchEnd = (e: React.TouchEvent) => {
-    if (!touchStartRef.current || isDraggingRef.current || selectionMode) return;
+    if (!touchStartRef.current || isDraggingRef.current || selectionMode || groupOverlayOpen || menuOpen || importOpen) return;
+
+    // 忽略屏幕边缘的滑动（防止与系统返回手势冲突）
+    const startX = touchStartRef.current.x;
+    const edgeThreshold = 55;
+    if (startX < edgeThreshold || startX > window.innerWidth - edgeThreshold) {
+      touchStartRef.current = null;
+      return;
+    }
     
     const touchEnd = {
       x: e.changedTouches[0].clientX,
@@ -330,20 +348,20 @@ export const Bookshelf: React.FC = () => {
       e.preventDefault();
       const state = stateRef.current;
 
-      // 立即使用 activeTabRef 获取当前栏目值（不受 React 状态更新影响）
-      // 恢复到当前栏目的 URL，防止栏目切换
-      const currentTab = activeTabRef.current;
-      const correctTabUrl = window.location.pathname + `?tab=${currentTab}`;
-      window.history.pushState(null, "", correctTabUrl);
-      currentUrlRef.current = correctTabUrl;
+      // Restore current URL to prevent navigation
+      // Use currentUrlRef to preserve query params like 'group'
+      window.history.pushState(null, "", currentUrlRef.current);
 
       // Handle group overlay close first - need to update URL to ?tab=all without group param
       if (state.groupOverlayOpen) {
         setGroupOverlayOpen(false);
         setOverlayGroupId(null);
+        lastGroupCloseTimeRef.current = Date.now();
+        touchStartRef.current = null;
+        
         // Update URL to ?tab=all without group param, and update currentUrlRef
         const newUrl = window.location.pathname + "?tab=all";
-        window.history.pushState(null, "", newUrl);
+        window.history.replaceState(null, "", newUrl);
         currentUrlRef.current = newUrl;
         return;
       }
@@ -1899,7 +1917,7 @@ export const Bookshelf: React.FC = () => {
               window.dispatchEvent(evt);
               return;
             }
-            navigate("?tab=all");
+            navigate("?tab=all", { replace: true });
             setGroupDetailSelectionActive(false);
             setGroupDetailSelectedCount(0);
           }}
@@ -2058,7 +2076,7 @@ export const Bookshelf: React.FC = () => {
                 <GroupDetail
                   groupIdProp={overlayGroupId}
                   onClose={() => {
-                    navigate("?tab=all");
+                    navigate("?tab=all", { replace: true });
                     // 关闭抽屉时刷新分组与最近
                     loadGroups();
                     loadBooks();
