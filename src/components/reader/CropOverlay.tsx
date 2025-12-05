@@ -74,14 +74,14 @@ export const CropOverlay: React.FC<CropOverlayProps> = ({
           binaryData[i] = binaryString.charCodeAt(i);
         }
         
-        // Detect mobile
+        // 检测移动设备
         const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-        await log("Is mobile: " + isMobile);
+        await log("是否移动设备: " + isMobile);
         
         let savePath = null;
         
         if (!isMobile) {
-            await log("Opening save dialog...");
+            await log("正在打开保存对话框...");
             savePath = await save({
                 filters: [{
                     name: 'Image',
@@ -89,28 +89,28 @@ export const CropOverlay: React.FC<CropOverlayProps> = ({
                 }],
                 defaultPath: `goread_capture_${Date.now()}.png`
             });
-            await log("Save dialog result: " + savePath);
+            await log("保存对话框结果: " + savePath);
             
             if (!savePath) {
-                await log("User cancelled save dialog");
-                return; // User cancelled
+                await log("用户取消了保存对话框");
+                return; // 用户取消
             }
         }
         
-        await log("Invoking save_image_to_gallery with path: " + savePath);
+        await log("正在调用 save_image_to_gallery，路径: " + savePath);
         const result = await invoke('save_image_to_gallery', {
             data: Array.from(binaryData),
             filename: `goread_capture_${Date.now()}.png`,
             path: savePath
         });
-        await log("Save result: " + result);
+        await log("保存结果: " + result);
         
         if (onSaveSuccess) {
           onSaveSuccess();
         }
       }
     } catch (e) {
-      await log("Save failed", 'error', e);
+      await log("保存失败", 'error', e);
       if (onSaveError) {
         let msg = "未知错误";
         if (typeof e === 'string') msg = e;

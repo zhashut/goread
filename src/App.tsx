@@ -1,14 +1,12 @@
-import { HashRouter } from 'react-router-dom';
-import { AppRoutes } from './routes';
+import { RouterProvider } from 'react-router-dom';
+import { router } from './router';
 import ErrorBoundary from './components/ErrorBoundary';
 import './App.css';
 
 function App() {
   return (
     <ErrorBoundary>
-      <HashRouter>
-        <AppRoutes />
-      </HashRouter>
+      <RouterProvider router={router} />
     </ErrorBoundary>
   );
 }

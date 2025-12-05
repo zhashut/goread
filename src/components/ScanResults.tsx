@@ -1,5 +1,5 @@
-import React, { useMemo, useState, useEffect, useRef } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import React, { useMemo, useState, useEffect } from "react";
+import { useAppNav } from "../router/useAppNav";
 import { FileRow } from "./FileRow";
 import { bookService } from "../services";
 import { IGroup, IBook } from "../types";
@@ -25,8 +25,8 @@ export interface ScanResultItem extends FileEntry {
 
 
 export const ScanResults: React.FC = () => {
-  const navigate = useNavigate();
-  const { state } = useLocation() as { state?: { results?: ScanResultItem[]; fromTab?: "recent" | "all" } };
+  const nav = useAppNav();
+  const { state } = nav.location as { state?: { results?: ScanResultItem[]; fromTab?: "recent" | "all" } };
   const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
   const [globalSearch, setGlobalSearch] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -77,54 +77,6 @@ export const ScanResults: React.FC = () => {
     loadImportedBooks();
   }, []);
 
-  // Refs for back button handling - use useRef to avoid stale closure
-  const popStateRef = useRef({
-    chooseGroupOpen,
-    groupingOpen,
-    searchOpen,
-  });
-
-  // Keep ref in sync with state
-  useEffect(() => {
-    popStateRef.current = {
-      chooseGroupOpen,
-      groupingOpen,
-      searchOpen,
-    };
-  }, [chooseGroupOpen, groupingOpen, searchOpen]);
-
-  // Handle back button / swipe gesture - close overlays/drawers before navigating back
-  useEffect(() => {
-    const handlePopState = (e: PopStateEvent) => {
-      e.preventDefault();
-      window.history.pushState(null, "", window.location.href);
-
-      const currentState = popStateRef.current;
-
-      // Close overlays/drawers in priority order
-      if (currentState.chooseGroupOpen) {
-        setChooseGroupOpen(false);
-        return;
-      }
-      if (currentState.groupingOpen) {
-        setGroupingOpen(false);
-        return;
-      }
-      if (currentState.searchOpen) {
-        setSearchOpen(false);
-        return;
-      }
-
-      // No overlay open, navigate back to import page (not bookshelf)
-      const fromTab = state?.fromTab;
-      navigate("/import", { replace: true, state: { fromTab } });
-    };
-
-    window.history.pushState(null, "", window.location.href);
-    window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
-  }, [navigate, state?.fromTab]);
-
   // 更新结果中的已导入标记
   const resultsWithImported: ScanResultItem[] = useMemo(() => {
     return results.map((item) => ({
@@ -167,7 +119,12 @@ export const ScanResults: React.FC = () => {
       setGroupingLoading(true);
       setGroupingOpen(false);
       setChooseGroupOpen(false);
-      await assignToExistingGroupAndFinish(pendingImportPaths, groupId, (p) => navigate(p));
+      
+      // 执行分配到现有分组的逻辑，完成后调用 finishImportFlow
+      await assignToExistingGroupAndFinish(pendingImportPaths, groupId, () => {
+        nav.finishImportFlow();
+      });
+      
       setGroupingLoading(false);
     } catch (e) {
       setGroupingLoading(false);
@@ -182,10 +139,12 @@ export const ScanResults: React.FC = () => {
     try {
       setGroupingLoading(true);
 
-      // 立即跳转到“全部”，并关闭抽屉
+      // 立即跳转/回退到“全部”，并关闭抽屉
       setGroupingOpen(false);
       setChooseGroupOpen(false);
-      navigate("/?tab=all");
+
+      nav.finishImportFlow();
+
       // 等待下一帧，确保首页（Bookshelf）已挂载并开始监听事件
       await waitNextFrame();
 
@@ -325,8 +284,8 @@ export const ScanResults: React.FC = () => {
           <button
             aria-label="返回"
             onClick={() => {
-              if (state?.fromTab === "all") navigate("/?tab=all");
-              else navigate(-1);
+              if (state?.fromTab === "all") nav.toBookshelf('all');
+              else nav.goBack();
             }}
             style={{
               background: "none",

@@ -4,8 +4,9 @@ import {
   saveReaderSettings,
   ReaderSettings,
 } from "../services";
-// Note: statusBarService is NOT imported here intentionally
-// Status bar control should only happen in Reader page, not in Settings
+import { useAppNav } from "../router/useAppNav";
+// 注意：此处特意不导入 statusBarService
+// 状态栏控制应仅在阅读页进行，而非设置页
 import {
   RENDER_QUALITY_OPTIONS,
   RECENT_DISPLAY_COUNT_OPTIONS,
@@ -24,8 +25,10 @@ import { CustomSelect } from "./CustomSelect";
 export const Settings: React.FC = () => {
   const [settings, setSettings] = useState<ReaderSettings>(getReaderSettings());
 
+  const nav = useAppNav();
+
   const goBack = () => {
-    window.history.back();
+    nav.goBack();
   };
 
   useEffect(() => {
@@ -145,7 +148,7 @@ export const Settings: React.FC = () => {
               type="checkbox"
               checked={settings.showStatusBar}
               onChange={(e) => {
-                // Only save the setting, actual status bar control happens in Reader page
+                // 仅保存设置，实际的状态栏控制在阅读页进行
                 setSettings((s) => ({ ...s, showStatusBar: e.target.checked }));
               }}
             />

@@ -4,7 +4,7 @@ import App from "./App";
 import { initSafeAreaInsets } from "./utils/layout";
 import { statusBarService } from "./services/statusBarService";
 
-// Initialize safe area insets early (before React render)
+// 提前初始化安全区域（在 React 渲染之前）
 initSafeAreaInsets();
 
 // 等待Tauri API加载
@@ -14,7 +14,7 @@ const setupApp = async () => {
     await import('@tauri-apps/api/core');
     console.log('Tauri API loaded successfully');
     
-    // Initialize status bar service for mobile platforms
+    // 初始化移动平台的状态栏服务
     await statusBarService.init();
     try {
       const { logError } = await import('./services');

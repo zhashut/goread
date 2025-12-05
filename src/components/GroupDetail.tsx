@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
+import { useAppNav } from "../router/useAppNav";
 import {
   DndContext,
   closestCenter,
@@ -27,8 +28,8 @@ export const GroupDetail: React.FC<{
   groupIdProp?: number;
   onClose?: () => void;
 }> = ({ groupIdProp, onClose }) => {
-  const navigate = useNavigate();
   const { groupId } = useParams();
+  const nav = useAppNav();
   const id = typeof groupIdProp === "number" ? groupIdProp : Number(groupId);
   const [books, setBooks] = useState<IBook[]>([]);
   const [loading, setLoading] = useState(true);
@@ -71,51 +72,6 @@ export const GroupDetail: React.FC<{
   useEffect(() => {
     selectedRef.current = new Set(selectedBookIds);
   }, [selectedBookIds]);
-
-  // Refs for back button handling - use useRef to avoid stale closure
-  const popStateRef = useRef({
-    confirmOpen,
-    selectionMode,
-  });
-
-  // Keep ref in sync with state
-  useEffect(() => {
-    popStateRef.current = {
-      confirmOpen,
-      selectionMode,
-    };
-  }, [confirmOpen, selectionMode]);
-
-  // Handle back button / swipe gesture - only when used as standalone route (no onClose prop)
-  useEffect(() => {
-    // Skip if used as overlay (has onClose prop) - Bookshelf handles popstate in that case
-    if (onClose) return;
-    
-    const handlePopState = (e: PopStateEvent) => {
-      e.preventDefault();
-      window.history.pushState(null, "", window.location.href);
-
-      const currentState = popStateRef.current;
-
-      // Close overlays/selection mode in priority order
-      if (currentState.confirmOpen) {
-        setConfirmOpen(false);
-        return;
-      }
-      if (currentState.selectionMode) {
-        setSelectionMode(false);
-        setSelectedBookIds(new Set());
-        return;
-      }
-
-      // No overlay open, navigate back to bookshelf
-      navigate("/?tab=all", { replace: true });
-    };
-
-    window.history.pushState(null, "", window.location.href);
-    window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
-  }, [navigate, onClose]);
 
   const reloadBooksAndGroups = async () => {
     const list = await groupService.getBooksByGroup(id);
@@ -329,9 +285,9 @@ export const GroupDetail: React.FC<{
                       order.unshift(b.id);
                       localStorage.setItem("recent_books_order", JSON.stringify(order));
                     } catch (e) {
-                      console.error("Failed to update recent order", e);
+                      console.error("更新最近阅读顺序失败", e);
                     }
-                    navigate(`/reader/${b.id}`, { state: { fromGroupId: id } });
+                    nav.toReader(b.id, { fromGroupId: id });
                   }}
                   onLongPress={() => onBookLongPress(b.id)}
                   selectable={selectionMode}

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { useParams, useNavigate, useLocation } from "react-router-dom";
+import { useParams } from "react-router-dom";
+import { useAppNav } from "../router/useAppNav";
 import { IBook, IBookmark } from "../types";
 import {
   bookService,
@@ -87,8 +88,7 @@ const findActiveNodeSignature = (
 
 export const Reader: React.FC = () => {
   const { bookId } = useParams<{ bookId: string }>();
-  const navigate = useNavigate();
-  const location = useLocation();
+  const nav = useAppNav();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [book, setBook] = useState<IBook | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
@@ -203,67 +203,11 @@ export const Reader: React.FC = () => {
     return dpr * qualityScale;
   };
 
-  // Handle back button / swipe gesture - close overlays/drawers before navigating back
-  const stateRef = useRef({
-    cropMode,
-    moreDrawerOpen,
-    tocOverlayOpen,
-    modeOverlayOpen,
-  });
-
+  // 处理返回按钮 / 滑动手势
   useEffect(() => {
-    stateRef.current = {
-      cropMode,
-      moreDrawerOpen,
-      tocOverlayOpen,
-      modeOverlayOpen,
-    };
-  }, [cropMode, moreDrawerOpen, tocOverlayOpen, modeOverlayOpen]);
-
-  useEffect(() => {
-    const handlePopState = (e: PopStateEvent) => {
-      e.preventDefault();
-      const state = stateRef.current;
-
-      // Push state back to prevent actual navigation
-      window.history.pushState(null, "", window.location.href);
-
-      // Close overlays/drawers in priority order
-      if (state.cropMode) {
-        setCropMode(false);
-        setCapturedImage(null);
-        return;
-      }
-      if (state.moreDrawerOpen) {
-        setMoreDrawerOpen(false);
-        return;
-      }
-      if (state.tocOverlayOpen) {
-        setTocOverlayOpen(false);
-        return;
-      }
-      if (state.modeOverlayOpen) {
-        setModeOverlayOpen(false);
-        return;
-      }
-
-      // No overlay open, perform actual navigation back
-      const navState: any = location.state || {};
-      if (typeof navState.fromGroupId === "number") {
-        navigate(`/?tab=all&group=${navState.fromGroupId}`, { replace: true });
-      } else if (navState.fromTab === "all") {
-        navigate("/?tab=all", { replace: true });
-      } else if (navState.fromTab === "recent") {
-        navigate("/", { replace: true });
-      } else {
-        navigate("/", { replace: true });
-      }
-    };
-
-    window.history.pushState(null, "", window.location.href);
-    window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
-  }, [navigate, location.state]);
+    // 清理可能的历史状态干扰
+    // 空操作
+  }, []);
 
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
@@ -447,7 +391,7 @@ export const Reader: React.FC = () => {
 
       if (!targetBook) {
         alert("书籍不存在");
-        navigate("/");
+        nav.toBookshelf();
         return;
       }
 
@@ -1281,14 +1225,14 @@ export const Reader: React.FC = () => {
     return () => window.removeEventListener("keydown", handler);
   }, [settings.volumeKeyTurnPage, currentPage]);
 
-  // Apply status bar settings via statusBarService (supports Tauri mobile + browser fallback)
-  // Only hide status bar in Reader page based on user settings
-  // When leaving Reader, always restore status bar visibility
+  // 通过 statusBarService 应用状态栏设置（支持 Tauri 移动端 + 浏览器降级）
+  // 仅在阅读页面根据用户设置隐藏状态栏
+  // 离开阅读页面时，始终恢复状态栏显示
   useEffect(() => {
-    // Apply settings when entering Reader or when setting changes
+    // 进入阅读页面或设置变更时应用设置
     statusBarService.applySettings(settings.showStatusBar);
     
-    // Cleanup: always show status bar when leaving Reader page
+    // 清理：离开阅读页面时始终显示状态栏
     return () => {
       statusBarService.showStatusBar();
     };
@@ -1422,17 +1366,10 @@ export const Reader: React.FC = () => {
         visible={(uiVisible || isSeeking) && !moreDrawerOpen && !tocOverlayOpen && !modeOverlayOpen}
         bookTitle={book?.title}
         onBack={() => {
-          const state: any = location.state || {};
-          if (typeof state.fromGroupId === "number") {
-            navigate(`/?tab=all&group=${state.fromGroupId}`);
-          } else if (state.fromTab === "all") {
-            navigate("/?tab=all");
-          } else if (state.fromTab === "recent") {
-            navigate("/");
-          } else if (window.history.length > 1) {
-            navigate(-1);
+          if (window.history.length > 1) {
+            nav.goBack();
           } else {
-            navigate("/");
+            nav.toBookshelf('recent', { replace: true });
           }
         }}
       />
@@ -1587,7 +1524,7 @@ export const Reader: React.FC = () => {
         onCapture={handleCapture}
         onSettings={() => {
           setMoreDrawerOpen(false);
-          navigate("/settings");
+          nav.toSettings();
         }}
       />
       <CropOverlay

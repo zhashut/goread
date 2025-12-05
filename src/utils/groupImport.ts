@@ -21,9 +21,9 @@ export const loadGroupsWithPreviews = async (): Promise<{ groups: IGroup[]; prev
 export const assignToExistingGroupAndFinish = async (
   pendingPaths: string[],
   groupId: number,
-  navigate: (path: string) => void
+  onFinished: () => void
 ): Promise<void> => {
-  navigate("/?tab=all");
+  onFinished();
   await waitNextFrame();
   const { importPathsToExistingGroup } = await import("../services/importRunner");
   await importPathsToExistingGroup(pendingPaths, groupId);

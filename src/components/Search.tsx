@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useAppNav } from "../router/useAppNav";
 import { IBook } from "../types";
 import { COVER_ASPECT_RATIO_COMPACT, GRID_GAP_BOOK_CARDS, CARD_MIN_WIDTH } from "../constants/ui";
 import { bookService } from "../services";
@@ -7,26 +7,12 @@ import { BookCard } from "./BookCard";
 import { getSafeAreaInsets } from "../utils/layout";
 
 export const Search: React.FC = () => {
-  const navigate = useNavigate();
-  const location = useLocation();
-  const params = new URLSearchParams(location.search);
-  const fromTab = (params.get("tab") === "all" ? "all" : "recent");
+  const nav = useAppNav();
+
+  
   const [books, setBooks] = useState<IBook[]>([]);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
-
-  // Handle back button / swipe gesture
-  useEffect(() => {
-    const handlePopState = (e: PopStateEvent) => {
-      e.preventDefault();
-      window.history.pushState(null, "", window.location.href);
-      navigate(`/?tab=${fromTab}`, { replace: true });
-    };
-
-    window.history.pushState(null, "", window.location.href);
-    window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
-  }, [navigate, fromTab]);
 
   useEffect(() => {
     const run = async () => {
@@ -76,7 +62,7 @@ export const Search: React.FC = () => {
           }}
         >
           <button
-            onClick={() => navigate(`/?tab=${fromTab}`)}
+            onClick={() => nav.goBack()}
             aria-label="返回"
             title="返回"
             style={{
@@ -297,7 +283,7 @@ export const Search: React.FC = () => {
                 key={b.id}
                 book={b}
                 aspectRatio={COVER_ASPECT_RATIO_COMPACT}
-                onClick={() => navigate(`/reader/${b.id}`)}
+                onClick={() => nav.toReader(b.id)}
               />
             ))}
           </div>

@@ -1,6 +1,7 @@
 import React, { useMemo, useRef, useState, useEffect } from "react";
 import { FileRow } from "./FileRow";
-import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
+import { useAppNav } from "../router/useAppNav";
 import { IBook, IGroup } from "../types";
 import { bookService } from "../services";
 import { fileSystemService } from "../services/fileSystemService";
@@ -23,9 +24,9 @@ export interface FileEntry {
   type: "file" | "dir";
   name: string;
   path: string;
-  size?: number; // bytes
-  mtime?: number; // epoch ms
-  children_count?: number; // for dir
+  size?: number; // 字节
+  mtime?: number; // 时间戳(毫秒)
+  children_count?: number; // 目录包含文件数
 }
 
 export interface ScanResultItem extends FileEntry {
@@ -165,10 +166,9 @@ const SearchHeader: React.FC<SearchHeaderProps> = ({
 };
 
 export const ImportFiles: React.FC = () => {
-  const navigate = useNavigate();
-  const location = useLocation();
+  const nav = useAppNav();
   const [searchParams, setSearchParams] = useSearchParams();
-  const initialTab = (location.state as any)?.initialTab as TabKey | undefined;
+  const initialTab = (nav.location.state as any)?.initialTab as TabKey | undefined;
   const [activeTab, setActiveTab] = useState<TabKey>(initialTab ?? "scan");
   const [scanLoading, setScanLoading] = useState(false);
   const [scanList, setScanList] = useState<ScanResultItem[]>([]);
@@ -235,12 +235,12 @@ export const ImportFiles: React.FC = () => {
 
     if (Math.abs(diffX) > SWIPE_MIN_DISTANCE && Math.abs(diffX) > Math.abs(diffY) * SWIPE_MIN_SLOPE) {
       if (diffX > 0) {
-        // Swipe Left -> Go to "browse"
+        // 左滑 -> 前往 "browse"
         if (activeTab === "scan") {
           setActiveTab("browse");
         }
       } else {
-        // Swipe Right -> Go to "scan"
+        // 右滑 -> 前往 "scan"
         if (activeTab === "browse") {
           setActiveTab("scan");
         }
@@ -354,8 +354,8 @@ export const ImportFiles: React.FC = () => {
     setScanList(mapped);
     // foundPdfCount 已经在 startScan 中更新，这里不需要再次设置
     setActiveTab("scan");
-    // 跳转到结果页并传递数据
-    navigate("/import/results", { state: { results: mapped, fromTab: (location.state as any)?.fromTab } });
+   // 跳转到结果页并传递数据
+    nav.toImportResults({ results: mapped, fromTab: (nav.location.state as any)?.fromTab });
   };
 
   const startScan = async () => {
@@ -460,7 +460,7 @@ export const ImportFiles: React.FC = () => {
       setGroupingLoading(true);
       setGroupingOpen(false);
       setChooseGroupOpen(false);
-      await assignToExistingGroupAndFinish(pendingImportPaths, groupId, (p) => navigate(p));
+      await assignToExistingGroupAndFinish(pendingImportPaths, groupId, () => nav.toBookshelf('all', { replace: true }));
       setGroupingLoading(false);
     } catch (e) {
       setGroupingLoading(false);
@@ -477,7 +477,7 @@ export const ImportFiles: React.FC = () => {
       // 立即跳转到“全部”，并关闭抽屉
       setGroupingOpen(false);
       setChooseGroupOpen(false);
-      navigate("/?tab=all");
+      nav.toBookshelf('all', { replace: true });
       // 等待下一帧，确保首页（Bookshelf）已挂载并开始监听事件
       await waitNextFrame();
 
@@ -576,10 +576,10 @@ export const ImportFiles: React.FC = () => {
         <button
           aria-label="返回"
           onClick={() => {
-            const state: any = location.state || {};
+            const state: any = nav.location.state || {};
             // 直接退出导入页面，不再逐级返回
-            if (state.fromTab === "all") navigate("/?tab=all", { replace: true });
-            else navigate("/", { replace: true });
+            if (state.fromTab === "all") nav.toBookshelf('all');
+            else nav.toBookshelf('recent');
           }}
           style={{
             background: "none",

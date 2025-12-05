@@ -5,8 +5,8 @@ import React, {
   useRef,
   useLayoutEffect,
 } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
-import { invoke } from "@tauri-apps/api/core";
+
+import { useAppNav } from "../router/useAppNav";
 import { IBook, IGroup } from "../types";
   import {
       GRID_GAP_BOOK_CARDS,
@@ -83,43 +83,13 @@ const applySortOrder = <T extends { id: number }>(items: T[], orderKey: string):
 // 使用通用 BookCard 组件
 
 export const Bookshelf: React.FC = () => {
-  const location = useLocation();
+  const nav = useAppNav();
+  const activeTab = (nav.currentTab === "all" ? "all" : "recent") as "recent" | "all";
+
   const [books, setBooks] = useState<IBook[]>([]);
   const [groups, setGroups] = useState<IGroup[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"recent" | "all">(() => {
-    const search =
-      typeof window !== "undefined" ? window.location.search : location.search;
-    const params = new URLSearchParams(search || "");
-    return params.get("tab") === "all" ? "all" : "recent";
-  });
 
-  // Sync tab with URL when it changes; also optionally open group overlay via query param
-  useEffect(() => {
-    const params = new URLSearchParams(location.search || "");
-    const next = params.get("tab") === "all" ? "all" : "recent";
-    setActiveTab((prev) => (prev === next ? prev : next));
-    const groupParam = params.get("group");
-    if (next === "all" && groupParam) {
-      const idNum = Number(groupParam);
-      if (!isNaN(idNum)) {
-        // Only open if not already open or id changed
-        setOverlayGroupId((prevId) => {
-          const shouldOpen = !groupOverlayOpen || prevId !== idNum;
-          if (shouldOpen) setGroupOverlayOpen(true);
-          return idNum;
-        });
-      }
-    } else {
-      if (groupOverlayOpen) {
-        lastGroupCloseTimeRef.current = Date.now();
-      }
-      setGroupOverlayOpen(false);
-      setOverlayGroupId(null);
-      // 关闭分组详情时清除触摸状态，防止滑动返回时误触发切换栏目
-      touchStartRef.current = null;
-    }
-  }, [location.search]);
   const [query] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPos, setMenuPos] = useState<{ left: number; top: number }>({
@@ -128,7 +98,7 @@ export const Bookshelf: React.FC = () => {
   });
   const menuRef = useRef<HTMLDivElement | null>(null);
   const menuBtnRef = useRef<HTMLButtonElement | null>(null);
-  // tabs underline animation
+  // 标签页下划线动画
   const tabsRef = useRef<HTMLDivElement | null>(null);
   const recentLabelRef = useRef<HTMLDivElement | null>(null);
   const allLabelRef = useRef<HTMLDivElement | null>(null);
@@ -138,9 +108,40 @@ export const Bookshelf: React.FC = () => {
   }>({ left: 0, width: 0 });
   const [animateUnderline, setAnimateUnderline] = useState(false);
   const [underlineReady, setUnderlineReady] = useState(false);
-  const navigate = useNavigate();
+  
   const [groupOverlayOpen, setGroupOverlayOpen] = useState(false);
   const [overlayGroupId, setOverlayGroupId] = useState<number | null>(null);
+  
+  // 与 URL 同步分组覆盖层状态
+  useEffect(() => {
+    // 检查是否有跨页面传递的 Tab 切换请求（例如从导入流程返回时清理了栈）
+    const targetTab = sessionStorage.getItem('bookshelf_active_tab');
+    if (targetTab && (targetTab === 'recent' || targetTab === 'all')) {
+      sessionStorage.removeItem('bookshelf_active_tab');
+      // 只有当前不在目标 Tab 时才切换
+      if (activeTab !== targetTab) {
+        nav.toBookshelf(targetTab as 'recent' | 'all', { replace: true });
+      }
+    }
+
+    if (activeTab === "all" && nav.activeGroupId) {
+      const idNum = nav.activeGroupId;
+      setOverlayGroupId((prevId) => {
+        const shouldOpen = !groupOverlayOpen || prevId !== idNum;
+        if (shouldOpen) setGroupOverlayOpen(true);
+        return idNum;
+      });
+    } else {
+      if (groupOverlayOpen) {
+        lastGroupCloseTimeRef.current = Date.now();
+      }
+      setGroupOverlayOpen(false);
+      setOverlayGroupId(null);
+      // 关闭分组详情时清除触摸状态，防止滑动返回时误触发切换栏目
+      touchStartRef.current = null;
+    }
+  }, [activeTab, nav.activeGroupId]);
+
   const [groupDetailSelectionActive, setGroupDetailSelectionActive] = useState(false);
   const [groupDetailSelectedCount, setGroupDetailSelectedCount] = useState(0);
 
@@ -193,15 +194,15 @@ export const Bookshelf: React.FC = () => {
 
     if (Math.abs(diffX) > SWIPE_MIN_DISTANCE && Math.abs(diffX) > Math.abs(diffY) * SWIPE_MIN_SLOPE) {
       if (diffX > 0) {
-        // Swipe Left -> Go to "all"
+        // 左滑 -> 前往 "all"
         if (activeTab === "recent") {
-          navigate("?tab=all", { replace: true });
+          nav.toBookshelf("all", { replace: true });
           setAnimateUnderline(true);
         }
       } else {
-        // Swipe Right -> Go to "recent"
+        // 右滑 -> 前往 "recent"
         if (activeTab === "all") {
-          navigate("?tab=recent", { replace: true });
+          nav.toBookshelf("recent", { replace: true });
           setAnimateUnderline(true);
         }
       }
@@ -310,115 +311,6 @@ export const Bookshelf: React.FC = () => {
   const [importCurrent, setImportCurrent] = useState(0);
   const [importTitle, setImportTitle] = useState("");
 
-  // Toast 状态
-  const [toastVisible, setToastVisible] = useState(false);
-  const [toastMessage, setToastMessage] = useState("");
-  const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setToastVisible(true);
-    setTimeout(() => setToastVisible(false), 2000);
-  };
-
-  // Refs for back button handling
-  const stateRef = useRef({
-    groupOverlayOpen,
-    selectionMode,
-    menuOpen,
-    importOpen,
-    confirmOpen,
-    activeTab
-  });
-  
-  const lastBackTimeRef = useRef(0);
-
-  useEffect(() => {
-    stateRef.current = {
-      groupOverlayOpen,
-      selectionMode,
-      menuOpen,
-      importOpen,
-      confirmOpen,
-      activeTab
-    };
-  }, [groupOverlayOpen, selectionMode, menuOpen, importOpen, confirmOpen, activeTab]);
-
-  const currentUrlRef = useRef(window.location.href);
-  useEffect(() => {
-    currentUrlRef.current = window.location.href;
-  }, [location]);
-
-  // 使用单独的 ref 来保存当前 activeTab，确保 popstate 时能获取到正确的值
-  const activeTabRef = useRef(activeTab);
-  useEffect(() => {
-    activeTabRef.current = activeTab;
-  }, [activeTab]);
-
-  useEffect(() => {
-    const handlePopState = async (e: PopStateEvent) => {
-      e.preventDefault();
-      const state = stateRef.current;
-
-      // Restore current URL to prevent navigation
-      // Use currentUrlRef to preserve query params like 'group'
-      window.history.pushState(null, "", currentUrlRef.current);
-
-      // Handle group overlay close first - need to update URL to ?tab=all without group param
-      if (state.groupOverlayOpen) {
-        setGroupOverlayOpen(false);
-        setOverlayGroupId(null);
-        lastGroupCloseTimeRef.current = Date.now();
-        touchStartRef.current = null;
-        
-        // Update URL to ?tab=all without group param, and update currentUrlRef
-        const newUrl = window.location.pathname + "?tab=all";
-        window.history.replaceState(null, "", newUrl);
-        currentUrlRef.current = newUrl;
-        return;
-      }
-
-      if (state.confirmOpen) {
-        setConfirmOpen(false);
-        return;
-      }
-      if (state.importOpen) {
-        const evt = new CustomEvent("goread:import:cancel");
-        window.dispatchEvent(evt);
-        setImportOpen(false);
-        return;
-      }
-      if (state.menuOpen) {
-        setMenuOpen(false);
-        return;
-      }
-      if (state.selectionMode) {
-        setSelectionMode(false);
-        setSelectedBookIds(new Set());
-        setSelectedGroupIds(new Set());
-        setConfirmOpen(false);
-        return;
-      }
-
-      const now = Date.now();
-      if (now - lastBackTimeRef.current < 2000) {
-        try {
-           await invoke('exit_app');
-        } catch (err) {
-           console.error("Exit failed", err);
-        }
-      } else {
-        lastBackTimeRef.current = now;
-        showToast("再按一次退出应用");
-      }
-    };
-
-    window.history.pushState(null, "", window.location.href);
-    window.addEventListener("popstate", handlePopState);
-
-    return () => {
-      window.removeEventListener("popstate", handlePopState);
-    };
-  }, []);
-
   useEffect(() => {
     loadBooks();
     loadGroups();
@@ -467,7 +359,7 @@ export const Bookshelf: React.FC = () => {
       setImportOpen(true);
       // 不再记录打开时间，移除最短展示时长逻辑
       // 保持在“全部”标签
-      navigate("?tab=all");
+      nav.toBookshelf("all");
     };
     const onProgress = (e: any) => {
       const detail = e?.detail || {};
@@ -491,7 +383,7 @@ export const Bookshelf: React.FC = () => {
       window.removeEventListener("goread:import:progress", onProgress as any);
       window.removeEventListener("goread:import:done", onDone as any);
     };
-  }, [navigate]);
+  }, []);
 
   const loadBooks = async () => {
     try {
@@ -593,7 +485,7 @@ export const Bookshelf: React.FC = () => {
       });
       return;
     }
-    // Update sort order: move this book to top
+    // 更新排序：将本书移至顶部
     try {
       const orderStr = localStorage.getItem("recent_books_order");
       let order: number[] = [];
@@ -603,15 +495,15 @@ export const Bookshelf: React.FC = () => {
           if (Array.isArray(parsed)) order = parsed;
         } catch {}
       }
-      // Remove if exists
+      // 如果存在则移除
       order = order.filter((id) => id !== book.id);
-      // Add to front
+      // 添加到最前
       order.unshift(book.id);
       localStorage.setItem("recent_books_order", JSON.stringify(order));
     } catch (e) {
       console.error("Failed to update recent order", e);
     }
-    navigate(`/reader/${book.id}`, { state: { fromTab: activeTab } });
+    nav.toReader(book.id, { fromTab: activeTab });
   };
 
   const handleDeleteBook = async (book: IBook) => {
@@ -799,7 +691,7 @@ export const Bookshelf: React.FC = () => {
     setMenuPos({ left: center, top });
   }, [menuOpen]);
 
-  // update underline position smoothly when active tab or layout changes
+  // 切换 active tab 或布局时平滑更新下划线位置
   useLayoutEffect(() => {
     const update = () => {
       const target =
@@ -815,7 +707,7 @@ export const Bookshelf: React.FC = () => {
     return () => window.removeEventListener("resize", update);
   }, [activeTab, loading]);
 
-  // ensure underline is positioned on first paint using current activeTab
+  // 确保下划线在首次绘制时定位到当前 activeTab
   useLayoutEffect(() => {
     const update = () => {
       const target =
@@ -1048,7 +940,7 @@ export const Bookshelf: React.FC = () => {
             >
             <button
               onClick={() => {
-                navigate("?tab=recent", { replace: true });
+                nav.toBookshelf("recent", { replace: true });
                 setAnimateUnderline(true);
               }}
               style={{
@@ -1075,9 +967,9 @@ export const Bookshelf: React.FC = () => {
             </button>
             <button
               onClick={() => {
-                navigate("?tab=all", { replace: true });
-                setAnimateUnderline(true);
-              }}
+                  nav.toBookshelf("all", { replace: true });
+                  setAnimateUnderline(true);
+                }}
               style={{
                 background: "transparent",
                 border: "none",
@@ -1124,7 +1016,7 @@ export const Bookshelf: React.FC = () => {
             <button
               title="搜索"
               aria-label="搜索"
-              onClick={() => navigate(`/search?tab=${activeTab}`)}
+              onClick={() => nav.toSearch()}
               style={{
                 background: "transparent",
                 border: "none",
@@ -1216,7 +1108,7 @@ export const Bookshelf: React.FC = () => {
                 <button
                   onClick={() => {
                     setMenuOpen(false);
-                    navigate("/import", { state: { fromTab: activeTab } });
+                    nav.toImport({ fromTab: activeTab });
                   }}
                   style={{
                     width: "100%",
@@ -1274,7 +1166,7 @@ export const Bookshelf: React.FC = () => {
                 <button
                   onClick={() => {
                     setMenuOpen(false);
-                    navigate("/settings", { state: { fromTab: activeTab } });
+                    nav.toSettings({ fromTab: activeTab });
                   }}
                   style={{
                     width: "100%",
@@ -1593,7 +1485,7 @@ export const Bookshelf: React.FC = () => {
                             return next;
                           });
                         } else {
-                          navigate(`?tab=all&group=${g.id}`);
+                          nav.openGroup(g.id);
                         }
                       }}
                       onPointerDown={(e) => {
@@ -1771,7 +1663,7 @@ export const Bookshelf: React.FC = () => {
                         return next;
                       });
                     } else {
-                      navigate(`?tab=all&group=${g.id}`);
+                      nav.openGroup(g.id);
                     }
                   }}
                   onPointerDown={(e) => {
@@ -1927,7 +1819,7 @@ export const Bookshelf: React.FC = () => {
               window.dispatchEvent(evt);
               return;
             }
-            navigate("?tab=all", { replace: true });
+            nav.toBookshelf("all", { replace: true });
             setGroupDetailSelectionActive(false);
             setGroupDetailSelectedCount(0);
           }}
@@ -2086,7 +1978,7 @@ export const Bookshelf: React.FC = () => {
                 <GroupDetail
                   groupIdProp={overlayGroupId}
                   onClose={() => {
-                    navigate("?tab=all", { replace: true });
+                    nav.toBookshelf("all", { replace: true });
                     // 关闭抽屉时刷新分组与最近
                     loadGroups();
                     loadBooks();
@@ -2118,27 +2010,7 @@ export const Bookshelf: React.FC = () => {
         onCancel={() => setConfirmOpen(false)}
         onConfirm={confirmDelete}
       />
-      {toastVisible && (
-        <div
-          style={{
-            position: "fixed",
-            bottom: "80px",
-            left: "50%",
-            transform: "translateX(-50%)",
-            padding: "8px 16px",
-            borderRadius: "20px",
-            backgroundColor: "rgba(0,0,0,0.8)",
-            color: "#fff",
-            fontSize: "14px",
-            boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
-            pointerEvents: "none",
-            zIndex: 2000,
-            animation: "fadeIn 0.2s ease-out",
-          }}
-        >
-          {toastMessage}
-        </div>
-      )}
+
     </div>
   );
 };

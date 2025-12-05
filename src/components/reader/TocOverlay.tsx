@@ -29,7 +29,7 @@ export const TocOverlay: React.FC<TocOverlayProps> = ({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const prevVisibleRef = useRef(false);
 
-  // Reset to toc tab when overlay opens (from false to true)
+  // 覆盖层打开时重置为目录标签（从 false 变为 true）
   React.useEffect(() => {
     if (visible && !prevVisibleRef.current) {
       setLeftTab("toc");

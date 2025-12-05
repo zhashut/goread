@@ -1,0 +1,45 @@
+import { createHashRouter, Navigate } from 'react-router-dom';
+import { MainLayout } from '../layouts/MainLayout';
+import { Bookshelf } from '../components/Bookshelf';
+import { Reader } from '../components/Reader';
+import { Settings } from '../components/Settings';
+import { Search } from '../components/Search';
+import { ImportFiles } from '../components/ImportFiles';
+import { ScanResults } from '../components/ScanResults';
+
+export const router = createHashRouter([
+  {
+    path: '/',
+    element: <MainLayout />,
+    children: [
+      {
+        path: '',
+        element: <Bookshelf />,
+      },
+      {
+        path: 'reader/:bookId',
+        element: <Reader />,
+      },
+      {
+        path: 'settings',
+        element: <Settings />,
+      },
+      {
+        path: 'search',
+        element: <Search />,
+      },
+      {
+        path: 'import',
+        element: <ImportFiles />,
+      },
+      {
+        path: 'import/results',
+        element: <ScanResults />,
+      },
+      {
+        path: '*',
+        element: <Navigate to="/" replace />,
+      }
+    ],
+  },
+]);

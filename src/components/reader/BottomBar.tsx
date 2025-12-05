@@ -63,7 +63,7 @@ export const BottomBar: React.FC<BottomBarProps> = ({
         left: 0,
         right: 0,
         transform: "none",
-        // Pin to bottom
+        // 固定到底部
         bottom: 0,
         boxSizing: "border-box",
         backgroundColor: "rgba(26,26,26,0.92)",
