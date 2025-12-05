@@ -4,6 +4,8 @@ import {
   saveReaderSettings,
   ReaderSettings,
 } from "../services";
+// Note: statusBarService is NOT imported here intentionally
+// Status bar control should only happen in Reader page, not in Settings
 import {
   RENDER_QUALITY_OPTIONS,
   RECENT_DISPLAY_COUNT_OPTIONS,
@@ -143,22 +145,8 @@ export const Settings: React.FC = () => {
               type="checkbox"
               checked={settings.showStatusBar}
               onChange={(e) => {
-                const checked = e.target.checked;
-                setSettings((s) => ({ ...s, showStatusBar: checked }));
-                // 仅在移动端浏览器尝试切换全屏；桌面 Tauri/Web 不触发，避免窗口最大化
-                const ua = navigator.userAgent || "";
-                const isMobile = /Android|iPhone|iPad|iPod/i.test(ua);
-                const isTauri =
-                  typeof (window as any).__TAURI__ !== "undefined";
-                if (isMobile && !isTauri) {
-                  if (checked) {
-                    document.exitFullscreen?.().catch(() => {});
-                  } else {
-                    document.documentElement
-                      .requestFullscreen?.()
-                      .catch(() => {});
-                  }
-                }
+                // Only save the setting, actual status bar control happens in Reader page
+                setSettings((s) => ({ ...s, showStatusBar: e.target.checked }));
               }}
             />
           }

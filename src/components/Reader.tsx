@@ -26,6 +26,7 @@ import {
   LAZY_LOAD_ROOT_MARGIN,
 } from "../constants/config";
 import { log } from "../services/index";
+import { statusBarService } from "../services/statusBarService";
 import { TopBar } from "./reader/TopBar";
 import { BottomBar } from "./reader/BottomBar";
 import { TocOverlay } from "./reader/TocOverlay";
@@ -1280,25 +1281,17 @@ export const Reader: React.FC = () => {
     return () => window.removeEventListener("keydown", handler);
   }, [settings.volumeKeyTurnPage, currentPage]);
 
-  // 根据设置显示/隐藏系统状态栏：通过浏览器全屏控制（受平台限制）
+  // Apply status bar settings via statusBarService (supports Tauri mobile + browser fallback)
+  // Only hide status bar in Reader page based on user settings
+  // When leaving Reader, always restore status bar visibility
   useEffect(() => {
-    const hideStatusBar = !settings.showStatusBar;
-    const ua = navigator.userAgent || "";
-    const isMobile = /Android|iPhone|iPad|iPod/i.test(ua);
-    const isTauri = typeof (window as any).__TAURI__ !== "undefined";
-
-    // 仅在移动端浏览器或移动端容器中尝试全屏；桌面 Tauri/Web 不触发以避免窗口被最大化
-    if (!isMobile || isTauri) return;
-
-    if (hideStatusBar) {
-      if (!document.fullscreenElement) {
-        document.documentElement.requestFullscreen?.().catch(() => {});
-      }
-    } else {
-      if (document.fullscreenElement) {
-        document.exitFullscreen?.().catch(() => {});
-      }
-    }
+    // Apply settings when entering Reader or when setting changes
+    statusBarService.applySettings(settings.showStatusBar);
+    
+    // Cleanup: always show status bar when leaving Reader page
+    return () => {
+      statusBarService.showStatusBar();
+    };
   }, [settings.showStatusBar]);
 
 
@@ -1426,7 +1419,7 @@ export const Reader: React.FC = () => {
         </div>
       </div>
       <TopBar
-        visible={(uiVisible || isSeeking || tocOverlayOpen) && !moreDrawerOpen}
+        visible={(uiVisible || isSeeking) && !moreDrawerOpen && !tocOverlayOpen && !modeOverlayOpen}
         bookTitle={book?.title}
         onBack={() => {
           const state: any = location.state || {};
@@ -1443,11 +1436,10 @@ export const Reader: React.FC = () => {
           }
         }}
       />
-      {/* 顶部页码气泡：贴紧顶部栏最左侧下方，顶部栏可见时下移；不因“显示状态栏”而强制显示 */}
-      {(uiVisible || isSeeking) && !moreDrawerOpen &&
+      {/* 顶部页码气泡：贴紧顶部栏最左侧下方，顶部栏可见时下移；不因"显示状态栏"而强制显示 */}
+      {(uiVisible || isSeeking) && !moreDrawerOpen && !tocOverlayOpen && !modeOverlayOpen &&
         (() => {
-          const toolbarVisible = uiVisible || isSeeking || tocOverlayOpen;
-          const baseOffsetPx = toolbarVisible ? 72 : 14;
+          const toolbarVisible = uiVisible || isSeeking;          const baseOffsetPx = toolbarVisible ? 72 : 14;
           const safeAreaTop = getSafeAreaInsets().top;
           const shouldIncludeSafeArea = toolbarVisible || settings.showStatusBar;
           const topStyle = shouldIncludeSafeArea 

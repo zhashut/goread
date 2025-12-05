@@ -6,8 +6,8 @@
         <item name="android:navigationBarColor">@android:color/white</item>
         <!-- Ensure navigation bar icons are dark in light mode -->
         <item name="android:windowLightNavigationBar" tools:targetApi="o_mr1">true</item>
-        <!-- Don't use translucent mode, use edge-to-edge instead -->
-        <item name="android:windowTranslucentStatus">false</item>
+        <!-- Enable translucent status bar for overlay mode (required by tauri-plugin-status-bar) -->
+        <item name="android:windowTranslucentStatus">true</item>
         <item name="android:windowTranslucentNavigation">false</item>
         <!-- Draw behind system bars -->
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>

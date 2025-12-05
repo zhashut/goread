@@ -15,7 +15,9 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 
 class MainActivity : TauriActivity() {
   
@@ -24,6 +26,15 @@ class MainActivity : TauriActivity() {
   private var currentTop = 0
   private var currentBottom = 0
   private var insetsReady = false
+  
+  // Store the initial status bar height (before any hide/show operations)
+  // This ensures consistent safe area insets regardless of status bar visibility
+  private var initialStatusBarHeight = 0
+  private var initialStatusBarHeightCaptured = false
+  
+  // Status bar controller
+  private var windowInsetsController: WindowInsetsControllerCompat? = null
+  private var isStatusBarVisible = true  // Default to visible (only hide in Reader page)
   
   private val requestPermissionLauncher = registerForActivityResult(
     ActivityResultContracts.RequestMultiplePermissions()
@@ -60,6 +71,16 @@ class MainActivity : TauriActivity() {
     super.onWebViewCreate(webView)
     webViewRef = webView
     
+    // Initialize WindowInsetsController for status bar control
+    windowInsetsController = WindowCompat.getInsetsController(window, window.decorView)
+    windowInsetsController?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+    
+    // Expose status bar control functions to JavaScript
+    webView.addJavascriptInterface(StatusBarBridge(), "StatusBarBridge")
+    
+    // Default show status bar (only hide when entering Reader page based on user settings)
+    windowInsetsController?.show(WindowInsetsCompat.Type.statusBars())
+    
     // Don't replace WebViewClient as it would break Tauri's RustWebViewClient
     // Instead, we'll inject CSS variables via WindowInsets listener and periodic refresh
     
@@ -81,6 +102,27 @@ class MainActivity : TauriActivity() {
           injectSafeAreaInsets(currentTop, currentBottom)
         }
       }, 500)
+      
+      // Notify JavaScript that StatusBarBridge is ready
+      webView.postDelayed({
+        notifyBridgeReady()
+      }, 200)
+    }
+  }
+  
+  private fun notifyBridgeReady() {
+    webViewRef?.post {
+      val js = """
+        (function() {
+          window.__STATUS_BAR_BRIDGE_READY__ = true;
+          // Dispatch custom event to notify JavaScript
+          if (typeof CustomEvent !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('statusBarBridgeReady'));
+          }
+          console.log('[StatusBar] Android bridge ready');
+        })();
+      """.trimIndent()
+      webViewRef?.evaluateJavascript(js, null)
     }
   }
   
@@ -98,7 +140,24 @@ class MainActivity : TauriActivity() {
       view.setPadding(0, 0, 0, bottomPadding)
 
       // Convert physical pixels to CSS/dp pixels
-      val topPx = (systemBars.top / density).toInt()
+      val topPxFromInsets = (systemBars.top / density).toInt()
+      
+      // Capture the initial status bar height when it's visible (before any hide operation)
+      // This ensures we always have a consistent safe area inset for TopBar padding
+      if (!initialStatusBarHeightCaptured && topPxFromInsets > 0) {
+        initialStatusBarHeight = topPxFromInsets
+        initialStatusBarHeightCaptured = true
+        println("[SafeArea] Captured initial status bar height: ${initialStatusBarHeight}px")
+      }
+      
+      // Use the initial captured height if status bar is hidden (topPxFromInsets would be 0)
+      // This ensures TopBar always has correct padding regardless of status bar visibility
+      val topPx = if (initialStatusBarHeightCaptured && topPxFromInsets == 0) {
+        initialStatusBarHeight
+      } else {
+        topPxFromInsets
+      }
+      
       // Since we applied padding for the bottom bar, the safe area inset for bottom is effectively 0
       val bottomPx = 0 
 
@@ -144,6 +203,32 @@ class MainActivity : TauriActivity() {
         })();
       """.trimIndent()
       webViewRef?.evaluateJavascript(js, null)
+    }
+  }
+  
+  // JavaScript Interface for status bar control
+  inner class StatusBarBridge {
+    @android.webkit.JavascriptInterface
+    fun show() {
+      runOnUiThread {
+        windowInsetsController?.show(WindowInsetsCompat.Type.statusBars())
+        isStatusBarVisible = true
+        println("[StatusBar] Shown")
+      }
+    }
+    
+    @android.webkit.JavascriptInterface
+    fun hide() {
+      runOnUiThread {
+        windowInsetsController?.hide(WindowInsetsCompat.Type.statusBars())
+        isStatusBarVisible = false
+        println("[StatusBar] Hidden")
+      }
+    }
+    
+    @android.webkit.JavascriptInterface
+    fun isVisible(): Boolean {
+      return isStatusBarVisible
     }
   }
   

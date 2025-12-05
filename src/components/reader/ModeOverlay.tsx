@@ -24,7 +24,7 @@ export const ModeOverlay: React.FC<ModeOverlayProps> = ({
         onClose();
       }}
       style={{
-        position: "absolute",
+        position: "fixed",
         top: 0,
         left: 0,
         right: 0,
@@ -33,7 +33,6 @@ export const ModeOverlay: React.FC<ModeOverlayProps> = ({
         display: "flex",
         flexDirection: "column",
         justifyContent: "flex-end",
-        alignItems: "center",
         overflow: "hidden",
         zIndex: 20,
       }}
@@ -41,14 +40,15 @@ export const ModeOverlay: React.FC<ModeOverlayProps> = ({
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
-          width: "min(720px, calc(100% - 32px))",
+          width: "100%",
+          maxWidth: "720px",
+          margin: "0 auto",
+          boxSizing: "border-box",
           backgroundColor: "#1f1f1f",
           color: "#fff",
-          borderTopLeftRadius: "12px",
-          borderTopRightRadius: "12px",
+          borderRadius: "12px 12px 0 0",
           padding: "18px",
-          paddingBottom: `calc(18px + ${getSafeAreaInsets().bottom}px)`,
-          margin: "0 auto 0",
+          paddingBottom: `calc(18px + ${getSafeAreaInsets().bottom})`,
           boxShadow: "0 -8px 32px rgba(0,0,0,0.5)",
         }}
       >

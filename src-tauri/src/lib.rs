@@ -34,10 +34,25 @@ fn exit_app() {
     std::process::exit(0);
 }
 
+// Status bar control commands (placeholder for iOS)
+// Note: On Android, status bar control is handled via JavascriptInterface in MainActivity.kt
+// These commands are kept as fallback for iOS which may need native implementation
+#[tauri::command]
+async fn show_status_bar() -> Result<(), String> {
+    // Android uses StatusBarBridge JavascriptInterface, iOS would need native implementation
+    Ok(())
+}
+
+#[tauri::command]
+async fn hide_status_bar() -> Result<(), String> {
+    // Android uses StatusBarBridge JavascriptInterface, iOS would need native implementation
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_dialog::init())
+.plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
@@ -128,7 +143,10 @@ pub fn run() {
             pdf_render_pages_parallel,
             pdf_render_page_range_parallel,
             pdf_render_pages_with_threads,
-            exit_app
+            exit_app,
+            // Status bar control commands
+            show_status_bar,
+            hide_status_bar
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
