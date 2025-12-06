@@ -9,24 +9,22 @@ import React, {
 import { useAppNav } from "../router/useAppNav";
 import { IBook, IGroup } from "../types";
   import {
-      GRID_GAP_BOOK_CARDS,
-      GROUP_NAME_FONT_SIZE,
-      GROUP_META_FONT_SIZE,
-      GROUP_NAME_FONT_WEIGHT,
-      CARD_INFO_MARGIN_TOP,
-      GROUP_NAME_MARGIN_TOP,
-      GROUP_META_MARGIN_TOP,
-      CARD_MIN_WIDTH,
-      SELECTION_ICON_SIZE,
-      SELECTION_ICON_OFFSET_TOP,
-      SELECTION_ICON_OFFSET_RIGHT,
-      GROUP_COVER_PADDING,
-      TOP_BAR_TAB_FONT_SIZE,
-      TOP_BAR_ICON_SIZE,
-      TOP_BAR_TAB_PADDING_BOTTOM,
-      TOP_BAR_MARGIN_BOTTOM,
-      TOP_BAR_ICON_GAP,
-  } from "../constants/ui";
+  GRID_GAP_BOOK_CARDS,
+  GROUP_NAME_FONT_SIZE,
+  GROUP_META_FONT_SIZE,
+  GROUP_NAME_FONT_WEIGHT,
+  CARD_INFO_MARGIN_TOP,
+  GROUP_NAME_MARGIN_TOP,
+  GROUP_META_MARGIN_TOP,
+  CARD_MIN_WIDTH,
+  SELECTION_ICON_SIZE,
+  SELECTION_ICON_OFFSET_TOP,
+  SELECTION_ICON_OFFSET_RIGHT,
+  GROUP_COVER_PADDING,
+  TOP_BAR_TAB_FONT_SIZE,
+  TOP_BAR_ICON_SIZE,
+} from "../constants/ui";
+import { BookshelfHeader } from "./BookshelfHeader";
 import {
   SWIPE_EDGE_THRESHOLD,
   SWIPE_MIN_DISTANCE,
@@ -764,572 +762,533 @@ export const Bookshelf: React.FC = () => {
       }}
     >
       {selectionMode ? (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            padding: 0,
-            marginBottom: "12px",
-          }}
-        >
-          <button
-            aria-label="返回"
-            onClick={exitSelection}
-            style={{
-              background: "none",
-              border: "none",
-              boxShadow: "none",
-              borderRadius: 0,
-              cursor: "pointer",
-              padding: 0,
-              marginLeft: "-6px",
-            }}
-          >
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-              <path
-                d="M14 18l-6-6 6-6"
-                stroke="#333"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </button>
-          <span
-            style={{
-              fontSize: 16,
-              color: "#333",
-              marginLeft: 8,
-              fontWeight: 600,
-              // 与左侧返回图标(24px)保持垂直居中视觉对齐
-              display: "inline-flex",
-              alignItems: "center",
-              height: "24px",
-              lineHeight: "24px",
-              // 视觉微调：字体度量相对图形略低，向上平移1px
-              transform: "translateY(-2px)",
-            }}
-          >
-            已选中({selectedCount})
-          </span>
-          <div style={{ flex: 1 }} />
-          <div style={{ display: "flex", alignItems: "center" }}>
-            <button
-              aria-label="删除"
-              title="删除"
-              style={{
-                background: "none",
-                border: "none",
-                boxShadow: "none",
-                borderRadius: 0,
-                cursor: selectedCount === 0 ? "not-allowed" : "pointer",
-                opacity: selectedCount === 0 ? 0.4 : 1,
-                padding: 0,
-                marginRight: 16,
-              }}
-              disabled={selectedCount === 0}
-              onClick={() => {
-                if (selectedCount === 0) return;
-                setConfirmOpen(true);
-              }}
-            >
-              <svg width="21" height="21" viewBox="0 0 24 24" fill="none">
-                <path
-                  d="M6 7h12"
-                  stroke={selectedCount === 0 ? "#bbb" : "#333"}
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                />
-                <path
-                  d="M9 7V5h6v2"
-                  stroke={selectedCount === 0 ? "#bbb" : "#333"}
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                />
-                <rect
-                  x="6"
-                  y="7"
-                  width="12"
-                  height="14"
-                  rx="2"
-                  stroke={selectedCount === 0 ? "#bbb" : "#333"}
-                  strokeWidth="2"
-                />
-              </svg>
-            </button>
-            <button
-              aria-label="全选"
-              title={
-                activeTab === "recent"
-                  ? selectedBookIds.size === (filteredBooks?.length || 0) &&
-                    (filteredBooks?.length || 0) > 0
-                    ? "取消全选"
-                    : "全选"
-                  : selectedGroupIds.size === (filteredGroups?.length || 0) &&
-                    (filteredGroups?.length || 0) > 0
-                  ? "取消全选"
-                  : "全选"
-              }
-              style={{
-                background: "none",
-                border: "none",
-                boxShadow: "none",
-                borderRadius: 0,
-                cursor: "pointer",
-                padding: 0,
-              }}
-              onClick={selectAllCurrent}
-            >
-              <svg width="21" height="21" viewBox="0 0 24 24" fill="none">
-                {(() => {
-                  const allCount =
-                    activeTab === "recent"
-                      ? filteredBooks?.length || 0
-                      : filteredGroups?.length || 0;
-                  const selCount =
-                    activeTab === "recent"
-                      ? selectedBookIds.size
-                      : selectedGroupIds.size;
-                  const isAll = allCount > 0 && selCount === allCount;
-                  const stroke = isAll ? "#d23c3c" : "#333";
-                  return (
-                    <g>
-                      <rect
-                        x="3"
-                        y="3"
-                        width="7"
-                        height="7"
-                        stroke={stroke}
-                        strokeWidth="2"
-                      />
-                      <rect
-                        x="14"
-                        y="3"
-                        width="7"
-                        height="7"
-                        stroke={stroke}
-                        strokeWidth="2"
-                      />
-                      <rect
-                        x="3"
-                        y="14"
-                        width="7"
-                        height="7"
-                        stroke={stroke}
-                        strokeWidth="2"
-                      />
-                      <rect
-                        x="14"
-                        y="14"
-                        width="7"
-                        height="7"
-                        stroke={stroke}
-                        strokeWidth="2"
-                      />
-                    </g>
-                  );
-                })()}
-              </svg>
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginBottom: TOP_BAR_MARGIN_BOTTOM + "px",
-          }}
-        >
-            <div
-              ref={tabsRef}
-              style={{
-                display: "flex",
-                alignItems: "flex-end",
-                position: "relative",
-                paddingBottom: TOP_BAR_TAB_PADDING_BOTTOM + "px",
-              }}
-            >
-            <button
-              onClick={() => {
-                nav.toBookshelf("recent", { replace: true });
-                setAnimateUnderline(true);
-              }}
-              style={{
-                background: "transparent",
-                border: "none",
-                padding: 0,
-                cursor: "pointer",
-                boxShadow: "none",
-                borderRadius: 0,
-                marginRight: "15px",
-              }}
-              title="最近"
-            >
-              <div
-                ref={recentLabelRef}
+        <BookshelfHeader
+          leftAlign="center"
+          left={
+            <>
+              <button
+                aria-label="返回"
+                onClick={exitSelection}
                 style={{
-                  fontSize: TOP_BAR_TAB_FONT_SIZE + "px",
-                  color: activeTab === "recent" ? "#000" : "#bbb",
-                  transition: "color 200ms ease",
+                  background: "none",
+                  border: "none",
+                  boxShadow: "none",
+                  borderRadius: 0,
+                  cursor: "pointer",
+                  padding: 0,
+                  marginLeft: "-6px",
                 }}
               >
-                最近
-              </div>
-            </button>
-            <button
-              onClick={() => {
+                <svg
+                  width={TOP_BAR_ICON_SIZE}
+                  height={TOP_BAR_ICON_SIZE}
+                  viewBox="0 0 24 24"
+                  fill="none"
+                >
+                  <path
+                    d="M14 18l-6-6 6-6"
+                    stroke="#333"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+              <span
+                style={{
+                  fontSize: TOP_BAR_TAB_FONT_SIZE,
+                  color: "#333",
+                  marginLeft: 8,
+                  fontWeight: 600,
+                  // 与左侧返回图标保持垂直居中视觉对齐
+                  display: "inline-flex",
+                  alignItems: "center",
+                  height: TOP_BAR_ICON_SIZE + "px",
+                  lineHeight: TOP_BAR_ICON_SIZE + "px",
+                  // 视觉微调：字体度量相对图形略低，向上平移1px
+                  transform: "translateY(-2px)",
+                }}
+              >
+                已选中({selectedCount})
+              </span>
+            </>
+          }
+          right={
+            <>
+              <button
+                aria-label="删除"
+                title="删除"
+                style={{
+                  background: "none",
+                  border: "none",
+                  boxShadow: "none",
+                  borderRadius: 0,
+                  cursor: selectedCount === 0 ? "not-allowed" : "pointer",
+                  opacity: selectedCount === 0 ? 0.4 : 1,
+                  padding: 0,
+                }}
+                disabled={selectedCount === 0}
+                onClick={() => {
+                  if (selectedCount === 0) return;
+                  setConfirmOpen(true);
+                }}
+              >
+                <svg
+                  width={TOP_BAR_ICON_SIZE}
+                  height={TOP_BAR_ICON_SIZE}
+                  viewBox="0 0 24 24"
+                  fill="none"
+                >
+                  <path
+                    d="M6 7h12"
+                    stroke={selectedCount === 0 ? "#bbb" : "#333"}
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+                  <path
+                    d="M9 7V5h6v2"
+                    stroke={selectedCount === 0 ? "#bbb" : "#333"}
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+                  <rect
+                    x="6"
+                    y="7"
+                    width="12"
+                    height="14"
+                    rx="2"
+                    stroke={selectedCount === 0 ? "#bbb" : "#333"}
+                    strokeWidth="2"
+                  />
+                </svg>
+              </button>
+              <button
+                aria-label="全选"
+                title={
+                  activeTab === "recent"
+                    ? selectedBookIds.size === (filteredBooks?.length || 0) &&
+                      (filteredBooks?.length || 0) > 0
+                      ? "取消全选"
+                      : "全选"
+                    : selectedGroupIds.size === (filteredGroups?.length || 0) &&
+                      (filteredGroups?.length || 0) > 0
+                    ? "取消全选"
+                    : "全选"
+                }
+                style={{
+                  background: "none",
+                  border: "none",
+                  boxShadow: "none",
+                  borderRadius: 0,
+                  cursor: "pointer",
+                  padding: 0,
+                }}
+                onClick={selectAllCurrent}
+              >
+                <svg
+                  width={TOP_BAR_ICON_SIZE}
+                  height={TOP_BAR_ICON_SIZE}
+                  viewBox="0 0 24 24"
+                  fill="none"
+                >
+                  {(() => {
+                    const allCount =
+                      activeTab === "recent"
+                        ? filteredBooks?.length || 0
+                        : filteredGroups?.length || 0;
+                    const selCount =
+                      activeTab === "recent"
+                        ? selectedBookIds.size
+                        : selectedGroupIds.size;
+                    const isAll = allCount > 0 && selCount === allCount;
+                    const stroke = isAll ? "#d23c3c" : "#333";
+                    return (
+                      <g>
+                        <rect
+                          x="3"
+                          y="3"
+                          width="7"
+                          height="7"
+                          stroke={stroke}
+                          strokeWidth="2"
+                        />
+                        <rect
+                          x="14"
+                          y="3"
+                          width="7"
+                          height="7"
+                          stroke={stroke}
+                          strokeWidth="2"
+                        />
+                        <rect
+                          x="3"
+                          y="14"
+                          width="7"
+                          height="7"
+                          stroke={stroke}
+                          strokeWidth="2"
+                        />
+                        <rect
+                          x="14"
+                          y="14"
+                          width="7"
+                          height="7"
+                          stroke={stroke}
+                          strokeWidth="2"
+                        />
+                      </g>
+                    );
+                  })()}
+                </svg>
+              </button>
+            </>
+          }
+        />
+      ) : (
+        <BookshelfHeader
+          leftContainerRef={tabsRef}
+          left={
+            <>
+              <button
+                onClick={() => {
+                  nav.toBookshelf("recent", { replace: true });
+                  setAnimateUnderline(true);
+                }}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  padding: 0,
+                  cursor: "pointer",
+                  boxShadow: "none",
+                  borderRadius: 0,
+                  marginRight: "15px",
+                }}
+                title="最近"
+              >
+                <div
+                  ref={recentLabelRef}
+                  style={{
+                    fontSize: TOP_BAR_TAB_FONT_SIZE + "px",
+                    color: activeTab === "recent" ? "#000" : "#bbb",
+                    transition: "color 200ms ease",
+                  }}
+                >
+                  最近
+                </div>
+              </button>
+              <button
+                onClick={() => {
                   nav.toBookshelf("all", { replace: true });
                   setAnimateUnderline(true);
                 }}
-              style={{
-                background: "transparent",
-                border: "none",
-                padding: 0,
-                cursor: "pointer",
-                boxShadow: "none",
-                borderRadius: 0,
-              }}
-              title="全部"
-            >
-              <div
-                ref={allLabelRef}
                 style={{
-                  fontSize: TOP_BAR_TAB_FONT_SIZE + "px",
-                  color: activeTab === "all" ? "#000" : "#bbb",
-                  transition: "color 200ms ease",
-                }}
-              >
-                全部
-              </div>
-            </button>
-            <div
-              style={{
-                position: "absolute",
-                bottom: 0,
-                left: underlinePos.left,
-                width: underlinePos.width,
-                height: "3px",
-                backgroundColor: "#d15158",
-                transition: animateUnderline
-                  ? "left 250ms ease, width 250ms ease"
-                  : "none",
-                opacity: underlineReady ? 1 : 0,
-              }}
-            />
-          </div>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              position: "relative",
-            }}
-          >
-            <button
-              title="搜索"
-              aria-label="搜索"
-              onClick={() => nav.toSearch()}
-              style={{
-                background: "transparent",
-                border: "none",
-                padding: 0,
-                margin: 0,
-                marginRight: TOP_BAR_ICON_GAP + "px",
-                cursor: "pointer",
-                color: "#333",
-                WebkitAppearance: "none",
-                appearance: "none",
-                outline: "none",
-                boxShadow: "none",
-                borderRadius: 0,
-                display: "inline-flex",
-                alignItems: "center",
-              }}
-            >
-              <svg
-                width={TOP_BAR_ICON_SIZE}
-                height={TOP_BAR_ICON_SIZE}
-                viewBox="0 0 24 24"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <circle cx="11" cy="11" r="7" stroke="#333" strokeWidth="2" />
-                <line
-                  x1="20"
-                  y1="20"
-                  x2="16.5"
-                  y2="16.5"
-                  stroke="#333"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                />
-              </svg>
-            </button>
-            <button
-              ref={menuBtnRef}
-              title="更多"
-              aria-label="更多"
-              onClick={() => setMenuOpen((m) => !m)}
-              style={{
-                background: "transparent",
-                border: "none",
-                padding: 0,
-                margin: 0,
-                cursor: "pointer",
-                color: "#333",
-                WebkitAppearance: "none",
-                appearance: "none",
-                outline: "none",
-                boxShadow: "none",
-                borderRadius: 0,
-                display: "inline-flex",
-                alignItems: "center",
-              }}
-            >
-              <svg
-                width={TOP_BAR_ICON_SIZE}
-                height={TOP_BAR_ICON_SIZE}
-                viewBox="0 0 24 24"
-                fill="#333"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <circle cx="12" cy="5" r="2" />
-                <circle cx="12" cy="12" r="2" />
-                <circle cx="12" cy="19" r="2" />
-              </svg>
-            </button>
-            {menuOpen && (
-              <div
-                ref={menuRef}
-                style={{
-                  position: "fixed",
-                  left: menuPos.left,
-                  top: menuPos.top,
-                  transform: "translateX(-50%)",
-                  background: "#fff",
+                  background: "transparent",
                   border: "none",
-                  boxShadow: "0 6px 16px rgba(0,0,0,0.12)",
-                  borderRadius: "10px",
-                  padding: "8px 14px",
-                  width: "auto",
-                  minWidth: "100px",
-                  whiteSpace: "nowrap",
-                  zIndex: 20,
+                  padding: 0,
+                  cursor: "pointer",
+                  boxShadow: "none",
+                  borderRadius: 0,
+                }}
+                title="全部"
+              >
+                <div
+                  ref={allLabelRef}
+                  style={{
+                    fontSize: TOP_BAR_TAB_FONT_SIZE + "px",
+                    color: activeTab === "all" ? "#000" : "#bbb",
+                    transition: "color 200ms ease",
+                  }}
+                >
+                  全部
+                </div>
+              </button>
+              <div
+                style={{
+                  position: "absolute",
+                  bottom: 0,
+                  left: underlinePos.left,
+                  width: underlinePos.width,
+                  height: "3px",
+                  backgroundColor: "#d15158",
+                  transition: animateUnderline
+                    ? "left 250ms ease, width 250ms ease"
+                    : "none",
+                  opacity: underlineReady ? 1 : 0,
+                }}
+              />
+            </>
+          }
+          right={
+            <>
+              <button
+                title="搜索"
+                aria-label="搜索"
+                onClick={() => nav.toSearch()}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  padding: 0,
+                  margin: 0,
+                  cursor: "pointer",
+                  color: "#333",
+                  WebkitAppearance: "none",
+                  appearance: "none",
+                  outline: "none",
+                  boxShadow: "none",
+                  borderRadius: 0,
+                  display: "inline-flex",
+                  alignItems: "center",
                 }}
               >
-                <button
-                  onClick={() => {
-                    setMenuOpen(false);
-                    nav.toImport({ fromTab: activeTab });
-                  }}
+                <svg
+                  width={TOP_BAR_ICON_SIZE}
+                  height={TOP_BAR_ICON_SIZE}
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <circle cx="11" cy="11" r="7" stroke="#333" strokeWidth="2" />
+                  <line
+                    x1="20"
+                    y1="20"
+                    x2="16.5"
+                    y2="16.5"
+                    stroke="#333"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </button>
+              <button
+                ref={menuBtnRef}
+                title="更多"
+                aria-label="更多"
+                onClick={() => setMenuOpen((m) => !m)}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  padding: 0,
+                  margin: 0,
+                  cursor: "pointer",
+                  color: "#333",
+                  WebkitAppearance: "none",
+                  appearance: "none",
+                  outline: "none",
+                  boxShadow: "none",
+                  borderRadius: 0,
+                  display: "inline-flex",
+                  alignItems: "center",
+                }}
+              >
+                <svg
+                  width={TOP_BAR_ICON_SIZE}
+                  height={TOP_BAR_ICON_SIZE}
+                  viewBox="0 0 24 24"
+                  fill="#333"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <circle cx="12" cy="5" r="2" />
+                  <circle cx="12" cy="12" r="2" />
+                  <circle cx="12" cy="19" r="2" />
+                </svg>
+              </button>
+              {menuOpen && (
+                <div
+                  ref={menuRef}
                   style={{
-                    width: "100%",
-                    background: "transparent",
+                    position: "fixed",
+                    left: menuPos.left,
+                    top: menuPos.top,
+                    transform: "translateX(-50%)",
+                    background: "#fff",
                     border: "none",
-                    boxShadow: "none",
-                    borderRadius: 0,
-                    padding: "8px 6px",
-                    cursor: "pointer",
-                    color: "#333",
-                    display: "flex",
-                    alignItems: "center",
-                    textAlign: "left",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = "#f7f7f7";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = "transparent";
+                    boxShadow: "0 6px 16px rgba(0,0,0,0.12)",
+                    borderRadius: "10px",
+                    padding: "8px 14px",
+                    width: "auto",
+                    minWidth: "100px",
+                    whiteSpace: "nowrap",
+                    zIndex: 20,
                   }}
                 >
-                  <svg
-                    style={{ marginRight: "8px" }}
-                    width="20"                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    xmlns="http://www.w3.org/2000/svg"
-                    aria-hidden
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      nav.toImport({ fromTab: activeTab });
+                    }}
+                    style={{
+                      width: "100%",
+                      background: "transparent",
+                      border: "none",
+                      boxShadow: "none",
+                      borderRadius: 0,
+                      padding: "8px 6px",
+                      cursor: "pointer",
+                      color: "#333",
+                      display: "flex",
+                      alignItems: "center",
+                      textAlign: "left",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = "#f7f7f7";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = "transparent";
+                    }}
                   >
-                    <path
-                      d="M12 3v8"
-                      stroke="#333"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                    />
-                    <path
-                      d="M9.5 8.5L12 11l2.5-2.5"
-                      stroke="#333"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                    <rect
-                      x="4"
-                      y="13"
-                      width="16"
-                      height="7"
-                      rx="2"
-                      stroke="#333"
-                      strokeWidth="2"
-                    />
-                  </svg>
-                  <span>导入</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setMenuOpen(false);
-                    nav.toSettings({ fromTab: activeTab });
-                  }}
-                  style={{
-                    width: "100%",
-                    background: "transparent",
-                    border: "none",
-                    boxShadow: "none",
-                    borderRadius: 0,
-                    padding: "8px 6px",
-                    cursor: "pointer",
-                    color: "#333",
-                    display: "flex",
-                    alignItems: "center",
-                    textAlign: "left",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = "#f7f7f7";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = "transparent";
-                  }}
-                >
-                  <svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    xmlns="http://www.w3.org/2000/svg"
-                    aria-hidden
-                    style={{ marginRight: "8px" }}
+                    <svg
+                      style={{ marginRight: "8px" }}
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      xmlns="http://www.w3.org/2000/svg"
+                      aria-hidden
+                    >
+                      <path
+                        d="M12 3v8"
+                        stroke="#333"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                      />
+                      <path
+                        d="M9.5 8.5L12 11l2.5-2.5"
+                        stroke="#333"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                      <rect
+                        x="4"
+                        y="13"
+                        width="16"
+                        height="7"
+                        rx="2"
+                        stroke="#333"
+                        strokeWidth="2"
+                      />
+                    </svg>
+                    <span>导入</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      nav.toSettings({ fromTab: activeTab });
+                    }}
+                    style={{
+                      width: "100%",
+                      background: "transparent",
+                      border: "none",
+                      boxShadow: "none",
+                      borderRadius: 0,
+                      padding: "8px 6px",
+                      cursor: "pointer",
+                      color: "#333",
+                      display: "flex",
+                      alignItems: "center",
+                      textAlign: "left",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = "#f7f7f7";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = "transparent";
+                    }}
                   >
-                    <circle
-                      cx="12"
-                      cy="12"
-                      r="9"
-                      stroke="#333"
-                      strokeWidth="2"
-                    />
-                    <circle
-                      cx="12"
-                      cy="12"
-                      r="3"
-                      stroke="#333"
-                      strokeWidth="2"
-                    />
-                    <path
-                      d="M12 4.5v2.3"
-                      stroke="#333"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                    />
-                    <path
-                      d="M12 17.2v2.3"
-                      stroke="#333"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                    />
-                    <path
-                      d="M4.5 12h2.3"
-                      stroke="#333"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                    />
-                    <path
-                      d="M17.2 12h2.3"
-                      stroke="#333"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                    />
-                    <path
-                      d="M6.8 6.8l1.6 1.6"
-                      stroke="#333"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                    />
-                    <path
-                      d="M15.6 15.6l1.6 1.6"
-                      stroke="#333"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                    />
-                    <path
-                      d="M6.8 17.2l1.6-1.6"
-                      stroke="#333"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                    />
-                    <path
-                      d="M15.6 8.4l1.6-1.6"
-                      stroke="#333"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                  <span>设置</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setMenuOpen(false);
-                    alert("GoRead - 轻量 PDF 阅读器");
-                  }}
-                  style={{
-                    width: "100%",
-                    background: "transparent",
-                    border: "none",
-                    boxShadow: "none",
-                    borderRadius: 0,
-                    padding: "8px 6px",
-                    cursor: "pointer",
-                    color: "#333",
-                    display: "flex",
-                    alignItems: "center",
-                    textAlign: "left",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = "#f7f7f7";
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = "transparent";
-                  }}
-                >
-                  <svg
-                    width="20"
-                    height="20"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    xmlns="http://www.w3.org/2000/svg"
-                    aria-hidden
-                    style={{ marginRight: "8px" }}
+                    <svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      xmlns="http://www.w3.org/2000/svg"
+                      aria-hidden
+                      style={{ marginRight: "8px" }}
+                    >
+                      <circle
+                        cx="12"
+                        cy="12"
+                        r="9"
+                        stroke="#333"
+                        strokeWidth="2"
+                      />
+                      <circle
+                        cx="12"
+                        cy="12"
+                        r="3"
+                        stroke="#333"
+                        strokeWidth="2"
+                      />
+                      <path
+                        d="M12 4.5v2.3"
+                        stroke="#333"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                      />
+                      <path
+                        d="M12 17.2v2.3"
+                        stroke="#333"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                    <span>设置</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      alert("GoRead - 轻量 PDF 阅读器");
+                    }}
+                    style={{
+                      width: "100%",
+                      background: "transparent",
+                      border: "none",
+                      boxShadow: "none",
+                      borderRadius: 0,
+                      padding: "8px 6px",
+                      cursor: "pointer",
+                      color: "#333",
+                      display: "flex",
+                      alignItems: "center",
+                      textAlign: "left",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = "#f7f7f7";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = "transparent";
+                    }}
                   >
-                    <circle
-                      cx="12"
-                      cy="12"
-                      r="9"
-                      stroke="#333"
-                      strokeWidth="2"
-                    />
-                    <path
-                      d="M12 9v6"
-                      stroke="#333"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                    />
-                    <circle cx="12" cy="6.5" r="1.5" fill="#333" />
-                  </svg>
-                  <span>关于</span>
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
+                    <svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      xmlns="http://www.w3.org/2000/svg"
+                      aria-hidden
+                      style={{ marginRight: "8px" }}
+                    >
+                      <circle
+                        cx="12"
+                        cy="12"
+                        r="9"
+                        stroke="#333"
+                        strokeWidth="2"
+                      />
+                      <path
+                        d="M12 9v6"
+                        stroke="#333"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                      />
+                      <circle cx="12" cy="6.5" r="1.5" fill="#333" />
+                    </svg>
+                    <span>关于</span>
+                  </button>
+                </div>
+              )}
+            </>
+          }
+        />
       )}
 
       <div
