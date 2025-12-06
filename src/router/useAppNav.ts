@@ -10,14 +10,16 @@ export const useAppNav = () => {
     goBack: () => navigate(-1),
     
     // 业务跳转
-    toBookshelf: (tab: 'recent' | 'all' = 'recent', options?: { replace?: boolean }) => {
+    toBookshelf: (tab: 'recent' | 'all' = 'recent', options?: { replace?: boolean, state?: any }) => {
       // 策略：不论从何处进入书架（最近/全部），都清空历史栈（回退到起点）
       // 这样用户在书架页面按返回键时，会直接退出应用，而不是回退到之前的页面
       const stackDepth = window.history.length;
       const isAtRoot = location.pathname === '/';
 
       // 如果已经在根路径，直接替换当前 entry (Tab 切换)
+      // 或者是为了进入选择模式（Push State），此时 options.replace 可能为 false
       if (isAtRoot) {
+         // 默认 replace: true，但允许 options.replace 覆盖
          navigate(`/?tab=${tab}`, { replace: true, ...options });
          return;
       }

@@ -146,8 +146,17 @@ export const Bookshelf: React.FC = () => {
   const [groupDetailSelectionActive, setGroupDetailSelectionActive] = useState(false);
   const [groupDetailSelectedCount, setGroupDetailSelectedCount] = useState(0);
 
-  // 选择模式状态
-  const [selectionMode, setSelectionMode] = useState(false);
+  // 选择模式状态：由路由 state 驱动
+  const selectionMode = !!nav.location.state?.selectionMode;
+
+  // 监听 selectionMode 变化以清理状态
+  useEffect(() => {
+    if (!selectionMode) {
+      setSelectedBookIds(new Set());
+      setSelectedGroupIds(new Set());
+      setConfirmOpen(false);
+    }
+  }, [selectionMode]);
   const [selectedBookIds, setSelectedBookIds] = useState<Set<number>>(
     new Set()
   );
@@ -550,21 +559,24 @@ export const Bookshelf: React.FC = () => {
 
   // 长按进入选择模式（书籍）
   const onBookLongPress = (id: number) => {
-    if (!selectionMode) setSelectionMode(true);
+    if (!selectionMode) {
+      nav.toBookshelf(activeTab, { state: { selectionMode: true }, replace: false });
+    }
     setSelectedBookIds((prev) => new Set(prev).add(id));
   };
 
   // 长按进入选择模式（分组）
   const onGroupLongPress = (id: number) => {
-    if (!selectionMode) setSelectionMode(true);
+    if (!selectionMode) {
+      nav.toBookshelf(activeTab, { state: { selectionMode: true }, replace: false });
+    }
     setSelectedGroupIds((prev) => new Set(prev).add(id));
   };
 
   const exitSelection = () => {
-    setSelectionMode(false);
-    setSelectedBookIds(new Set());
-    setSelectedGroupIds(new Set());
-    setConfirmOpen(false);
+    if (selectionMode) {
+      nav.goBack();
+    }
   };
 
   const selectAllCurrent = () => {
