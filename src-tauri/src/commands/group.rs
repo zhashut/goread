@@ -35,6 +35,33 @@ pub async fn get_all_groups(db: DbState<'_>) -> Result<Vec<Group>, Error> {
 }
 
 #[tauri::command]
+pub async fn update_group(group_id: i64, name: String, db: DbState<'_>) -> Result<(), Error> {
+    if name.trim().is_empty() {
+        return Err(Error::from("分组名称不能为空".to_string()));
+    }
+
+    let pool = db.lock().await;
+
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM groups WHERE name = ? AND id != ?")
+        .bind(&name)
+        .bind(group_id)
+        .fetch_one(&*pool)
+        .await?;
+
+    if count > 0 {
+        return Err(Error::from("分组名称已存在".to_string()));
+    }
+
+    sqlx::query("UPDATE groups SET name = ? WHERE id = ?")
+        .bind(&name)
+        .bind(group_id)
+        .execute(&*pool)
+        .await?;
+
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn delete_group(group_id: i64, delete_local: bool, db: DbState<'_>) -> Result<(), Error> {
     let pool = db.lock().await;
 

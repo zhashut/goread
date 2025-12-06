@@ -9,7 +9,7 @@ use commands::{
     init_database, add_book, get_all_books, get_recent_books,
     update_book_progress, mark_book_opened, clear_recent_read_record, delete_book, update_books_last_read_time,
     // group commands
-    add_group, get_all_groups, delete_group, get_books_by_group,
+    add_group, get_all_groups, delete_group, get_books_by_group, update_group,
     move_book_to_group, reorder_group_books,
     // bookmark commands
     add_bookmark, get_bookmarks, delete_bookmark,
@@ -84,7 +84,9 @@ pub fn run() {
                     #[cfg(target_os = "ios")] let sub = "pdfium/ios";
                     let full = res_dir.join(sub);
                     let p = full.to_string_lossy().replace('\\', "/");
-                    std::env::set_var("PDFIUM_LIB_DIR", p);
+                    unsafe {
+                        std::env::set_var("PDFIUM_LIB_DIR", p);
+                    }
                 }
             });
             
@@ -102,10 +104,12 @@ pub fn run() {
             update_books_last_read_time,
             add_group,
             get_all_groups,
+            update_group,
             delete_group,
             get_books_by_group,
             move_book_to_group,
             reorder_group_books,
+            update_group,
             add_bookmark,
             get_bookmarks,
             delete_bookmark,

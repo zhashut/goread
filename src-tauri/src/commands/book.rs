@@ -7,12 +7,14 @@ use tokio::sync::Mutex;
 #[derive(Debug)]
 pub enum Error {
     Database(tauri_plugin_sql::Error),
+    Message(String),
 }
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Error::Database(e) => write!(f, "Database error: {}", e),
+            Error::Message(e) => write!(f, "{}", e),
         }
     }
 }
@@ -22,6 +24,12 @@ impl std::error::Error for Error {}
 impl From<tauri_plugin_sql::Error> for Error {
     fn from(error: tauri_plugin_sql::Error) -> Self {
         Error::Database(error)
+    }
+}
+
+impl From<String> for Error {
+    fn from(error: String) -> Self {
+        Error::Message(error)
     }
 }
 

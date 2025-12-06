@@ -78,6 +78,7 @@ export interface IGroupService {
   getBooksByGroup(groupId: number): Promise<IBook[]>;
   moveBookToGroup(bookId: number, groupId?: number): Promise<void>;
   reorderGroupBooks(groupId: number, orderedIds: number[]): Promise<void>;
+  updateGroup(groupId: number, name: string): Promise<void>;
   deleteGroup(groupId: number, deleteLocal?: boolean): Promise<void>;
 }
 
@@ -182,6 +183,11 @@ export class TauriGroupService implements IGroupService {
   async reorderGroupBooks(groupId: number, orderedIds: number[]): Promise<void> {
     const invoke = await getInvoke();
     await invoke('reorder_group_books', { groupId, orderedIds });
+  }
+
+  async updateGroup(groupId: number, name: string): Promise<void> {
+    const invoke = await getInvoke();
+    await invoke('update_group', { groupId, name });
   }
 
   async deleteGroup(groupId: number, deleteLocal: boolean = false): Promise<void> {

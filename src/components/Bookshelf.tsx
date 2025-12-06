@@ -25,6 +25,7 @@ import { IBook, IGroup } from "../types";
   TOP_BAR_ICON_SIZE,
 } from "../constants/ui";
 import { BookshelfHeader } from "./BookshelfHeader";
+import { Toast } from "./Toast";
 import {
   SWIPE_EDGE_THRESHOLD,
   SWIPE_MIN_DISTANCE,
@@ -111,6 +112,58 @@ export const Bookshelf: React.FC = () => {
   const [groupOverlayOpen, setGroupOverlayOpen] = useState(false);
   const [overlayGroupId, setOverlayGroupId] = useState<number | null>(null);
   
+  // 分组重命名状态
+  const [isEditingGroupName, setIsEditingGroupName] = useState(false);
+  const [editingGroupName, setEditingGroupName] = useState("");
+  const [toastMsg, setToastMsg] = useState("");
+  const editInputRef = useRef<HTMLInputElement>(null);
+
+  const handleSaveGroupName = async () => {
+    const name = editingGroupName.trim();
+    if (!name) {
+      // 如果名称为空，视为取消修改，恢复原名并退出编辑态
+      const currentGroup = groups.find(g => g.id === overlayGroupId);
+      if (currentGroup) {
+        setEditingGroupName(currentGroup.name);
+      }
+      justFinishedEditingRef.current = true;
+      setTimeout(() => { justFinishedEditingRef.current = false; }, 300);
+      setIsEditingGroupName(false);
+      return;
+    }
+    
+    const currentGroup = groups.find(g => g.id === overlayGroupId);
+    if (currentGroup && name === currentGroup.name) {
+      justFinishedEditingRef.current = true;
+      setTimeout(() => { justFinishedEditingRef.current = false; }, 300);
+      setIsEditingGroupName(false);
+      return;
+    }
+
+    // 前端查重（排除当前分组）
+    const isDuplicate = groups.some(g => g.name === name && g.id !== overlayGroupId);
+    if (isDuplicate) {
+      setToastMsg("分组名称已存在");
+      setTimeout(() => editInputRef.current?.focus(), 0);
+      return;
+    }
+
+    try {
+      if (overlayGroupId) {
+        await groupService.updateGroup(overlayGroupId, name);
+        // 更新本地状态
+        setGroups(prev => prev.map(g => g.id === overlayGroupId ? { ...g, name } : g));
+        justFinishedEditingRef.current = true;
+        setTimeout(() => { justFinishedEditingRef.current = false; }, 300);
+        setIsEditingGroupName(false);
+      }
+    } catch (e: any) {
+      console.error("Update group name failed", e);
+      setToastMsg(typeof e === 'string' ? e : (e.message || "修改失败"));
+      setTimeout(() => editInputRef.current?.focus(), 0);
+    }
+  };
+
   // 与 URL 同步分组覆盖层状态
   useEffect(() => {
     // 检查是否有跨页面传递的 Tab 切换请求（例如从导入流程返回时清理了栈）
@@ -166,6 +219,7 @@ export const Bookshelf: React.FC = () => {
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   const isDraggingRef = useRef(false);
+  const justFinishedEditingRef = useRef(false);
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const lastGroupCloseTimeRef = useRef(0);
 
@@ -1786,6 +1840,10 @@ export const Bookshelf: React.FC = () => {
       {groupOverlayOpen && overlayGroupId !== null && (
         <div
           onClick={() => {
+            if (isEditingGroupName || justFinishedEditingRef.current) {
+              // 如果正在编辑或刚结束编辑，点击外部仅触发 blur 提交/退出编辑态，不关闭详情页
+              return;
+            }
             if (groupDetailSelectionActive) {
               const evt = new Event("goread:group-detail:exit-selection");
               window.dispatchEvent(evt);
@@ -1924,17 +1982,101 @@ export const Bookshelf: React.FC = () => {
             }}
           >
             {/* 标题在容器外居中 */}
-            <div
-              style={{
-                fontSize: "16px",
-                fontWeight: 500,
-                color: "#333",
-                textAlign: "center",
-                marginBottom: "12px",
-              }}
-            >
-              {groups.find((g) => g.id === overlayGroupId)?.name || "分组"}
-            </div>
+            {/* 标题区域：支持点击编辑 */}
+            {isEditingGroupName ? (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  marginBottom: "12px",
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <input
+                  ref={editInputRef}
+                  value={editingGroupName}
+                  onChange={(e) => setEditingGroupName(e.target.value)}
+                  onBlur={handleSaveGroupName}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.currentTarget.blur();
+                    }
+                  }}
+                  style={{
+                    fontSize: "16px",
+                    fontWeight: 500,
+                    color: "#333",
+                    textAlign: "center",
+                    border: "none",
+                    background: "transparent",
+                    outline: "none",
+                    boxShadow: "none",
+                    width: `${Math.max(2, editingGroupName.length * 1.3)}em`,
+                    padding: "0",
+                    fontFamily: "inherit",
+                    caretColor: "#d23c3c",
+                  }}
+                  autoFocus
+                />
+                {editingGroupName && (
+                  <button
+                    onMouseDown={(e) => {
+                      // 使用 onMouseDown 阻止默认行为，防止输入框失去焦点触发 blur
+                      e.preventDefault();
+                      setEditingGroupName("");
+                      // 保持焦点
+                      setTimeout(() => editInputRef.current?.focus(), 0);
+                    }}
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      padding: "4px",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      boxShadow: "none",
+                      marginLeft: "4px",
+                    }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                      <circle cx="12" cy="12" r="10" fill="#888" />
+                      <path d="M8 8l8 8M16 8l-8 8" stroke="#fff" strokeWidth="2" strokeLinecap="round" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (groupDetailSelectionActive) return; // 选择模式下禁用编辑
+                  const g = groups.find((g) => g.id === overlayGroupId);
+                  if (g) {
+                    setEditingGroupName(g.name);
+                    setIsEditingGroupName(true);
+                  }
+                }}
+                style={{
+                  fontSize: "16px",
+                  fontWeight: 500,
+                  color: "#333",
+                  textAlign: "center",
+                  marginBottom: "12px",
+                  cursor: "text",
+                  borderBottom: "1px solid transparent",
+                  display: "inline-block",
+                  padding: "0 4px",
+                  maxWidth: "80%",
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis"
+                }}
+              >
+                {groups.find((g) => g.id === overlayGroupId)?.name || "分组"}
+              </div>
+            )}
             {/* 抽屉主体：宽度占满，高度85%，居中位置 */}
             <div
               onClick={(e) => e.stopPropagation()}
@@ -1975,6 +2117,7 @@ export const Bookshelf: React.FC = () => {
           setImportOpen(false);
         }}
       />
+      <Toast message={toastMsg} onClose={() => setToastMsg("")} />
       <ConfirmDeleteDrawer
         open={confirmOpen}
         context={activeTab === "recent" ? "recent" : "all-groups"}
