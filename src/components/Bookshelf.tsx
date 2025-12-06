@@ -73,8 +73,9 @@ const applySortOrder = <T extends { id: number }>(items: T[], orderKey: string):
         itemMap.delete(id);
       }
     });
-    itemMap.forEach((item) => sorted.push(item));
-    return sorted;
+    const remaining: T[] = [];
+    itemMap.forEach((item) => remaining.push(item));
+    return [...remaining, ...sorted];
   } catch {
     return items;
   }

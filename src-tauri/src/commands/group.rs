@@ -26,7 +26,7 @@ pub async fn get_all_groups(db: DbState<'_>) -> Result<Vec<Group>, Error> {
     let pool = db.lock().await;
 
     let groups = sqlx::query_as::<_, Group>(
-        "SELECT * FROM groups WHERE book_count > 0 ORDER BY name",
+        "SELECT * FROM groups WHERE book_count > 0 ORDER BY created_at desc",
     )
     .fetch_all(&*pool)
     .await?;
