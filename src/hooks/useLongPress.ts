@@ -1,4 +1,5 @@
 import { useRef, useEffect } from "react";
+import { DRAG_TOUCH_TOLERANCE_PX } from "../constants/interactions";
 
 export type LongPressOptions = {
   delay?: number; // ms, default 1000
@@ -13,6 +14,12 @@ export const useLongPress = (
   const delay = typeof opts.delay === "number" ? Math.max(200, opts.delay) : 1000;
   const timerRef = useRef<number | null>(null);
   const movedRef = useRef(false);
+  const startRef = useRef<{ x: number; y: number } | null>(null);
+  const callbackRef = useRef(onLongPress);
+
+  useEffect(() => {
+    callbackRef.current = onLongPress;
+  }, [onLongPress]);
 
   useEffect(() => {
     const el = targetRef.current;
@@ -25,21 +32,26 @@ export const useLongPress = (
       }
     };
 
-    const onPointerDown = (_e: PointerEvent) => {
+    const onPointerDown = (e: PointerEvent) => {
       movedRef.current = false;
+      startRef.current = { x: e.clientX, y: e.clientY };
       clearTimer();
       timerRef.current = window.setTimeout(() => {
         timerRef.current = null;
-        if (!movedRef.current) onLongPress();
+        if (!movedRef.current) callbackRef.current();
       }, delay);
     };
     const onPointerUp = () => clearTimer();
     const onPointerLeave = () => clearTimer();
     const onPointerCancel = () => clearTimer();
     const onPointerMove = (e: PointerEvent) => {
-      if (e.pointerType === "touch") {
-        // 简单阈值：移动即取消长按，避免误触
-        movedRef.current = true;
+      if (e.pointerType === "touch" && startRef.current) {
+        const dx = Math.abs(e.clientX - startRef.current.x);
+        const dy = Math.abs(e.clientY - startRef.current.y);
+        if (dx > DRAG_TOUCH_TOLERANCE_PX || dy > DRAG_TOUCH_TOLERANCE_PX) {
+          movedRef.current = true;
+          clearTimer();
+        }
       }
     };
 
@@ -57,5 +69,5 @@ export const useLongPress = (
       el.removeEventListener("pointercancel", onPointerCancel);
       el.removeEventListener("pointermove", onPointerMove);
     };
-  }, [targetRef, onLongPress, delay]);
+  }, [targetRef, delay]);
 };

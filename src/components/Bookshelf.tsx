@@ -26,36 +26,19 @@ import { IBook, IGroup } from "../types";
 } from "../constants/ui";
 import { BookshelfHeader } from "./BookshelfHeader";
 import { Toast } from "./Toast";
-import {
-  SWIPE_EDGE_THRESHOLD,
-  SWIPE_MIN_DISTANCE,
-  SWIPE_MIN_SLOPE,
-  TOUCH_COOLDOWN_MS,
-} from "../constants/interactions";
 import { bookService, groupService, getReaderSettings } from "../services";
 import { GroupDetail } from "./GroupDetail";
 import { BookCard } from "./BookCard";
 import GroupCoverGrid from "./GroupCoverGrid";
 import ImportProgressDrawer from "./ImportProgressDrawer";
 import ConfirmDeleteDrawer from "./ConfirmDeleteDrawer";
-import {
-  DndContext,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  DragEndEvent,
-} from "@dnd-kit/core";
-import {
-  arrayMove,
-  SortableContext,
-  sortableKeyboardCoordinates,
-  rectSortingStrategy,
-} from "@dnd-kit/sortable";
+import { DndContext, closestCenter, DragEndEvent } from "@dnd-kit/core";
+import { arrayMove, SortableContext, rectSortingStrategy } from "@dnd-kit/sortable";
 import { SortableItem } from "./SortableItem";
 import { SortableBookItem } from "./SortableBookItem";
 import { getSafeAreaInsets } from "../utils/layout";
+import { useDndSensors, useDragGuard, useTabSwipe, isTouchDevice } from "../utils/gesture";
+import { DRAG_TOUCH_TOLERANCE_PX, SELECTION_LONGPRESS_DELAY_MS } from "../constants/interactions";
 
 const applySortOrder = <T extends { id: number }>(items: T[], orderKey: string): T[] => {
   try {
@@ -189,8 +172,7 @@ export const Bookshelf: React.FC = () => {
       }
       setGroupOverlayOpen(false);
       setOverlayGroupId(null);
-      // 关闭分组详情时清除触摸状态，防止滑动返回时误触发切换栏目
-      touchStartRef.current = null;
+      
     }
   }, [activeTab, nav.activeGroupId]);
 
@@ -219,69 +201,28 @@ export const Bookshelf: React.FC = () => {
     activeTab === "recent" ? selectedBookIds.size : selectedGroupIds.size;
   const [confirmOpen, setConfirmOpen] = useState(false);
 
-  const isDraggingRef = useRef(false);
+  const { dragActive, onDragStart, onDragEnd: onDragEndGuard, onDragCancel } = useDragGuard();
   const justFinishedEditingRef = useRef(false);
-  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const lastGroupCloseTimeRef = useRef(0);
 
-  const handleTouchStart = (e: React.TouchEvent) => {
-    if (groupOverlayOpen || selectionMode || menuOpen || importOpen) return;
-    // 防止分组关闭瞬间的误触（例如侧滑返回时手指还在屏幕上）
-    if (Date.now() - lastGroupCloseTimeRef.current < TOUCH_COOLDOWN_MS) return;
-    
-    touchStartRef.current = {
-      x: e.touches[0].clientX,
-      y: e.touches[0].clientY,
-    };
-  };
-
-  const handleTouchEnd = (e: React.TouchEvent) => {
-    if (!touchStartRef.current || isDraggingRef.current || selectionMode || groupOverlayOpen || menuOpen || importOpen) return;
-
-    // 忽略屏幕边缘的滑动（防止与系统返回手势冲突）
-    const startX = touchStartRef.current.x;
-    if (startX < SWIPE_EDGE_THRESHOLD || startX > window.innerWidth - SWIPE_EDGE_THRESHOLD) {
-      touchStartRef.current = null;
-      return;
-    }
-    
-    const touchEnd = {
-      x: e.changedTouches[0].clientX,
-      y: e.changedTouches[0].clientY,
-    };
-
-    const diffX = touchStartRef.current.x - touchEnd.x;
-    const diffY = touchStartRef.current.y - touchEnd.y;
-
-    touchStartRef.current = null;
-
-    if (Math.abs(diffX) > SWIPE_MIN_DISTANCE && Math.abs(diffX) > Math.abs(diffY) * SWIPE_MIN_SLOPE) {
-      if (diffX > 0) {
-        // 左滑 -> 前往 "all"
-        if (activeTab === "recent") {
-          nav.toBookshelf("all", { replace: true });
-          setAnimateUnderline(true);
-        }
-      } else {
-        // 右滑 -> 前往 "recent"
-        if (activeTab === "all") {
-          nav.toBookshelf("recent", { replace: true });
-          setAnimateUnderline(true);
-        }
+  const { onTouchStart: swipeTouchStart, onTouchEnd: swipeTouchEnd } = useTabSwipe({
+    onLeft: () => {
+      if (activeTab === "recent") {
+        nav.toBookshelf("all", { replace: true });
+        setAnimateUnderline(true);
       }
-    }
-  };
+    },
+    onRight: () => {
+      if (activeTab === "all") {
+        nav.toBookshelf("recent", { replace: true });
+        setAnimateUnderline(true);
+      }
+    },
+    isBlocked: () => dragActive || selectionMode || groupOverlayOpen || menuOpen || importOpen,
+    getCooldownTs: () => lastGroupCloseTimeRef.current,
+  });
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 8,
-      },
-    }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    })
-  );
+  const sensors = useDndSensors(isTouchDevice());
 
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
@@ -878,13 +819,13 @@ export const Bookshelf: React.FC = () => {
                   border: "none",
                   boxShadow: "none",
                   borderRadius: 0,
-                  cursor: selectedCount === 0 ? "not-allowed" : "pointer",
-                  opacity: selectedCount === 0 ? 0.4 : 1,
+                  cursor: selectedCount === 0 || dragActive ? "not-allowed" : "pointer",
+                  opacity: selectedCount === 0 || dragActive ? 0.4 : 1,
                   padding: 0,
                 }}
-                disabled={selectedCount === 0}
+                disabled={selectedCount === 0 || dragActive}
                 onClick={() => {
-                  if (selectedCount === 0) return;
+                  if (selectedCount === 0 || dragActive) return;
                   setConfirmOpen(true);
                 }}
               >
@@ -896,13 +837,13 @@ export const Bookshelf: React.FC = () => {
                 >
                   <path
                     d="M6 7h12"
-                    stroke={selectedCount === 0 ? "#bbb" : "#333"}
+                    stroke={selectedCount === 0 || dragActive ? "#bbb" : "#333"}
                     strokeWidth="2"
                     strokeLinecap="round"
                   />
                   <path
                     d="M9 7V5h6v2"
-                    stroke={selectedCount === 0 ? "#bbb" : "#333"}
+                    stroke={selectedCount === 0 || dragActive ? "#bbb" : "#333"}
                     strokeWidth="2"
                     strokeLinecap="round"
                   />
@@ -912,7 +853,7 @@ export const Bookshelf: React.FC = () => {
                     width="12"
                     height="14"
                     rx="2"
-                    stroke={selectedCount === 0 ? "#bbb" : "#333"}
+                    stroke={selectedCount === 0 || dragActive ? "#bbb" : "#333"}
                     strokeWidth="2"
                   />
                 </svg>
@@ -927,18 +868,23 @@ export const Bookshelf: React.FC = () => {
                       : "全选"
                     : selectedGroupIds.size === (filteredGroups?.length || 0) &&
                       (filteredGroups?.length || 0) > 0
-                    ? "取消全选"
-                    : "全选"
+                  ? "取消全选"
+                  : "全选"
                 }
                 style={{
                   background: "none",
                   border: "none",
                   boxShadow: "none",
                   borderRadius: 0,
-                  cursor: "pointer",
+                  cursor: dragActive ? "not-allowed" : "pointer",
+                  opacity: dragActive ? 0.4 : 1,
                   padding: 0,
                 }}
-                onClick={selectAllCurrent}
+                disabled={dragActive}
+                onClick={() => {
+                  if (dragActive) return;
+                  selectAllCurrent();
+                }}
               >
                 <svg
                   width={TOP_BAR_ICON_SIZE}
@@ -1348,23 +1294,19 @@ export const Bookshelf: React.FC = () => {
 
       <div
         className="no-scrollbar"
-        style={{ flex: 1, overflowY: "auto", paddingBottom: `calc(20px + ${getSafeAreaInsets().bottom})` }}
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
+        style={{ flex: 1, overflowY: "auto", paddingBottom: `calc(75px + ${getSafeAreaInsets().bottom})` }}
+        onTouchStart={swipeTouchStart}
+        onTouchEnd={swipeTouchEnd}
       >
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
-          onDragStart={() => {
-            isDraggingRef.current = true;
-          }}
+          onDragStart={onDragStart}
           onDragEnd={(e) => {
-            // 延迟重置拖拽状态，避免在触摸结束时触发滑动手势
-            setTimeout(() => {
-              isDraggingRef.current = false;
-            }, 100);
+            onDragEndGuard();
             handleDragEnd(e);
           }}
+          onDragCancel={onDragCancel}
         >
         {/* 选择模式顶部栏已合并到上方最近/全部标签区域 */}
         {activeTab === "recent" ? (
@@ -1419,7 +1361,10 @@ export const Bookshelf: React.FC = () => {
                         return next;
                       });
                     }}
-                    onDelete={() => handleDeleteBook(book)}
+                    onDelete={() => {
+                      if (dragActive) return;
+                      handleDeleteBook(book);
+                    }}
                   />
                 ))}
               </div>
@@ -1451,7 +1396,10 @@ export const Bookshelf: React.FC = () => {
                       return next;
                     });
                   }}
-                  onDelete={() => handleDeleteBook(book)}
+                  onDelete={() => {
+                    if (dragActive) return;
+                    handleDeleteBook(book);
+                  }}
                 />
               ))}
             </div>
@@ -1494,6 +1442,7 @@ export const Bookshelf: React.FC = () => {
                   <SortableItem
                     key={g.id}
                     id={g.id}
+                    disabled={selectionMode}
                     style={{
                       width: "100%",
                       margin: 0,
@@ -1504,6 +1453,7 @@ export const Bookshelf: React.FC = () => {
                   >
                     <div
                       onClick={() => {
+                        if (dragActive) return;
                         if (selectionMode) {
                           setSelectedGroupIds((prev) => {
                             const next = new Set(prev);
@@ -1518,9 +1468,11 @@ export const Bookshelf: React.FC = () => {
                       onPointerDown={(e) => {
                         if (selectionMode) return;
                         const target = e.currentTarget;
+                        const sx = e.clientX;
+                        const sy = e.clientY;
                         const timer = window.setTimeout(() => {
                           onGroupLongPress(g.id);
-                        }, 500);
+                        }, SELECTION_LONGPRESS_DELAY_MS);
                         const clear = () => window.clearTimeout(timer);
                         const up = () => {
                           clear();
@@ -1533,18 +1485,22 @@ export const Bookshelf: React.FC = () => {
                             "pointercancel",
                             cancel as any
                           );
+                          target.removeEventListener("pointermove", move as any);
                         };
                         const leave = () => up();
                         const cancel = () => up();
-                        target.addEventListener("pointerup", up as any, {
-                          once: true,
-                        });
-                        target.addEventListener("pointerleave", leave as any, {
-                          once: true,
-                        });
-                        target.addEventListener("pointercancel", cancel as any, {
-                          once: true,
-                        });
+                        const move = (ev: PointerEvent) => {
+                          if (
+                            Math.abs(ev.clientX - sx) > DRAG_TOUCH_TOLERANCE_PX ||
+                            Math.abs(ev.clientY - sy) > DRAG_TOUCH_TOLERANCE_PX
+                          ) {
+                            up();
+                          }
+                        };
+                        target.addEventListener("pointerup", up as any, { once: true });
+                        target.addEventListener("pointerleave", leave as any, { once: true });
+                        target.addEventListener("pointercancel", cancel as any, { once: true });
+                        target.addEventListener("pointermove", move as any);
                       }}
                     >
                       <div style={{ position: "relative" }}>
@@ -1556,6 +1512,7 @@ export const Bookshelf: React.FC = () => {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
+                              if (dragActive) return;
                               setSelectedGroupIds((prev) => {
                                 const next = new Set(prev);
                                 if (next.has(g.id)) next.delete(g.id);
@@ -1590,8 +1547,10 @@ export const Bookshelf: React.FC = () => {
                               display: "flex",
                               alignItems: "center",
                               justifyContent: "center",
-                              cursor: "pointer",
+                              cursor: dragActive ? "not-allowed" : "pointer",
+                              opacity: dragActive ? 0.6 : 1,
                             }}
+                            disabled={dragActive}
                           >
                             {selectedGroupIds.has(g.id) ? (
                               <svg
@@ -1682,6 +1641,7 @@ export const Bookshelf: React.FC = () => {
                     position: "relative",
                   }}
                   onClick={() => {
+                    if (dragActive) return;
                     if (selectionMode) {
                       setSelectedGroupIds((prev) => {
                         const next = new Set(prev);
@@ -1696,30 +1656,33 @@ export const Bookshelf: React.FC = () => {
                   onPointerDown={(e) => {
                     if (selectionMode) return;
                     const target = e.currentTarget;
+                    const sx = e.clientX;
+                    const sy = e.clientY;
                     const timer = window.setTimeout(() => {
                       onGroupLongPress(g.id);
-                    }, 500);
+                    }, SELECTION_LONGPRESS_DELAY_MS);
                     const clear = () => window.clearTimeout(timer);
                     const up = () => {
                       clear();
                       target.removeEventListener("pointerup", up as any);
                       target.removeEventListener("pointerleave", leave as any);
-                      target.removeEventListener(
-                        "pointercancel",
-                        cancel as any
-                      );
+                      target.removeEventListener("pointercancel", cancel as any);
+                      target.removeEventListener("pointermove", move as any);
                     };
                     const leave = () => up();
                     const cancel = () => up();
-                    target.addEventListener("pointerup", up as any, {
-                      once: true,
-                    });
-                    target.addEventListener("pointerleave", leave as any, {
-                      once: true,
-                    });
-                    target.addEventListener("pointercancel", cancel as any, {
-                      once: true,
-                    });
+                    const move = (ev: PointerEvent) => {
+                      if (
+                        Math.abs(ev.clientX - sx) > DRAG_TOUCH_TOLERANCE_PX ||
+                        Math.abs(ev.clientY - sy) > DRAG_TOUCH_TOLERANCE_PX
+                      ) {
+                        up();
+                      }
+                    };
+                    target.addEventListener("pointerup", up as any, { once: true });
+                    target.addEventListener("pointerleave", leave as any, { once: true });
+                    target.addEventListener("pointercancel", cancel as any, { once: true });
+                    target.addEventListener("pointermove", move as any);
                   }}
                 >
                   <div style={{ position: "relative" }}>
@@ -1731,6 +1694,7 @@ export const Bookshelf: React.FC = () => {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
+                          if (dragActive) return;
                           setSelectedGroupIds((prev) => {
                             const next = new Set(prev);
                             if (next.has(g.id)) next.delete(g.id);
@@ -1738,7 +1702,9 @@ export const Bookshelf: React.FC = () => {
                             return next;
                           });
                         }}
-                        title={selectedGroupIds.has(g.id) ? "取消选择" : "选择"}
+                        title={
+                          selectedGroupIds.has(g.id) ? "取消选择" : "选择"
+                        }
                         style={{
                           position: "absolute",
                           top:
@@ -1763,8 +1729,10 @@ export const Bookshelf: React.FC = () => {
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",
-                          cursor: "pointer",
+                          cursor: dragActive ? "not-allowed" : "pointer",
+                          opacity: dragActive ? 0.6 : 1,
                         }}
+                        disabled={dragActive}
                       >
                         {selectedGroupIds.has(g.id) ? (
                           <svg
@@ -1921,22 +1889,23 @@ export const Bookshelf: React.FC = () => {
                     background: "none",
                     border: "none",
                     boxShadow: "none",
-                    borderRadius: 0,
-                    cursor: groupDetailSelectedCount === 0 ? "not-allowed" : "pointer",
-                    opacity: groupDetailSelectedCount === 0 ? 0.4 : 1,
+                     borderRadius: 0,
+                    cursor: groupDetailSelectedCount === 0 || dragActive ? "not-allowed" : "pointer",
+                    opacity: groupDetailSelectedCount === 0 || dragActive ? 0.4 : 1,
                     padding: 0,
                     marginRight: 16,
                   }}
-                  disabled={groupDetailSelectedCount === 0}
+                  disabled={groupDetailSelectedCount === 0 || dragActive}
                   onClick={() => {
+                    if (groupDetailSelectedCount === 0 || dragActive) return;
                     const evt = new Event("goread:group-detail:open-confirm");
                     window.dispatchEvent(evt);
                   }}
                 >
                   <svg width="21" height="21" viewBox="0 0 24 24" fill="none">
-                    <path d="M6 7h12" stroke={groupDetailSelectedCount === 0 ? "#bbb" : "#333"} strokeWidth="2" strokeLinecap="round" />
-                    <path d="M9 7V5h6v2" stroke={groupDetailSelectedCount === 0 ? "#bbb" : "#333"} strokeWidth="2" strokeLinecap="round" />
-                    <rect x="6" y="7" width="12" height="14" rx="2" stroke={groupDetailSelectedCount === 0 ? "#bbb" : "#333"} strokeWidth="2" />
+                    <path d="M6 7h12" stroke={groupDetailSelectedCount === 0 || dragActive ? "#bbb" : "#333"} strokeWidth="2" strokeLinecap="round" />
+                    <path d="M9 7V5h6v2" stroke={groupDetailSelectedCount === 0 || dragActive ? "#bbb" : "#333"} strokeWidth="2" strokeLinecap="round" />
+                    <rect x="6" y="7" width="12" height="14" rx="2" stroke={groupDetailSelectedCount === 0 || dragActive ? "#bbb" : "#333"} strokeWidth="2" />
                   </svg>
                 </button>
                 <button

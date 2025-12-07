@@ -1,5 +1,6 @@
 import React, { useRef } from "react";
 import { useLongPress } from "../hooks/useLongPress";
+import { SELECTION_LONGPRESS_DELAY_MS } from "../constants/interactions";
 import { IBook } from "../types";
 import {
   CARD_WIDTH_COMPACT,
@@ -32,6 +33,9 @@ export interface CommonBookCardProps {
   onToggleSelect?: () => void;
   // 长按手势
   onLongPress?: () => void;
+  outerRef?: React.Ref<HTMLDivElement>;
+  outerProps?: React.HTMLAttributes<HTMLDivElement>;
+  styleOverride?: React.CSSProperties;
 }
 
 export const BookCard: React.FC<CommonBookCardProps> = ({
@@ -47,11 +51,14 @@ export const BookCard: React.FC<CommonBookCardProps> = ({
   selected = false,
   onToggleSelect,
   onLongPress,
+  outerRef,
+  outerProps,
+  styleOverride,
 }) => {
   const cardRef = useRef<HTMLDivElement | null>(null);
   // 动态加载长按 hook，避免循环依赖
   if (onLongPress) {
-    useLongPress(cardRef as any, () => onLongPress(), { delay: 500 });
+    useLongPress(cardRef as any, () => onLongPress(), { delay: SELECTION_LONGPRESS_DELAY_MS });
   }
   // 如果没有阅读时间，视为未读（避免刚导入显示0.1%）
   const isUnread = !book.last_read_time;
@@ -90,8 +97,17 @@ export const BookCard: React.FC<CommonBookCardProps> = ({
         cursor: "pointer",
         backgroundColor: "transparent",
         position: "relative",
+        ...(styleOverride || {}),
       }}
-      ref={cardRef}
+      ref={(node) => {
+        cardRef.current = node;
+        if (typeof outerRef === "function") {
+          outerRef(node as any);
+        } else if (outerRef && (outerRef as any)) {
+          try { (outerRef as any).current = node; } catch {}
+        }
+      }}
+      {...(outerProps || {})}
     >
       <div
         style={{

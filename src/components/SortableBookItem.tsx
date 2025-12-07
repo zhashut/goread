@@ -24,7 +24,7 @@ export const SortableBookItem: React.FC<SortableBookItemProps> = (props) => {
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: props.id });
+  } = useSortable({ id: props.id, disabled: !!props.selectable });
 
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
@@ -32,13 +32,16 @@ export const SortableBookItem: React.FC<SortableBookItemProps> = (props) => {
     opacity: isDragging ? 0.5 : 1,
     zIndex: isDragging ? 999 : "auto",
     position: "relative",
-    touchAction: "none", // 防止触摸滚动干扰拖拽
+    touchAction: "manipulation",
     width: "100%",
   };
 
   return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      <BookCard {...props} />
-    </div>
+    <BookCard
+      {...props}
+      outerRef={setNodeRef as any}
+      outerProps={{ ...(attributes as any), ...(listeners as any) }}
+      styleOverride={style}
+    />
   );
 };

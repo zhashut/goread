@@ -1,26 +1,14 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAppNav } from "../router/useAppNav";
-import {
-  DndContext,
-  closestCenter,
-  KeyboardSensor,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  DragEndEvent,
-} from "@dnd-kit/core";
-import {
-  arrayMove,
-  SortableContext,
-  sortableKeyboardCoordinates,
-  rectSortingStrategy,
-} from "@dnd-kit/sortable";
+import { DndContext, closestCenter, DragEndEvent } from "@dnd-kit/core";
+import { arrayMove, SortableContext, rectSortingStrategy } from "@dnd-kit/sortable";
 import { IBook } from "../types";
 import { CARD_MIN_WIDTH, GRID_GAP_GROUP_DETAIL } from "../constants/ui";
 import { groupService, bookService } from "../services";
 import { SortableBookItem } from "./SortableBookItem";
 import ConfirmDeleteDrawer from "./ConfirmDeleteDrawer";
+import { useDndSensors, useDragGuard, isTouchDevice } from "../utils/gesture";
 
 // 使用 dnd-kit 实现拖拽排序
 
@@ -43,16 +31,8 @@ export const GroupDetail: React.FC<{
   const booksRef = useRef<IBook[]>([]);
   const selectedRef = useRef<Set<number>>(new Set());
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 8,
-      },
-    }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    })
-  );
+  const sensors = useDndSensors(isTouchDevice());
+  const { dragActive, onDragStart, onDragEnd: onDragEndGuard, onDragCancel } = useDragGuard();
 
   useEffect(() => {
     const run = async () => {
@@ -281,7 +261,12 @@ export const GroupDetail: React.FC<{
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
-            onDragEnd={handleDragEnd}
+            onDragStart={onDragStart}
+            onDragEnd={(e) => {
+              onDragEndGuard();
+              handleDragEnd(e);
+            }}
+            onDragCancel={onDragCancel}
           >
             <SortableContext
               items={books.map((b) => b.id)}
@@ -319,7 +304,10 @@ export const GroupDetail: React.FC<{
                   selectable={selectionMode}
                   selected={selectedBookIds.has(b.id)}
                   onToggleSelect={() => toggleSelectBook(b.id)}
-                  onDelete={() => handleDeleteInGroup(b)}
+                  onDelete={() => {
+                    if (dragActive) return;
+                    handleDeleteInGroup(b);
+                  }}
                 />
               ))}
             </SortableContext>

@@ -7,6 +7,7 @@ interface SortableItemProps {
   children: React.ReactNode;
   style?: React.CSSProperties;
   className?: string;
+  disabled?: boolean;
 }
 
 export const SortableItem: React.FC<SortableItemProps> = ({
@@ -14,6 +15,7 @@ export const SortableItem: React.FC<SortableItemProps> = ({
   children,
   style,
   className,
+  disabled,
 }) => {
   const {
     attributes,
@@ -22,7 +24,7 @@ export const SortableItem: React.FC<SortableItemProps> = ({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id });
+  } = useSortable({ id, disabled: !!disabled });
 
   const combinedStyle: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
@@ -30,7 +32,7 @@ export const SortableItem: React.FC<SortableItemProps> = ({
     opacity: isDragging ? 0.5 : 1,
     zIndex: isDragging ? 999 : "auto",
     position: "relative",
-    touchAction: "none",
+    touchAction: "manipulation",
     ...style,
   };
 
