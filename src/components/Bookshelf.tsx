@@ -198,7 +198,8 @@ export const Bookshelf: React.FC = () => {
   const [groupDetailSelectedCount, setGroupDetailSelectedCount] = useState(0);
 
   // 选择模式状态：由路由 state 驱动
-  const selectionMode = !!nav.location.state?.selectionMode;
+  // 如果当前在分组详情中（activeGroupId 存在），则主列表不应处于选择模式（避免冲突）
+  const selectionMode = !!nav.location.state?.selectionMode && !nav.activeGroupId;
 
   // 监听 selectionMode 变化以清理状态
   useEffect(() => {
@@ -1885,8 +1886,8 @@ export const Bookshelf: React.FC = () => {
             >
               <button
                 onClick={() => {
-                  const evt = new Event("goread:group-detail:exit-selection");
-                  window.dispatchEvent(evt);
+                  // 直接使用路由回退退出选择模式，避免事件传递不稳定
+                  nav.goBack();
                 }}
                 style={{
                   background: "transparent",

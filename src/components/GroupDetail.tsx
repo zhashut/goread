@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { useAppNav } from "../router/useAppNav";
 import {
   DndContext,
@@ -29,11 +29,15 @@ export const GroupDetail: React.FC<{
   onClose?: () => void;
 }> = ({ groupIdProp, onClose }) => {
   const { groupId } = useParams();
+  const navigate = useNavigate();
   const nav = useAppNav();
   const id = typeof groupIdProp === "number" ? groupIdProp : Number(groupId);
   const [books, setBooks] = useState<IBook[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectionMode, setSelectionMode] = useState(false);
+  
+  // 选择模式状态：由路由 state 驱动
+  const selectionMode = !!nav.location.state?.selectionMode;
+
   const [selectedBookIds, setSelectedBookIds] = useState<Set<number>>(new Set());
   const [confirmOpen, setConfirmOpen] = useState(false);
   const booksRef = useRef<IBook[]>([]);
@@ -111,13 +115,26 @@ export const GroupDetail: React.FC<{
   };
 
   const exitSelection = () => {
-    setSelectionMode(false);
-    setSelectedBookIds(new Set());
-    setConfirmOpen(false);
+    if (!selectionMode) return;
+    // 使用路由回退退出选择模式；与系统返回键/手势保持一致
+    nav.goBack();
   };
 
+  // 监听 selectionMode 变化以清理状态
+  useEffect(() => {
+    if (!selectionMode) {
+      setSelectedBookIds(new Set());
+      setConfirmOpen(false);
+    }
+  }, [selectionMode]);
+
   const onBookLongPress = (id: number) => {
-    setSelectionMode(true);
+    if (!selectionMode) {
+      // 进入选择模式：使用完整路径 + 当前查询参数，确保生成历史栈条目
+      navigate(`${nav.location.pathname}${nav.location.search}`,
+        { state: { selectionMode: true }, replace: false }
+      );
+    }
     setSelectedBookIds((prev) => new Set(prev).add(id));
   };
 
@@ -135,7 +152,12 @@ export const GroupDetail: React.FC<{
     const allIds = new Set(currentBooks.map((b) => b.id));
     const isAllSelected = selectedRef.current.size === allIds.size && allIds.size > 0;
     setSelectedBookIds(isAllSelected ? new Set() : allIds);
-    if (!selectionMode && allIds.size > 0) setSelectionMode(true);
+    if (!selectionMode && allIds.size > 0) {
+      // 进入选择模式：使用完整路径 + 当前查询参数，确保生成历史栈条目
+      navigate(`${nav.location.pathname}${nav.location.search}`,
+        { state: { selectionMode: true }, replace: false }
+      );
+    }
   };
 
   const confirmDelete = async () => {
@@ -272,6 +294,10 @@ export const GroupDetail: React.FC<{
                   id={b.id}
                   book={b}
                   onClick={() => {
+                    if (selectionMode) {
+                      toggleSelectBook(b.id);
+                      return;
+                    }
                     try {
                       const orderStr = localStorage.getItem("recent_books_order");
                       let order: number[] = [];
