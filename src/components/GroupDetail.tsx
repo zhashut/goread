@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useRef } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import React, { useEffect, useState, useRef, useLayoutEffect } from "react";
+import { useParams, useNavigate, useNavigationType } from "react-router-dom";
 import { useAppNav } from "../router/useAppNav";
 import { DndContext, closestCenter, DragEndEvent } from "@dnd-kit/core";
 import { arrayMove, SortableContext, rectSortingStrategy } from "@dnd-kit/sortable";
@@ -18,10 +18,53 @@ export const GroupDetail: React.FC<{
 }> = ({ groupIdProp, onClose }) => {
   const { groupId } = useParams();
   const navigate = useNavigate();
+  const navType = useNavigationType();
   const nav = useAppNav();
   const id = typeof groupIdProp === "number" ? groupIdProp : Number(groupId);
   const [books, setBooks] = useState<IBook[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // 滚动位置恢复相关
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const hasRestored = useRef(false);
+  const shouldRestore = useRef(false);
+  const KEY = `group.scroll.${id}`;
+
+  // 决策阶段：根据导航类型决定是恢复还是清除
+  useLayoutEffect(() => {
+    // POP 通常意味着“返回”或“刷新”，此时应尝试恢复
+    if (navType === "POP") {
+      shouldRestore.current = true;
+    } else {
+      // PUSH / REPLACE 意味着新进入（或进入选择模式），清除旧记录以重置
+      // 注意：进入选择模式(PUSH)时也会清除，但这不影响当前DOM位置，且goToReader会重新保存
+      sessionStorage.removeItem(KEY);
+      shouldRestore.current = false;
+    }
+  }, [KEY, navType]);
+
+  // 执行阶段：在挂载/数据加载后恢复滚动
+  useLayoutEffect(() => {
+    // 如果不该恢复、数据为空或已恢复过，不再执行
+    if (!shouldRestore.current || books.length === 0 || hasRestored.current) return;
+
+    const saved = Number(sessionStorage.getItem(KEY) || 0);
+    const el = scrollRef.current;
+    if (!el) return;
+
+    // 确保不越界
+    const max = Math.max(0, el.scrollHeight - el.clientHeight);
+    el.scrollTop = Math.max(0, Math.min(saved, max));
+
+    hasRestored.current = true;
+  }, [KEY, books.length]);
+
+  // 进入阅读页前显式保存
+  const goToReader = (b: IBook) => {
+    const el = scrollRef.current;
+    if (el) sessionStorage.setItem(KEY, String(el.scrollTop));
+    nav.toReader(b.id, { fromGroupId: id });
+  };
   
   // 选择模式状态：由路由 state 驱动
   const selectionMode = !!nav.location.state?.selectionMode;
@@ -241,6 +284,7 @@ export const GroupDetail: React.FC<{
         </div>
       ) : (
           <div
+            ref={scrollRef}
             className="no-scrollbar"
             style={{
               flex: 1,
@@ -298,7 +342,7 @@ export const GroupDetail: React.FC<{
                     } catch (e) {
                       console.error("更新最近阅读顺序失败", e);
                     }
-                    nav.toReader(b.id, { fromGroupId: id });
+                    goToReader(b);
                   }}
                   onLongPress={() => onBookLongPress(b.id)}
                   selectable={selectionMode}
