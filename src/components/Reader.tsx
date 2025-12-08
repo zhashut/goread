@@ -117,6 +117,8 @@ export const Reader: React.FC = () => {
   const verticalCanvasRefs = useRef<Map<number, HTMLCanvasElement>>(new Map());
   const currentPageRef = useRef<number>(1);
   const modeVersionRef = useRef<number>(0);
+  // 记录当前书籍 ID，用于检测快速切换书籍时的竞态条件
+  const bookIdRef = useRef<string | undefined>(bookId);
   const lastSeekTsRef = useRef<number>(0);
   const renderedPagesRef = useRef<Set<number>>(new Set());
   const verticalScrollRef = useRef<HTMLDivElement>(null);
@@ -228,6 +230,10 @@ export const Reader: React.FC = () => {
   }, [settings.readingMode]);
 
   useEffect(() => {
+    // 更新书籍 ID 引用，并递增版本号以使进行中的异步任务失效
+    bookIdRef.current = bookId;
+    modeVersionRef.current += 1;
+    
     // 切换书籍时，清理所有状态和缓存
     pageCacheRef.current.clear();
     // 清理预加载的 Bitmap 资源
@@ -306,7 +312,10 @@ export const Reader: React.FC = () => {
 
   // 统一的页面加载函数（支持 Promise 复用）
   const loadPageBitmap = async (pageNum: number): Promise<ImageBitmap> => {
-    // 1. 内存缓存命中
+    // 捕获当前书籍 ID，用于在异步操作期间检测书籍是否切换
+    const capturedBookId = bookIdRef.current;
+    
+    // 1. 缓存命中
     if (preloadedBitmapsRef.current.has(pageNum)) {
       return preloadedBitmapsRef.current.get(pageNum)!;
     }
@@ -318,6 +327,10 @@ export const Reader: React.FC = () => {
     // 3. 发起新任务
     const task = (async () => {
       try {
+        // 开始前检查书籍是否已切换
+        if (bookIdRef.current !== capturedBookId) {
+          return Promise.reject() as unknown as ImageBitmap;
+        }
         const { getInvoke } = await import("../services/index");
         const invoke = await getInvoke();
         const viewW = canvasRef.current?.parentElement?.clientWidth || mainViewRef.current?.clientWidth || 800;
@@ -336,6 +349,12 @@ export const Reader: React.FC = () => {
         });
         const renderEndTime = performance.now();
         log(`[loadPageBitmap] 页面 ${pageNum} 后端渲染耗时: ${Math.round(renderEndTime - renderStartTime)}ms`);
+        
+        // IPC 调用完成后检查书籍是否已切换
+        if (bookIdRef.current !== capturedBookId) {
+          log(`[loadPageBitmap] 书籍已切换，放弃页面 ${pageNum}`);
+          return Promise.reject() as unknown as ImageBitmap;
+        }
         
         const decodeStartTime = performance.now();
         let bitmap: ImageBitmap;
@@ -369,6 +388,13 @@ export const Reader: React.FC = () => {
         }
         const decodeEndTime = performance.now();
         log(`[loadPageBitmap] 页面 ${pageNum} 图片解码耗时: ${Math.round(decodeEndTime - decodeStartTime)}ms`);
+        
+        // 缓存前最后检查：确保书籍未切换
+        if (bookIdRef.current !== capturedBookId) {
+          log(`[loadPageBitmap] 解码完成后书籍已切换，丢弃页面 ${pageNum}`);
+          bitmap.close && bitmap.close();
+          return Promise.reject() as unknown as ImageBitmap;
+        }
         
         // 存入缓存
         preloadedBitmapsRef.current.set(pageNum, bitmap);
@@ -501,6 +527,8 @@ export const Reader: React.FC = () => {
     const context = canvas.getContext("2d");
     if (!context) return;
     const localModeVer = modeVersionRef.current;
+    // 捕获当前书籍 ID，用于检测渲染期间书籍是否切换
+    const capturedBookId = bookIdRef.current;
 
     const existingRender = renderQueueRef.current.get(pageNum);
     if (existingRender) {
@@ -571,6 +599,11 @@ export const Reader: React.FC = () => {
         if (readingMode !== "horizontal") {
           return;
         }
+        // 检查异步加载期间书籍是否已切换
+        if (bookIdRef.current !== capturedBookId) {
+          log(`[renderPage] 书籍已切换，放弃渲染页面 ${pageNum}`);
+          return;
+        }
         canvas.width = standardImg.width;
         canvas.height = standardImg.height;
         if ((context as any).resetTransform) {
@@ -611,6 +644,9 @@ export const Reader: React.FC = () => {
   const preloadAdjacentPages = async (currentPageNum: number) => {
     if (!book) return;
     
+    // 捕获当前书籍 ID，避免为错误的书籍预加载
+    const capturedBookId = bookIdRef.current;
+    
     // 预加载下两页，确保连续翻页流畅
     const pagesToPreload = [currentPageNum + 1, currentPageNum + 2];
     // 获取当前 Scale，确保检查缓存的 Key 与渲染时一致
@@ -618,6 +654,12 @@ export const Reader: React.FC = () => {
     
     for (const nextPage of pagesToPreload) {
       if (nextPage <= totalPages) {
+        // 预加载前检查书籍是否已切换
+        if (bookIdRef.current !== capturedBookId) {
+          log(`[preloadAdjacentPages] 书籍已切换，停止预加载`);
+          return;
+        }
+        
         // 1. 检查是否已有 ImageData 缓存
         if (pageCacheRef.current.has(nextPage, scale)) continue;
         
@@ -741,6 +783,8 @@ export const Reader: React.FC = () => {
   ) => {
     if (!book) return;
     const localModeVer = modeVersionRef.current;
+    // 捕获当前书籍 ID，用于检测渲染期间书籍是否切换
+    const capturedBookId = bookIdRef.current;
     
     // 如果已经在渲染队列中，等待完成
     const existingRender = renderQueueRef.current.get(pageNum);
@@ -844,6 +888,11 @@ export const Reader: React.FC = () => {
         return;
       }
       if (!document.contains(canvas)) {
+        return;
+      }
+      // 检查异步加载期间书籍是否已切换
+      if (bookIdRef.current !== capturedBookId) {
+        log(`[renderPageToTarget] 书籍已切换，放弃渲染页面 ${pageNum}`);
         return;
       }
       canvas.width = img.width;
