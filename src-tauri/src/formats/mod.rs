@@ -4,6 +4,7 @@
 use serde::{Deserialize, Serialize};
 
 pub mod common;
+pub mod markdown;
 
 // 各格式模块将在实现时添加
 // pub mod pdf;
@@ -16,6 +17,7 @@ pub mod common;
 pub enum BookFormat {
     Pdf,
     Epub,
+    Markdown,
     Mobi,
     Azw3,
     Fb2,
@@ -28,6 +30,7 @@ impl BookFormat {
         match self {
             BookFormat::Pdf => &[".pdf"],
             BookFormat::Epub => &[".epub"],
+            BookFormat::Markdown => &[".md", ".markdown"],
             BookFormat::Mobi => &[".mobi"],
             BookFormat::Azw3 => &[".azw3", ".azw"],
             BookFormat::Fb2 => &[".fb2"],
@@ -47,6 +50,7 @@ impl BookFormat {
         match ext_with_dot.as_str() {
             ".pdf" => Some(BookFormat::Pdf),
             ".epub" => Some(BookFormat::Epub),
+            ".md" | ".markdown" => Some(BookFormat::Markdown),
             ".mobi" => Some(BookFormat::Mobi),
             ".azw3" | ".azw" => Some(BookFormat::Azw3),
             ".fb2" => Some(BookFormat::Fb2),
@@ -313,7 +317,7 @@ pub trait BookEngine: Send + Sync {
 
 /// 获取所有支持的扩展名
 pub fn get_all_supported_extensions() -> Vec<&'static str> {
-    vec![".pdf", ".epub", ".mobi", ".azw3", ".azw", ".fb2", ".txt"]
+    vec![".pdf", ".epub", ".md", ".markdown", ".mobi", ".azw3", ".azw", ".fb2", ".txt"]
 }
 
 /// 检查扩展名是否支持

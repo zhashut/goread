@@ -39,6 +39,10 @@ futures = "0.3"
 pdfium-render = "0.8.36"
 moka = { version = "0.12", features = ["future"] }
 
+# Markdown/TXT encoding detection
+chardetng = "0.1"
+encoding_rs = "0.8"
+
 [profile.dev]
 incremental = true # 以较小的步骤编译您的二进制文件。
 

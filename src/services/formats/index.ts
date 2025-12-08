@@ -18,3 +18,4 @@ export {
 
 // 导入各格式渲染器，触发自动注册
 import './pdf/PdfRenderer';
+import './markdown/MarkdownRenderer';

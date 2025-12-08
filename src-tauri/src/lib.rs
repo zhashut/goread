@@ -1,5 +1,6 @@
 mod commands;
 mod formats;
+mod markdown_commands;
 mod models;
 mod pdf;
 mod pdf_commands;
@@ -21,6 +22,7 @@ use commands::{
     // import commands
     batch_read_files, batch_import_books, batch_get_pdf_info, frontend_log,
 };
+use markdown_commands::*;
 use pdf_commands::*;
 use sqlx::SqlitePool;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
@@ -149,6 +151,11 @@ pub fn run() {
             pdf_render_page_range_parallel,
             pdf_render_pages_with_threads,
             exit_app,
+            // Markdown commands
+            markdown_load_document,
+            markdown_get_content,
+            markdown_get_toc,
+            markdown_search_text,
             // Status bar control commands
             show_status_bar,
             hide_status_bar

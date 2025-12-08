@@ -9,6 +9,8 @@ import { BookFormat } from '../services/formats/types';
 export const SUPPORTED_FILE_EXTENSIONS = [
   '.pdf',
   '.epub',
+  '.md',
+  '.markdown',
   '.mobi',
   '.azw3',
   '.azw',
@@ -22,6 +24,8 @@ export type SupportedExtension = typeof SUPPORTED_FILE_EXTENSIONS[number];
 const EXTENSION_FORMAT_MAP: Record<string, BookFormat> = {
   '.pdf': 'pdf',
   '.epub': 'epub',
+  '.md': 'markdown',
+  '.markdown': 'markdown',
   '.mobi': 'mobi',
   '.azw3': 'azw3',
   '.azw': 'azw3',
@@ -33,6 +37,7 @@ const EXTENSION_FORMAT_MAP: Record<string, BookFormat> = {
 export const FORMAT_DISPLAY_NAMES: Record<BookFormat, string> = {
   pdf: 'PDF',
   epub: 'EPUB',
+  markdown: 'Markdown',
   mobi: 'MOBI',
   azw3: 'AZW3/Kindle',
   fb2: 'FB2',
