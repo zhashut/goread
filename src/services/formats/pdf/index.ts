@@ -1,6 +1,5 @@
 /**
- * PDF 渲染器
- * Phase 1 实现
+ * PDF 渲染器模块
  */
 
-export {};
+export { PdfRenderer } from './PdfRenderer';

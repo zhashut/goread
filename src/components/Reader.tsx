@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from "react";
-import { convertFileSrc } from "@tauri-apps/api/core";
 import { useParams } from "react-router-dom";
 import { useAppNav } from "../router/useAppNav";
 import { IBook, IBookmark } from "../types";
@@ -35,6 +34,7 @@ import { ModeOverlay } from "./reader/ModeOverlay";
 import { MoreDrawer } from "./reader/MoreDrawer";
 import { CropOverlay } from "./reader/CropOverlay";
 import { TocNode } from "./reader/types";
+import { IBookRenderer, getBookFormat, createRenderer, isFormatSupported } from "../services/formats";
 
 const findActiveNodeSignature = (
   current: number,
@@ -119,6 +119,8 @@ export const Reader: React.FC = () => {
   const modeVersionRef = useRef<number>(0);
   // 记录当前书籍 ID，用于检测快速切换书籍时的竞态条件
   const bookIdRef = useRef<string | undefined>(bookId);
+  // 当前渲染器实例（通过接口统一管理）
+  const rendererRef = useRef<IBookRenderer | null>(null);
   const lastSeekTsRef = useRef<number>(0);
   const renderedPagesRef = useRef<Set<number>>(new Set());
   const verticalScrollRef = useRef<HTMLDivElement>(null);
@@ -235,6 +237,11 @@ export const Reader: React.FC = () => {
     modeVersionRef.current += 1;
     
     // 切换书籍时，清理所有状态和缓存
+    // 关闭旧渲染器
+    if (rendererRef.current) {
+      rendererRef.current.close();
+      rendererRef.current = null;
+    }
     pageCacheRef.current.clear();
     // 清理预加载的 Bitmap 资源
     preloadedBitmapsRef.current.forEach(bmp => bmp.close && bmp.close());
@@ -255,6 +262,11 @@ export const Reader: React.FC = () => {
     
     // 清理函数：组件卸载或切换书籍时清理缓存
     return () => {
+      // 关闭渲染器
+      if (rendererRef.current) {
+        rendererRef.current.close();
+        rendererRef.current = null;
+      }
       pageCacheRef.current.clear();
       preloadedBitmapsRef.current.forEach(bmp => bmp.close && bmp.close());
       preloadedBitmapsRef.current.clear();
@@ -331,8 +343,13 @@ export const Reader: React.FC = () => {
         if (bookIdRef.current !== capturedBookId) {
           return Promise.reject() as unknown as ImageBitmap;
         }
-        const { getInvoke } = await import("../services/index");
-        const invoke = await getInvoke();
+        
+        // 检查渲染器是否就绪
+        const renderer = rendererRef.current;
+        if (!renderer) {
+          return Promise.reject(new Error('渲染器未初始化')) as unknown as ImageBitmap;
+        }
+        
         const viewW = canvasRef.current?.parentElement?.clientWidth || mainViewRef.current?.clientWidth || 800;
         
         // 使用与 getCurrentScale 一致的逻辑获取 DPR
@@ -340,54 +357,14 @@ export const Reader: React.FC = () => {
         const containerWidth = Math.min(4096, Math.floor(viewW * dpr));
 
         const renderStartTime = performance.now();
-        const filePath: string = await invoke('pdf_render_page_to_file', {
-          filePath: book!.file_path,
-          pageNumber: pageNum,
-          quality: settings.renderQuality || 'standard',
-          width: containerWidth,
-          height: null,
-        });
+        // 通过渲染器接口加载页面位图
+        const bitmap = await renderer.loadPageBitmap!(
+          pageNum,
+          containerWidth,
+          settings.renderQuality || 'standard'
+        );
         const renderEndTime = performance.now();
-        log(`[loadPageBitmap] 页面 ${pageNum} 后端渲染耗时: ${Math.round(renderEndTime - renderStartTime)}ms`);
-        
-        // IPC 调用完成后检查书籍是否已切换
-        if (bookIdRef.current !== capturedBookId) {
-          log(`[loadPageBitmap] 书籍已切换，放弃页面 ${pageNum}`);
-          return Promise.reject() as unknown as ImageBitmap;
-        }
-        
-        const decodeStartTime = performance.now();
-        let bitmap: ImageBitmap;
-        try {
-          const imageUrl = convertFileSrc(filePath);
-          const response = await fetch(imageUrl);
-          const blob = await response.blob();
-          bitmap = await createImageBitmap(blob);
-        } catch (eAsset) {
-          try {
-            const dataUrl: string = await invoke('pdf_render_page_base64', {
-              filePath: book!.file_path,
-              pageNumber: pageNum,
-              quality: settings.renderQuality || 'standard',
-              width: containerWidth,
-              height: null,
-            });
-            const resp2 = await fetch(dataUrl);
-            const blob2 = await resp2.blob();
-            bitmap = await createImageBitmap(blob2);
-          } catch (e2) {
-            const imageUrl = convertFileSrc(filePath);
-            const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-              const im = new Image();
-              im.onload = () => resolve(im);
-              im.onerror = (err) => reject(err);
-              im.src = imageUrl;
-            });
-            bitmap = await createImageBitmap(img);
-          }
-        }
-        const decodeEndTime = performance.now();
-        log(`[loadPageBitmap] 页面 ${pageNum} 图片解码耗时: ${Math.round(decodeEndTime - decodeStartTime)}ms`);
+        log(`[loadPageBitmap] 页面 ${pageNum} 渲染+解码耗时: ${Math.round(renderEndTime - renderStartTime)}ms`);
         
         // 缓存前最后检查：确保书籍未切换
         if (bookIdRef.current !== capturedBookId) {
@@ -450,10 +427,20 @@ export const Reader: React.FC = () => {
         console.warn("标记书籍已打开失败", e);
       }
 
-      const { getInvoke } = await import("../services/index");
-      const invoke = await getInvoke();
-      const infoResp = await invoke('pdf_load_document', { filePath: targetBook.file_path });
-      const pageCount = Math.max(1, Number(infoResp?.info?.page_count ?? targetBook.total_pages ?? 1));
+      // 检查文件格式是否支持
+      if (!isFormatSupported(targetBook.file_path)) {
+        const format = getBookFormat(targetBook.file_path);
+        alert(`暂不支持 ${format || '未知'} 格式`);
+        nav.toBookshelf();
+        return;
+      }
+
+      // 通过工厂函数创建对应格式的渲染器
+      const renderer = createRenderer(targetBook.file_path);
+      rendererRef.current = renderer;
+      
+      const bookInfo = await renderer.loadDocument(targetBook.file_path);
+      const pageCount = Math.max(1, bookInfo.pageCount ?? targetBook.total_pages ?? 1);
       
       setTotalPages(pageCount);
       setLoading(false);
@@ -462,32 +449,27 @@ export const Reader: React.FC = () => {
       // 这样可以确保 DOM 已经准备好
       
       // 后台加载目录和书签（不阻塞首屏显示）
-      // 加载目录（Outline）——保留层级结构，支持字符串/数组 dest
+      // 加载目录（Outline）——通过渲染器接口获取
       Promise.resolve().then(async () => {
         try {
-          const outlineResp = await invoke('pdf_get_outline', { filePath: targetBook.file_path });
-          const outline = outlineResp?.outline?.bookmarks || [];
-          const toToc = (nodes: any[], level = 0): TocNode[] => {
-            return (nodes || []).map((n: any) => ({
-              title: n.title || '无标题',
-              page: n.page_number || undefined,
-              children: toToc(n.children || [], level + 1),
+          const tocItems = await renderer.getToc();
+          // 转换为 TocNode 格式（保持 expanded 状态）
+          const toTocNode = (items: typeof tocItems): TocNode[] => {
+            return items.map((item) => ({
+              title: item.title,
+              page: typeof item.location === 'number' ? item.location : undefined,
+              children: item.children ? toTocNode(item.children) : [],
               expanded: false,
             }));
           };
-          const parsed = toToc(outline, 0);
+          const parsed = toTocNode(tocItems);
           if (parsed.length > 0) {
             setToc(parsed);
           } else {
-            try {
-              const infoResp2 = await invoke('pdf_get_document_info', { filePath: targetBook.file_path });
-              const pages = Number(infoResp2?.info?.page_count || 0);
-              if (pages > 0) {
-                setToc([{ title: targetBook.title || '目录', page: 1, children: [], expanded: true }]);
-              } else {
-                setToc([]);
-              }
-            } catch {
+            // 无目录时创建默认条目
+            if (pageCount > 0) {
+              setToc([{ title: targetBook.title || '目录', page: 1, children: [], expanded: true }]);
+            } else {
               setToc([]);
             }
           }
@@ -834,52 +816,22 @@ export const Reader: React.FC = () => {
       // 显示加载状态（保持 minHeight，避免布局跳动）
       canvas.style.backgroundColor = "#2a2a2a";
 
-      const { getInvoke } = await import("../services/index");
-      const invoke = await getInvoke();
+      // 检查渲染器是否就绪
+      const renderer = rendererRef.current;
+      if (!renderer) {
+        log(`[renderPageToTarget] 渲染器未初始化，跳过页面 ${pageNum}`);
+        return;
+      }
 
       const renderStartTime = performance.now();
-      const filePath: string = await invoke('pdf_render_page_to_file', {
-        filePath: book.file_path,
-        pageNumber: pageNum,
-        quality: settings.renderQuality || 'standard',
-        width: containerWidth,
-        height: null,
-      });
+      // 通过渲染器接口加载页面位图
+      const img = await renderer.loadPageBitmap!(
+        pageNum,
+        containerWidth,
+        settings.renderQuality || 'standard'
+      );
       const renderEndTime = performance.now();
-      log(`[renderPageToTarget] 页面 ${pageNum} 后端渲染耗时: ${Math.round(renderEndTime - renderStartTime)}ms`);
-      
-      const decodeStartTime = performance.now();
-      let img: any;
-      try {
-        const imageUrl = convertFileSrc(filePath);
-        const response = await fetch(imageUrl);
-        const blob = await response.blob();
-        img = await createImageBitmap(blob);
-      } catch (eAsset) {
-        try {
-          const dataUrl: string = await invoke('pdf_render_page_base64', {
-            filePath: book.file_path,
-            pageNumber: pageNum,
-            quality: settings.renderQuality || 'standard',
-            width: containerWidth,
-            height: null,
-          });
-          const resp2 = await fetch(dataUrl);
-          const blob2 = await resp2.blob();
-          img = await createImageBitmap(blob2);
-        } catch (e2) {
-          const imageUrl = convertFileSrc(filePath);
-          const im = await new Promise<HTMLImageElement>((resolve, reject) => {
-            const ii = new Image();
-            ii.onload = () => resolve(ii);
-            ii.onerror = (err) => reject(err);
-            ii.src = imageUrl;
-          });
-          img = im;
-        }
-      }
-      const decodeEndTime = performance.now();
-      log(`[renderPageToTarget] 页面 ${pageNum} 图片解码耗时: ${Math.round(decodeEndTime - decodeStartTime)}ms`);
+      log(`[renderPageToTarget] 页面 ${pageNum} 渲染+解码耗时: ${Math.round(renderEndTime - renderStartTime)}ms`);
 
       if (localModeVer !== modeVersionRef.current) {
         return;
