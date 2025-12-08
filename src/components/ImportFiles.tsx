@@ -10,7 +10,8 @@ import ChooseExistingGroupDrawer from "./ChooseExistingGroupDrawer";
 import { waitNextFrame } from "../services/importUtils";
 import { logError } from "../services";
 import { loadGroupsWithPreviews, assignToExistingGroupAndFinish } from "../utils/groupImport";
-import { isSupportedFile } from "../constants/fileTypes";
+import { isSupportedFile, FORMAT_DISPLAY_NAMES, getBookFormat } from "../constants/fileTypes";
+import { BookFormat } from "../services/formats/types";
 import { getSafeAreaInsets } from "../utils/layout";
 import {
   SWIPE_EDGE_THRESHOLD,
@@ -203,6 +204,14 @@ export const ImportFiles: React.FC = () => {
     { name: string; path: string }[]
   >([]);
   const [browseSearch, setBrowseSearch] = useState("");
+  const [filterFormat, setFilterFormat] = useState<'ALL' | BookFormat>('ALL');
+  const [filterMenuOpen, setFilterMenuOpen] = useState(false);
+
+  // Reset filter when tab changes
+  useEffect(() => {
+      setFilterFormat('ALL');
+      setFilterMenuOpen(false);
+  }, [activeTab]);
 
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
 
@@ -317,7 +326,10 @@ export const ImportFiles: React.FC = () => {
     );
   }, [scanList, globalSearch]);
 
-  const currentBrowse = browseStack[browseStack.length - 1] || [];
+  const currentBrowse = useMemo(() => {
+    const level = browseStack[browseStack.length - 1] || [];
+    return level.filter((it) => it.type === "dir" || isSupportedFile(it.path));
+  }, [browseStack]);
   const devicePdfIndex = useMemo(() => {
     // 简易设备索引：聚合已访问目录中的支持的文件
     const files: FileEntry[] = [];
@@ -333,11 +345,25 @@ export const ImportFiles: React.FC = () => {
 
   const filteredBrowse = useMemo(() => {
     const kw = browseSearch.trim().toLowerCase();
+    let source = currentBrowse;
+    
     if (kw) {
-      return devicePdfIndex.filter((it) => it.name.toLowerCase().includes(kw));
+      source = devicePdfIndex.filter((it) => it.name.toLowerCase().includes(kw));
     }
-    return currentBrowse;
-  }, [currentBrowse, browseSearch, devicePdfIndex]);
+    
+    if (filterFormat !== 'ALL') {
+        return source.filter(it => {
+            if (it.type === 'dir') return true;
+            return getBookFormat(it.path) === filterFormat;
+        });
+    }
+    return source;
+  }, [currentBrowse, browseSearch, devicePdfIndex, filterFormat]);
+
+  const canFilter = useMemo(() => {
+      if (activeTab !== 'browse') return false;
+      return currentBrowse.some(it => it.type === 'file');
+  }, [activeTab, currentBrowse]);
 
   const completeScan = (results: FileEntry[]) => {
     if (scanTimerRef.current) {
@@ -370,7 +396,7 @@ export const ImportFiles: React.FC = () => {
 
     try {
       // 执行真实扫描，带进度回调
-      const results = await fileSystemService.scanPdfFiles(
+      const results = await fileSystemService.scanBookFiles(
         undefined,
         (scanned, found) => {
           // 实时更新扫描进度
@@ -547,7 +573,7 @@ export const ImportFiles: React.FC = () => {
         const loadDir = async () => {
           setBrowseLoading(true);
           try {
-            const children = await fileSystemService.listDirectory(targetEntry.path);
+            const children = await fileSystemService.listDirectorySupported(targetEntry.path);
             setBrowseStack((stack) => [...stack, children]);
             setBrowseDirStack((stack) => [
               ...stack,
@@ -606,6 +632,110 @@ export const ImportFiles: React.FC = () => {
         <div style={{ flex: 1 }} />
         {(activeTab === "browse" || (activeTab === "scan" && filteredScan.length > 0)) && (
           <div style={{ display: "flex", alignItems: "center" }}>
+            {/* Filter Button */}
+            <div style={{ position: 'relative' }}>
+              <button
+                aria-label="筛选"
+                title="筛选格式"
+                disabled={!canFilter}
+                style={{
+                  background: "none",
+                  border: "none",
+                  boxShadow: "none",
+                  borderRadius: 4,
+                  cursor: canFilter ? "pointer" : "default",
+                  padding: 0,
+                  marginRight: 16,
+                  width: 32,
+                  height: 32,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: filterMenuOpen || filterFormat !== 'ALL' ? '#f5f5f5' : 'transparent',
+                  opacity: canFilter ? 1 : 0.3,
+                }}
+                onClick={(e) => {
+                    e.stopPropagation();
+                    if (canFilter) {
+                        setFilterMenuOpen(!filterMenuOpen);
+                    }
+                }}
+              >
+                <svg width="24" height="24" viewBox="0 0 24 24" fill={filterFormat !== 'ALL' && canFilter ? '#d43d3d' : '#333'}>
+                  <path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z"/>
+                </svg>
+              </button>
+
+              {/* Dropdown Menu */}
+              {filterMenuOpen && canFilter && (
+                <>
+                  <div 
+                    style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 999 }}
+                    onClick={() => setFilterMenuOpen(false)}
+                  />
+                  <div style={{
+                    position: 'absolute',
+                    top: 40,
+                    right: -8, 
+                    background: '#fff',
+                    borderRadius: 8,
+                    boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+                    width: 140,
+                    padding: '8px 0',
+                    border: '1px solid #f0f0f0',
+                    zIndex: 1000,
+                    maxHeight: 400,
+                    overflowY: 'auto',
+                    animation: 'fadeIn 0.1s ease-out',
+                  }}>
+                    <style>{`
+                        @keyframes fadeIn {
+                            from { opacity: 0; transform: scale(0.95); }
+                            to { opacity: 1; transform: scale(1); }
+                        }
+                    `}</style>
+                    <div 
+                        style={{
+                            padding: '10px 16px',
+                            fontSize: 14,
+                            color: filterFormat === 'ALL' ? '#d43d3d' : '#333',
+                            backgroundColor: filterFormat === 'ALL' ? '#fffbfb' : 'transparent',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            fontWeight: filterFormat === 'ALL' ? 500 : 400
+                        }}
+                        onClick={() => { setFilterFormat('ALL'); setFilterMenuOpen(false); }}
+                    >
+                        全部格式
+                        {filterFormat === 'ALL' && <span style={{ color: '#d43d3d', fontSize: 12 }}>✓</span>}
+                    </div>
+                    {(Object.keys(FORMAT_DISPLAY_NAMES) as BookFormat[]).map(fmt => (
+                        <div 
+                            key={fmt}
+                            style={{
+                                padding: '10px 16px',
+                                fontSize: 14,
+                                color: filterFormat === fmt ? '#d43d3d' : '#333',
+                                backgroundColor: filterFormat === fmt ? '#fffbfb' : 'transparent',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                fontWeight: filterFormat === fmt ? 500 : 400
+                            }}
+                            onClick={() => { setFilterFormat(fmt); setFilterMenuOpen(false); }}
+                        >
+                            {FORMAT_DISPLAY_NAMES[fmt]}
+                            {filterFormat === fmt && <span style={{ color: '#d43d3d', fontSize: 12 }}>✓</span>}
+                        </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+
             {activeTab === "browse" && (
               <button
                 aria-label="搜索"
@@ -855,14 +985,14 @@ export const ImportFiles: React.FC = () => {
             }}
           >
             {(() => {
-              const iconSize = Math.round(ROW_HEIGHT * 0.7);
+              const iconSize = Math.round(ROW_HEIGHT * 0.85);
               return (
                 <svg
                   width={iconSize}
                   height={iconSize}
                   viewBox="0 0 24 24"
                   fill="#f29b00"
-                  style={{ marginRight: 10 }}
+                  style={{ marginRight: 14 }}
                 >
                   <path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
                 </svg>
@@ -1080,7 +1210,7 @@ export const ImportFiles: React.FC = () => {
                 marginTop: 6,
               }}
             >
-              找到：PDF({foundPdfCount})
+              找到：书籍({foundPdfCount})
             </div>
             <div style={{ marginTop: 18 }}>
               <button

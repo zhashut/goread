@@ -34,6 +34,8 @@ const fmtDate = (t?: number) => {
   return `${y}/${m}/${day} ${hh}:${mm}`;
 };
 
+import { getBookFormat, getFormatColor, getFormatIconText } from "../constants/fileTypes";
+
 export const FileRow: React.FC<FileRowProps> = ({
   name,
   path,
@@ -46,7 +48,10 @@ export const FileRow: React.FC<FileRowProps> = ({
   mode = "select",
   onClickRow,
 }) => {
-  const iconSize = Math.round(rowHeight * 0.7);
+  // 调整图标大小适配新的长方形图标 (36:44 比例)
+  const iconWidth = Math.round(rowHeight * 0.6); // 36px for 60px row
+  const iconHeight = Math.round(iconWidth * (44 / 36)); 
+  
   const disabled = mode === "select" ? !!imported : !onClickRow;
 
   const handleClick = () => {
@@ -57,6 +62,10 @@ export const FileRow: React.FC<FileRowProps> = ({
       onClickRow?.();
     }
   };
+
+  const format = getBookFormat(path);
+  const color = getFormatColor(format);
+  const iconText = format ? getFormatIconText(format) : '';
 
   return (
     <div
@@ -70,19 +79,29 @@ export const FileRow: React.FC<FileRowProps> = ({
         cursor: disabled ? "default" : "pointer",
       }}
     >
-      {/* 通用书本图标 */}
+      {/* 动态文件图标 */}
       <svg
-        width={iconSize}
-        height={iconSize}
-        viewBox="0 0 24 24"
+        width={iconWidth}
+        height={iconHeight}
+        viewBox="0 0 36 44"
         fill="none"
         aria-hidden
-        style={{ marginRight: 10 }}
+        style={{ marginRight: 14, flexShrink: 0 }}
       >
-        <rect x="5" y="3" width="12" height="18" rx="2" fill="#d23c3c" />
-        <rect x="17" y="3" width="2" height="18" rx="1" fill="#b53737" />
-        <rect x="7" y="8" width="8" height="1.5" fill="#fff" opacity="0.9" />
-        <rect x="7" y="11" width="6" height="1.5" fill="#fff" opacity="0.9" />
+        <path d="M4 0C1.79 0 0 1.79 0 4v36c0 2.21 1.79 4 4 4h28c2.21 0 4-1.79 4-4V12l-12-12H4z" fill={color} />
+        <path d="M24 0v12h12" fill="rgba(0,0,0,0.2)"/>
+        <text 
+            x="18" 
+            y="32" 
+            fill="white" 
+            fontSize="9" 
+            fontWeight="bold" 
+            fontFamily="Arial, sans-serif" 
+            textAnchor="middle"
+            style={{ pointerEvents: 'none', letterSpacing: '0.5px' }}
+        >
+            {iconText}
+        </text>
       </svg>
       <div style={{ flex: 1, overflow: "hidden" }}>
         <div

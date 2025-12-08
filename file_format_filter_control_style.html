@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>导入文件 - 移除 TXT</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #ffffff;
+            color: #333;
+            overflow-x: hidden;
+        }
+
+        /* --- 遮罩层 --- */
+        .overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: transparent;
+            z-index: 1000;
+            display: none;
+        }
+
+        /* --- 顶部导航 --- */
+        .header {
+            display: flex;
+            align-items: center;
+            height: 56px;
+            padding: 0 16px;
+            background: #fff;
+            position: fixed;
+            top: 0; left: 0; right: 0;
+            z-index: 1001; 
+        }
+
+        .back-btn {
+            padding: 8px;
+            margin-left: -8px;
+            margin-right: 8px;
+            cursor: pointer;
+        }
+
+        .title {
+            font-size: 18px;
+            font-weight: 500;
+            flex-grow: 1;
+        }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            position: relative;
+        }
+
+        .icon-btn {
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: background 0.2s;
+        }
+
+        .icon-btn:active {
+            background-color: #f5f5f5;
+        }
+
+        .icon-btn.active svg {
+            fill: #d43d3d;
+        }
+
+        /* --- 下拉菜单 --- */
+        .dropdown-menu {
+            position: absolute;
+            top: 48px;
+            right: -8px;
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15); 
+            width: 140px;
+            padding: 8px 0;
+            display: none;
+            border: 1px solid #f0f0f0;
+            transform-origin: top right;
+            animation: fadeIn 0.1s ease-out;
+            cursor: default;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: scale(0.95); }
+            to { opacity: 1; transform: scale(1); }
+        }
+
+        .dropdown-menu.show {
+            display: block;
+        }
+
+        .dropdown-item {
+            padding: 12px 20px;
+            font-size: 14px;
+            color: #333;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .dropdown-item:active {
+            background-color: #f9f9f9;
+        }
+
+        .dropdown-item.selected {
+            color: #d43d3d;
+            background-color: #fffbfb;
+            font-weight: 500;
+        }
+
+        .check-icon {
+            color: #d43d3d;
+            font-size: 12px;
+            display: none;
+        }
+
+        .dropdown-item.selected .check-icon {
+            display: block;
+        }
+
+        /* --- Tab 栏 --- */
+        .tabs-container {
+            margin-top: 56px;
+            background: #fff;
+        }
+
+        .tabs {
+            display: flex;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .tab-item {
+            flex: 1;
+            text-align: center;
+            padding: 14px 0;
+            font-size: 15px;
+            color: #666;
+            position: relative;
+            cursor: pointer;
+        }
+
+        .tab-item.active {
+            color: #d43d3d;
+            font-weight: 500;
+        }
+
+        .tab-item.active::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 60px;
+            height: 2px;
+            background-color: #d43d3d;
+        }
+
+        /* --- 列表区域 --- */
+        .list-container {
+            padding-bottom: 70px;
+        }
+
+        .list-item {
+            display: flex;
+            align-items: center;
+            padding: 12px 16px;
+            border-bottom: 1px solid #f9f9f9;
+            background: #fff;
+            height: 76px;
+        }
+
+        .item-icon {
+            width: 44px;
+            height: 44px;
+            margin-right: 14px;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .icon-folder svg {
+            width: 42px;
+            height: 42px;
+            fill: #ffa000;
+        }
+
+        /* --- 格式图标颜色 --- */
+        .file-icon {
+            width: 40px;
+            height: 48px;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .file-bg { transition: fill 0.3s; }
+        
+        .fmt-pdf  { fill: #E82922; } /* PDF 红 */
+        .fmt-epub { fill: #6DA618; } /* EPUB 绿 */
+        .fmt-mobi { fill: #0058A8; } /* MOBI 蓝 */
+        .fmt-azw3 { fill: #FF9900; } /* AZW3 橙 */
+        .fmt-fb2  { fill: #8E24AA; } /* FB2 紫 */
+        .fmt-md   { fill: #595959; } /* Markdown 灰 */
+
+        .file-text {
+            font-size: 9px;
+            fill: white;
+            font-weight: bold;
+            font-family: Arial, sans-serif;
+            letter-spacing: 0.5px;
+            text-anchor: middle;
+            pointer-events: none;
+        }
+
+        .item-content {
+            flex-grow: 1;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .item-title {
+            font-size: 15px;
+            color: #333;
+            margin-bottom: 6px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .item-info {
+            font-size: 12px;
+            color: #999;
+        }
+
+        .item-action {
+            font-size: 12px;
+            margin-left: 10px;
+            flex-shrink: 0;
+            min-width: 50px;
+            text-align: right;
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+        }
+
+        .status-imported {
+            color: #6abb74;
+            font-weight: 500;
+        }
+        
+        .status-radio {
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            border: 2px solid #ddd;
+        }
+
+        /* --- 底部按钮 --- */
+        .footer-btn {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            background-color: #d43d3d;
+            color: white;
+            text-align: center;
+            line-height: 50px;
+            font-size: 16px;
+            font-weight: 500;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.05);
+            cursor: pointer;
+            z-index: 600;
+        }
+
+        .svg-defs { display: none; }
+    </style>
+</head>
+<body>
+
+    <svg class="svg-defs">
+        <symbol id="icon-search" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></symbol>
+        <symbol id="icon-grid" viewBox="0 0 24 24"><path d="M4 8h4V4H4v4zm6 12h4v-4h-4v4zm-6 0h4v-4H4v4zm0-6h4v-4H4v4zm6 0h4v-4h-4v4zm6-10v4h4V4h-4zm-6 4h4V4h-4v4zm6 6h4v-4h-4v4zm0 6h4v-4h-4v4z"/></symbol>
+        <symbol id="icon-back" viewBox="0 0 24 24"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></symbol>
+        <symbol id="icon-folder-shape" viewBox="0 0 24 24"><path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/></symbol>
+        <symbol id="icon-arrow-right" viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></symbol>
+        <symbol id="icon-filter" viewBox="0 0 24 24"><path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z"/></symbol>
+        <symbol id="icon-file-base" viewBox="0 0 36 44">
+            <path d="M4 0C1.79 0 0 1.79 0 4v36c0 2.21 1.79 4 4 4h28c2.21 0 4-1.79 4-4V12l-12-12H4z" />
+            <path d="M24 0v12h12" fill="rgba(0,0,0,0.2)"/>
+        </symbol>
+    </svg>
+
+    <div class="overlay" id="overlay"></div>
+
+    <div class="header">
+        <div class="back-btn"><svg width="24" height="24" fill="#333"><use xlink:href="#icon-back"/></svg></div>
+        <div class="title">导入文件</div>
+        <div class="header-actions">
+            
+            <div class="icon-btn" id="filterBtn">
+                <svg width="24" height="24" fill="#333"><use xlink:href="#icon-filter"/></svg>
+            </div>
+
+            <!-- 下拉菜单：移除了 TXT -->
+            <div class="dropdown-menu" id="dropdownMenu">
+                <div class="dropdown-item selected" data-type="ALL">
+                    全部格式 <span class="check-icon">✓</span>
+                </div>
+                <div class="dropdown-item" data-type="PDF">
+                    PDF <span class="check-icon">✓</span>
+                </div>
+                <div class="dropdown-item" data-type="EPUB">
+                    EPUB <span class="check-icon">✓</span>
+                </div>
+                <div class="dropdown-item" data-type="MOBI">
+                    MOBI <span class="check-icon">✓</span>
+                </div>
+                <div class="dropdown-item" data-type="AZW3">
+                    AZW3 <span class="check-icon">✓</span>
+                </div>
+                <div class="dropdown-item" data-type="FB2">
+                    FB2 <span class="check-icon">✓</span>
+                </div>
+                <div class="dropdown-item" data-type="MD">
+                    Markdown <span class="check-icon">✓</span>
+                </div>
+            </div>
+
+            <div class="icon-btn"><svg width="24" height="24" fill="#333"><use xlink:href="#icon-search"/></svg></div>
+            <div class="icon-btn"><svg width="24" height="24" fill="#333"><use xlink:href="#icon-grid"/></svg></div>
+        </div>
+    </div>
+
+    <div class="tabs-container">
+        <div class="tabs">
+            <div class="tab-item">自动扫描</div>
+            <div class="tab-item active">浏览全部</div>
+        </div>
+    </div>
+
+    <div class="list-container" id="listContainer">
+        <!-- 列表由 JS 填充 -->
+    </div>
+
+    <div class="footer-btn">
+        导入(0)
+    </div>
+
+    <script>
+        // 数据源：移除了 TXT 数据
+        const mockData = [
+            { type: 'folder', name: '79-消息队列高手课', info: '6项 · 2023/08/14 15:41' },
+            { type: 'folder', name: 'Kindle Books', info: '24项 · 2024/07/22 16:01' },
+            { type: 'file', format: 'MD', name: 'README.md', size: '12 KB', date: '2024/07/25', imported: false },
+            { type: 'file', format: 'PDF', name: 'Code Complete 2.pdf', size: '9.3 MB', date: '2023/08/14', imported: true },
+            { type: 'file', format: 'MD', name: '项目开发笔记.md', size: '45 KB', date: '2024/08/01', imported: true },
+            { type: 'file', format: 'EPUB', name: 'Elon Musk Biography.epub', size: '24.5 MB', date: '2024/01/10', imported: false },
+            { type: 'file', format: 'MOBI', name: 'Three Body Problem.mobi', size: '5.2 MB', date: '2023/11/05', imported: true },
+            { type: 'file', format: 'AZW3', name: 'Harry Potter.azw3', size: '32.1 MB', date: '2024/02/14', imported: false },
+            { type: 'file', format: 'FB2', name: 'Alice in Wonderland.fb2', size: '1.2 MB', date: '2024/03/01', imported: false },
+            { type: 'file', format: 'PDF', name: 'Go 语言实战.pdf', size: '163.9 MB', date: '2023/08/14', imported: true },
+        ];
+
+        const filterBtn = document.getElementById('filterBtn');
+        const dropdownMenu = document.getElementById('dropdownMenu');
+        const overlay = document.getElementById('overlay');
+        const listContainer = document.getElementById('listContainer');
+        const dropdownItems = document.querySelectorAll('.dropdown-item');
+
+        let currentFilter = 'ALL';
+
+        function renderList() {
+            listContainer.innerHTML = '';
+            
+            const filteredData = mockData.filter(item => {
+                if (currentFilter === 'ALL') return true;
+                if (item.type === 'folder') return false; 
+                return item.format === currentFilter;
+            });
+
+            if (filteredData.length === 0) {
+                listContainer.innerHTML = `<div style="text-align:center; padding:50px; color:#999; font-size:14px;">暂无 ${currentFilter} 文件</div>`;
+                return;
+            }
+
+            filteredData.forEach(item => {
+                const el = document.createElement('div');
+                el.className = 'list-item';
+
+                if (item.type === 'folder') {
+                    el.innerHTML = `
+                        <div class="item-icon icon-folder"><svg><use xlink:href="#icon-folder-shape"/></svg></div>
+                        <div class="item-content">
+                            <div class="item-title">${item.name}</div>
+                            <div class="item-info">${item.info}</div>
+                        </div>
+                        <div class="item-action"><svg width="20" height="20" fill="#ccc"><use xlink:href="#icon-arrow-right"/></svg></div>
+                    `;
+                } else {
+                    const fmtClass = `fmt-${item.format.toLowerCase()}`;
+                    const actionHtml = item.imported 
+                        ? `<span class="status-imported">已导入</span>` 
+                        : `<div class="status-radio"></div>`;
+
+                    el.innerHTML = `
+                        <div class="item-icon">
+                            <div class="file-icon">
+                                <svg viewBox="0 0 36 44" width="36" height="44">
+                                    <use xlink:href="#icon-file-base" class="file-bg ${fmtClass}"/>
+                                    <text x="18" y="32" class="file-text">${item.format}</text>
+                                </svg>
+                            </div>
+                        </div>
+                        <div class="item-content">
+                            <div class="item-title">${item.name}</div>
+                            <div class="item-info">${item.size} · ${item.date}</div>
+                        </div>
+                        <div class="item-action">${actionHtml}</div>
+                    `;
+                }
+                listContainer.appendChild(el);
+            });
+        }
+
+        function openMenu() {
+            dropdownMenu.classList.add('show');
+            overlay.style.display = 'block';
+        }
+
+        function closeMenu() {
+            dropdownMenu.classList.remove('show');
+            overlay.style.display = 'none';
+        }
+
+        filterBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (dropdownMenu.classList.contains('show')) {
+                closeMenu();
+            } else {
+                openMenu();
+            }
+        });
+
+        overlay.addEventListener('click', () => {
+            closeMenu();
+        });
+
+        dropdownItems.forEach(item => {
+            item.addEventListener('click', function(e) {
+                e.stopPropagation();
+                dropdownItems.forEach(i => i.classList.remove('selected'));
+                this.classList.add('selected');
+                currentFilter = this.getAttribute('data-type');
+                
+                if (currentFilter !== 'ALL') {
+                    filterBtn.classList.add('active');
+                } else {
+                    filterBtn.classList.remove('active');
+                }
+
+                renderList();
+                closeMenu();
+            });
+        });
+
+        renderList();
+    </script>
+</body>
+</html>

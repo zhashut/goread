@@ -20,8 +20,7 @@ pub enum BookFormat {
     Markdown,
     Mobi,
     Azw3,
-    Fb2,
-    Txt,
+    Fb2
 }
 
 impl BookFormat {
@@ -33,8 +32,7 @@ impl BookFormat {
             BookFormat::Markdown => &[".md", ".markdown"],
             BookFormat::Mobi => &[".mobi"],
             BookFormat::Azw3 => &[".azw3", ".azw"],
-            BookFormat::Fb2 => &[".fb2"],
-            BookFormat::Txt => &[".txt"],
+            BookFormat::Fb2 => &[".fb2"]
         }
     }
 
@@ -54,7 +52,6 @@ impl BookFormat {
             ".mobi" => Some(BookFormat::Mobi),
             ".azw3" | ".azw" => Some(BookFormat::Azw3),
             ".fb2" => Some(BookFormat::Fb2),
-            ".txt" => Some(BookFormat::Txt),
             _ => None,
         }
     }
@@ -317,7 +314,7 @@ pub trait BookEngine: Send + Sync {
 
 /// 获取所有支持的扩展名
 pub fn get_all_supported_extensions() -> Vec<&'static str> {
-    vec![".pdf", ".epub", ".md", ".markdown", ".mobi", ".azw3", ".azw", ".fb2", ".txt"]
+    vec![".pdf", ".epub", ".md", ".markdown", ".mobi", ".azw3", ".azw", ".fb2"]
 }
 
 /// 检查扩展名是否支持
@@ -334,7 +331,6 @@ mod tests {
         assert_eq!(BookFormat::from_extension(".pdf"), Some(BookFormat::Pdf));
         assert_eq!(BookFormat::from_extension("pdf"), Some(BookFormat::Pdf));
         assert_eq!(BookFormat::from_extension(".epub"), Some(BookFormat::Epub));
-        assert_eq!(BookFormat::from_extension(".txt"), Some(BookFormat::Txt));
         assert_eq!(BookFormat::from_extension(".unknown"), None);
     }
 

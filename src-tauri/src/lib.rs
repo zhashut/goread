@@ -16,7 +16,7 @@ use commands::{
     // bookmark commands
     add_bookmark, get_bookmarks, delete_bookmark,
     // filesystem commands
-    scan_pdf_files, cancel_scan, list_directory, get_root_directories,
+    scan_pdf_files, scan_book_files, cancel_scan, list_directory, list_directory_supported, get_root_directories,
     check_storage_permission, request_storage_permission, read_file_bytes,
     save_image_to_gallery,
     // import commands
@@ -117,8 +117,10 @@ pub fn run() {
             get_bookmarks,
             delete_bookmark,
             scan_pdf_files,
+            scan_book_files,
             cancel_scan,
             list_directory,
+            list_directory_supported,
             get_root_directories,
             check_storage_permission,
             request_storage_permission,

@@ -9,6 +9,8 @@ import { waitNextFrame } from "../services/importUtils";
 import { logError } from "../services";
 import { loadGroupsWithPreviews, assignToExistingGroupAndFinish } from "../utils/groupImport";
 import { getSafeAreaInsets } from "../utils/layout";
+import { FORMAT_DISPLAY_NAMES, getBookFormat } from "../constants/fileTypes";
+import { BookFormat } from "../services/formats/types";
 
 export interface FileEntry {
   type: "file" | "dir";
@@ -30,6 +32,10 @@ export const ScanResults: React.FC = () => {
   const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
   const [globalSearch, setGlobalSearch] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
+  // Filter state
+  const [filterFormat, setFilterFormat] = useState<'ALL' | BookFormat>('ALL');
+  const [filterMenuOpen, setFilterMenuOpen] = useState(false);
+
   // 列表行高度（用于按比例缩放左侧图标尺寸）
   const ROW_HEIGHT = 60; // px
 
@@ -87,8 +93,15 @@ export const ScanResults: React.FC = () => {
 
   const filtered = useMemo(() => {
     const kw = globalSearch.trim().toLowerCase();
-    return resultsWithImported.filter((it) => it.name.toLowerCase().includes(kw));
-  }, [resultsWithImported, globalSearch]);
+    return resultsWithImported.filter((it) => {
+      if (!it.name.toLowerCase().includes(kw)) return false;
+      if (filterFormat !== 'ALL') {
+        const fmt = getBookFormat(it.path);
+        if (fmt !== filterFormat) return false;
+      }
+      return true;
+    });
+  }, [resultsWithImported, globalSearch, filterFormat]);
 
   const handleImportClick = async () => {
     // 直接使用已选中的文件路径，不再弹出文件选择对话框
@@ -311,6 +324,106 @@ export const ScanResults: React.FC = () => {
           </span>
           <div style={{ flex: 1 }} />
           <div style={{ display: "flex", alignItems: "center" }}>
+            {/* 筛选按钮 */}
+            <div style={{ position: 'relative' }}>
+              <button
+                aria-label="筛选"
+                title="筛选格式"
+                style={{
+                  background: "none",
+                  border: "none",
+                  boxShadow: "none",
+                  borderRadius: 4,
+                  cursor: "pointer",
+                  padding: 0,
+                  marginRight: 16,
+                  width: 32,
+                  height: 32,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  backgroundColor: filterMenuOpen || filterFormat !== 'ALL' ? '#f5f5f5' : 'transparent',
+                }}
+                onClick={(e) => {
+                    e.stopPropagation();
+                    setFilterMenuOpen(!filterMenuOpen);
+                }}
+              >
+                <svg width="24" height="24" viewBox="0 0 24 24" fill={filterFormat !== 'ALL' ? '#d43d3d' : '#333'}>
+                  <path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z"/>
+                </svg>
+              </button>
+
+              {/* 下拉菜单 */}
+              {filterMenuOpen && (
+                <>
+                  <div 
+                    style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 999 }}
+                    onClick={() => setFilterMenuOpen(false)}
+                  />
+                  <div style={{
+                    position: 'absolute',
+                    top: 40,
+                    right: -8, 
+                    background: '#fff',
+                    borderRadius: 8,
+                    boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+                    width: 140,
+                    padding: '8px 0',
+                    border: '1px solid #f0f0f0',
+                    zIndex: 1000,
+                    maxHeight: 400,
+                    overflowY: 'auto',
+                    animation: 'fadeIn 0.1s ease-out',
+                  }}>
+                    <style>{`
+                        @keyframes fadeIn {
+                            from { opacity: 0; transform: scale(0.95); }
+                            to { opacity: 1; transform: scale(1); }
+                        }
+                    `}</style>
+                    <div 
+                        style={{
+                            padding: '10px 16px',
+                            fontSize: 14,
+                            color: filterFormat === 'ALL' ? '#d43d3d' : '#333',
+                            backgroundColor: filterFormat === 'ALL' ? '#fffbfb' : 'transparent',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            fontWeight: filterFormat === 'ALL' ? 500 : 400
+                        }}
+                        onClick={() => { setFilterFormat('ALL'); setFilterMenuOpen(false); }}
+                    >
+                        全部格式
+                        {filterFormat === 'ALL' && <span style={{ color: '#d43d3d', fontSize: 12 }}>✓</span>}
+                    </div>
+                    {(Object.keys(FORMAT_DISPLAY_NAMES) as BookFormat[]).map(fmt => (
+                        <div 
+                            key={fmt}
+                            style={{
+                                padding: '10px 16px',
+                                fontSize: 14,
+                                color: filterFormat === fmt ? '#d43d3d' : '#333',
+                                backgroundColor: filterFormat === fmt ? '#fffbfb' : 'transparent',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                fontWeight: filterFormat === fmt ? 500 : 400
+                            }}
+                            onClick={() => { setFilterFormat(fmt); setFilterMenuOpen(false); }}
+                        >
+                            {FORMAT_DISPLAY_NAMES[fmt]}
+                            {filterFormat === fmt && <span style={{ color: '#d43d3d', fontSize: 12 }}>✓</span>}
+                        </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+
             <button
               aria-label="搜索"
               title="搜索"

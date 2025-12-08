@@ -47,6 +47,36 @@ export interface IFileSystemService {
 }
 
 class TauriFileSystemService implements IFileSystemService {
+    async scanBookFiles(
+        rootPath?: string,
+        onProgress?: (scannedCount: number, foundCount: number) => void
+    ): Promise<FileEntry[]> {
+        const invoke = await getInvoke();
+
+        let unlistenFn: (() => void) | null = null;
+        if (onProgress) {
+            const { listen } = await import('@tauri-apps/api/event');
+            const unlisten = await listen('goread:scan:progress', (event: any) => {
+                const payload = event.payload as any;
+                const scanned = typeof payload.scanned === 'number' ? payload.scanned : 0;
+                const found = typeof payload.found === 'number' ? payload.found : 0;
+                onProgress(scanned, found);
+            });
+            unlistenFn = unlisten;
+        }
+
+        try {
+            const results = await invoke('scan_book_files', { rootPath });
+            return results.map((item: any) => ({
+                ...item,
+                type: item.type === 'dir' ? 'dir' : 'file',
+            }));
+        } finally {
+            if (unlistenFn) {
+                unlistenFn();
+            }
+        }
+    }
     async scanPdfFiles(
         rootPath?: string,
         onProgress?: (scannedCount: number, foundCount: number) => void
@@ -89,6 +119,15 @@ class TauriFileSystemService implements IFileSystemService {
     async listDirectory(path: string): Promise<FileEntry[]> {
         const invoke = await getInvoke();
         const results = await invoke('list_directory', { path });
+        return results.map((item: any) => ({
+            ...item,
+            type: item.type === 'dir' ? 'dir' : 'file',
+        }));
+    }
+
+    async listDirectorySupported(path: string): Promise<FileEntry[]> {
+        const invoke = await getInvoke();
+        const results = await invoke('list_directory_supported', { path });
         return results.map((item: any) => ({
             ...item,
             type: item.type === 'dir' ? 'dir' : 'file',
