@@ -1,4 +1,5 @@
 mod commands;
+mod formats;
 mod models;
 mod pdf;
 mod pdf_commands;
