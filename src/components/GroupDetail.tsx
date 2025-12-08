@@ -183,11 +183,11 @@ export const GroupDetail: React.FC<{
     }
   };
 
-  const confirmDelete = async () => {
+  const confirmDelete = async (deleteLocal?: boolean) => {
     try {
       const ids = Array.from(selectedBookIds);
       for (const bid of ids) {
-        await bookService.deleteBook(bid);
+        await bookService.deleteBook(bid, !!deleteLocal);
       }
       await reloadBooksAndGroups();
       exitSelection();
@@ -364,7 +364,7 @@ export const GroupDetail: React.FC<{
         context="group-detail"
         count={selectedBookIds.size}
         onCancel={() => setConfirmOpen(false)}
-        onConfirm={() => confirmDelete()}
+        onConfirm={(deleteLocal) => confirmDelete(deleteLocal)}
       />
     </div>
   );

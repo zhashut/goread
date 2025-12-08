@@ -73,7 +73,14 @@ pub async fn delete_group(group_id: i64, delete_local: bool, db: DbState<'_>) ->
                 .await?;
 
         for (p,) in paths {
-            let _ = tokio::fs::remove_file(&p).await;
+            match tokio::fs::remove_file(&p).await {
+                Ok(_) => {
+                    println!("[delete_group] Successfully deleted local file: {}", p);
+                }
+                Err(e) => {
+                    eprintln!("[delete_group] Failed to delete local file {}: {}", p, e);
+                }
+            }
         }
     }
 

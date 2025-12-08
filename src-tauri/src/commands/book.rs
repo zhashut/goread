@@ -215,8 +215,28 @@ pub async fn mark_book_opened(id: i64, db: DbState<'_>) -> Result<(), Error> {
 }
 
 #[tauri::command]
-pub async fn delete_book(id: i64, db: DbState<'_>) -> Result<(), Error> {
+pub async fn delete_book(id: i64, delete_local: bool, db: DbState<'_>) -> Result<(), Error> {
     let pool = db.lock().await;
+    
+    // If delete_local is true, delete the local file first
+    if delete_local {
+        let file_path: Option<String> = sqlx::query_scalar("SELECT file_path FROM books WHERE id = ?")
+            .bind(id)
+            .fetch_optional(&*pool)
+            .await?;
+        
+        if let Some(path) = file_path {
+            match tokio::fs::remove_file(&path).await {
+                Ok(_) => {
+                    println!("[delete_book] Successfully deleted local file: {}", path);
+                }
+                Err(e) => {
+                    eprintln!("[delete_book] Failed to delete local file {}: {}", path, e);
+                }
+            }
+        }
+    }
+    
     let old_group: Option<i64> = sqlx::query_scalar("SELECT group_id FROM books WHERE id = ?")
         .bind(id)
         .fetch_one(&*pool)
