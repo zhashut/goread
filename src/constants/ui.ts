@@ -38,3 +38,7 @@ export const TOP_BAR_TAB_PADDING_BOTTOM = 12; // 选项卡底部内边距（控�
 export const TOP_BAR_MARGIN_BOTTOM = 16; // 顶部栏下方间距
 export const TOP_BAR_ICON_GAP = 20; // 图标之间的间距
 export const BOTTOM_DRAWER_RADIUS = 16;
+
+// Markdown 默认封面配置
+export const MARKDOWN_COVER_PLACEHOLDER = "__MARKDOWN__";
+export const MARKDOWN_COVER_SCALE = 1.6;

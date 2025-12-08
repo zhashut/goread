@@ -1,4 +1,6 @@
 import React from "react";
+import MarkdownCover from "./MarkdownCover";
+import { MARKDOWN_COVER_PLACEHOLDER } from "../constants/ui";
 
 /**
  * 通用分组封面 2x2 网格，样式与“全部”栏目一致。
@@ -75,20 +77,24 @@ export const GroupCoverGrid: React.FC<{ covers: string[]; variant?: "default" | 
                   overflow: "hidden",
                 }}
               >
-                {img ? (
-                  <img
-                    src={`data:image/jpeg;base64,${img}`}
-                    alt={`cover-${idx}`}
-                    style={{
-                      width: "100%",
-                      height: "100%",
-                      objectFit: "cover",
-                      objectPosition: "center",
-                    }}
-                  />
-                ) : (
-                  <div style={{ width: "100%", height: "100%", background: "#fff" }} />
-                )}
+                {img
+                  ? img === MARKDOWN_COVER_PLACEHOLDER
+                    ? <MarkdownCover />
+                    : (
+                      <img
+                        src={`data:image/jpeg;base64,${img}`}
+                        alt={`cover-${idx}`}
+                        style={{
+                          width: "100%",
+                          height: "100%",
+                          objectFit: "cover",
+                          objectPosition: "center",
+                        }}
+                      />
+                    )
+                  : (
+                    <div style={{ width: "100%", height: "100%", background: "#fff" }} />
+                  )}
               </div>
             </div>
           );

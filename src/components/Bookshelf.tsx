@@ -30,6 +30,8 @@ import { bookService, groupService, getReaderSettings } from "../services";
 import { GroupDetail } from "./GroupDetail";
 import { BookCard } from "./BookCard";
 import GroupCoverGrid from "./GroupCoverGrid";
+import { MARKDOWN_COVER_PLACEHOLDER } from "../constants/ui";
+import { getBookFormat } from "../constants/fileTypes";
 import ImportProgressDrawer from "./ImportProgressDrawer";
 import ConfirmDeleteDrawer from "./ConfirmDeleteDrawer";
 import { DndContext, closestCenter, DragEndEvent } from "@dnd-kit/core";
@@ -617,10 +619,21 @@ export const Bookshelf: React.FC = () => {
           (groups || []).map(async (g) => {
             try {
               const list = await groupService.getBooksByGroup(g.id);
-              const covers = (list || [])
-                .filter((b) => !!b.cover_image)
-                .slice(0, 4)
-                .map((b) => b.cover_image as string);
+              const covers: string[] = [];
+              for (const b of list || []) {
+                if (covers.length >= 4) break;
+                if (b.cover_image) {
+                  covers.push(b.cover_image);
+                }
+              }
+              if (covers.length < 4) {
+                for (const b of list || []) {
+                  if (covers.length >= 4) break;
+                  if (!b.cover_image && getBookFormat(b.file_path) === "markdown") {
+                    covers.push(MARKDOWN_COVER_PLACEHOLDER);
+                  }
+                }
+              }
               return [g.id, covers] as [number, string[]];
             } catch {
               return [g.id, []] as [number, string[]];
