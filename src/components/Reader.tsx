@@ -130,9 +130,14 @@ export const Reader: React.FC = () => {
   // 优化工具实例
   const pageCacheRef = useRef<PageCacheManager>(new PageCacheManager(PAGE_CACHE_SIZE, PAGE_CACHE_MEMORY_LIMIT_MB));
   // 预加载图片资源缓存（显式管理 ImageBitmap，确保 App 端缓存有效性）
-  const preloadedBitmapsRef = useRef<Map<number, ImageBitmap>>(new Map());
+  // 键格式: `${bookId}:${pageNum}`，确保不同书籍的缓存完全隔离
+  const preloadedBitmapsRef = useRef<Map<string, ImageBitmap>>(new Map());
   // 预加载任务队列（Promise 复用，防止重复请求）
-  const preloadingTasksRef = useRef<Map<number, Promise<ImageBitmap>>>(new Map());
+  // 键格式: `${bookId}:${pageNum}`
+  const preloadingTasksRef = useRef<Map<string, Promise<ImageBitmap>>>(new Map());
+
+  // 生成缓存键，将书籍 ID 和页码组合，避免不同书籍的页面混淆
+  const makeCacheKey = (bookId: string, pageNum: number) => `${bookId}:${pageNum}`;
   const [verticalLazyReady, setVerticalLazyReady] = useState(false);
   // 书签提示气泡
   const [bookmarkToastVisible, setBookmarkToastVisible] = useState(false);
@@ -244,9 +249,19 @@ export const Reader: React.FC = () => {
     }
     pageCacheRef.current.clear();
     // 清理预加载的 Bitmap 资源
-    preloadedBitmapsRef.current.forEach(bmp => bmp.close && bmp.close());
-    preloadedBitmapsRef.current.clear();
-    preloadingTasksRef.current.clear();
+    // 清理其他书籍的缓存（保留当前书籍的缓存以便复用）
+    const currentPrefix = `${bookId}:`;
+    for (const [key, bmp] of preloadedBitmapsRef.current.entries()) {
+      if (!key.startsWith(currentPrefix)) {
+        bmp.close && bmp.close();
+        preloadedBitmapsRef.current.delete(key);
+      }
+    }
+    for (const key of preloadingTasksRef.current.keys()) {
+      if (!key.startsWith(currentPrefix)) {
+        preloadingTasksRef.current.delete(key);
+      }
+    }
     
     renderedPagesRef.current.clear();
     verticalCanvasRefs.current.clear();
@@ -326,14 +341,19 @@ export const Reader: React.FC = () => {
   const loadPageBitmap = async (pageNum: number): Promise<ImageBitmap> => {
     // 捕获当前书籍 ID，用于在异步操作期间检测书籍是否切换
     const capturedBookId = bookIdRef.current;
+    // 书籍 ID 无效时不进行缓存操作
+    if (!capturedBookId) {
+      return Promise.reject(new Error('无效的书籍 ID'));
+    }
+    const cacheKey = makeCacheKey(capturedBookId, pageNum);
     
     // 1. 缓存命中
-    if (preloadedBitmapsRef.current.has(pageNum)) {
-      return preloadedBitmapsRef.current.get(pageNum)!;
+    if (preloadedBitmapsRef.current.has(cacheKey)) {
+      return preloadedBitmapsRef.current.get(cacheKey)!;
     }
     // 2. 任务复用命中
-    if (preloadingTasksRef.current.has(pageNum)) {
-      return preloadingTasksRef.current.get(pageNum)!;
+    if (preloadingTasksRef.current.has(cacheKey)) {
+      return preloadingTasksRef.current.get(cacheKey)!;
     }
 
     // 3. 发起新任务
@@ -374,15 +394,15 @@ export const Reader: React.FC = () => {
         }
         
         // 存入缓存
-        preloadedBitmapsRef.current.set(pageNum, bitmap);
+        preloadedBitmapsRef.current.set(cacheKey, bitmap);
         return bitmap;
       } finally {
         // 任务完成（无论成功失败），从队列移除
-        preloadingTasksRef.current.delete(pageNum);
+        preloadingTasksRef.current.delete(cacheKey);
       }
     })();
 
-    preloadingTasksRef.current.set(pageNum, task);
+    preloadingTasksRef.current.set(cacheKey, task);
     return task;
   };
 
@@ -564,8 +584,11 @@ export const Reader: React.FC = () => {
           
           // 渲染后从预加载缓存中移除（因为即将转为 ImageData 缓存到 pageCacheRef）
           // 注意：loadPageBitmap 会自动 set 到 preloadedBitmapsRef，这里取出后清理以释放内存
-          if (preloadedBitmapsRef.current.has(pageNum)) {
-            preloadedBitmapsRef.current.delete(pageNum);
+          if (capturedBookId) {
+            const cacheKey = makeCacheKey(capturedBookId, pageNum);
+            if (preloadedBitmapsRef.current.has(cacheKey)) {
+              preloadedBitmapsRef.current.delete(cacheKey);
+            }
           }
         } catch (error) {
           log(`[renderPage] 页面 ${pageNum} 加载失败: ${error}`, 'error');
