@@ -74,6 +74,18 @@ export type PageContent =
   | { type: 'html'; content: string; resources?: Record<string, string> }
   | { type: 'text'; content: string; encoding?: string };
 
+/** 渲染器能力标识 */
+export interface RendererCapabilities {
+  /** 是否支持位图渲染（Canvas + ImageBitmap，用于 PDF 等固定布局格式） */
+  supportsBitmap: boolean;
+  /** 是否支持 DOM 渲染（HTML 内容，用于 Markdown/EPUB 等流式布局格式） */
+  supportsDomRender: boolean;
+  /** 是否支持分页（PDF 有多页，Markdown 通常为单页滚动） */
+  supportsPagination: boolean;
+  /** 是否支持搜索 */
+  supportsSearch: boolean;
+}
+
 /**
  * 书籍渲染器统一接口
  * 所有格式的渲染器都需实现此接口
@@ -84,6 +96,9 @@ export interface IBookRenderer {
   
   /** 是否就绪 */
   readonly isReady: boolean;
+
+  /** 渲染器能力标识 */
+  readonly capabilities: RendererCapabilities;
 
   /** 加载文档 */
   loadDocument(filePath: string): Promise<BookInfo>;

@@ -11,6 +11,7 @@ import {
   RenderOptions,
   SearchResult,
   PageContent,
+  RendererCapabilities,
 } from '../types';
 import { registerRenderer } from '../registry';
 
@@ -20,10 +21,10 @@ async function getInvoke() {
   return invoke;
 }
 
-/** 后端目录项格式 */
+/** 后端目录项格式（使用 serde untagged，location 直接是 string 或 number） */
 interface BackendTocItem {
   title: string;
-  location: { Href: string } | { Page: number };
+  location: string | number;
   level: number;
   children: BackendTocItem[];
 }
@@ -54,6 +55,14 @@ interface BackendSearchResult {
  */
 export class MarkdownRenderer implements IBookRenderer {
   readonly format: BookFormat = 'markdown';
+  
+  /** Markdown 支持 DOM 渲染，不支持位图和分页 */
+  readonly capabilities: RendererCapabilities = {
+    supportsBitmap: false,
+    supportsDomRender: true,
+    supportsPagination: false, // 单页滚动
+    supportsSearch: true,
+  };
   
   private _isReady = false;
   private _filePath = '';
@@ -103,7 +112,7 @@ export class MarkdownRenderer implements IBookRenderer {
   private _convertToc(items: BackendTocItem[]): TocItem[] {
     return items.map((item) => ({
       title: item.title,
-      location: 'Href' in item.location ? item.location.Href : item.location.Page,
+      location: item.location, // 后端 untagged 格式，直接是 string 或 number
       level: item.level,
       children: item.children ? this._convertToc(item.children) : [],
     }));
@@ -183,7 +192,17 @@ export class MarkdownRenderer implements IBookRenderer {
     // 创建 React 根元素
     const root = document.createElement('div');
     root.id = this._previewId;
-    root.style.cssText = 'width: 100%; height: 100%; overflow-y: auto;';
+    root.style.cssText = `
+      width: 100%;
+      height: 100%;
+      overflow-y: auto;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+    `;
+    // 隐藏 WebKit 浏览器滚动条
+    const style = document.createElement('style');
+    style.textContent = `#${this._previewId}::-webkit-scrollbar { display: none; }`;
+    root.appendChild(style);
     container.appendChild(root);
 
     // 动态导入 md-editor-rt 和 React
@@ -197,10 +216,9 @@ export class MarkdownRenderer implements IBookRenderer {
     // 导入样式
     await import('md-editor-rt/lib/preview.css');
 
-    // 确定主题
-    const theme = options?.theme || 'light';
-    const previewTheme = theme === 'dark' ? 'github' : 'default';
-    const codeTheme = theme === 'dark' ? 'atom' : 'github';
+    // 使用 GitHub 主题，白色背景，黑色字体
+    const previewTheme = 'github';
+    const codeTheme = 'github';
 
     // 创建 React root 并渲染
     const reactRoot = ReactDOM.createRoot(root);
@@ -214,8 +232,10 @@ export class MarkdownRenderer implements IBookRenderer {
         modelValue: this._content,
         previewTheme,
         codeTheme,
+        theme: 'light', // 强制使用亮色主题
         style: {
-          backgroundColor: 'transparent',
+          backgroundColor: '#ffffff',
+          color: '#24292e',
           fontSize: `${fontSize}px`,
           lineHeight: options?.lineHeight || 1.6,
           fontFamily: options?.fontFamily || 'inherit',
@@ -230,6 +250,9 @@ export class MarkdownRenderer implements IBookRenderer {
    */
   private _renderFallback(container: HTMLElement, options?: RenderOptions): void {
     const wrapper = document.createElement('div');
+    const wrapperId = `md-fallback-${Date.now()}`;
+    wrapper.id = wrapperId;
+    // 默认使用白色背景、黑色字体（GitHub 风格），隐藏滚动条
     wrapper.style.cssText = `
       width: 100%;
       height: 100%;
@@ -238,20 +261,16 @@ export class MarkdownRenderer implements IBookRenderer {
       box-sizing: border-box;
       font-size: ${options?.fontSize || 16}px;
       line-height: ${options?.lineHeight || 1.6};
-      font-family: ${options?.fontFamily || 'inherit'};
+      font-family: ${options?.fontFamily || '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif'};
+      background-color: #ffffff;
+      color: #24292e;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
     `;
-
-    // 应用主题
-    if (options?.theme === 'dark') {
-      wrapper.style.backgroundColor = '#1a1a1a';
-      wrapper.style.color = '#e0e0e0';
-    } else if (options?.theme === 'sepia') {
-      wrapper.style.backgroundColor = '#f4ecd8';
-      wrapper.style.color = '#5b4636';
-    } else {
-      wrapper.style.backgroundColor = '#ffffff';
-      wrapper.style.color = '#333333';
-    }
+    // 隐藏 WebKit 浏览器滚动条
+    const style = document.createElement('style');
+    style.textContent = `#${wrapperId}::-webkit-scrollbar { display: none; }`;
+    wrapper.appendChild(style);
 
     // 简单的 Markdown 转 HTML
     const html = this._simpleMarkdownToHtml(this._content);

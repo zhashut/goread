@@ -35,6 +35,7 @@ import { MoreDrawer } from "./reader/MoreDrawer";
 import { CropOverlay } from "./reader/CropOverlay";
 import { TocNode } from "./reader/types";
 import { IBookRenderer, getBookFormat, createRenderer, isFormatSupported } from "../services/formats";
+import { logError } from "../services";
 
 const findActiveNodeSignature = (
   current: number,
@@ -106,6 +107,10 @@ export const Reader: React.FC = () => {
   const [readingMode, setReadingMode] = useState<"horizontal" | "vertical">(
     "horizontal"
   );
+  // 是否使用 DOM 渲染（Markdown 等格式，非 Canvas 位图渲染）
+  const [isDomRender, setIsDomRender] = useState(false);
+  // DOM 渲染容器引用
+  const domContainerRef = useRef<HTMLDivElement>(null);
   // 自动滚动：状态与计时器
   const [autoScroll, setAutoScroll] = useState(false);
   const autoScrollTimerRef = useRef<number | null>(null);
@@ -421,7 +426,7 @@ export const Reader: React.FC = () => {
       setBook(targetBook);
       setCurrentPage(targetBook.current_page);
       setTotalPages(targetBook.total_pages);
-
+      
       // 打开即记录最近阅读时间（不依赖进度变化）
       try {
         await bookService.markBookOpened(targetBook.id);
@@ -459,15 +464,16 @@ export const Reader: React.FC = () => {
       const renderer = createRenderer(targetBook.file_path);
       rendererRef.current = renderer;
       
+      // 根据渲染器能力决定是否使用 DOM 渲染
+      const useDomRender = renderer.capabilities.supportsDomRender && !renderer.capabilities.supportsBitmap;
+      setIsDomRender(useDomRender);
+      
       const bookInfo = await renderer.loadDocument(targetBook.file_path);
       const pageCount = Math.max(1, bookInfo.pageCount ?? targetBook.total_pages ?? 1);
       
       setTotalPages(pageCount);
       setLoading(false);
 
-      // 不在这里直接渲染，而是通过 useEffect 监听 loading 状态变化后再渲染
-      // 这样可以确保 DOM 已经准备好
-      
       // 后台加载目录和书签（不阻塞首屏显示）
       // 加载目录（Outline）——通过渲染器接口获取
       Promise.resolve().then(async () => {
@@ -495,7 +501,6 @@ export const Reader: React.FC = () => {
           }
         } catch (e) {
           try {
-            const { logError } = await import("../services/index");
             await logError('pdf_get_outline failed', { error: String(e), filePath: targetBook.file_path });
           } catch {}
           setToc([]);
@@ -515,7 +520,7 @@ export const Reader: React.FC = () => {
 
 
     } catch (error) {
-      console.error("Failed to load book:", error);
+      await logError('加载书籍失败 failed', { error: String(error) });
       alert("加载书籍失败");
     }
   };
@@ -967,13 +972,49 @@ export const Reader: React.FC = () => {
     }
   }, [readingMode]);
 
-  // 首次加载完成后，立即渲染当前页（横向和纵向模式）
+  // 首次加载完成后，立即渲染当前页（横向、纵向和 DOM 渲染模式）
   useEffect(() => {
     if (loading || !book || totalPages === 0) return;
     
-    log(`[Reader] 开始首次渲染，模式: ${readingMode}, 当前页: ${currentPage}`);
+    log(`[Reader] 开始首次渲染，模式: ${readingMode}, DOM渲染: ${isDomRender}, 当前页: ${currentPage}`);
     
     const renderInitial = async () => {
+      // DOM 渲染模式（Markdown 等格式）
+      if (isDomRender) {
+        const renderer = rendererRef.current;
+        if (!renderer) {
+          log('[Reader] DOM渲染模式: 渲染器未初始化');
+          return;
+        }
+        
+        // 等待 DOM 容器准备好
+        const waitForContainer = () => {
+          return new Promise<void>((resolve) => {
+            const checkContainer = () => {
+              if (domContainerRef.current) {
+                log('[Reader] DOM渲染容器已准备好');
+                resolve();
+              } else {
+                setTimeout(checkContainer, 50);
+              }
+            };
+            checkContainer();
+          });
+        };
+        
+        await waitForContainer();
+        
+        // 使用渲染器的 renderPage 方法直接渲染到容器
+        try {
+          log('[Reader] 开始 DOM 渲染');
+          await renderer.renderPage(1, domContainerRef.current!, {});
+          log('[Reader] DOM 渲染完成');
+        } catch (e) {
+          console.error('[Reader] DOM 渲染失败:', e);
+        }
+        return;
+      }
+      
       if (readingMode === "horizontal") {
         // 横向模式：等待 canvas 准备好后渲染
         const waitForCanvas = () => {
@@ -1053,7 +1094,7 @@ export const Reader: React.FC = () => {
     
     // 立即执行
     renderInitial();
-  }, [loading, book, totalPages, readingMode]);
+}, [loading, book, totalPages, readingMode, isDomRender]);
 
   // 纵向模式：滚动时动态更新当前页（以视口中心线为准；不进行程序化对齐）
   useEffect(() => {
@@ -1340,7 +1381,19 @@ export const Reader: React.FC = () => {
           }}
           ref={mainViewRef}
         >
-          {readingMode === "horizontal" ? (
+          {/* DOM 渲染模式（Markdown 等格式） */}
+          {isDomRender ? (
+            <div
+              ref={domContainerRef}
+              className="no-scrollbar"
+              style={{
+                width: "100%",
+                height: "100%",
+                overflowY: "auto",
+                backgroundColor: '#1a1a1a',
+              }}
+            />
+          ) : readingMode === "horizontal" ? (
             <canvas
               ref={canvasRef}
               width={800}

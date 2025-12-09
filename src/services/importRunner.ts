@@ -1,5 +1,103 @@
 import { bookService, groupService } from "./index";
 import { pathToTitle, waitNextFrame } from "./importUtils";
+import { getBookFormat, BookFormat } from "./formats";
+
+// 格式特定的导入结果
+interface ImportResult {
+  info: any;
+  coverImage: string | undefined;
+  totalPages: number;
+}
+
+// PDF 格式导入
+async function importPdfBook(filePath: string, invoke: any, logError: any): Promise<ImportResult> {
+  let info: any = null;
+  try {
+    info = await (await invoke)('pdf_load_document', { filePath });
+  } catch (err) {
+    await logError('pdf_load_document failed during import', { error: String(err), filePath });
+  }
+
+  let coverImage: string | undefined = undefined;
+  try {
+    const dataUrl: string = await (await invoke)('pdf_render_page_base64', {
+      filePath,
+      pageNumber: 1,
+      quality: 'thumbnail',
+      width: 256,
+      height: null,
+    });
+    const img = new Image();
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = (e) => reject(e);
+      img.src = dataUrl;
+    });
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d")!;
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    context.drawImage(img, 0, 0);
+    coverImage = canvas.toDataURL("image/jpeg", 0.8).split(",")[1];
+  } catch (err) {
+    await logError('pdf_render_page_base64 failed during import', { error: String(err), filePath });
+  }
+
+  const totalPages = Math.max(1, Number(info?.info?.page_count ?? 0));
+
+  // Warmup cache for PDF
+  try {
+    await (await invoke)('pdf_warmup_cache', {
+      filePath,
+      strategy: 'first_pages',
+      pageCount: 5,
+    });
+  } catch (err) {
+    await logError('pdf_warmup_cache failed during import', { error: String(err), filePath });
+  }
+
+  return { info, coverImage, totalPages };
+}
+
+// Markdown 格式导入
+async function importMarkdownBook(filePath: string, invoke: any, logError: any): Promise<ImportResult> {
+  let info: any = null;
+  try {
+    info = await (await invoke)('markdown_load_document', { filePath });
+  } catch (err) {
+    await logError('markdown_load_document failed during import', { error: String(err), filePath });
+  }
+
+  // Markdown currently doesn't support cover image extraction
+  // totalPages is always 1 for markdown (single scrollable document)
+  return {
+    info: { title: info?.title },
+    coverImage: undefined,
+    totalPages: 1,
+  };
+}
+
+// Generic import handler that dispatches by format
+async function importByFormat(
+  filePath: string,
+  format: BookFormat,
+  invoke: any,
+  logError: any
+): Promise<ImportResult> {
+  switch (format) {
+    case 'pdf':
+      return await importPdfBook(filePath, invoke, logError);
+    case 'markdown':
+      return await importMarkdownBook(filePath, invoke, logError);
+    // Future formats can be added here
+    // case 'epub':
+    //   return await importEpubBook(filePath, invoke, logError);
+    default:
+      // Fallback: try PDF import for unknown formats
+      await logError('Unsupported format, falling back to PDF import', { format, filePath });
+      return await importPdfBook(filePath, invoke, logError);
+  }
+}
 
 // 运行导入到已存在分组，并同步导入进度到 UI（标题/进度）
 export const importPathsToExistingGroup = async (
@@ -42,38 +140,16 @@ export const importPathsToExistingGroup = async (
 
     const invoke = await import("../services/index").then(m => m.getInvoke());
     const { logError } = await import('./index');
-    let info: any = null;
-    try {
-      info = await (await invoke)('pdf_load_document', { filePath });
-    } catch (err) {
-      await logError('pdf_load_document failed during import', { error: String(err), filePath });
+
+    // Detect format and import accordingly
+    const format = getBookFormat(filePath);
+    if (!format) {
+      await logError('Unsupported file format, skipping', { filePath });
+      continue;
     }
-    let coverImage: string | undefined = undefined;
-    try {
-      const dataUrl: string = await (await invoke)('pdf_render_page_base64', {
-        filePath,
-        pageNumber: 1,
-        quality: 'thumbnail',
-        width: 256,
-        height: null,
-      });
-      const img = new Image();
-      await new Promise<void>((resolve, reject) => {
-        img.onload = () => resolve();
-        img.onerror = (e) => reject(e);
-        img.src = dataUrl;
-      });
-      const canvas = document.createElement("canvas");
-      const context = canvas.getContext("2d")!;
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      context.drawImage(img, 0, 0);
-      coverImage = canvas.toDataURL("image/jpeg", 0.8).split(",")[1];
-    } catch (err) {
-      await logError('pdf_render_page_base64 failed during import', { error: String(err), filePath });
-    }
+    const { coverImage, totalPages } = await importByFormat(filePath, format, invoke, logError);
+
     const title = pathToTitle(filePath) || "Unknown";
-    const totalPages = Math.max(1, Number(info?.info?.page_count ?? 0));
     const saved = await bookService.addBook(
       filePath,
       title,
@@ -81,18 +157,6 @@ export const importPathsToExistingGroup = async (
       totalPages,
     );
     await groupService.moveBookToGroup(saved.id, groupId);
-    
-    // 预热缓存：导入时预渲染前5页，提升首次打开速度
-    try {
-      await (await invoke)('pdf_warmup_cache', {
-        filePath,
-        strategy: 'first_pages',
-        pageCount: 5,
-      });
-    } catch (err) {
-      // 预热失败不影响导入流程
-      await logError('pdf_warmup_cache failed during import', { error: String(err), filePath });
-    }
 
     // 完成一册后同步进度与标题
     window.dispatchEvent(

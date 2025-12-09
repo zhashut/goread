@@ -12,6 +12,7 @@ import {
   RenderOptions,
   SearchResult,
   PageContent,
+  RendererCapabilities,
 } from '../types';
 import { registerRenderer } from '../registry';
 
@@ -33,6 +34,14 @@ interface OutlineNode {
  */
 export class PdfRenderer implements IBookRenderer {
   readonly format: BookFormat = 'pdf';
+  
+  /** PDF 支持位图渲染和分页 */
+  readonly capabilities: RendererCapabilities = {
+    supportsBitmap: true,
+    supportsDomRender: false,
+    supportsPagination: true,
+    supportsSearch: false, // 后端暂未实现搜索
+  };
   
   private _isReady = false;
   private _filePath = '';
