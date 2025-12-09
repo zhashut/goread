@@ -9,7 +9,7 @@ interface TocOverlayProps {
   bookmarks: IBookmark[];
   activeSignature?: string | undefined;
   onClose: () => void;
-  onGoToPage: (page: number) => void;
+  onGoToPage: (page: number | undefined, anchor?: string) => void;
   onDeleteBookmark: (id: number) => void;
   setToc: (toc: TocNode[]) => void; // 用于展开/折叠
 }
@@ -110,19 +110,20 @@ export const TocOverlay: React.FC<TocOverlayProps> = ({
             <span
               onClick={(e) => {
                 e.stopPropagation();
-                if (typeof node.page === "number") {
-                  onGoToPage(node.page);
+                // 支持页码跳转和锚点跳转（Markdown 等格式）
+                if (typeof node.page === "number" || node.anchor) {
+                  onGoToPage(node.page, node.anchor);
                 }
               }}
               style={{
                 fontSize: "13px",
                 color: isActive ? "#d15158" : "#ffffff",
-                cursor: typeof node.page === "number" ? "pointer" : "default",
+                cursor: (typeof node.page === "number" || node.anchor) ? "pointer" : "default",
               }}
             >
               {node.title}
             </span>
-            {typeof node.page === "number" && (
+            {typeof node.page === "number" && !node.anchor && (
               <span style={{ fontSize: "12px", opacity: 0.7, marginLeft: 6 }}>
                 第 {node.page} 页
               </span>

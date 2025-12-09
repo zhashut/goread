@@ -35,7 +35,9 @@ import { MoreDrawer } from "./reader/MoreDrawer";
 import { CropOverlay } from "./reader/CropOverlay";
 import { TocNode } from "./reader/types";
 import { IBookRenderer, getBookFormat, createRenderer, isFormatSupported } from "../services/formats";
+import { MarkdownRenderer } from "../services/formats/markdown/MarkdownRenderer";
 import { logError } from "../services";
+import html2canvas from "html2canvas";
 
 const findActiveNodeSignature = (
   current: number,
@@ -156,12 +158,35 @@ export const Reader: React.FC = () => {
   const [cropMode, setCropMode] = useState(false);
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [activeNodeSignature, setActiveNodeSignature] = useState<string | undefined>(undefined);
+   const domRestoreDoneRef = useRef(false);
+   const savedPageAtOpenRef = useRef<number>(1);
+
+  // 当书籍切换时重置恢复标志
+  useEffect(() => {
+    domRestoreDoneRef.current = false;
+  }, [bookId]);
+
+  useEffect(() => {
+    savedPageAtOpenRef.current = (book?.current_page || 1);
+  }, [book?.id]);
+
 
   const handleCapture = async () => {
     let dataUrl = "";
     try {
       const dpr = getCurrentScale();
-      if (readingMode === "horizontal") {
+      
+      // DOM 渲染模式（Markdown 等格式）：使用 html2canvas 截图
+      if (isDomRender) {
+        if (domContainerRef.current) {
+          const canvas = await html2canvas(domContainerRef.current, {
+            scale: dpr,
+            useCORS: true,
+            backgroundColor: '#ffffff',
+          });
+          dataUrl = canvas.toDataURL("image/png");
+        }
+      } else if (readingMode === "horizontal") {
         if (canvasRef.current) {
           dataUrl = canvasRef.current.toDataURL("image/png");
         }
@@ -484,6 +509,8 @@ export const Reader: React.FC = () => {
             return items.map((item) => ({
               title: item.title,
               page: typeof item.location === 'number' ? item.location : undefined,
+              // 保留字符串类型的 location 作为 anchor（Markdown 等格式）
+              anchor: typeof item.location === 'string' ? item.location : undefined,
               children: item.children ? toTocNode(item.children) : [],
               expanded: false,
             }));
@@ -687,7 +714,16 @@ export const Reader: React.FC = () => {
 
     setCurrentPage(pageNum);
     currentPageRef.current = pageNum;
-    if (readingMode === "horizontal") {
+    if (isDomRender) {
+      const renderer = rendererRef.current;
+      if (renderer && renderer instanceof MarkdownRenderer) {
+        const scrollContainer = renderer.getScrollContainer();
+        if (scrollContainer) {
+          const viewportHeight = scrollContainer.clientHeight;
+          renderer.scrollToVirtualPage(pageNum, viewportHeight);
+        }
+      }
+    } else if (readingMode === "horizontal") {
       await renderPage(pageNum, true);
     } else {
       // 纵向模式：滚动到对应页的 canvas
@@ -1007,8 +1043,23 @@ export const Reader: React.FC = () => {
         // 使用渲染器的 renderPage 方法直接渲染到容器
         try {
           log('[Reader] 开始 DOM 渲染');
-          await renderer.renderPage(1, domContainerRef.current!, {});
+          await renderer.renderPage(1, domContainerRef.current!, { initialVirtualPage: book?.current_page || 1 });
           log('[Reader] DOM 渲染完成');
+          // 刷新目录（MdCatalog 提取的目录）
+          try {
+            const items = await renderer.getToc();
+            const toTocNode = (list: any[]): TocNode[] => {
+              return (list || []).map((item: any) => ({
+                title: String(item?.title || ''),
+                page: typeof item?.location === 'number' ? item.location : undefined,
+                anchor: typeof item?.location === 'string' ? item.location : undefined,
+                children: item?.children ? toTocNode(item.children) : [],
+                expanded: false,
+              }));
+            };
+            const nodes = toTocNode(items as any);
+            if (nodes.length > 0) setToc(nodes);
+          } catch {}
         } catch (e) {
           console.error('[Reader] DOM 渲染失败:', e);
         }
@@ -1209,6 +1260,153 @@ export const Reader: React.FC = () => {
     };
   }, [readingMode, book, isSeeking, totalPages, loading, toc]);
 
+  // DOM 渲染模式（Markdown）滚动监听：计算虚拟页码和进度
+  useEffect(() => {
+    if (!isDomRender || loading || !book) return;
+    
+    const renderer = rendererRef.current;
+    if (!renderer || !(renderer instanceof MarkdownRenderer)) return;
+    
+    // 延迟绑定，确保 md-editor-rt 渲染完成
+    let cleanup: (() => void) | null = null;
+    let attempts = 0;
+    const maxAttempts = 10;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    
+    const setupScrollListener = (): (() => void) | null => {
+      const scrollContainer = renderer.getScrollContainer();
+      if (!scrollContainer) return null;
+      
+      // 检查内容是否已渲染（scrollHeight > clientHeight 表示有可滚动内容）
+      if (scrollContainer.scrollHeight <= scrollContainer.clientHeight + 10) {
+        // 内容可能还未渲染完成，继续等待
+        return null;
+      }
+      
+      let rafId: number | null = null;
+      let lastPage = currentPage;
+      let lastTotalPages = totalPages;
+      
+      const handleScroll = () => {
+        if (rafId !== null) return;
+        rafId = requestAnimationFrame(() => {
+          rafId = null;
+          const viewportHeight = scrollContainer.clientHeight;
+          if (viewportHeight <= 0) return;
+          
+          // 再次检查内容高度，防止在渲染未完成或被清空时错误计算
+          if (scrollContainer.scrollHeight <= viewportHeight + 10) return;
+
+          const virtualTotalPages = renderer.calculateVirtualPages(viewportHeight);
+          const virtualCurrentPage = renderer.getCurrentVirtualPage(scrollContainer.scrollTop, viewportHeight);          
+          // 更新总页数（仅当页数大于1时更新，避免初始状态异常）
+          if (virtualTotalPages !== totalPages && virtualTotalPages > 1) {
+            setTotalPages(virtualTotalPages);
+            if (book && virtualTotalPages !== lastTotalPages) {
+              lastTotalPages = virtualTotalPages;
+              bookService.updateBookTotalPages(book.id!, virtualTotalPages).catch(() => {});
+            }
+          }
+          
+          const canUpdatePage = (
+            scrollContainer.scrollTop > 0 || savedPageAtOpenRef.current === 1 || domRestoreDoneRef.current
+          );
+          if (canUpdatePage && virtualCurrentPage !== lastPage) {
+            lastPage = virtualCurrentPage;
+            setCurrentPage(virtualCurrentPage);
+            if (book) {
+              bookService.updateBookProgress(book.id!, virtualCurrentPage).catch(() => {});
+            }
+          }
+
+          // 计算 Markdown 目录高亮
+          try {
+            const centerY = scrollContainer.scrollTop + (scrollContainer.clientHeight * 0.5);
+            const headings = Array.from(scrollContainer.querySelectorAll('h1,h2,h3,h4,h5,h6')) as HTMLElement[];
+            if (headings.length > 0) {
+              let bestIdx = 0;
+              let bestDist = Infinity;
+              for (let i = 0; i < headings.length; i++) {
+                const h = headings[i];
+                const top = h.offsetTop;
+                const bottom = top + h.offsetHeight;
+                const dist = (centerY >= top && centerY <= bottom) ? 0 : Math.min(Math.abs(centerY - top), Math.abs(centerY - bottom));
+                if (dist < bestDist) { bestDist = dist; bestIdx = i; }
+              }
+              const anchor = `heading-${bestIdx}`;
+              const findByAnchor = (nodes: TocNode[], level: number): { title: string; level: number } | null => {
+                for (const n of nodes) {
+                  if (n.anchor === anchor) return { title: n.title, level };
+                  if (n.children) {
+                    const r = findByAnchor(n.children, level + 1);
+                    if (r) return r;
+                  }
+                }
+                return null;
+              };
+              const found = findByAnchor(toc, 0);
+              if (found) {
+                const sig = `${found.title}|-1|${found.level}`;
+                if (sig !== activeNodeSignature) setActiveNodeSignature(sig);
+              }
+            }
+          } catch {}
+        });
+      };
+      
+      scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
+      handleScroll();
+      
+      return () => {
+        scrollContainer.removeEventListener('scroll', handleScroll);
+        if (rafId !== null) {
+          cancelAnimationFrame(rafId);
+        }
+      };
+    };
+    
+    const trySetup = () => {
+      cleanup = setupScrollListener();
+      if (!cleanup && attempts < maxAttempts) {
+        attempts++;
+        timeoutId = setTimeout(trySetup, 300);
+      }
+    };
+    
+    // 初始延迟，等待 React 渲染完成
+    timeoutId = setTimeout(trySetup, 500);
+    
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      if (cleanup) cleanup();
+    };
+  }, [isDomRender, book, loading, totalPages]);
+
+  useEffect(() => {
+    if (!isDomRender || !book || loading) return;
+    const renderer = rendererRef.current;
+    if (!renderer || !(renderer instanceof MarkdownRenderer)) return;
+    let attempts = 0;
+    const maxAttempts = 50;
+    const check = () => {
+      const sc = renderer.getScrollContainer();
+      if (!sc) { schedule(); return; }
+      const vh = sc.clientHeight;
+      if (vh <= 0) { schedule(); return; }
+      const vt = renderer.calculateVirtualPages(vh);
+      if (vt > 1 && vt !== totalPages) {
+        setTotalPages(vt);
+        bookService.updateBookTotalPages(book.id!, vt).catch(() => {});
+      } else {
+        schedule();
+      }
+    };
+    const schedule = () => { attempts++; if (attempts < maxAttempts) setTimeout(check, 100); };
+    setTimeout(check, 150);
+  }, [isDomRender, book?.id, loading]);
+
+  
+
   // 自动滚动：根据阅读模式分别处理（横向自动翻页，纵向持续滚动）
   useEffect(() => {
     const stopAll = () => {
@@ -1240,9 +1438,24 @@ export const Reader: React.FC = () => {
         await goToPage(currentPage + 1);
       }, AUTO_PAGE_INTERVAL_MS);
     } else {
-      // 纵向：持续向下滚动
+      // 纵向或 DOM 渲染模式：持续向下滚动
       stopAll();
-      const el = verticalScrollRef.current || mainViewRef.current;
+      // 根据渲染模式选择正确的滚动容器
+      let el: HTMLElement | null = null;
+      if (isDomRender) {
+        // Markdown DOM 渲染：使用渲染器提供的实际滚动容器
+        const renderer = rendererRef.current;
+        if (renderer && renderer instanceof MarkdownRenderer) {
+          el = renderer.getScrollContainer();
+        }
+        // 降级到外层容器
+        if (!el) {
+          el = domContainerRef.current;
+        }
+      } else {
+        // 其他格式纵向模式
+        el = verticalScrollRef.current || mainViewRef.current;
+      }
       if (!el) return () => stopAll();
       const speed = settings.scrollSpeed || DEFAULT_SCROLL_SPEED_PX_PER_SEC;
       const step = () => {
@@ -1250,13 +1463,13 @@ export const Reader: React.FC = () => {
           stopAll();
           return;
         }
-        const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 2;
+        const atBottom = el!.scrollTop + el!.clientHeight >= el!.scrollHeight - 2;
         if (atBottom) {
           stopAll();
           setAutoScroll(false);
           return;
         }
-        el.scrollTop = el.scrollTop + speed / 60; // 约 60fps
+        el!.scrollTop = el!.scrollTop + speed / 60; // 约 60fps
         autoScrollRafRef.current = requestAnimationFrame(step);
       };
       autoScrollRafRef.current = requestAnimationFrame(step);
@@ -1266,6 +1479,7 @@ export const Reader: React.FC = () => {
   }, [
     autoScroll,
     readingMode,
+    isDomRender,
     currentPage,
     totalPages,
     tocOverlayOpen,
@@ -1497,8 +1711,13 @@ export const Reader: React.FC = () => {
           setTocOverlayOpen(false);
           setUiVisible(false);
         }}
-        onGoToPage={(page) => {
-          goToPage(page);
+        onGoToPage={(page, anchor) => {
+          // 支持锚点跳转（Markdown 等 DOM 渲染格式）
+          if (anchor && isDomRender && rendererRef.current) {
+            (rendererRef.current as any).scrollToAnchor?.(anchor);
+          } else if (typeof page === 'number') {
+            goToPage(page);
+          }
           setTocOverlayOpen(false);
           setUiVisible(false);
         }}

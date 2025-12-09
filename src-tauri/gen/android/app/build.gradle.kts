@@ -29,9 +29,9 @@ android {
     signingConfigs {
         create("release") {
             storeFile = file("release-key.keystore")
-            storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "zhashut@goread"
+            storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "123456"
             keyAlias = System.getenv("KEY_ALIAS") ?: "goread"
-            keyPassword = System.getenv("KEY_PASSWORD") ?: "zhashut@goread"
+            keyPassword = System.getenv("KEY_PASSWORD") ?: "123456"
         }
     }
     

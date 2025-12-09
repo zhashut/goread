@@ -48,6 +48,8 @@ export interface RenderOptions {
   lineHeight?: number;
   /** 字体 */
   fontFamily?: string;
+  /** 初始虚拟页（Markdown 用） */
+  initialVirtualPage?: number;
 }
 
 /** 搜索结果 */

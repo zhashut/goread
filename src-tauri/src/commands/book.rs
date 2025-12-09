@@ -205,6 +205,25 @@ pub async fn update_book_progress(
 }
 
 #[tauri::command]
+pub async fn update_book_total_pages(
+    id: i64,
+    total_pages: u32,
+    db: DbState<'_>,
+) -> Result<(), Error> {
+    let pool = db.lock().await;
+
+    sqlx::query(
+        "UPDATE books SET total_pages = ? WHERE id = ?",
+    )
+    .bind(total_pages as i64)
+    .bind(id)
+    .execute(&*pool)
+    .await?;
+
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn mark_book_opened(id: i64, db: DbState<'_>) -> Result<(), Error> {
     let pool = db.lock().await;
     sqlx::query("UPDATE books SET last_read_time = strftime('%s', 'now') WHERE id = ?")

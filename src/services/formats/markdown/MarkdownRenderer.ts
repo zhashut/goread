@@ -73,6 +73,7 @@ export class MarkdownRenderer implements IBookRenderer {
   private _currentContainer: HTMLElement | null = null;
   private _reactRoot: any = null;
   private _previewId = `md-preview-${Date.now()}`;
+  private _editorId = `md-editor-${Date.now()}`;
 
   get isReady(): boolean {
     return this._isReady;
@@ -110,12 +111,37 @@ export class MarkdownRenderer implements IBookRenderer {
    * 将后端目录格式转换为前端格式
    */
   private _convertToc(items: BackendTocItem[]): TocItem[] {
-    return items.map((item) => ({
+    const flat = (items || []).map((item) => ({
       title: item.title,
-      location: item.location, // 后端 untagged 格式，直接是 string 或 number
+      location: item.location,
       level: item.level,
-      children: item.children ? this._convertToc(item.children) : [],
     }));
+    return this._buildTocHierarchy(flat);
+  }
+
+  private _buildTocHierarchy(
+    flat: Array<{ title: string; location: string | number; level: number }>
+  ): TocItem[] {
+    const root: TocItem[] = [];
+    const stack: Array<TocItem & { children: TocItem[] }> = [];
+    for (const it of flat) {
+      const node: TocItem & { children: TocItem[] } = {
+        title: it.title,
+        location: it.location,
+        level: it.level,
+        children: [],
+      };
+      while (stack.length && stack[stack.length - 1].level >= node.level) {
+        stack.pop();
+      }
+      if (stack.length === 0) {
+        root.push(node);
+      } else {
+        stack[stack.length - 1].children.push(node);
+      }
+      stack.push(node);
+    }
+    return root;
   }
 
   /**
@@ -195,6 +221,7 @@ export class MarkdownRenderer implements IBookRenderer {
     root.style.cssText = `
       width: 100%;
       height: 100%;
+      position: relative;
       overflow-y: auto;
       scrollbar-width: none;
       -ms-overflow-style: none;
@@ -206,7 +233,7 @@ export class MarkdownRenderer implements IBookRenderer {
     container.appendChild(root);
 
     // 动态导入 md-editor-rt 和 React
-    const [{ MdPreview }, React, ReactDOM] = await Promise.all([
+    const [{ MdPreview, MdCatalog }, React, ReactDOM] = await Promise.all([
       // @ts-ignore:
       import('md-editor-rt'),
       import('react'),
@@ -227,22 +254,72 @@ export class MarkdownRenderer implements IBookRenderer {
     // 计算字体大小
     const fontSize = options?.fontSize || 16;
 
-    reactRoot.render(
-      React.createElement(MdPreview, {
-        modelValue: this._content,
-        previewTheme,
-        codeTheme,
-        theme: 'light', // 强制使用亮色主题
-        style: {
-          backgroundColor: '#ffffff',
-          color: '#24292e',
-          fontSize: `${fontSize}px`,
-          lineHeight: options?.lineHeight || 1.6,
-          fontFamily: options?.fontFamily || 'inherit',
-          padding: '16px',
-        },
-      })
-    );
+    // 组合渲染 MdPreview 与 MdCatalog（目录用于提取标题和滚动高亮）
+    const Wrapper = () => {
+      const [_, forceUpdate] = (React as any).useState(0);
+      (React as any).useEffect(() => {
+        forceUpdate((x: number) => x + 1);
+      }, []);
+      return (
+        (React as any).createElement(React.Fragment, null,
+          (React as any).createElement(MdPreview as any, {
+            editorId: this._editorId,
+            modelValue: this._content,
+            previewTheme,
+            codeTheme,
+            theme: 'light',
+            style: {
+              backgroundColor: '#ffffff',
+              color: '#24292e',
+              fontSize: `${fontSize}px`,
+              lineHeight: options?.lineHeight || 1.6,
+              fontFamily: options?.fontFamily || 'inherit',
+              padding: '16px',
+            },
+          }),
+          (React as any).createElement(MdCatalog as any, {
+            editorId: this._editorId,
+            scrollElement: root,
+            style: { display: 'none' },
+            onGetCatalog: (list: any[]) => {
+              try {
+                const flat = (list || []).map((item: any) => ({
+                  title: String(item?.text || ''),
+                  location: `heading-${Number(item?.index ?? 0)}`,
+                  level: Number(item?.level ?? 0),
+                }));
+                this._toc = this._buildTocHierarchy(flat);
+              } catch {}
+            },
+          })
+        )
+      );
+    };
+
+    reactRoot.render((React as any).createElement(Wrapper));
+
+    const initialPage = options?.initialVirtualPage;
+    if (typeof initialPage === 'number' && initialPage > 1) {
+      let attempts = 0;
+      const maxAttempts = 50;
+      const tryRestore = () => {
+        const scrollContainer = this.getScrollContainer();
+        if (scrollContainer) {
+          const vh = scrollContainer.clientHeight;
+          const sh = scrollContainer.scrollHeight;
+          const target = (initialPage - 1) * vh;
+          if (vh > 0 && sh >= target) {
+            scrollContainer.scrollTo({ top: target, behavior: 'auto' });
+            return;
+          }
+        }
+        attempts++;
+        if (attempts < maxAttempts) {
+          setTimeout(tryRestore, 100);
+        }
+      };
+      setTimeout(tryRestore, 150);
+    }
   }
 
   /**
@@ -380,14 +457,68 @@ export class MarkdownRenderer implements IBookRenderer {
    * 滚动到渲染内容中的锚点/标题
    */
   scrollToAnchor(anchor: string): void {
-    if (!this._currentContainer) return;
+    // 获取实际的滚动容器（md-editor-rt 内部 preview 元素）
+    const scrollContainer = this.getScrollContainer();
+    if (!scrollContainer) return;
 
-    const headings = this._currentContainer.querySelectorAll('h1, h2, h3, h4, h5, h6');
+    // 在滚动容器内查找标题元素
+    const headings = scrollContainer.querySelectorAll('h1, h2, h3, h4, h5, h6');
     const index = parseInt(anchor.replace('heading-', ''), 10);
     
     if (!isNaN(index) && headings[index]) {
-      headings[index].scrollIntoView({ behavior: 'smooth', block: 'start' });
+      const heading = headings[index] as HTMLElement;
+      // 使用 offsetTop 计算位置，并预留顶部空间（TopBar 高度约 60px + 20px 间距）
+      const top = heading.offsetTop - 80;
+      scrollContainer.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
     }
+  }
+
+  /**
+   * 获取滚动容器元素
+   * 内部查找实际可滚动的子元素
+   */
+  getScrollContainer(): HTMLElement | null {
+    if (!this._currentContainer) return null;
+    // md-editor-rt 渲染后，实际内容在 id 为 _previewId 的元素中
+    const preview = this._currentContainer.querySelector(`#${this._previewId}`) as HTMLElement;
+    return preview || this._currentContainer;
+  }
+
+  /**
+   * 根据容器计算虚拟页数
+   * @param viewportHeight 视口高度
+   */
+  calculateVirtualPages(viewportHeight: number): number {
+    const scrollContainer = this.getScrollContainer();
+    if (!scrollContainer) return 1;
+    const contentHeight = scrollContainer.scrollHeight;
+    return Math.max(1, Math.ceil(contentHeight / viewportHeight));
+  }
+
+  /**
+   * 获取当前虚拟页码
+   * @param scrollTop 当前滚动位置
+   * @param viewportHeight 视口高度
+   */
+  getCurrentVirtualPage(scrollTop: number, viewportHeight: number): number {
+    const scrollContainer = this.getScrollContainer();
+    if (!scrollContainer) return 1;
+    const contentHeight = scrollContainer.scrollHeight;
+    const totalPages = Math.max(1, Math.ceil(contentHeight / viewportHeight));
+    const currentPage = Math.min(totalPages, Math.floor(scrollTop / viewportHeight) + 1);
+    return currentPage;
+  }
+
+  /**
+   * 滚动到指定虚拟页
+   * @param page 虚拟页码
+   * @param viewportHeight 视口高度
+   */
+  scrollToVirtualPage(page: number, viewportHeight: number): void {
+    const scrollContainer = this.getScrollContainer();
+    if (!scrollContainer) return;
+    const targetScroll = (page - 1) * viewportHeight;
+    scrollContainer.scrollTo({ top: targetScroll, behavior: 'auto' });
   }
 
   /**
