@@ -38,6 +38,7 @@ import { IBookRenderer, getBookFormat, createRenderer, isFormatSupported } from 
 import { MarkdownRenderer } from "../services/formats/markdown/MarkdownRenderer";
 import { logError } from "../services";
 import html2canvas from "html2canvas";
+import { applyScalable, resetZoom, applyNonScalable } from "../utils/viewport";
 
 const findActiveNodeSignature = (
   current: number,
@@ -169,6 +170,14 @@ export const Reader: React.FC = () => {
   useEffect(() => {
     savedPageAtOpenRef.current = (book?.current_page || 1);
   }, [book?.id]);
+
+  useEffect(() => {
+    applyScalable();
+    return () => {
+      resetZoom();
+      applyNonScalable();
+    };
+  }, []);
 
 
   const handleCapture = async () => {

@@ -1,7 +1,11 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Outlet } from 'react-router-dom';
+import { applyNonScalable } from '../utils/viewport';
 
 export const MainLayout: React.FC = () => {
+  useEffect(() => {
+    applyNonScalable();
+  }, []);
   return (
     <div style={{
       width: '100vw',
