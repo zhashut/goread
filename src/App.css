@@ -289,3 +289,13 @@ button {
   border-radius: 22px !important;
   box-shadow: none !important;
 }
+
+/* Markdown 封面禁用选择与命中，确保拖拽稳定 */
+.md-cover,
+.md-cover * {
+  user-select: none;
+  -webkit-user-select: none;
+  -ms-user-select: none;
+  -webkit-touch-callout: none;
+  pointer-events: none;
+}

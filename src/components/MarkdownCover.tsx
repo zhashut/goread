@@ -10,12 +10,18 @@ export const MarkdownCover: React.FC<{ style?: React.CSSProperties; className?: 
       width="100%"
       height="100%"
       preserveAspectRatio="xMidYMid slice" // 类似 object-fit: cover，确保填满容器
-      style={{ 
-        backgroundColor: "#ffffff", 
-        display: "block", 
-        ...style 
+      style={{
+        backgroundColor: "#ffffff",
+        display: "block",
+        pointerEvents: "none",
+        userSelect: "none",
+        WebkitUserSelect: "none",
+        msUserSelect: "none",
+        ...style,
       }}
-      className={className}
+      aria-hidden="true"
+      role="presentation"
+      className={className ? `md-cover ${className}` : 'md-cover'}
     >
       {/* 1. 顶部黑色装饰条 */}
       <rect x="0" y="0" width="200" height="12" fill="#333333" />
@@ -63,6 +69,7 @@ export const MarkdownCover: React.FC<{ style?: React.CSSProperties; className?: 
         fontSize="24"
         fill="#333333"
         letterSpacing="-1"
+        style={{ userSelect: 'none', WebkitUserSelect: 'none', msUserSelect: 'none' }}
       >
         Markdown
       </text>
@@ -76,6 +83,7 @@ export const MarkdownCover: React.FC<{ style?: React.CSSProperties; className?: 
         fontSize="12"
         fill="#cccccc"
         letterSpacing="2"
+        style={{ userSelect: 'none', WebkitUserSelect: 'none', msUserSelect: 'none' }}
       >
         1 / ∞
       </text>

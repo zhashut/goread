@@ -99,6 +99,7 @@ export const BookCard: React.FC<CommonBookCardProps> = ({
         cursor: "pointer",
         backgroundColor: "transparent",
         position: "relative",
+        userSelect: "none",
         ...(styleOverride || {}),
       }}
       ref={(node) => {
@@ -136,6 +137,7 @@ export const BookCard: React.FC<CommonBookCardProps> = ({
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
+            userSelect: "none",
           }}
         >
           {book.cover_image ? (
@@ -221,6 +223,7 @@ export const BookCard: React.FC<CommonBookCardProps> = ({
             WebkitBoxOrient: "vertical" as any,
             overflow: "hidden",
             textAlign: "left",
+            userSelect: "none",
           }}
         >
           {book.title}
@@ -231,6 +234,7 @@ export const BookCard: React.FC<CommonBookCardProps> = ({
             fontSize: BOOK_META_FONT_SIZE + "px",
             color: "#888",
             textAlign: "left",
+            userSelect: "none",
           }}
         >
           已读 {progress}%
