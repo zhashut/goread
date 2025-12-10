@@ -73,6 +73,16 @@ npm run tauri android init
 npm run tauri ios init
 ```
 
+### 🔐 应用签名密钥生成
+```bash
+keytool -genkey -v `
+  -keystore "release-key.keystore" `
+  -alias "goread" `
+  -keyalg RSA `
+  -keysize 4096 `
+  -validity 10000
+```
+
 ### 移动端运行
 
 连接真机或启动模拟器后：
