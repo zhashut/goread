@@ -3,7 +3,7 @@
  */
 
 /** 支持的书籍格式类型 */
-export type BookFormat = 'pdf' | 'epub' | 'markdown' | 'mobi' | 'azw3' | 'fb2';
+export type BookFormat = 'pdf' | 'epub' | 'markdown' | 'mobi' | 'azw3' | 'fb2' | 'html';
 
 /** 书籍元数据 */
 export interface BookInfo {

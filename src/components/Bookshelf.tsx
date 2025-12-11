@@ -30,7 +30,10 @@ import { bookService, groupService, getReaderSettings } from "../services";
 import { GroupDetail } from "./GroupDetail";
 import { BookCard } from "./BookCard";
 import GroupCoverGrid from "./GroupCoverGrid";
-import { MARKDOWN_COVER_PLACEHOLDER } from "../constants/ui";
+import {
+  MARKDOWN_COVER_PLACEHOLDER,
+  HTML_COVER_PLACEHOLDER,
+} from "../constants/ui";
 import { getBookFormat } from "../constants/fileTypes";
 import ImportProgressDrawer from "./ImportProgressDrawer";
 import ConfirmDeleteDrawer from "./ConfirmDeleteDrawer";
@@ -629,8 +632,13 @@ export const Bookshelf: React.FC = () => {
               if (covers.length < 4) {
                 for (const b of list || []) {
                   if (covers.length >= 4) break;
-                  if (!b.cover_image && getBookFormat(b.file_path) === "markdown") {
-                    covers.push(MARKDOWN_COVER_PLACEHOLDER);
+                  if (!b.cover_image) {
+                    const fmt = getBookFormat(b.file_path);
+                    if (fmt === "markdown") {
+                      covers.push(MARKDOWN_COVER_PLACEHOLDER);
+                    } else if (fmt === "html") {
+                      covers.push(HTML_COVER_PLACEHOLDER);
+                    }
                   }
                 }
               }

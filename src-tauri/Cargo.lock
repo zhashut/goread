@@ -1604,6 +1604,7 @@ dependencies = [
  "image 0.24.9",
  "moka",
  "pdfium-render",
+ "regex",
  "serde",
  "serde_json",
  "sqlx",

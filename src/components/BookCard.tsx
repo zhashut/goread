@@ -4,6 +4,7 @@ import { SELECTION_LONGPRESS_DELAY_MS } from "../constants/interactions";
 import { IBook } from "../types";
 import { getBookFormat } from "../constants/fileTypes";
 import MarkdownCover from "./MarkdownCover";
+import HtmlCover from "./covers/HtmlCover";
 import {
   CARD_WIDTH_COMPACT,
   COVER_ASPECT_RATIO_COMPACT,
@@ -148,6 +149,8 @@ export const BookCard: React.FC<CommonBookCardProps> = ({
             />
           ) : getBookFormat(book.file_path) === "markdown" ? (
             <MarkdownCover />
+          ) : getBookFormat(book.file_path) === "html" ? (
+            <HtmlCover />
           ) : (
             <div style={{ color: "#999", fontSize: "14px", textAlign: "center" }}>
               暂无封面

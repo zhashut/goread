@@ -15,6 +15,8 @@ export const SUPPORTED_FILE_EXTENSIONS = [
   '.azw3',
   '.azw',
   '.fb2',
+  '.html',
+  '.htm',
 ] as const;
 
 export type SupportedExtension = typeof SUPPORTED_FILE_EXTENSIONS[number];
@@ -29,6 +31,8 @@ const EXTENSION_FORMAT_MAP: Record<string, BookFormat> = {
   '.azw3': 'azw3',
   '.azw': 'azw3',
   '.fb2': 'fb2',
+  '.html': 'html',
+  '.htm': 'html',
 };
 
 /** 格式显示名称 */
@@ -39,6 +43,7 @@ export const FORMAT_DISPLAY_NAMES: Record<BookFormat, string> = {
   mobi: 'MOBI',
   azw3: 'AZW3/Kindle',
   fb2: 'FB2',
+  html: 'HTML',
 };
 
 /** 格式颜色配置 */
@@ -49,6 +54,7 @@ export const FORMAT_COLORS: Record<BookFormat, string> = {
   mobi: '#0058A8',
   azw3: '#FF9900',
   fb2: '#8E24AA',
+  html: '#E34C26',
 };
 
 /** 获取格式对应的图标文字 (缩写) */

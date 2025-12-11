@@ -2,7 +2,7 @@ import { groupService } from "../services";
 import { waitNextFrame } from "../services/importUtils";
 import type { IGroup } from "../types";
 import { getBookFormat } from "../constants/fileTypes";
-import { MARKDOWN_COVER_PLACEHOLDER } from "../constants/ui";
+import { MARKDOWN_COVER_PLACEHOLDER, HTML_COVER_PLACEHOLDER } from "../constants/ui";
 
 export const loadGroupsWithPreviews = async (): Promise<{ groups: IGroup[]; previews: Record<number, string[]> }> => {
   const gs = await groupService.getAllGroups();
@@ -19,8 +19,13 @@ export const loadGroupsWithPreviews = async (): Promise<{ groups: IGroup[]; prev
       if (covers.length < 4) {
         for (const b of books || []) {
           if (covers.length >= 4) break;
-          if (!b.cover_image && getBookFormat(b.file_path) === "markdown") {
-            covers.push(MARKDOWN_COVER_PLACEHOLDER);
+          if (!b.cover_image) {
+            const fmt = getBookFormat(b.file_path);
+            if (fmt === "markdown") {
+              covers.push(MARKDOWN_COVER_PLACEHOLDER);
+            } else if (fmt === "html") {
+              covers.push(HTML_COVER_PLACEHOLDER);
+            }
           }
         }
       }

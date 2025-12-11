@@ -4,6 +4,7 @@ mod markdown_commands;
 mod models;
 mod pdf;
 mod pdf_commands;
+mod html_commands;
 
 // 导入所有命令
 use commands::{
@@ -24,6 +25,7 @@ use commands::{
 };
 use markdown_commands::*;
 use pdf_commands::*;
+use html_commands::*;
 use sqlx::SqlitePool;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
 use std::str::FromStr;
@@ -159,6 +161,8 @@ pub fn run() {
             markdown_get_content,
             markdown_get_toc,
             markdown_search_text,
+            // HTML commands
+            html_load_document,
             // Status bar control commands
             show_status_bar,
             hide_status_bar

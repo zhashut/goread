@@ -77,6 +77,24 @@ async function importMarkdownBook(filePath: string, invoke: any, logError: any):
   };
 }
 
+// HTML 格式导入
+async function importHtmlBook(filePath: string, invoke: any, logError: any): Promise<ImportResult> {
+  let info: any = null;
+  try {
+    info = await (await invoke)('html_load_document', { filePath });
+  } catch (err) {
+    await logError('html_load_document failed during import', { error: String(err), filePath });
+  }
+
+  // HTML currently doesn't support cover image extraction
+  // totalPages is always 1 for HTML (single scrollable document)
+  return {
+    info: { title: info?.title },
+    coverImage: undefined,
+    totalPages: 1,
+  };
+}
+
 // Generic import handler that dispatches by format
 async function importByFormat(
   filePath: string,
@@ -89,6 +107,8 @@ async function importByFormat(
       return await importPdfBook(filePath, invoke, logError);
     case 'markdown':
       return await importMarkdownBook(filePath, invoke, logError);
+    case 'html':
+      return await importHtmlBook(filePath, invoke, logError);
     // Future formats can be added here
     // case 'epub':
     //   return await importEpubBook(filePath, invoke, logError);

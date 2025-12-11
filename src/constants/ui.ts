@@ -42,3 +42,6 @@ export const BOTTOM_DRAWER_RADIUS = 16;
 // Markdown 默认封面配置
 export const MARKDOWN_COVER_PLACEHOLDER = "__MARKDOWN__";
 export const MARKDOWN_COVER_SCALE = 1.6;
+
+// HTML 默认封面配置
+export const HTML_COVER_PLACEHOLDER = "__HTML__";
