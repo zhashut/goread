@@ -20,3 +20,4 @@ export {
 import './pdf/PdfRenderer';
 import './markdown/MarkdownRenderer';
 import './html/HtmlRenderer';
+import './epub/EpubRenderer';

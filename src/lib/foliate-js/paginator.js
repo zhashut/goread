@@ -389,7 +389,69 @@ class View {
         } else {
             const side = this.#vertical ? 'width' : 'height'
             const otherSide = this.#vertical ? 'height' : 'width'
-            const contentSize = documentElement.getBoundingClientRect()[side]
+            // 使用 scrollHeight/scrollWidth 获取完整内容高度/宽度，避免移动端内容显示不全
+            // 同时检查 body 和 documentElement 以及所有元素的矩形范围，取最大值以确保覆盖所有内容
+            const getScrollSize = () => {
+                const body = this.document.body
+                const html = this.document.documentElement
+                
+                // 1. 基础尺寸：scroll/offset
+                let maxWidth = Math.max(body.scrollWidth, body.offsetWidth, html.scrollWidth, html.offsetWidth)
+                let maxHeight = Math.max(body.scrollHeight, body.offsetHeight, html.scrollHeight, html.offsetHeight)
+                
+                // 2. 遍历所有元素计算边界框（Bounding Box Union），以覆盖绝对定位或负边距内容
+                // 注意：在 vertical-rl 模式下，内容可能向左（负坐标）延伸，scrollWidth 可能包含这部分也可能不包含（取决于浏览器实现）
+                // 因此我们计算实际的几何范围
+                let minX = 0, maxX = 0, minY = 0, maxY = 0
+                const rootRect = html.getBoundingClientRect()
+                
+                // 辅助函数：更新边界
+                const updateBounds = (rect) => {
+                    const left = rect.left - rootRect.left
+                    const right = rect.right - rootRect.left
+                    const top = rect.top - rootRect.top
+                    const bottom = rect.bottom - rootRect.top
+                    
+                    if (left < minX) minX = left
+                    if (right > maxX) maxX = right
+                    if (top < minY) minY = top
+                    if (bottom > maxY) maxY = bottom
+                }
+                
+                // 初始假设范围为 0（相对于 rootRect 左上角）
+                // 扫描所有元素
+                const elements = body.querySelectorAll('*')
+                if (elements.length > 0) {
+                     // 初始化为第一个元素的边界，避免 0 的干扰
+                     const first = elements[0].getBoundingClientRect()
+                     minX = first.left - rootRect.left
+                     maxX = first.right - rootRect.left
+                     minY = first.top - rootRect.top
+                     maxY = first.bottom - rootRect.top
+                }
+
+                for (const el of elements) {
+                    const rect = el.getBoundingClientRect()
+                    if (rect.width === 0 && rect.height === 0) continue
+                    updateBounds(rect)
+                }
+                
+                const contentWidth = maxX - minX
+                const contentHeight = maxY - minY
+                
+                // 如果计算出的几何宽度比 scrollWidth 大，说明有负坐标或溢出内容
+                // 对于 Vertical-RL，宽度通常由 maxX - minX 决定
+                // 但为了安全，取最大值
+                maxWidth = Math.max(maxWidth, contentWidth)
+                maxHeight = Math.max(maxHeight, contentHeight)
+                
+                if (this.#vertical) {
+                    return Math.ceil(maxWidth)
+                }
+                return Math.ceil(maxHeight)
+            }
+            
+            const contentSize = getScrollSize()
             const expandedSize = contentSize
             const { margin } = this.#layout
             const padding = this.#vertical ? `0 ${margin}px` : `${margin}px 0`
@@ -512,6 +574,11 @@ export class Paginator extends HTMLElement {
             grid-column: 1 / -1;
             grid-row: 1 / -1;
             overflow: auto;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }
+        :host([flow="scrolled"]) #container::-webkit-scrollbar {
+            display: none;
         }
         #header {
             grid-column: 3 / 4;
@@ -718,14 +785,14 @@ export class Paginator extends HTMLElement {
             // FIXME: vertical-rl only, not -lr
             this.setAttribute('dir', vertical ? 'rtl' : 'ltr')
             this.#top.style.padding = '0'
-            const columnWidth = maxInlineSize
+            const columnWidth = Math.min(maxInlineSize, size)
 
             this.heads = null
             this.feet = null
             this.#header.replaceChildren()
             this.#footer.replaceChildren()
 
-            return { flow, margin, gap, columnWidth }
+            return { flow, margin, gap, columnWidth, width, height }
         }
 
         const divisor = Math.min(maxColumnCount, Math.ceil(size / maxInlineSize))
@@ -794,6 +861,10 @@ export class Paginator extends HTMLElement {
         const delta = this.#vertical ? dy : dx
         const element = this.#container
         const { scrollProp } = this
+        if (this.scrolled) {
+            element[scrollProp] = element[scrollProp] + delta
+            return
+        }
         const [offset, a, b] = this.#scrollBounds
         const rtl = this.#rtl
         const min = rtl ? offset - b : offset - a

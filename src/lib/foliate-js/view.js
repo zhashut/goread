@@ -104,8 +104,8 @@ export const makeBook = async file => {
         }
     }
     else if (await isPDF(file)) {
-        const { makePDF } = await import('./pdf.js')
-        book = await makePDF(file)
+        // PDF 格式不支持
+        throw new UnsupportedTypeError('PDF format is not supported')
     }
     else {
         const { isMOBI, MOBI } = await import('./mobi.js')

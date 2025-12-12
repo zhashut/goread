@@ -4,6 +4,14 @@ import App from "./App";
 import { initSafeAreaInsets } from "./utils/layout";
 import { statusBarService } from "./services/statusBarService";
 
+// 抑制 ResizeObserver loop 错误（常见的浏览器警告，不影响功能）
+const resizeObserverErr = (e: ErrorEvent) => {
+  if (e.message === 'ResizeObserver loop completed with undelivered notifications.') {
+    e.stopImmediatePropagation();
+  }
+};
+window.addEventListener('error', resizeObserverErr);
+
 // 提前初始化安全区域（在 React 渲染之前）
 initSafeAreaInsets();
 

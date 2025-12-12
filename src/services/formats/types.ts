@@ -50,6 +50,8 @@ export interface RenderOptions {
   fontFamily?: string;
   /** 初始虚拟页（Markdown 用） */
   initialVirtualPage?: number;
+  /** 阅读模式：horizontal=翻页模式, vertical=滚动模式 */
+  readingMode?: 'horizontal' | 'vertical';
 }
 
 /** 搜索结果 */
