@@ -347,11 +347,11 @@ export const Reader: React.FC = () => {
 
   useEffect(() => {
     currentPageRef.current = currentPage;
-    if (readingMode === "horizontal") {
+    if (readingMode === "horizontal" && !isDomRender) {
       const sig = findActiveNodeSignature(currentPage, 1.0, true, toc);
       setActiveNodeSignature(sig || undefined);
     }
-  }, [currentPage, readingMode, toc]);
+  }, [currentPage, readingMode, toc, isDomRender]);
 
   // 监听窗口大小变化（解决拉伸模糊问题，适配横向/纵向模式）
   useEffect(() => {
