@@ -93,6 +93,8 @@ async function importHtmlBook(filePath: string, invoke: any, logError: any): Pro
     coverImage: undefined,
     totalPages: 1,
   };
+}
+
 // EPUB 格式导入
 async function importEpubBook(filePath: string, _invoke: any, logError: any): Promise<ImportResult> {
   let info: any = null;
