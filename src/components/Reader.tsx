@@ -1120,11 +1120,20 @@ export const Reader: React.FC = () => {
         try {
           log('[Reader] 开始 DOM 渲染');
           await renderer.renderPage(1, domContainerRef.current!, { 
-            initialVirtualPage: book?.current_page || 1,
+            initialVirtualPage: currentPage || 1,
             readingMode: readingMode,
             theme: 'light',
           });
           log('[Reader] DOM 渲染完成');
+          domRestoreDoneRef.current = true;
+          if (renderer instanceof EpubRenderer) {
+            renderer.onPageChange = (p: number) => {
+              setCurrentPage(p);
+              if (book) {
+                bookService.updateBookProgress(book.id!, p).catch(() => {});
+              }
+            };
+          }
           
           // 标记 EPUB 已完成首次渲染
           if (isEpub) {
@@ -1266,6 +1275,7 @@ export const Reader: React.FC = () => {
   useEffect(() => {
     if (loading) return;
     if (readingMode !== "vertical") return;
+    if (isDomRender) return;
     const vs = verticalScrollRef.current;
     const mv = mainViewRef.current;
 
@@ -1373,7 +1383,7 @@ export const Reader: React.FC = () => {
         verticalScrollRafRef.current = null;
       }
     };
-  }, [readingMode, book, isSeeking, totalPages, loading, toc]);
+  }, [readingMode, book, isSeeking, totalPages, loading, toc, isDomRender]);
 
   // DOM 渲染模式（Markdown）滚动监听：计算虚拟页码和进度
   useEffect(() => {
@@ -1495,7 +1505,7 @@ export const Reader: React.FC = () => {
       if (timeoutId) clearTimeout(timeoutId);
       if (cleanup) cleanup();
     };
-  }, [isDomRender, book, loading, totalPages]);
+  }, [isDomRender, book, loading, totalPages, readingMode]);
 
   useEffect(() => {
     if (!isDomRender || !book || loading) return;
