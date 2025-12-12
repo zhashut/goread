@@ -3,7 +3,7 @@ import { useLongPress } from "../hooks/useLongPress";
 import { SELECTION_LONGPRESS_DELAY_MS } from "../constants/interactions";
 import { IBook } from "../types";
 import { getBookFormat } from "../constants/fileTypes";
-import MarkdownCover from "./MarkdownCover";
+import MarkdownCover from "./covers/MarkdownCover";
 import HtmlCover from "./covers/HtmlCover";
 import {
   CARD_WIDTH_COMPACT,

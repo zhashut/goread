@@ -1,5 +1,5 @@
 import React from "react";
-import MarkdownCover from "./MarkdownCover";
+import MarkdownCover from "./covers/MarkdownCover";
 import { MARKDOWN_COVER_PLACEHOLDER, HTML_COVER_PLACEHOLDER } from "../constants/ui";
 import HtmlCover from "./covers/HtmlCover";
 

@@ -1707,14 +1707,8 @@ export const Reader: React.FC = () => {
               }
             }
           }}
-          onWheel={(e) => {
-            const r = rendererRef.current;
-            // 横向分页时允许外层处理滚轮；纵向滚动交给 foliate 内部
-            if (readingMode === "horizontal" && isDomRender && r && r instanceof EpubRenderer) {
-              e.preventDefault();
-              r.scrollBy(e.deltaY);
-            }
-          }}
+          
+          
           className="no-scrollbar"
           style={{
             flex: 1,
@@ -1748,10 +1742,7 @@ export const Reader: React.FC = () => {
                 overflowY: (book?.file_path && getBookFormat(book.file_path) === 'epub') ? 'hidden' : 'auto',
                 // EPUB 使用白色背景，其他格式使用深色
                 backgroundColor: (book?.file_path && getBookFormat(book.file_path) === 'epub') ? '#ffffff' : '#1a1a1a',
-                // 纵向模式允许与 foliate 交互滚动；横向仍由外层处理点击翻页
-                pointerEvents: (book?.file_path && getBookFormat(book.file_path) === 'epub')
-                  ? (readingMode === 'vertical' ? 'auto' : 'none')
-                  : 'auto',
+                pointerEvents: 'auto',
               }}
             />
           ) : readingMode === "horizontal" ? (
