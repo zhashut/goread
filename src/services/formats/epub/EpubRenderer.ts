@@ -309,8 +309,10 @@ export class EpubRenderer implements IBookRenderer {
     if (initialPage > 1 && initialPage <= this._sectionCount) {
       // 跳转到指定章节
       await view.init({ lastLocation: initialPage - 1 });
+      this._currentPage = initialPage;
     } else {
       await view.init({ showTextStart: true });
+      this._currentPage = 1;
     }
 
     // 等待下一帧渲染完成，确保 foliate-js 内部布局计算正确
@@ -757,6 +759,8 @@ export class EpubRenderer implements IBookRenderer {
     
     // 保存当前位置信息
     const savedLocation = this._view?.lastLocation;
+    const contents = this._view?.renderer?.getContents?.();
+    const currentIndex = Array.isArray(contents) && typeof contents[0]?.index === 'number' ? contents[0].index : null;
     const savedPage = this._currentPage;
     
     this._readingMode = mode;
@@ -770,15 +774,15 @@ export class EpubRenderer implements IBookRenderer {
     });
     
     // 恢复到之前的位置
-    if (this._view && savedLocation) {
-      try {
-        await this._view.goTo(savedLocation);
-      } catch {
-        // 回退到页码跳转
-        if (savedPage > 0) {
-          await this.goToPage(savedPage);
-        }
-      }
+    if (!this._view) return;
+    if (savedLocation) {
+      try { await this._view.goTo(savedLocation); return; } catch {}
+    }
+    if (currentIndex != null) {
+      try { await this.goToPage(currentIndex + 1); return; } catch {}
+    }
+    if (savedPage > 1) {
+      try { await this.goToPage(savedPage); } catch {}
     }
   }
 
