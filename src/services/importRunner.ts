@@ -77,6 +77,40 @@ async function importMarkdownBook(filePath: string, invoke: any, logError: any):
   };
 }
 
+// EPUB 格式导入
+async function importEpubBook(filePath: string, _invoke: any, logError: any): Promise<ImportResult> {
+  let info: any = null;
+  let coverImage: string | undefined = undefined;
+  let totalPages = 1;
+
+  try {
+    // 动态导入 EpubRenderer 避免循环依赖
+    const { EpubRenderer } = await import('./formats/epub/EpubRenderer');
+    const renderer = new EpubRenderer();
+    const bookInfo = await renderer.loadDocument(filePath);
+    
+    info = {
+      title: bookInfo.title,
+      author: bookInfo.author,
+    };
+    
+    // 封面图片格式: "data:image/...;base64,xxxxx"
+    if (bookInfo.coverImage) {
+      const base64Part = bookInfo.coverImage.split(',')[1];
+      if (base64Part) {
+        coverImage = base64Part;
+      }
+    }
+    
+    totalPages = bookInfo.pageCount || 1;
+    await renderer.close();
+  } catch (err) {
+    await logError('EPUB import failed', { error: String(err), filePath });
+  }
+
+  return { info, coverImage, totalPages };
+}
+
 // Generic import handler that dispatches by format
 async function importByFormat(
   filePath: string,
@@ -89,13 +123,11 @@ async function importByFormat(
       return await importPdfBook(filePath, invoke, logError);
     case 'markdown':
       return await importMarkdownBook(filePath, invoke, logError);
-    // Future formats can be added here
-    // case 'epub':
-    //   return await importEpubBook(filePath, invoke, logError);
+    case 'epub':
+      return await importEpubBook(filePath, invoke, logError);
     default:
-      // Fallback: try PDF import for unknown formats
-      await logError('Unsupported format, falling back to PDF import', { format, filePath });
-      return await importPdfBook(filePath, invoke, logError);
+      await logError('Unsupported format, skipping', { format, filePath });
+      return { info: null, coverImage: undefined, totalPages: 1 };
   }
 }
 

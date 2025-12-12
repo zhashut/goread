@@ -3,4 +3,4 @@
  * Phase 3 实现
  */
 
-export {};
+export { EpubRenderer } from './EpubRenderer';

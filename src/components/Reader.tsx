@@ -36,6 +36,7 @@ import { CropOverlay } from "./reader/CropOverlay";
 import { TocNode } from "./reader/types";
 import { IBookRenderer, getBookFormat, createRenderer, isFormatSupported } from "../services/formats";
 import { MarkdownRenderer } from "../services/formats/markdown/MarkdownRenderer";
+import { EpubRenderer } from "../services/formats/epub/EpubRenderer";
 import { logError } from "../services";
 import html2canvas from "html2canvas";
 import { applyScalable, resetZoom, applyNonScalable } from "../utils/viewport";
@@ -161,10 +162,13 @@ export const Reader: React.FC = () => {
   const [activeNodeSignature, setActiveNodeSignature] = useState<string | undefined>(undefined);
    const domRestoreDoneRef = useRef(false);
    const savedPageAtOpenRef = useRef<number>(1);
+   // 跟踪 EPUB 是否已完成首次渲染，避免模式切换时重复调用 renderPage
+   const epubRenderedRef = useRef(false);
 
   // 当书籍切换时重置恢复标志
   useEffect(() => {
     domRestoreDoneRef.current = false;
+    epubRenderedRef.current = false;
   }, [bookId]);
 
   useEffect(() => {
@@ -275,6 +279,14 @@ export const Reader: React.FC = () => {
     }
   }, [settings.readingMode]);
 
+  // 当阅读模式变化时，更新 EPUB 渲染器的流式布局
+  useEffect(() => {
+    const renderer = rendererRef.current;
+    if (renderer && renderer instanceof EpubRenderer) {
+      renderer.setReadingMode(readingMode).catch(() => {});
+    }
+  }, [readingMode]);
+
   useEffect(() => {
     // 更新书籍 ID 引用，并递增版本号以使进行中的异步任务失效
     bookIdRef.current = bookId;
@@ -286,6 +298,7 @@ export const Reader: React.FC = () => {
       rendererRef.current.close();
       rendererRef.current = null;
     }
+    epubRenderedRef.current = false;
     pageCacheRef.current.clear();
     // 清理预加载的 Bitmap 资源
     // 清理其他书籍的缓存（保留当前书籍的缓存以便复用）
@@ -408,6 +421,9 @@ export const Reader: React.FC = () => {
         if (!renderer) {
           return Promise.reject(new Error('渲染器未初始化')) as unknown as ImageBitmap;
         }
+        if (!renderer.isReady && book?.file_path) {
+          try { await renderer.loadDocument(book.file_path); } catch {}
+        }
         
         const viewW = canvasRef.current?.parentElement?.clientWidth || mainViewRef.current?.clientWidth || 800;
         
@@ -417,11 +433,26 @@ export const Reader: React.FC = () => {
 
         const renderStartTime = performance.now();
         // 通过渲染器接口加载页面位图
-        const bitmap = await renderer.loadPageBitmap!(
-          pageNum,
-          containerWidth,
-          settings.renderQuality || 'standard'
-        );
+        let bitmap: ImageBitmap;
+        try {
+          bitmap = await renderer.loadPageBitmap!(
+            pageNum,
+            containerWidth,
+            settings.renderQuality || 'standard'
+          );
+        } catch (err) {
+          const msg = String(err || '');
+          if ((msg.includes('文档未加载') || msg.includes('PDF文档未加载')) && book?.file_path) {
+            try { await renderer.loadDocument(book.file_path); } catch {}
+            bitmap = await renderer.loadPageBitmap!(
+              pageNum,
+              containerWidth,
+              settings.renderQuality || 'standard'
+            );
+          } else {
+            throw err;
+          }
+        }
         const renderEndTime = performance.now();
         log(`[loadPageBitmap] 页面 ${pageNum} 渲染+解码耗时: ${Math.round(renderEndTime - renderStartTime)}ms`);
         
@@ -731,6 +762,9 @@ export const Reader: React.FC = () => {
           const viewportHeight = scrollContainer.clientHeight;
           renderer.scrollToVirtualPage(pageNum, viewportHeight);
         }
+      } else if (renderer && renderer instanceof EpubRenderer) {
+        // EPUB 渲染器直接调用 goToPage
+        await renderer.goToPage(pageNum);
       }
     } else if (readingMode === "horizontal") {
       await renderPage(pageNum, true);
@@ -898,11 +932,29 @@ export const Reader: React.FC = () => {
 
       const renderStartTime = performance.now();
       // 通过渲染器接口加载页面位图
-      const img = await renderer.loadPageBitmap!(
-        pageNum,
-        containerWidth,
-        settings.renderQuality || 'standard'
-      );
+      if (!renderer.isReady && book?.file_path) {
+        try { await renderer.loadDocument(book.file_path); } catch {}
+      }
+      let img: ImageBitmap;
+      try {
+        img = await renderer.loadPageBitmap!(
+          pageNum,
+          containerWidth,
+          settings.renderQuality || 'standard'
+        );
+      } catch (err) {
+        const msg = String(err || '');
+        if ((msg.includes('文档未加载') || msg.includes('PDF文档未加载')) && book?.file_path) {
+          try { await renderer.loadDocument(book.file_path); } catch {}
+          img = await renderer.loadPageBitmap!(
+            pageNum,
+            containerWidth,
+            settings.renderQuality || 'standard'
+          );
+        } else {
+          throw err;
+        }
+      }
       const renderEndTime = performance.now();
       log(`[renderPageToTarget] 页面 ${pageNum} 渲染+解码耗时: ${Math.round(renderEndTime - renderStartTime)}ms`);
 
@@ -1021,6 +1073,13 @@ export const Reader: React.FC = () => {
   useEffect(() => {
     if (loading || !book || totalPages === 0) return;
     
+    // 对于 EPUB 格式，如果已经渲染过，跳过（模式切换由专门的 useEffect 处理）
+    const isEpub = book?.file_path && getBookFormat(book.file_path) === 'epub';
+    if (isEpub && epubRenderedRef.current) {
+      log(`[Reader] EPUB 已渲染，跳过重复渲染（模式切换由 setReadingMode 处理）`);
+      return;
+    }
+    
     log(`[Reader] 开始首次渲染，模式: ${readingMode}, DOM渲染: ${isDomRender}, 当前页: ${currentPage}`);
     
     const renderInitial = async () => {
@@ -1032,13 +1091,21 @@ export const Reader: React.FC = () => {
           return;
         }
         
-        // 等待 DOM 容器准备好
+        // 等待 DOM 容器准备好（确保容器存在且有实际尺寸）
         const waitForContainer = () => {
           return new Promise<void>((resolve) => {
             const checkContainer = () => {
-              if (domContainerRef.current) {
-                log('[Reader] DOM渲染容器已准备好');
-                resolve();
+              const container = domContainerRef.current;
+              if (container) {
+                // 检查容器是否有实际尺寸（避免布局未完成时渲染导致白屏）
+                const { clientWidth, clientHeight } = container;
+                if (clientWidth > 0 && clientHeight > 0) {
+                  log(`[Reader] DOM渲染容器已准备好，尺寸: ${clientWidth}x${clientHeight}`);
+                  resolve();
+                } else {
+                  // 容器存在但尺寸为0，等待下一帧重新检查
+                  requestAnimationFrame(checkContainer);
+                }
               } else {
                 setTimeout(checkContainer, 50);
               }
@@ -1052,8 +1119,17 @@ export const Reader: React.FC = () => {
         // 使用渲染器的 renderPage 方法直接渲染到容器
         try {
           log('[Reader] 开始 DOM 渲染');
-          await renderer.renderPage(1, domContainerRef.current!, { initialVirtualPage: book?.current_page || 1 });
+          await renderer.renderPage(1, domContainerRef.current!, { 
+            initialVirtualPage: book?.current_page || 1,
+            readingMode: readingMode,
+            theme: 'light',
+          });
           log('[Reader] DOM 渲染完成');
+          
+          // 标记 EPUB 已完成首次渲染
+          if (isEpub) {
+            epubRenderedRef.current = true;
+          }
           // 刷新目录（MdCatalog 提取的目录）
           try {
             const items = await renderer.getToc();
@@ -1068,6 +1144,36 @@ export const Reader: React.FC = () => {
             };
             const nodes = toTocNode(items as any);
             if (nodes.length > 0) setToc(nodes);
+            
+            // EPUB 渲染器：注册目录变化回调以支持高亮
+            if (renderer instanceof EpubRenderer) {
+              renderer.onTocChange = (href: string) => {
+                // 根据 href 查找对应的目录项并生成 signature
+                // 支持完全匹配和部分匹配（忽略 # 后的锚点）
+                const normalizeHref = (h: string) => h?.split('#')[0] || '';
+                const hrefBase = normalizeHref(href);
+                
+                const findByHref = (list: TocNode[], level: number): { title: string; level: number } | null => {
+                  for (const n of list) {
+                    const anchorBase = normalizeHref(n.anchor || '');
+                    // 完全匹配或基础路径匹配
+                    if (n.anchor === href || (hrefBase && anchorBase === hrefBase)) {
+                      return { title: n.title, level };
+                    }
+                    if (n.children) {
+                      const r = findByHref(n.children, level + 1);
+                      if (r) return r;
+                    }
+                  }
+                  return null;
+                };
+                const found = findByHref(nodes, 0);
+                if (found) {
+                  const sig = `${found.title}|-1|${found.level}`;
+                  setActiveNodeSignature(sig);
+                }
+              };
+            }
           } catch {}
         } catch (e) {
           console.error('[Reader] DOM 渲染失败:', e);
@@ -1449,39 +1555,46 @@ export const Reader: React.FC = () => {
     } else {
       // 纵向或 DOM 渲染模式：持续向下滚动
       stopAll();
-      // 根据渲染模式选择正确的滚动容器
-      let el: HTMLElement | null = null;
-      if (isDomRender) {
-        // Markdown DOM 渲染：使用渲染器提供的实际滚动容器
-        const renderer = rendererRef.current;
-        if (renderer && renderer instanceof MarkdownRenderer) {
-          el = renderer.getScrollContainer();
-        }
-        // 降级到外层容器
-        if (!el) {
-          el = domContainerRef.current;
-        }
-      } else {
-        // 其他格式纵向模式
-        el = verticalScrollRef.current || mainViewRef.current;
-      }
-      if (!el) return () => stopAll();
       const speed = settings.scrollSpeed || DEFAULT_SCROLL_SPEED_PX_PER_SEC;
-      const step = () => {
-        if (!autoScroll || tocOverlayOpen || modeOverlayOpen) {
-          stopAll();
-          return;
-        }
-        const atBottom = el!.scrollTop + el!.clientHeight >= el!.scrollHeight - 2;
-        if (atBottom) {
-          stopAll();
-          setAutoScroll(false);
-          return;
-        }
-        el!.scrollTop = el!.scrollTop + speed / 60; // 约 60fps
+
+      const r = rendererRef.current;
+      if (isDomRender && r && r instanceof EpubRenderer) {
+        const step = () => {
+          if (!autoScroll || tocOverlayOpen || modeOverlayOpen) {
+            stopAll();
+            return;
+          }
+          r.scrollBy(speed / 60);
+          autoScrollRafRef.current = requestAnimationFrame(step);
+        };
         autoScrollRafRef.current = requestAnimationFrame(step);
-      };
-      autoScrollRafRef.current = requestAnimationFrame(step);
+      } else {
+        let el: HTMLElement | null = null;
+        if (isDomRender) {
+          if (r && r instanceof MarkdownRenderer) {
+            el = r.getScrollContainer();
+          }
+          if (!el) el = domContainerRef.current;
+        } else {
+          el = verticalScrollRef.current || mainViewRef.current;
+        }
+        if (!el) return () => stopAll();
+        const step = () => {
+          if (!autoScroll || tocOverlayOpen || modeOverlayOpen) {
+            stopAll();
+            return;
+          }
+          const atBottom = el!.scrollTop + el!.clientHeight >= el!.scrollHeight - 2;
+          if (atBottom) {
+            stopAll();
+            setAutoScroll(false);
+            return;
+          }
+          el!.scrollTop = el!.scrollTop + speed / 60;
+          autoScrollRafRef.current = requestAnimationFrame(step);
+        };
+        autoScrollRafRef.current = requestAnimationFrame(step);
+      }
     }
 
     return () => stopAll();
@@ -1570,6 +1683,8 @@ export const Reader: React.FC = () => {
               e.currentTarget as HTMLDivElement
             ).getBoundingClientRect();
             const x = e.clientX - rect.left;
+            
+            // 所有格式统一走 App 控件的点击翻页逻辑
             if (readingMode === "horizontal") {
               if (x < rect.width * 0.3) {
                 if (settings.clickTurnPage) prevPage();
@@ -1592,6 +1707,14 @@ export const Reader: React.FC = () => {
               }
             }
           }}
+          onWheel={(e) => {
+            const r = rendererRef.current;
+            // 横向分页时允许外层处理滚轮；纵向滚动交给 foliate 内部
+            if (readingMode === "horizontal" && isDomRender && r && r instanceof EpubRenderer) {
+              e.preventDefault();
+              r.scrollBy(e.deltaY);
+            }
+          }}
           className="no-scrollbar"
           style={{
             flex: 1,
@@ -1604,16 +1727,31 @@ export const Reader: React.FC = () => {
           }}
           ref={mainViewRef}
         >
-          {/* DOM 渲染模式（Markdown 等格式） */}
+          {/* DOM 渲染模式（Markdown、EPUB 等格式） */}
           {isDomRender ? (
             <div
               ref={domContainerRef}
               className="no-scrollbar"
               style={{
-                width: "100%",
-                height: "100%",
-                overflowY: "auto",
-                backgroundColor: '#1a1a1a',
+                // EPUB 使用绝对定位确保占满整个父容器（避免 flexbox alignItems:center 影响布局）
+                ...(book?.file_path && getBookFormat(book.file_path) === 'epub' ? {
+                  position: 'absolute' as const,
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                } : {
+                  width: "100%",
+                  height: "100%",
+                }),
+                // EPUB 由 foliate-view 内部管理，不需要外层滚动
+                overflowY: (book?.file_path && getBookFormat(book.file_path) === 'epub') ? 'hidden' : 'auto',
+                // EPUB 使用白色背景，其他格式使用深色
+                backgroundColor: (book?.file_path && getBookFormat(book.file_path) === 'epub') ? '#ffffff' : '#1a1a1a',
+                // 纵向模式允许与 foliate 交互滚动；横向仍由外层处理点击翻页
+                pointerEvents: (book?.file_path && getBookFormat(book.file_path) === 'epub')
+                  ? (readingMode === 'vertical' ? 'auto' : 'none')
+                  : 'auto',
               }}
             />
           ) : readingMode === "horizontal" ? (
