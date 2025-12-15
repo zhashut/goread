@@ -1056,7 +1056,24 @@ export class EpubRenderer implements IBookRenderer {
       }
     });
 
-    await Promise.all([...imgPromises, ...stylePromises]);
+    // 处理 SVG <image> 标签
+    const svgImages = content.querySelectorAll('image');
+    const svgPromises = Array.from(svgImages).map(async (img) => {
+      // 尝试获取 href 或 xlink:href
+      const href = img.getAttribute('href') || img.getAttribute('xlink:href');
+      if (!href) return;
+      
+      const resolvedUrl = await this._resolveAndLoad(href, section);
+      if (resolvedUrl && resolvedUrl !== href) {
+        // 同时设置 href 和 xlink:href 以确保兼容性
+        img.setAttribute('href', resolvedUrl);
+        if (img.hasAttribute('xlink:href')) {
+            img.setAttribute('xlink:href', resolvedUrl);
+        }
+      }
+    });
+
+    await Promise.all([...imgPromises, ...stylePromises, ...svgPromises]);
   }
   
   /**
