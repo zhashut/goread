@@ -52,6 +52,8 @@ export interface RenderOptions {
   initialVirtualPage?: number;
   /** 阅读模式：horizontal=翻页模式, vertical=滚动模式 */
   readingMode?: 'horizontal' | 'vertical';
+  /** 页面间隙（纵向模式下的页面/章节间距，单位：px） */
+  pageGap?: number;
 }
 
 /** 搜索结果 */

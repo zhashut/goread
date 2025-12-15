@@ -87,6 +87,17 @@ export class EpubRenderer implements IBookRenderer {
   private _readingMode: 'horizontal' | 'vertical' = 'horizontal';
   private _resizeObserver: ResizeObserver | null = null;
   private _lastRenderContainer: HTMLElement | null = null;
+  
+  // 纵向连续模式相关属性
+  private _verticalContinuousMode: boolean = false;
+  private _sectionContainers: Map<number, HTMLElement> = new Map();
+  private _sectionObserver: IntersectionObserver | null = null;
+  private _renderedSections: Set<number> = new Set();
+  private _scrollContainer: HTMLElement | null = null;
+  private _scrollRafId: number | null = null;
+  private _dividerElements: HTMLElement[] = [];
+  private _currentPageGap: number = 4;
+  private _isNavigating: boolean = false;
 
   get isReady(): boolean {
     return this._isReady;
@@ -147,6 +158,7 @@ export class EpubRenderer implements IBookRenderer {
     return items.map((item) => ({
       title: item.label || '未命名章节',
       location: item.href || '',
+      anchor: item.href || '',
       level,
       children: item.subitems ? this._convertToc(item.subitems, level + 1) : undefined,
     }));
@@ -216,6 +228,12 @@ export class EpubRenderer implements IBookRenderer {
     }
 
     this._currentContainer = container;
+    this._readingMode = options?.readingMode || 'horizontal';
+
+    // 纵向模式使用连续滚动渲染
+    if (this._readingMode === 'vertical') {
+      return this.renderVerticalContinuous(container, options);
+    }
 
     // 检查是否可以复用现有视图（同一容器且 view 仍然有效）
     const canReuseView = this._view 
@@ -224,7 +242,6 @@ export class EpubRenderer implements IBookRenderer {
 
     if (canReuseView) {
       // 复用现有视图，仅更新阅读模式和位置
-      this._readingMode = options?.readingMode || 'horizontal';
       this._applyFlowSafely();
       
       // 跳转到指定位置
@@ -545,16 +562,599 @@ export class EpubRenderer implements IBookRenderer {
   }
 
   /**
+   * 纵向连续渲染模式
+   * 将所有章节渲染到一个可滚动容器中，章节之间有分割线
+   */
+  async renderVerticalContinuous(container: HTMLElement, options?: RenderOptions): Promise<void> {
+    console.log('[EpubRenderer] 开始纵向连续渲染模式');
+    
+    // 标记为纵向连续模式
+    this._verticalContinuousMode = true;
+    
+    // 清理旧的观察器
+    if (this._sectionObserver) {
+      this._sectionObserver.disconnect();
+      this._sectionObserver = null;
+    }
+    
+    // 保存滚动容器引用
+    this._scrollContainer = container;
+    
+    // 清空容器
+    container.innerHTML = '';
+    container.style.cssText = `
+      overflow-y: auto;
+      overflow-x: hidden;
+      height: 100%;
+      width: 100%;
+      position: relative;
+    `;
+    
+    // 清空之前的容器映射
+    this._sectionContainers.clear();
+    this._renderedSections.clear();
+    this._dividerElements = [];
+    
+    // 获取页面间隙配置，默认为 4px
+    const pageGap = options?.pageGap ?? 4;
+    this._currentPageGap = pageGap;
+    
+    // 为每个章节创建容器
+    for (let i = 0; i < this._sectionCount; i++) {
+      // 添加分割线（非首章节）
+      if (i > 0) {
+        const divider = document.createElement('div');
+        divider.className = 'epub-section-divider';
+        divider.style.cssText = `
+          height: 1px;
+          background: linear-gradient(to right, transparent, #666, transparent);
+          margin: ${pageGap}px auto;
+          width: 80%;
+          opacity: 0.3;
+        `;
+        container.appendChild(divider);
+        this._dividerElements.push(divider);
+      }
+      
+      // 创建章节容器
+      const wrapper = document.createElement('div');
+      wrapper.className = 'epub-section-wrapper';
+      wrapper.dataset.sectionIndex = String(i);
+      wrapper.style.cssText = `
+        min-height: 200px;
+        padding: 0 16px;
+        box-sizing: border-box;
+      `;
+      
+      container.appendChild(wrapper);
+      this._sectionContainers.set(i, wrapper);
+    }
+    
+    // 设置 IntersectionObserver 进行懒加载
+    this._setupSectionObserver(container, options);
+    
+    // 设置滚动监听，用于更新目录高亮和进度
+    this._setupScrollListener(container);
+    
+    // 初始渲染当前章节及前后各1章
+    const initialPage = options?.initialVirtualPage || 1;
+    this._currentPage = initialPage;
+    
+    const sectionsToRender = [
+      initialPage - 1,
+      Math.max(0, initialPage - 2),
+      Math.min(this._sectionCount - 1, initialPage),
+    ].filter(i => i >= 0 && i < this._sectionCount);
+    
+    for (const index of sectionsToRender) {
+      await this._renderSection(index, options);
+    }
+    
+    // 滚动到当前章节
+    if (initialPage > 1) {
+      const targetWrapper = this._sectionContainers.get(initialPage - 1);
+      if (targetWrapper) {
+        // 延迟滚动，确保内容已渲染
+        setTimeout(() => {
+          targetWrapper.scrollIntoView({ behavior: 'auto', block: 'start' });
+        }, 100);
+      }
+    }
+    
+    console.log('[EpubRenderer] 纵向连续渲染模式初始化完成');
+  }
+  
+  /**
+   * 设置章节可见性观察器，实现懒加载
+   */
+  private _setupSectionObserver(container: HTMLElement, options?: RenderOptions): void {
+    this._sectionObserver = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            const wrapper = entry.target as HTMLElement;
+            const index = parseInt(wrapper.dataset.sectionIndex || '-1', 10);
+            
+            if (index >= 0 && !this._renderedSections.has(index)) {
+              // 渲染当前章节
+              this._renderSection(index, options).catch(console.error);
+              
+              // 预加载相邻章节
+              const prevIndex = index - 1;
+              const nextIndex = index + 1;
+              
+              if (prevIndex >= 0 && !this._renderedSections.has(prevIndex)) {
+                this._renderSection(prevIndex, options).catch(console.error);
+              }
+              
+              if (nextIndex < this._sectionCount && !this._renderedSections.has(nextIndex)) {
+                this._renderSection(nextIndex, options).catch(console.error);
+              }
+            }
+            
+            // 更新当前页码（当章节进入视口时）
+            // 注意：页码更新由滚动监听器处理，这里只标记章节可见
+            if (entry.intersectionRatio > 0.1) {
+              // 章节可见，可以在这里做一些额外处理
+            }
+          }
+        });
+      },
+      {
+        root: container,
+        rootMargin: '200px 0px', // 提前200px开始加载
+        threshold: [0, 0.3, 0.5, 1.0],
+      }
+    );
+    
+    // 观察所有章节容器
+    this._sectionContainers.forEach((wrapper) => {
+      this._sectionObserver!.observe(wrapper);
+    });
+  }
+  
+  /**
+   * 渲染单个章节
+   */
+  private async _renderSection(index: number, options?: RenderOptions): Promise<void> {
+    if (this._renderedSections.has(index)) {
+      return;
+    }
+    
+    const wrapper = this._sectionContainers.get(index);
+    if (!wrapper || !this._book) {
+      return;
+    }
+    
+    console.log(`[EpubRenderer] 开始渲染章节 ${index + 1}`);
+    
+    try {
+      const section = this._book.sections[index];
+      if (!section || !section.createDocument) {
+        console.warn(`[EpubRenderer] 章节 ${index + 1} 无效`);
+        return;
+      }
+      
+      const doc = await section.createDocument();
+      
+      // 创建临时容器，在注入 Shadow DOM 之前处理资源路径
+      const tempContent = document.createElement('div');
+      tempContent.innerHTML = doc.body.innerHTML;
+      
+      // 在原始文档上下文中解析资源路径
+      this._fixResourcePaths(tempContent, section);
+      
+      // 使用 shadow DOM 隔离样式
+      const shadow = wrapper.attachShadow({ mode: 'open' });
+      
+      // 注入样式
+      const style = document.createElement('style');
+      style.textContent = this._getThemeStyles(options);
+      shadow.appendChild(style);
+      
+      // 注入已处理的内容
+      const content = document.createElement('div');
+      content.className = 'epub-section-content';
+      content.innerHTML = tempContent.innerHTML;
+      shadow.appendChild(content);
+      
+      // 处理链接点击事件
+      this._setupLinkHandlers(content, index);
+      
+      // 标记已渲染
+      this._renderedSections.add(index);
+      wrapper.dataset.rendered = 'true';
+      
+      console.log(`[EpubRenderer] 章节 ${index + 1} 渲染完成`);
+    } catch (e) {
+      console.error(`[EpubRenderer] 渲染章节 ${index + 1} 失败:`, e);
+    }
+  }
+  
+  /**
+   * 设置滚动监听器，用于更新目录高亮和进度
+   */
+  private _setupScrollListener(container: HTMLElement): void {
+    const handleScroll = () => {
+      if (this._scrollRafId !== null) return;
+      
+      this._scrollRafId = requestAnimationFrame(() => {
+        this._scrollRafId = null;
+        this._updateScrollProgress();
+      });
+    };
+    
+    container.addEventListener('scroll', handleScroll, { passive: true });
+  }
+  
+  /**
+   * 更新滚动进度和目录高亮
+   */
+  private _updateScrollProgress(): void {
+    if (!this._scrollContainer || !this._verticalContinuousMode) return;
+    
+    // 跳转期间不更新页码，避免冲突
+    if (this._isNavigating) return;
+    
+    const container = this._scrollContainer;
+    const scrollTop = container.scrollTop;
+    const viewportHeight = container.clientHeight;
+    const centerY = scrollTop + viewportHeight / 2;
+    
+    // 查找视口中心所在的章节
+    let currentSectionIndex = -1;
+    
+    this._sectionContainers.forEach((wrapper, index) => {
+      const rect = wrapper.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+      const relativeTop = rect.top - containerRect.top + scrollTop;
+      const relativeBottom = relativeTop + rect.height;
+      
+      // 检查视口中心是否在这个章节内
+      if (centerY >= relativeTop && centerY < relativeBottom) {
+        currentSectionIndex = index;
+      }
+    });
+    
+    if (currentSectionIndex >= 0) {
+      const newPage = currentSectionIndex + 1;
+      
+      // 更新当前页码
+      if (newPage !== this._currentPage) {
+        this._currentPage = newPage;
+        if (this.onPageChange) {
+          this.onPageChange(newPage);
+        }
+      }
+      
+      // 更新目录高亮（通过 href）
+      if (this.onTocChange && this._book) {
+        const section = this._book.sections[currentSectionIndex];
+        if (section && section.id) {
+          // 使用章节的 href 作为目录定位
+          this.onTocChange(section.id);
+        }
+      }
+    }
+  }
+  
+  /**
+   * 修复资源路径（图片、字体等）
+   */
+  private _fixResourcePaths(content: HTMLElement, section: any): void {
+    // 处理图片路径
+    const images = content.querySelectorAll('img[src]');
+    images.forEach((img) => {
+      const src = img.getAttribute('src');
+      if (!src) return;
+      
+      // 跳过绝对路径和 data URL
+      if (src.startsWith('http://') || src.startsWith('https://') || src.startsWith('data:')) {
+        return;
+      }
+      
+      // 使用 section 的 resolve 方法解析相对路径
+      if (section && typeof section.resolve === 'function') {
+        try {
+          const resolvedUrl = section.resolve(src);
+          if (resolvedUrl) {
+            // 验证解析后的 URL 是否有效
+            if (resolvedUrl.startsWith('blob:') || resolvedUrl.startsWith('data:') || 
+                resolvedUrl.startsWith('http://') || resolvedUrl.startsWith('https://')) {
+              img.setAttribute('src', resolvedUrl);
+              console.log(`[EpubRenderer] 图片路径解析成功: ${src} -> ${resolvedUrl.substring(0, 50)}...`);
+            } else {
+              console.warn(`[EpubRenderer] 解析后的图片路径格式无效: ${resolvedUrl}`);
+            }
+          } else {
+            console.warn(`[EpubRenderer] 图片路径解析返回空: ${src}`);
+          }
+        } catch (e) {
+          console.warn(`[EpubRenderer] 解析图片路径失败: ${src}`, e);
+          // 添加占位图或保持原路径
+        }
+      } else {
+        console.warn(`[EpubRenderer] section.resolve 方法不可用`);
+      }
+    });
+    
+    // 处理 CSS 背景图片
+    const elementsWithStyle = content.querySelectorAll('[style*="background"]');
+    elementsWithStyle.forEach((el) => {
+      const style = el.getAttribute('style');
+      if (!style) return;
+      
+      // 匹配 url(...) 中的路径
+      const urlRegex = /url\(['"]?([^'"()]+)['"]?\)/g;
+      let match;
+      let newStyle = style;
+      
+      while ((match = urlRegex.exec(style)) !== null) {
+        const url = match[1];
+        
+        // 跳过绝对路径和 data URL
+        if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) {
+          continue;
+        }
+        
+        // 解析相对路径
+        if (section && typeof section.resolve === 'function') {
+          try {
+            const resolvedUrl = section.resolve(url);
+            if (resolvedUrl) {
+              newStyle = newStyle.replace(url, resolvedUrl);
+              console.log(`[EpubRenderer] 背景图片路径解析成功: ${url} -> ${resolvedUrl.substring(0, 50)}...`);
+            }
+          } catch (e) {
+            console.warn(`[EpubRenderer] 解析背景图片路径失败: ${url}`, e);
+          }
+        }
+      }
+      
+      if (newStyle !== style) {
+        el.setAttribute('style', newStyle);
+      }
+    });
+  }
+  
+  /**
+   * 设置链接点击处理
+   */
+  private _setupLinkHandlers(content: HTMLElement, sectionIndex: number): void {
+    const links = content.querySelectorAll('a[href]');
+    
+    links.forEach((link) => {
+      const href = link.getAttribute('href');
+      if (!href) return;
+      
+      link.addEventListener('click', (e) => {
+        e.preventDefault();
+        
+        // 处理锚点链接（#开头）
+        if (href.startsWith('#')) {
+          const anchor = href.substring(1);
+          this._scrollToAnchor(anchor, sectionIndex);
+          return;
+        }
+        
+        // 处理相对路径链接（跨章节）
+        if (!href.startsWith('http://') && !href.startsWith('https://')) {
+          this._navigateToHref(href);
+          return;
+        }
+        
+        // 外部链接：在浏览器中打开
+        window.open(href, '_blank');
+      });
+    });
+  }
+  
+  /**
+   * 滚动到锚点
+   */
+  private _scrollToAnchor(anchor: string, currentSectionIndex: number): void {
+    if (!this._scrollContainer) return;
+    
+    // 在当前章节中查找锚点
+    const wrapper = this._sectionContainers.get(currentSectionIndex);
+    if (!wrapper || !wrapper.shadowRoot) return;
+    
+    const target = wrapper.shadowRoot.getElementById(anchor) || 
+                   wrapper.shadowRoot.querySelector(`[name="${anchor}"]`);
+    
+    if (target) {
+      // 计算目标元素相对于滚动容器的位置
+      const containerRect = this._scrollContainer.getBoundingClientRect();
+      const targetRect = target.getBoundingClientRect();
+      
+      const scrollTop = this._scrollContainer.scrollTop;
+      const targetTop = targetRect.top - containerRect.top + scrollTop;
+      
+      this._scrollContainer.scrollTo({
+        top: targetTop,
+        behavior: 'smooth',
+      });
+    }
+  }
+  
+  /**
+   * 导航到指定 href（跨章节）
+   */
+  private _navigateToHref(href: string): void {
+    // 解析 href，找到对应的章节
+    const [path, anchor] = href.split('#');
+    
+    // 查找匹配的章节
+    if (this._book) {
+      const sectionIndex = this._book.sections.findIndex((section: any) => {
+        return section.id === path || section.id.endsWith(path);
+      });
+      
+      if (sectionIndex >= 0) {
+        // 跳转到目标章节
+        this.goToPage(sectionIndex + 1).then(() => {
+          // 如果有锚点，滚动到锚点
+          if (anchor) {
+            setTimeout(() => {
+              this._scrollToAnchor(anchor, sectionIndex);
+            }, 300);
+          }
+        });
+      }
+    }
+  }
+  
+  /**
+   * 获取主题样式
+   */
+  private _getThemeStyles(options?: RenderOptions): string {
+    const theme = options?.theme || 'light';
+    const fontSize = options?.fontSize || 16;
+    const lineHeight = options?.lineHeight || 1.6;
+    const fontFamily = options?.fontFamily || 'serif';
+    
+    let bgColor = '#ffffff';
+    let textColor = '#24292e';
+    
+    if (theme === 'dark') {
+      bgColor = '#1a1a1a';
+      textColor = '#e0e0e0';
+    } else if (theme === 'sepia') {
+      bgColor = '#f4ecd8';
+      textColor = '#5b4636';
+    }
+    
+    return `
+      :host {
+        display: block;
+        background-color: ${bgColor};
+        color: ${textColor};
+      }
+      
+      .epub-section-content {
+        background-color: ${bgColor};
+        color: ${textColor};
+        font-size: ${fontSize}px;
+        line-height: ${lineHeight};
+        font-family: ${fontFamily};
+        padding: 16px;
+        max-width: 800px;
+        margin: 0 auto;
+      }
+      
+      .epub-section-content * {
+        color: inherit;
+      }
+      
+      .epub-section-content h1,
+      .epub-section-content h2,
+      .epub-section-content h3,
+      .epub-section-content h4,
+      .epub-section-content h5,
+      .epub-section-content h6 {
+        white-space: normal;
+        word-break: break-word;
+        overflow-wrap: anywhere;
+        margin-top: 1.5em;
+        margin-bottom: 0.5em;
+      }
+      
+      .epub-section-content p {
+        margin: 0.8em 0;
+        text-indent: 2em;
+      }
+      
+      .epub-section-content a {
+        color: #58a6ff;
+        text-decoration: none;
+      }
+      
+      .epub-section-content a:hover {
+        text-decoration: underline;
+      }
+      
+      .epub-section-content img {
+        max-width: 100%;
+        height: auto;
+        display: block;
+        margin: 1em auto;
+      }
+      
+      .epub-section-content a {
+        cursor: pointer;
+      }
+      
+      .epub-section-content pre {
+        background-color: rgba(128, 128, 128, 0.1);
+        padding: 1em;
+        overflow-x: auto;
+        border-radius: 4px;
+      }
+      
+      .epub-section-content code {
+        font-family: 'Courier New', monospace;
+        background-color: rgba(128, 128, 128, 0.1);
+        padding: 0.2em 0.4em;
+        border-radius: 3px;
+      }
+      
+      .epub-section-content blockquote {
+        border-left: 4px solid #666;
+        padding-left: 1em;
+        margin-left: 0;
+        font-style: italic;
+        opacity: 0.8;
+      }
+    `;
+  }
+
+  /**
    * 跳转到指定页面（章节）
    */
   async goToPage(page: number): Promise<void> {
+    // 纵向连续模式下的跳转
+    if (this._verticalContinuousMode) {
+      if (page < 1 || page > this._totalPages) return;
+      
+      const targetWrapper = this._sectionContainers.get(page - 1);
+      if (targetWrapper) {
+        // 标记正在跳转，避免滚动监听器干扰
+        this._isNavigating = true;
+        
+        targetWrapper.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        this._currentPage = page;
+        
+        // 延迟触发回调，等待滚动完成
+        setTimeout(() => {
+          this._isNavigating = false;
+          if (this.onPageChange) {
+            this.onPageChange(page);
+          }
+        }, 500);
+      }
+      return;
+    }
+    
+    // 横向模式：使用 foliate-view 的 goTo
     if (!this._view || page < 1 || page > this._totalPages) return;
 
+    // 标记正在跳转
+    this._isNavigating = true;
+    
     const sectionIndex = page - 1;
     try {
       await this._view.goTo(sectionIndex);
       this._currentPage = page;
+      
+      // 延迟触发回调，确保跳转完成
+      setTimeout(() => {
+        this._isNavigating = false;
+        if (this.onPageChange) {
+          this.onPageChange(page);
+        }
+      }, 300);
     } catch (e) {
+      this._isNavigating = false;
       console.warn('[EpubRenderer] 跳转失败:', e);
     }
   }
@@ -563,6 +1163,36 @@ export class EpubRenderer implements IBookRenderer {
    * 跳转到目录项（href）
    */
   async goToHref(href: string): Promise<void> {
+    // 纵向连续模式下，根据 href 找到对应章节并跳转
+    if (this._verticalContinuousMode) {
+      // 规范化 href（移除锚点）
+      const normalizeHref = (h: string) => h?.split('#')[0] || '';
+      const hrefBase = normalizeHref(href);
+      
+      // 查找匹配的章节索引
+      const findSectionIndex = (): number => {
+        if (!this._book) return -1;
+        
+        return this._book.sections.findIndex((section: any) => {
+          const sectionId = normalizeHref(section.id || '');
+          // 完整匹配或基础路径匹配
+          return section.id === href || 
+                 (hrefBase && sectionId === hrefBase) ||
+                 section.id.endsWith(href) ||
+                 (hrefBase && sectionId.endsWith(hrefBase));
+        });
+      };
+      
+      const sectionIndex = findSectionIndex();
+      if (sectionIndex >= 0) {
+        await this.goToPage(sectionIndex + 1);
+      } else {
+        console.warn(`[EpubRenderer] 未找到匹配的章节: ${href}`);
+      }
+      return;
+    }
+    
+    // 横向模式：使用 foliate-view 的 goTo
     if (!this._view) return;
     try {
       await this._view.goTo(href);
@@ -575,6 +1205,12 @@ export class EpubRenderer implements IBookRenderer {
    * 下一页
    */
   async nextPage(): Promise<void> {
+    if (this._verticalContinuousMode) {
+      const nextPage = Math.min(this._currentPage + 1, this._totalPages);
+      await this.goToPage(nextPage);
+      return;
+    }
+    
     if (!this._view) return;
     await this._view.next();
   }
@@ -583,6 +1219,12 @@ export class EpubRenderer implements IBookRenderer {
    * 上一页
    */
   async prevPage(): Promise<void> {
+    if (this._verticalContinuousMode) {
+      const prevPage = Math.max(this._currentPage - 1, 1);
+      await this.goToPage(prevPage);
+      return;
+    }
+    
     if (!this._view) return;
     await this._view.prev();
   }
@@ -676,6 +1318,10 @@ export class EpubRenderer implements IBookRenderer {
    * 获取滚动容器
    */
   getScrollContainer(): HTMLElement | null {
+    // 纵向连续模式下，容器本身就是滚动容器
+    if (this._verticalContinuousMode) {
+      return this._currentContainer;
+    }
     return this._currentContainer;
   }
 
@@ -708,6 +1354,20 @@ export class EpubRenderer implements IBookRenderer {
       try { this._resizeObserver.disconnect(); } catch {}
       this._resizeObserver = null;
     }
+    
+    // 清理纵向连续模式的观察器和监听器
+    if (this._sectionObserver) {
+      try { this._sectionObserver.disconnect(); } catch {}
+      this._sectionObserver = null;
+    }
+    
+    if (this._scrollRafId !== null) {
+      try { cancelAnimationFrame(this._scrollRafId); } catch {}
+      this._scrollRafId = null;
+    }
+    
+    this._scrollContainer = null;
+    
     // 关闭视图
     if (this._view) {
       try {
@@ -735,6 +1395,11 @@ export class EpubRenderer implements IBookRenderer {
     this._currentPage = 1;
     this._totalPages = 1;
     this._sectionCount = 0;
+    this._verticalContinuousMode = false;
+    this._sectionContainers.clear();
+    this._renderedSections.clear();
+    this._dividerElements = [];
+    this._currentPageGap = 4;
   }
 
   /** 页面变更回调 */
@@ -751,6 +1416,22 @@ export class EpubRenderer implements IBookRenderer {
   }
 
   /**
+   * 更新页面间隙（仅在纵向连续模式下生效）
+   */
+  updatePageGap(pageGap: number): void {
+    if (!this._verticalContinuousMode) return;
+    
+    if (pageGap === this._currentPageGap) return;
+    
+    this._currentPageGap = pageGap;
+    
+    // 更新所有分割线的间距
+    this._dividerElements.forEach((divider) => {
+      divider.style.margin = `${pageGap}px auto`;
+    });
+  }
+
+  /**
    * 设置阅读模式
    * 切换模式时会保存当前位置并在切换后恢复
    */
@@ -758,10 +1439,41 @@ export class EpubRenderer implements IBookRenderer {
     if (this._readingMode === mode) return;
     
     // 保存当前位置信息
+    const savedPage = this._currentPage;
+    
+    // 如果从纵向连续模式切换到其他模式，需要重新渲染
+    if (this._verticalContinuousMode && mode === 'horizontal') {
+      this._readingMode = mode;
+      this._verticalContinuousMode = false;
+      
+      // 需要重新调用 renderPage 以使用 foliate-view
+      if (this._currentContainer) {
+        await this.renderPage(savedPage, this._currentContainer, {
+          initialVirtualPage: savedPage,
+          readingMode: mode,
+        });
+      }
+      return;
+    }
+    
+    // 如果从横向模式切换到纵向模式，需要重新渲染
+    if (!this._verticalContinuousMode && mode === 'vertical') {
+      this._readingMode = mode;
+      
+      // 需要重新调用 renderPage 以使用纵向连续模式
+      if (this._currentContainer) {
+        await this.renderPage(savedPage, this._currentContainer, {
+          initialVirtualPage: savedPage,
+          readingMode: mode,
+        });
+      }
+      return;
+    }
+    
+    // 横向模式内的切换（使用 foliate-view）
     const savedLocation = this._view?.lastLocation;
     const contents = this._view?.renderer?.getContents?.();
     const currentIndex = Array.isArray(contents) && typeof contents[0]?.index === 'number' ? contents[0].index : null;
-    const savedPage = this._currentPage;
     
     this._readingMode = mode;
     this._applyFlowSafely();
@@ -787,6 +1499,12 @@ export class EpubRenderer implements IBookRenderer {
   }
 
   scrollBy(deltaY: number): void {
+    // 纵向连续模式下，直接滚动容器
+    if (this._verticalContinuousMode && this._currentContainer) {
+      this._currentContainer.scrollBy({ top: deltaY, behavior: 'smooth' });
+      return;
+    }
+    
     const r = this._view?.renderer;
     if (!r || typeof r.scrollBy !== 'function') return;
     try {

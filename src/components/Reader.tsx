@@ -287,6 +287,14 @@ export const Reader: React.FC = () => {
     }
   }, [readingMode]);
 
+  // 当页面间隙变化时，更新 EPUB 渲染器的分割线间距
+  useEffect(() => {
+    const renderer = rendererRef.current;
+    if (renderer && renderer instanceof EpubRenderer) {
+      renderer.updatePageGap(settings.pageGap);
+    }
+  }, [settings.pageGap]);
+
   useEffect(() => {
     // 更新书籍 ID 引用，并递增版本号以使进行中的异步任务失效
     bookIdRef.current = bookId;
@@ -1123,6 +1131,7 @@ export const Reader: React.FC = () => {
             initialVirtualPage: currentPage || 1,
             readingMode: readingMode,
             theme: 'light',
+            pageGap: settings.pageGap,
           });
           log('[Reader] DOM 渲染完成');
           domRestoreDoneRef.current = true;
@@ -1860,9 +1869,17 @@ export const Reader: React.FC = () => {
           setUiVisible(false);
         }}
         onGoToPage={(page, anchor) => {
-          // 支持锚点跳转（Markdown 等 DOM 渲染格式）
+          const isEpub = book?.file_path && getBookFormat(book.file_path) === 'epub';
+          
+          // 支持锚点跳转
           if (anchor && isDomRender && rendererRef.current) {
-            (rendererRef.current as any).scrollToAnchor?.(anchor);
+            if (isEpub) {
+              // EPUB 格式：调用 goToHref
+              (rendererRef.current as any).goToHref?.(anchor);
+            } else {
+              // Markdown 等格式：调用 scrollToAnchor
+              (rendererRef.current as any).scrollToAnchor?.(anchor);
+            }
           } else if (typeof page === 'number') {
             goToPage(page);
           }
