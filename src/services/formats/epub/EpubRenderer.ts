@@ -50,6 +50,8 @@ interface EpubBook {
   toc?: EpubTocItem[];
   sections: any[];
   getCover(): Promise<Blob | null>;
+  loadBlob?(path: string): Promise<Blob | null>;
+  loadText?(path: string): Promise<string | null>;
   destroy(): void;
 }
 
@@ -98,6 +100,7 @@ export class EpubRenderer implements IBookRenderer {
   private _dividerElements: HTMLElement[] = [];
   private _currentPageGap: number = 4;
   private _isNavigating: boolean = false;
+  private _blobUrls: Set<string> = new Set();
 
   get isReady(): boolean {
     return this._isReady;
@@ -576,6 +579,9 @@ export class EpubRenderer implements IBookRenderer {
   async renderVerticalContinuous(container: HTMLElement, options?: RenderOptions): Promise<void> {
     console.log('[EpubRenderer] 开始纵向连续渲染模式');
     
+    // 清理之前的资源
+    this._clearBlobUrls();
+
     // 标记为纵向连续模式
     this._verticalContinuousMode = true;
     
@@ -750,7 +756,7 @@ export class EpubRenderer implements IBookRenderer {
       tempContent.innerHTML = doc.body.innerHTML;
       
       // 在原始文档上下文中解析资源路径
-      this._fixResourcePaths(tempContent, section);
+      await this._fixResourcePaths(tempContent, section);
       
       // 使用 shadow DOM 隔离样式
       const shadow = wrapper.attachShadow({ mode: 'open' });
@@ -759,6 +765,14 @@ export class EpubRenderer implements IBookRenderer {
       const style = document.createElement('style');
       style.textContent = this._getThemeStyles(options);
       shadow.appendChild(style);
+
+      // 注入原文档样式（包括外部 CSS）
+      const originalStyles = await this._loadAndProcessStyles(doc, section);
+      if (originalStyles) {
+        const originalStyleEl = document.createElement('style');
+        originalStyleEl.textContent = originalStyles;
+        shadow.appendChild(originalStyleEl);
+      }
       
       // 注入已处理的内容
       const content = document.createElement('div');
@@ -847,48 +861,170 @@ export class EpubRenderer implements IBookRenderer {
   }
   
   /**
+   * 清理生成的 Blob URL
+   */
+  private _clearBlobUrls(): void {
+    this._blobUrls.forEach(url => URL.revokeObjectURL(url));
+    this._blobUrls.clear();
+  }
+
+  /**
+   * 解析并加载资源
+   */
+  private async _resolveAndLoad(url: string, section: any): Promise<string | null> {
+    if (!url || !this._book) return null;
+
+    // 跳过绝对路径和 data URL
+    if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:') || url.startsWith('blob:')) {
+      return url;
+    }
+
+    try {
+      // 1. 解析路径
+      let path = url;
+      if (section && typeof section.resolveHref === 'function') {
+        // section.resolveHref 返回的是 EPUB 内部的绝对路径字符串
+        path = section.resolveHref(url);
+      } else if (section && typeof section.resolve === 'function') {
+        // 兼容旧版或不同的接口
+        const resolved = section.resolve(url);
+        if (typeof resolved === 'string') {
+          path = resolved;
+        }
+      }
+
+      if (!path) return null;
+
+      // 2. 加载资源为 Blob
+      // loadBlob 是 EPUB 实例的方法（来自 Loader）
+      if (this._book.loadBlob) {
+        const blob = await this._book.loadBlob(path);
+        if (blob) {
+          const blobUrl = URL.createObjectURL(blob);
+          this._blobUrls.add(blobUrl);
+          return blobUrl;
+        }
+      }
+    } catch (e) {
+      console.warn(`[EpubRenderer] 加载资源失败: ${url}`, e);
+    }
+    
+    return null;
+  }
+
+  /**
+   * 加载并处理样式（包括外部 CSS 和内联样式）
+   */
+  private async _loadAndProcessStyles(doc: Document, section: any): Promise<string> {
+    let cssText = '';
+    const sectionHref = section?.id || '';
+    
+    // 1. 处理外部 CSS 文件 <link rel="stylesheet">
+    const links = Array.from(doc.querySelectorAll('link[rel="stylesheet"]'));
+    for (const link of links) {
+      const href = link.getAttribute('href');
+      if (!href) continue;
+
+      try {
+        // 解析 CSS 文件的绝对路径
+        let cssPath = href;
+        if (section && typeof section.resolveHref === 'function') {
+          cssPath = section.resolveHref(href);
+        }
+
+        if (this._book && this._book.loadText && cssPath) {
+          const cssContent = await this._book.loadText(cssPath);
+          if (cssContent) {
+            // 处理 CSS 文件中的相对路径（相对于 CSS 文件本身）
+            const processedCss = await this._processCssUrls(cssContent, cssPath);
+            cssText += `/* ${href} */\n${processedCss}\n`;
+          }
+        }
+      } catch (e) {
+        console.warn(`[EpubRenderer] 加载外部 CSS 失败: ${href}`, e);
+      }
+    }
+
+    // 2. 处理内联样式 <style>
+    const styles = Array.from(doc.querySelectorAll('style'));
+    for (const style of styles) {
+      const content = style.textContent || '';
+      if (content) {
+        // 内联样式的相对路径是相对于当前章节文件的
+        const processedCss = await this._processCssUrls(content, sectionHref);
+        cssText += `/* Inline Style */\n${processedCss}\n`;
+      }
+    }
+
+    return cssText;
+  }
+
+  /**
+   * 处理 CSS 中的 URL 路径
+   */
+  private async _processCssUrls(css: string, basePath: string): Promise<string> {
+    const urlRegex = /url\(['"]?([^'"()]+)['"]?\)/g;
+    let match;
+    let newCss = css;
+    const replacements: { old: string, new: string }[] = [];
+
+    // 计算基准目录
+    const baseDir = basePath.includes('/') ? basePath.substring(0, basePath.lastIndexOf('/') + 1) : '';
+
+    while ((match = urlRegex.exec(css)) !== null) {
+      const url = match[1];
+      if (url.startsWith('data:') || url.startsWith('http')) continue;
+
+      try {
+        // 解析绝对路径
+        // 简单处理：拼接 baseDir + url，然后处理 ../
+        // 这里使用 URL API 来处理路径解析
+        const dummyBase = 'http://dummy/';
+        const absoluteUrlObj = new URL(url, dummyBase + baseDir);
+        const absolutePath = absoluteUrlObj.pathname.substring(1); // 去掉开头的 /
+
+        // 加载资源
+        const blobUrl = await this._resolveAndLoad(absolutePath, null);
+        if (blobUrl) {
+          replacements.push({ old: url, new: blobUrl });
+        }
+      } catch (e) {
+        // console.warn(`[EpubRenderer] 解析 CSS URL 失败: ${url}`, e);
+      }
+    }
+
+    // 替换 URL
+    // 注意：倒序替换或者使用 replaceAll (split/join)
+    // 为避免替换错误（如部分匹配），使用 split/join 比较安全，但要注意转义
+    if (replacements.length > 0) {
+        replacements.forEach(({ old, new: newUrl }) => {
+            newCss = newCss.split(old).join(newUrl);
+        });
+    }
+
+    return newCss;
+  }
+
+  /**
    * 修复资源路径（图片、字体等）
    */
-  private _fixResourcePaths(content: HTMLElement, section: any): void {
+  private async _fixResourcePaths(content: HTMLElement, section: any): Promise<void> {
     // 处理图片路径
     const images = content.querySelectorAll('img[src]');
-    images.forEach((img) => {
+    const imgPromises = Array.from(images).map(async (img) => {
       const src = img.getAttribute('src');
       if (!src) return;
       
-      // 跳过绝对路径和 data URL
-      if (src.startsWith('http://') || src.startsWith('https://') || src.startsWith('data:')) {
-        return;
-      }
-      
-      // 使用 section 的 resolve 方法解析相对路径
-      if (section && typeof section.resolve === 'function') {
-        try {
-          const resolvedUrl = section.resolve(src);
-          if (resolvedUrl) {
-            // 验证解析后的 URL 是否有效
-            if (resolvedUrl.startsWith('blob:') || resolvedUrl.startsWith('data:') || 
-                resolvedUrl.startsWith('http://') || resolvedUrl.startsWith('https://')) {
-              img.setAttribute('src', resolvedUrl);
-              console.log(`[EpubRenderer] 图片路径解析成功: ${src} -> ${resolvedUrl.substring(0, 50)}...`);
-            } else {
-              console.warn(`[EpubRenderer] 解析后的图片路径格式无效: ${resolvedUrl}`);
-            }
-          } else {
-            console.warn(`[EpubRenderer] 图片路径解析返回空: ${src}`);
-          }
-        } catch (e) {
-          console.warn(`[EpubRenderer] 解析图片路径失败: ${src}`, e);
-          // 添加占位图或保持原路径
-        }
-      } else {
-        console.warn(`[EpubRenderer] section.resolve 方法不可用`);
+      const resolvedUrl = await this._resolveAndLoad(src, section);
+      if (resolvedUrl && resolvedUrl !== src) {
+        img.setAttribute('src', resolvedUrl);
+        // console.log(`[EpubRenderer] 图片路径解析成功: ${src} -> ${resolvedUrl.substring(0, 50)}...`);
       }
     });
     
     // 处理 CSS 背景图片
     const elementsWithStyle = content.querySelectorAll('[style*="background"]');
-    elementsWithStyle.forEach((el) => {
+    const stylePromises = Array.from(elementsWithStyle).map(async (el) => {
       const style = el.getAttribute('style');
       if (!style) return;
       
@@ -896,33 +1032,31 @@ export class EpubRenderer implements IBookRenderer {
       const urlRegex = /url\(['"]?([^'"()]+)['"]?\)/g;
       let match;
       let newStyle = style;
+      const replacements: { old: string, new: string }[] = [];
       
+      // 收集所有需要替换的 URL
+      // 注意：exec 是有状态的，需要循环调用
       while ((match = urlRegex.exec(style)) !== null) {
         const url = match[1];
-        
-        // 跳过绝对路径和 data URL
-        if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) {
-          continue;
-        }
-        
-        // 解析相对路径
-        if (section && typeof section.resolve === 'function') {
-          try {
-            const resolvedUrl = section.resolve(url);
-            if (resolvedUrl) {
-              newStyle = newStyle.replace(url, resolvedUrl);
-              console.log(`[EpubRenderer] 背景图片路径解析成功: ${url} -> ${resolvedUrl.substring(0, 50)}...`);
-            }
-          } catch (e) {
-            console.warn(`[EpubRenderer] 解析背景图片路径失败: ${url}`, e);
-          }
+        // 避免重复处理
+        if (url.startsWith('blob:') || url.startsWith('data:') || url.startsWith('http')) continue;
+
+        const resolvedUrl = await this._resolveAndLoad(url, section);
+        if (resolvedUrl && resolvedUrl !== url) {
+            replacements.push({ old: url, new: resolvedUrl });
         }
       }
       
-      if (newStyle !== style) {
+      if (replacements.length > 0) {
+        replacements.forEach(({ old, new: newUrl }) => {
+            // 使用 split/join 替换所有出现的该 URL
+            newStyle = newStyle.split(old).join(newUrl);
+        });
         el.setAttribute('style', newStyle);
       }
     });
+
+    await Promise.all([...imgPromises, ...stylePromises]);
   }
   
   /**
@@ -1084,8 +1218,6 @@ export class EpubRenderer implements IBookRenderer {
       .epub-section-content img {
         max-width: 100%;
         height: auto;
-        display: block;
-        margin: 1em auto;
       }
       
       .epub-section-content a {
@@ -1358,6 +1490,7 @@ export class EpubRenderer implements IBookRenderer {
    * 关闭并释放资源
    */
   async close(): Promise<void> {
+    this._clearBlobUrls();
     if (this._resizeObserver) {
       try { this._resizeObserver.disconnect(); } catch {}
       this._resizeObserver = null;
