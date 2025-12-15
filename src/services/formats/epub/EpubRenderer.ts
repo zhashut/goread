@@ -541,8 +541,16 @@ export class EpubRenderer implements IBookRenderer {
    * 处理位置变化事件
    */
   private _handleRelocate(detail: any): void {
+    // 兼容不同的事件数据结构：优先使用 index，否则尝试从 section.current 获取
+    let pageIndex: number | undefined;
     if (typeof detail?.index === 'number') {
-      this._currentPage = detail.index + 1;
+      pageIndex = detail.index;
+    } else if (typeof detail?.section?.current === 'number') {
+      pageIndex = detail.section.current;
+    }
+
+    if (typeof pageIndex === 'number') {
+      this._currentPage = pageIndex + 1;
     }
 
     // 更新当前目录项 href（用于高亮）
