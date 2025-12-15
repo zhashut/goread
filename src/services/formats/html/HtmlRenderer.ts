@@ -101,29 +101,157 @@ export class HtmlRenderer implements IBookRenderer {
       styleContent += css + '\n';
     });
 
-    // Default styles for better reading experience (can be overridden by document styles)
+    // Default styles for better reading experience (GitHub-like theme)
     const defaultStyles = `
       :host {
         display: block;
         width: 100%;
         height: 100%;
         overflow-y: auto;
+        overflow-x: hidden;
         contain: content;
         position: relative;
-        background-color: ${options?.theme === 'dark' ? '#1e1e1e' : '#ffffff'};
-        color: ${options?.theme === 'dark' ? '#e0e0e0' : '#333'};
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-        line-height: 1.6;
+        background-color: #ffffff;
+        color: #24292f;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+        line-height: 1.5;
+        word-wrap: break-word;
+        scrollbar-width: none !important;
+        -ms-overflow-style: none;
+      }
+      :host::-webkit-scrollbar {
+        width: 0 !important;
+        height: 0 !important;
       }
       .html-body {
         min-height: 100%;
-        padding: 20px;
+        padding: 32px;
         box-sizing: border-box;
+        max-width: 1012px;
+        margin: 0 auto;
       }
       /* Ensure images don't overflow */
       img {
         max-width: 100%;
         height: auto;
+        box-sizing: content-box;
+        background-color: #ffffff;
+      }
+      
+      /* GitHub Theme Styles */
+      a {
+        color: #0969da;
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+      
+      h1, h2, h3, h4, h5, h6 {
+        margin-top: 24px;
+        margin-bottom: 16px;
+        font-weight: 600;
+        line-height: 1.25;
+      }
+      
+      h1 {
+        font-size: 2em;
+        padding-bottom: 0.3em;
+        border-bottom: 1px solid #d0d7de;
+      }
+      
+      h2 {
+        font-size: 1.5em;
+        padding-bottom: 0.3em;
+        border-bottom: 1px solid #d0d7de;
+      }
+      
+      h3 { font-size: 1.25em; }
+      h4 { font-size: 1em; }
+      h5 { font-size: 0.875em; }
+      h6 { font-size: 0.85em; color: #656d76; }
+      
+      p {
+        margin-top: 0;
+        margin-bottom: 16px;
+      }
+      
+      blockquote {
+        margin: 0 0 16px;
+        padding: 0 1em;
+        color: #656d76;
+        border-left: 0.25em solid #d0d7de;
+      }
+      
+      ul, ol {
+        margin-top: 0;
+        margin-bottom: 16px;
+        padding-left: 2em;
+      }
+      
+      hr {
+        height: 0.25em;
+        padding: 0;
+        margin: 24px 0;
+        background-color: #d0d7de;
+        border: 0;
+      }
+      
+      table {
+        border-spacing: 0;
+        border-collapse: collapse;
+        margin-top: 0;
+        margin-bottom: 16px;
+        display: block;
+        width: max-content;
+        max-width: 100%;
+        overflow: auto;
+      }
+      
+      tr {
+        background-color: #ffffff;
+        border-top: 1px solid #d8dee4;
+      }
+      
+      tr:nth-child(2n) {
+        background-color: #f6f8fa;
+      }
+      
+      th, td {
+        padding: 6px 13px;
+        border: 1px solid #d0d7de;
+      }
+      
+      th {
+        font-weight: 600;
+      }
+      
+      code, kbd, pre {
+        font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
+        font-size: 85%;
+      }
+      
+      code {
+        padding: 0.2em 0.4em;
+        margin: 0;
+        background-color: #afb8c133;
+        border-radius: 6px;
+      }
+      
+      pre {
+        padding: 16px;
+        overflow: auto;
+        font-size: 85%;
+        line-height: 1.45;
+        background-color: #f6f8fa;
+        border-radius: 6px;
+      }
+      
+      pre code {
+        background-color: transparent;
+        padding: 0;
+        margin: 0;
+        border-radius: 0;
       }
     `;
 
