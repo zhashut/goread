@@ -1358,7 +1358,12 @@ export const Bookshelf: React.FC = () => {
 
       <div
         className="no-scrollbar"
-        style={{ flex: 1, overflowY: "auto", paddingBottom: `calc(75px + ${getSafeAreaInsets().bottom})` }}
+        style={{
+          flex: 1,
+          overflowY: "auto",
+          overflowX: "hidden",
+          paddingBottom: `calc(75px + ${getSafeAreaInsets().bottom})`,
+        }}
         onTouchStart={swipeTouchStart}
         onTouchEnd={swipeTouchEnd}
       >

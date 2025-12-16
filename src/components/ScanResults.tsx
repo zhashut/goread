@@ -36,6 +36,33 @@ export const ScanResults: React.FC = () => {
   const [filterFormat, setFilterFormat] = useState<'ALL' | BookFormat>('ALL');
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
 
+  // Handle search open/close with history API to support back gesture
+  useEffect(() => {
+    const handlePopState = () => {
+      if (searchOpen) {
+        setSearchOpen(false);
+        setGlobalSearch("");
+      }
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+    };
+  }, [searchOpen]);
+
+  const openSearch = () => {
+    setSearchOpen(true);
+    window.history.pushState({ overlay: "search" }, "");
+  };
+
+  const closeSearch = () => {
+    // If search is open, going back will trigger popstate which closes it
+    if (searchOpen) {
+      window.history.back();
+    }
+  };
+
   // 列表行高度（用于按比例缩放左侧图标尺寸）
   const ROW_HEIGHT = 60; // px
 
@@ -200,7 +227,7 @@ export const ScanResults: React.FC = () => {
             }}
           >
             <button
-              onClick={() => setSearchOpen(false)}
+              onClick={closeSearch}
               aria-label="返回"
               title="返回"
               style={{
@@ -436,7 +463,7 @@ export const ScanResults: React.FC = () => {
                 padding: 0,
                 marginRight: 24,
               }}
-              onClick={() => setSearchOpen(true)}
+              onClick={openSearch}
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
                 <circle cx="11" cy="11" r="7" stroke="#333" strokeWidth="2" />

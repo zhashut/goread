@@ -207,6 +207,34 @@ export const ImportFiles: React.FC = () => {
   const [filterFormat, setFilterFormat] = useState<'ALL' | BookFormat>('ALL');
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
 
+  // Handle search open/close with history API to support back gesture
+  useEffect(() => {
+    const handlePopState = () => {
+      if (searchOpen) {
+        setSearchOpen(false);
+        setBrowseSearch("");
+      }
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+    };
+  }, [searchOpen]);
+
+  const openSearch = () => {
+    if (!searchOpen) {
+      setSearchOpen(true);
+      window.history.pushState({ overlay: "search" }, "");
+    }
+  };
+
+  const closeSearch = () => {
+    if (searchOpen) {
+      window.history.back();
+    }
+  };
+
   // Reset filter when tab changes
   useEffect(() => {
       setFilterFormat('ALL');
@@ -749,7 +777,7 @@ export const ImportFiles: React.FC = () => {
                   padding: 0,
                   marginRight: 16,
                 }}
-                onClick={() => setSearchOpen((v) => !v)}
+                onClick={openSearch}
               >
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
                   <circle cx="11" cy="11" r="7" stroke="#333" strokeWidth="2" />
@@ -1086,7 +1114,7 @@ export const ImportFiles: React.FC = () => {
           <SearchHeader
             value={browseSearch}
             onChange={setBrowseSearch}
-            onClose={() => setSearchOpen(false)}
+            onClose={closeSearch}
             onClear={() => setBrowseSearch("")}
           />
         ) : (
