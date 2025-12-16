@@ -8,6 +8,8 @@ import { CARD_MIN_WIDTH, GRID_GAP_GROUP_DETAIL } from "../constants/ui";
 import { groupService, bookService } from "../services";
 import { SortableBookItem } from "./SortableBookItem";
 import ConfirmDeleteDrawer from "./ConfirmDeleteDrawer";
+import ChooseExistingGroupDrawer from "./ChooseExistingGroupDrawer";
+import { loadGroupsWithPreviews } from "../utils/groupImport";
 import { useDndSensors, useDragGuard, isTouchDevice } from "../utils/gesture";
 
 // 使用 dnd-kit 实现拖拽排序
@@ -71,6 +73,12 @@ export const GroupDetail: React.FC<{
 
   const [selectedBookIds, setSelectedBookIds] = useState<Set<number>>(new Set());
   const [confirmOpen, setConfirmOpen] = useState(false);
+  
+  // 移动分组相关状态
+  const [moveDrawerOpen, setMoveDrawerOpen] = useState(false);
+  const [allGroups, setAllGroups] = useState<any[]>([]);
+  const [groupPreviews, setGroupPreviews] = useState<Record<number, string[]>>({});
+
   const booksRef = useRef<IBook[]>([]);
   const selectedRef = useRef<Set<number>>(new Set());
 
@@ -209,9 +217,11 @@ export const GroupDetail: React.FC<{
     const onExit = () => exitSelection();
     const onOpenConfirm = () => setConfirmOpen(true);
     const onSelectAll = () => selectAll();
+    const onOpenMove = () => openMoveDrawer();
     window.addEventListener("goread:group-detail:exit-selection", onExit as any);
     window.addEventListener("goread:group-detail:open-confirm", onOpenConfirm as any);
     window.addEventListener("goread:group-detail:select-all", onSelectAll as any);
+    window.addEventListener("goread:group-detail:open-move", onOpenMove as any);
     return () => {
       window.removeEventListener(
         "goread:group-detail:exit-selection",
@@ -225,8 +235,65 @@ export const GroupDetail: React.FC<{
         "goread:group-detail:select-all",
         onSelectAll as any
       );
+      window.removeEventListener(
+        "goread:group-detail:open-move",
+        onOpenMove as any
+      );
     };
   }, []);
+
+  const openMoveDrawer = async () => {
+    try {
+      // 加载分组数据（排除当前分组）
+      const { groups: loadedGroups, previews } = await loadGroupsWithPreviews();
+      // 过滤掉当前分组
+      const validGroups = loadedGroups.filter(g => g.id !== id);
+      
+      setAllGroups(validGroups);
+      setGroupPreviews(previews);
+      setMoveDrawerOpen(true);
+    } catch (e) {
+      console.error("加载分组失败", e);
+      alert("无法加载分组列表");
+    }
+  };
+
+  const handleMoveBooks = async (targetGroupId: number) => {
+    try {
+      const ids = Array.from(selectedBookIds);
+      // 1. 移动书籍
+      for (const bid of ids) {
+        await groupService.moveBookToGroup(bid, targetGroupId);
+      }
+
+      // 2. 排序：将移动的书籍放在目标分组最前
+      // 获取目标分组当前书籍
+      const targetBooks = await groupService.getBooksByGroup(targetGroupId);
+      const targetBookIds = targetBooks.map((b) => b.id);
+      
+      // 保持源分组中的相对顺序
+      const currentBooks = booksRef.current || [];
+      const movedIdsOrdered = currentBooks
+        .filter((b) => selectedBookIds.has(b.id))
+        .map((b) => b.id);
+        
+      // 过滤出目标分组中原有的书籍（不包含这次移动的）
+      const restIds = targetBookIds.filter((bid) => !selectedBookIds.has(bid));
+      
+      const newOrder = [...movedIdsOrdered, ...restIds];
+      
+      await groupService.reorderGroupBooks(targetGroupId, newOrder);
+
+      // 3. 刷新与退出
+      await reloadBooksAndGroups();
+      exitSelection();
+      setMoveDrawerOpen(false);
+      
+    } catch (e) {
+      console.error("移动书籍失败", e);
+      alert("移动失败，请重试");
+    }
+  };
 
   const handleDeleteInGroup = async (book: IBook) => {
     try {
@@ -365,6 +432,14 @@ export const GroupDetail: React.FC<{
         count={selectedBookIds.size}
         onCancel={() => setConfirmOpen(false)}
         onConfirm={(deleteLocal) => confirmDelete(deleteLocal)}
+      />
+      <ChooseExistingGroupDrawer
+        open={moveDrawerOpen}
+        groups={allGroups}
+        groupPreviews={groupPreviews}
+        onClose={() => setMoveDrawerOpen(false)}
+        onSelectGroup={handleMoveBooks}
+        title="移动到分组"
       />
     </div>
   );

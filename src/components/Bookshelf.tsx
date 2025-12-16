@@ -8,6 +8,10 @@ import React, {
 
 import { useAppNav } from "../router/useAppNav";
 import { IBook, IGroup } from "../types";
+import {
+  IconDelete,
+  IconMove,
+} from "./Icons";
   import {
   GRID_GAP_BOOK_CARDS,
   GROUP_NAME_FONT_SIZE,
@@ -850,34 +854,7 @@ export const Bookshelf: React.FC = () => {
                   setConfirmOpen(true);
                 }}
               >
-                <svg
-                  width={TOP_BAR_ICON_SIZE}
-                  height={TOP_BAR_ICON_SIZE}
-                  viewBox="0 0 24 24"
-                  fill="none"
-                >
-                  <path
-                    d="M6 7h12"
-                    stroke={selectedCount === 0 || dragActive ? "#bbb" : "#333"}
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
-                  <path
-                    d="M9 7V5h6v2"
-                    stroke={selectedCount === 0 || dragActive ? "#bbb" : "#333"}
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
-                  <rect
-                    x="6"
-                    y="7"
-                    width="12"
-                    height="14"
-                    rx="2"
-                    stroke={selectedCount === 0 || dragActive ? "#bbb" : "#333"}
-                    strokeWidth="2"
-                  />
-                </svg>
+                <IconDelete width={TOP_BAR_ICON_SIZE} height={TOP_BAR_ICON_SIZE} fill="#333" />
               </button>
               <button
                 aria-label="全选"
@@ -925,7 +902,7 @@ export const Bookshelf: React.FC = () => {
                     const isAll = allCount > 0 && selCount === allCount;
                     const stroke = isAll ? "#d23c3c" : "#333";
                     return (
-                      <g>
+                      <>
                         <rect
                           x="3"
                           y="3"
@@ -933,6 +910,7 @@ export const Bookshelf: React.FC = () => {
                           height="7"
                           stroke={stroke}
                           strokeWidth="2"
+                          rx="1"
                         />
                         <rect
                           x="14"
@@ -941,6 +919,7 @@ export const Bookshelf: React.FC = () => {
                           height="7"
                           stroke={stroke}
                           strokeWidth="2"
+                          rx="1"
                         />
                         <rect
                           x="3"
@@ -949,6 +928,7 @@ export const Bookshelf: React.FC = () => {
                           height="7"
                           stroke={stroke}
                           strokeWidth="2"
+                          rx="1"
                         />
                         <rect
                           x="14"
@@ -957,8 +937,9 @@ export const Bookshelf: React.FC = () => {
                           height="7"
                           stroke={stroke}
                           strokeWidth="2"
+                          rx="1"
                         />
-                      </g>
+                      </>
                     );
                   })()}
                 </svg>
@@ -968,25 +949,26 @@ export const Bookshelf: React.FC = () => {
         />
       ) : (
         <BookshelfHeader
+          leftAlign="flex-end"
           leftContainerRef={tabsRef}
           left={
             <>
-              <button
-                onClick={() => {
-                  nav.toBookshelf("recent", { replace: true });
-                  setAnimateUnderline(true);
-                }}
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  padding: 0,
-                  cursor: "pointer",
-                  boxShadow: "none",
-                  borderRadius: 0,
-                  marginRight: "15px",
-                }}
-                title="最近"
-              >
+            <button
+              onClick={() => {
+                nav.toBookshelf("recent", { replace: true });
+                setAnimateUnderline(true);
+              }}
+              style={{
+                background: "transparent",
+                border: "none",
+                padding: 0,
+                cursor: "pointer",
+                boxShadow: "none",
+                borderRadius: 0,
+                marginRight: "15px",
+              }}
+              title="最近"
+            >
                 <div
                   ref={recentLabelRef}
                   style={{
@@ -1917,7 +1899,7 @@ export const Bookshelf: React.FC = () => {
                 background: "#fff",
                 display: "flex",
                 alignItems: "center",
-                padding: `calc(${getSafeAreaInsets().top} + 12px) 16px 12px 16px`,
+                padding: `calc(${getSafeAreaInsets().top} + 12px) 0 12px 16px`,
                 zIndex: 101,
               }}
             >
@@ -1942,8 +1924,19 @@ export const Bookshelf: React.FC = () => {
                 }}
                 title="返回"
               >
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                  <path d="M14 18l-6-6 6-6" stroke="#333" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                <svg
+                  width={24}
+                  height={24}
+                  viewBox="0 0 24 24"
+                  fill="none"
+                >
+                  <path
+                    d="M14 18l-6-6 6-6"
+                    stroke="#333"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
                 </svg>
               </button>
               <span style={{ fontSize: 16, color: "#333", marginLeft: 8, fontWeight: 600, display: "inline-flex", alignItems: "center", height: "24px", lineHeight: "24px", transform: "translateY(-2px)" }}>
@@ -1952,17 +1945,47 @@ export const Bookshelf: React.FC = () => {
               <div style={{ flex: 1 }} />
               <div style={{ display: "flex", alignItems: "center" }}>
                 <button
+                  aria-label="更改分组"
+                  title="更改分组"
+                  style={{
+                    background: "none",
+                    border: "none",
+                    boxShadow: "none",
+                    borderRadius: 0,
+                    cursor: groupDetailSelectedCount === 0 || dragActive ? "not-allowed" : "pointer",
+                    opacity: groupDetailSelectedCount === 0 || dragActive ? 0.4 : 1,
+                    padding: 0,
+                    width: "44px",
+                    height: "44px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                  disabled={groupDetailSelectedCount === 0 || dragActive}
+                  onClick={() => {
+                    if (groupDetailSelectedCount === 0 || dragActive) return;
+                    const evt = new Event("goread:group-detail:open-move");
+                    window.dispatchEvent(evt);
+                  }}
+                >
+                  <IconMove width={24} height={24} fill="#333" />
+                </button>
+                <button
                   aria-label="删除"
                   title="删除"
                   style={{
                     background: "none",
                     border: "none",
                     boxShadow: "none",
-                     borderRadius: 0,
+                    borderRadius: 0,
                     cursor: groupDetailSelectedCount === 0 || dragActive ? "not-allowed" : "pointer",
                     opacity: groupDetailSelectedCount === 0 || dragActive ? 0.4 : 1,
                     padding: 0,
-                    marginRight: 16,
+                    width: "44px",
+                    height: "44px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
                   }}
                   disabled={groupDetailSelectedCount === 0 || dragActive}
                   onClick={() => {
@@ -1971,11 +1994,7 @@ export const Bookshelf: React.FC = () => {
                     window.dispatchEvent(evt);
                   }}
                 >
-                  <svg width="21" height="21" viewBox="0 0 24 24" fill="none">
-                    <path d="M6 7h12" stroke={groupDetailSelectedCount === 0 || dragActive ? "#bbb" : "#333"} strokeWidth="2" strokeLinecap="round" />
-                    <path d="M9 7V5h6v2" stroke={groupDetailSelectedCount === 0 || dragActive ? "#bbb" : "#333"} strokeWidth="2" strokeLinecap="round" />
-                    <rect x="6" y="7" width="12" height="14" rx="2" stroke={groupDetailSelectedCount === 0 || dragActive ? "#bbb" : "#333"} strokeWidth="2" />
-                  </svg>
+                  <IconDelete width={24} height={24} fill="#333" />
                 </button>
                 <button
                   aria-label="全选"
@@ -1987,24 +2006,66 @@ export const Bookshelf: React.FC = () => {
                     borderRadius: 0,
                     cursor: "pointer",
                     padding: 0,
+                    width: "44px",
+                    height: "44px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
                   }}
                   onClick={() => {
                     const evt = new Event("goread:group-detail:select-all");
                     window.dispatchEvent(evt);
                   }}
                 >
-                  <svg width="21" height="21" viewBox="0 0 24 24" fill="none">
+                  <svg
+                    width={24}
+                    height={24}
+                    viewBox="0 0 24 24"
+                    fill="none"
+                  >
                     {(() => {
                       const allCount = (groups.find((g) => g.id === overlayGroupId)?.book_count || 0);
                       const isAll = allCount > 0 && groupDetailSelectedCount === allCount;
                       const stroke = isAll ? "#d23c3c" : "#333";
                       return (
-                        <g>
-                          <rect x="3" y="3" width="7" height="7" stroke={stroke} strokeWidth="2" />
-                          <rect x="14" y="3" width="7" height="7" stroke={stroke} strokeWidth="2" />
-                          <rect x="3" y="14" width="7" height="7" stroke={stroke} strokeWidth="2" />
-                          <rect x="14" y="14" width="7" height="7" stroke={stroke} strokeWidth="2" />
-                        </g>
+                        <>
+                          <rect
+                            x="3"
+                            y="3"
+                            width="7"
+                            height="7"
+                            stroke={stroke}
+                            strokeWidth="2"
+                            rx="1"
+                          />
+                          <rect
+                            x="14"
+                            y="3"
+                            width="7"
+                            height="7"
+                            stroke={stroke}
+                            strokeWidth="2"
+                            rx="1"
+                          />
+                          <rect
+                            x="3"
+                            y="14"
+                            width="7"
+                            height="7"
+                            stroke={stroke}
+                            strokeWidth="2"
+                            rx="1"
+                          />
+                          <rect
+                            x="14"
+                            y="14"
+                            width="7"
+                            height="7"
+                            stroke={stroke}
+                            strokeWidth="2"
+                            rx="1"
+                          />
+                        </>
                       );
                     })()}
                   </svg>

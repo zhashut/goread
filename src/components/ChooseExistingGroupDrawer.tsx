@@ -69,11 +69,16 @@ const ChooseExistingGroupDrawer: React.FC<ChooseExistingGroupDrawerProps> = ({
               key={g.id}
               onClick={() => onSelectGroup(g.id)}
               style={{
-                background: "none",
+                appearance: "none",
+                WebkitAppearance: "none",
+                background: "transparent",
                 border: "none",
+                outline: "none",
+                boxShadow: "none",
                 padding: 0,
                 textAlign: "left",
                 cursor: "pointer",
+                width: "100%",
               }}
             >
               <div style={{ marginBottom: 6 }}>
