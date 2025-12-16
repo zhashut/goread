@@ -74,6 +74,9 @@ export class MarkdownRenderer implements IBookRenderer {
   private _reactRoot: any = null;
   private _previewId = `md-preview-${Date.now()}`;
   private _editorId = `md-editor-${Date.now()}`;
+  
+  /** 位置恢复完成回调 */
+  onPositionRestored?: () => void;
 
   get isReady(): boolean {
     return this._isReady;
@@ -310,15 +313,25 @@ export class MarkdownRenderer implements IBookRenderer {
           const target = (initialPage - 1) * vh;
           if (vh > 0 && sh >= target) {
             scrollContainer.scrollTo({ top: target, behavior: 'auto' });
+            // 位置恢复成功，通知调用方
+            this.onPositionRestored?.();
             return;
           }
         }
         attempts++;
         if (attempts < maxAttempts) {
           setTimeout(tryRestore, 100);
+        } else {
+          // 达到最大尝试次数，也触发回调避免阻塞
+          this.onPositionRestored?.();
         }
       };
       setTimeout(tryRestore, 150);
+    } else {
+      // 不需要恢复位置（初始页为1），延迟一帧后通知
+      requestAnimationFrame(() => {
+        this.onPositionRestored?.();
+      });
     }
   }
 

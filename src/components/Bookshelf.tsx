@@ -1255,6 +1255,49 @@ export const Bookshelf: React.FC = () => {
                     </svg>
                     <span>设置</span>
                   </button>
+                  {/* 统计按钮 */}
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      nav.toStatistics({ fromTab: activeTab });
+                    }}
+                    style={{
+                      width: "100%",
+                      background: "transparent",
+                      border: "none",
+                      boxShadow: "none",
+                      borderRadius: 0,
+                      padding: "8px 6px",
+                      cursor: "pointer",
+                      color: "#333",
+                      display: "flex",
+                      alignItems: "center",
+                      textAlign: "left",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = "#f7f7f7";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = "transparent";
+                    }}
+                  >
+                    <svg
+                      width="20"
+                      height="20"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      xmlns="http://www.w3.org/2000/svg"
+                      aria-hidden
+                      style={{ marginRight: "8px" }}
+                    >
+                      {/* 柱状图图标 */}
+                      <rect x="3" y="12" width="4" height="8" rx="1" stroke="#333" strokeWidth="1.5" fill="none" />
+                      <rect x="10" y="8" width="4" height="12" rx="1" stroke="#333" strokeWidth="1.5" fill="none" />
+                      <rect x="17" y="4" width="4" height="16" rx="1" stroke="#333" strokeWidth="1.5" fill="none" />
+                    </svg>
+                    <span>统计</span>
+                  </button>
+                  {/* 关于按钮 */}
                   <button
                     onClick={() => {
                       setMenuOpen(false);

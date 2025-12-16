@@ -10,6 +10,8 @@ export interface IBook {
   group_id?: number;
   position_in_group?: number;
   created_at?: number;
+  status?: number;        // 阅读状态：0=阅读中，1=已读完
+  finished_at?: number;   // 完成时间戳
 }
 
 export interface IGroup {
@@ -49,4 +51,50 @@ export interface IAppState {
   readerSettings: IReaderSettings;
   loading: boolean;
   error?: string;
+}
+
+// ==================== 阅读统计相关类型 ====================
+
+// 阅读会话记录
+export interface IReadingSession {
+  id: number;
+  book_id: number;
+  start_time: number;
+  duration: number;
+  read_date: string;
+  pages_read_count?: number;
+  created_at?: number;
+}
+
+// 统计概览
+export interface IStatsSummary {
+  total_time_seconds: number;
+  streak_days: number;
+  finished_books: number;
+}
+
+// 每日统计
+export interface IDailyStats {
+  date: string;
+  total_seconds: number;
+}
+
+// 书籍阅读统计
+export interface IBookReadingStats {
+  book_id: number;
+  title: string;
+  cover_image?: string;
+  total_duration: number;
+  progress: string;
+  last_read: string;
+}
+
+// 时间范围统计数据（柱状图用）
+export interface IRangeStats {
+  labels: string[];
+  values: number[];
+  start_date: string;
+  end_date: string;
+  total_seconds: number;
+  previous_total_seconds: number;
 }

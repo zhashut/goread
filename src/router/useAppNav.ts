@@ -55,8 +55,9 @@ export const useAppNav = () => {
     },
 
     toSettings: (state?: any) => navigate('/settings', { state }),
-            toSearch: () => navigate('/search'),
+    toSearch: () => navigate('/search'),
     toImport: (state?: any) => navigate('/import', { state }),
+    toStatistics: (state?: any) => navigate('/statistics', { state }),
     toImportResults: (state: any, options?: { replace?: boolean }) => navigate('/import/results', { state, ...options }),
     
     /**

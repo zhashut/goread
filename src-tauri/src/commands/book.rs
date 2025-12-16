@@ -97,8 +97,32 @@ pub async fn init_database(db: DbState<'_>) -> Result<(), Error> {
     .execute(&*pool)
     .await?;
 
+    // 阅读统计表
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS reading_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            book_id INTEGER NOT NULL,
+            start_time INTEGER NOT NULL,
+            duration INTEGER NOT NULL,
+            read_date TEXT NOT NULL,
+            pages_read_count INTEGER DEFAULT 0,
+            created_at INTEGER DEFAULT (strftime('%s', 'now')),
+            FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE
+        )",
+    )
+    .execute(&*pool)
+    .await?;
+
     // Migrations
     let _ = sqlx::query("ALTER TABLE books ADD COLUMN position_in_group INTEGER")
+        .execute(&*pool)
+        .await;
+
+    // 阅读统计相关字段迁移
+    let _ = sqlx::query("ALTER TABLE books ADD COLUMN status INTEGER DEFAULT 0")
+        .execute(&*pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE books ADD COLUMN finished_at INTEGER")
         .execute(&*pool)
         .await;
 
@@ -114,6 +138,17 @@ pub async fn init_database(db: DbState<'_>) -> Result<(), Error> {
     )
     .execute(&*pool)
     .await?;
+    
+    // 阅读统计索引
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_sessions_read_date ON reading_sessions(read_date)")
+        .execute(&*pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_sessions_book_id ON reading_sessions(book_id)")
+        .execute(&*pool)
+        .await?;
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_sessions_start_time ON reading_sessions(start_time)")
+        .execute(&*pool)
+        .await?;
 
     // Create default group
     sqlx::query("INSERT OR IGNORE INTO groups (id, name, book_count) VALUES (1, '默认分组', 0)")

@@ -5,6 +5,7 @@ import { IBook, IBookmark } from "../types";
 import {
   bookService,
   bookmarkService,
+  statsService,
   getReaderSettings,
   saveReaderSettings,
   ReaderSettings,
@@ -164,11 +165,19 @@ export const Reader: React.FC = () => {
    const savedPageAtOpenRef = useRef<number>(1);
    // 跟踪 EPUB 是否已完成首次渲染，避免模式切换时重复调用 renderPage
    const epubRenderedRef = useRef(false);
+   // 内容是否渲染完成（用于触发自动标记检查）
+   const [contentReady, setContentReady] = useState(false);
+   
+   // 阅读时长记录相关
+   const sessionStartRef = useRef<number>(0);
+   const lastSaveTimeRef = useRef<number>(0);
+   const readingSessionIntervalRef = useRef<number | null>(null);
 
   // 当书籍切换时重置恢复标志
   useEffect(() => {
     domRestoreDoneRef.current = false;
     epubRenderedRef.current = false;
+    setContentReady(false);
   }, [bookId]);
 
   useEffect(() => {
@@ -183,6 +192,150 @@ export const Reader: React.FC = () => {
     };
   }, []);
 
+  // 阅读时长记录逻辑
+  useEffect(() => {
+    if (!book?.id) return;
+    
+    const now = Date.now();
+    sessionStartRef.current = now;
+    lastSaveTimeRef.current = now;
+    
+    // 保存阅读会话到后端
+    const saveSession = async () => {
+      const currentTime = Date.now();
+      const duration = Math.floor((currentTime - lastSaveTimeRef.current) / 1000);
+      
+      // 至少5秒才记录，避免误操作
+      if (duration >= 5 && book?.id) {
+        const today = new Date();
+        const readDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+        
+        try {
+          await statsService.saveReadingSession(
+            book.id,
+            duration,
+            Math.floor(lastSaveTimeRef.current / 1000),
+            readDate
+          );
+        } catch (e) {
+          // 记录失败不阻断阅读
+          console.warn('Failed to save reading session:', e);
+        }
+        
+        lastSaveTimeRef.current = currentTime;
+      }
+    };
+    
+    // 每30秒自动保存一次
+    readingSessionIntervalRef.current = window.setInterval(saveSession, 30000);
+    
+    // 页面切到后台时保存
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        saveSession();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    return () => {
+      // 离开阅读器时保存
+      saveSession();
+      
+      if (readingSessionIntervalRef.current) {
+        clearInterval(readingSessionIntervalRef.current);
+      }
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [book?.id]);
+
+  // 自动标记已读逻辑
+  const lastAutoMarkPageRef = useRef<number | null>(null);
+  
+  useEffect(() => {
+    if (!book || totalPages <= 0) return;
+    
+    // 离开最后一页时，重置自动标记记录
+    if (currentPage < totalPages) {
+      lastAutoMarkPageRef.current = null;
+      return;
+    }
+    
+    // 只有当：
+    // 1. 到了最后一页 (currentPage >= totalPages)
+    // 2. 书籍状态未完成 (book.status !== 1)
+    // 3. 在当前页还没有自动标记过 (lastAutoMarkPageRef.current !== currentPage)
+    // 才执行自动标记
+    if (currentPage >= totalPages && book.status !== 1 && lastAutoMarkPageRef.current !== currentPage) {
+      
+      // 针对 DOM 渲染模式（如 Markdown）的额外检查
+      if (isDomRender) {
+        // 如果 DOM 尚未渲染完成，不进行标记
+        if (!contentReady) return;
+
+        const renderer = rendererRef.current;
+        // 检查是否为 Markdown 渲染器（或其他单页滚动渲染器）
+        if (renderer && renderer instanceof MarkdownRenderer) {
+          const scrollContainer = renderer.getScrollContainer();
+          if (scrollContainer) {
+            // 如果内容高度超过视口高度（有滚动条）
+            if (scrollContainer.scrollHeight > scrollContainer.clientHeight) {
+              // 检查是否滚动到底部 (容差 50px)
+              const atBottom = scrollContainer.scrollTop + scrollContainer.clientHeight >= scrollContainer.scrollHeight - 50;
+              if (!atBottom) {
+                // 虽然页码满足条件（可能是初始 1/1），但并未滚动到底部，跳过
+                return;
+              }
+            } else {
+              // 没有滚动条，内容很短
+              // 如果保存的阅读进度是第1页，说明是首次打开或之前未阅读完，不自动标记
+              // 只有当之前已经保存过最后一页进度时才标记
+              if (savedPageAtOpenRef.current < totalPages) {
+                return;
+              }
+            }
+          } else {
+            // 容器还没准备好，保守起见不标记
+            return;
+          }
+        }
+      }
+
+      lastAutoMarkPageRef.current = currentPage;
+      
+      const autoMark = async () => {
+        try {
+          log(`[Reader] 进度 100%，自动标记为已读`);
+          // 乐观更新
+          setBook(prev => prev ? { ...prev, status: 1 } : null);
+          await statsService.markBookFinished(book.id);
+        } catch (e) {
+          console.error("自动标记已读失败", e);
+        }
+      };
+      autoMark();
+    }
+  }, [currentPage, totalPages, book, contentReady]);
+
+  const toggleFinish = async () => {
+    if (!book) return;
+    const newStatus = book.status === 1 ? 0 : 1;
+    
+    // 乐观更新 UI
+    setBook(prev => prev ? { ...prev, status: newStatus } : null);
+    
+    try {
+      if (newStatus === 1) {
+        await statsService.markBookFinished(book.id);
+      } else {
+        await statsService.unmarkBookFinished(book.id);
+      }
+    } catch (e) {
+      console.error("切换阅读状态失败", e);
+      // 回滚
+      setBook(prev => prev ? { ...prev, status: book.status } : null);
+      alert("操作失败");
+    }
+  };
 
   const handleCapture = async () => {
     let dataUrl = "";
@@ -1071,6 +1224,7 @@ export const Reader: React.FC = () => {
     modeVersionRef.current += 1;
     renderQueueRef.current.clear();
     setVerticalLazyReady(false);
+    setContentReady(false);
     if (verticalScrollRafRef.current !== null) {
       cancelAnimationFrame(verticalScrollRafRef.current);
       verticalScrollRafRef.current = null;
@@ -1127,6 +1281,15 @@ export const Reader: React.FC = () => {
         // 使用渲染器的 renderPage 方法直接渲染到容器
         try {
           log('[Reader] 开始 DOM 渲染');
+          
+          // Markdown 渲染器：注册位置恢复完成回调
+          if (renderer instanceof MarkdownRenderer) {
+            renderer.onPositionRestored = () => {
+              log('[Reader] Markdown 位置恢复完成');
+              setContentReady(true);
+            };
+          }
+          
           await renderer.renderPage(1, domContainerRef.current!, { 
             initialVirtualPage: currentPage || 1,
             readingMode: readingMode,
@@ -1135,6 +1298,12 @@ export const Reader: React.FC = () => {
           });
           log('[Reader] DOM 渲染完成');
           domRestoreDoneRef.current = true;
+          
+          // 非 Markdown 渲染器直接设置 contentReady
+          if (!(renderer instanceof MarkdownRenderer)) {
+            setContentReady(true);
+          }
+          
           if (renderer instanceof EpubRenderer) {
             renderer.onPageChange = (p: number) => {
               setCurrentPage(p);
@@ -1813,6 +1982,8 @@ export const Reader: React.FC = () => {
       <TopBar
         visible={(uiVisible || isSeeking) && !moreDrawerOpen && !tocOverlayOpen && !modeOverlayOpen}
         bookTitle={book?.title}
+        isFinished={book?.status === 1}
+        onToggleFinish={toggleFinish}
         onBack={() => {
           if (window.history.length > 1) {
             nav.goBack();

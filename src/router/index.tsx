@@ -6,6 +6,7 @@ import { Settings } from '../components/Settings';
 import { Search } from '../components/Search';
 import { ImportFiles } from '../components/ImportFiles';
 import { ScanResults } from '../components/ScanResults';
+import { Statistics } from '../components/Statistics';
 
 export const router = createHashRouter([
   {
@@ -35,6 +36,10 @@ export const router = createHashRouter([
       {
         path: 'import/results',
         element: <ScanResults />,
+      },
+      {
+        path: 'statistics',
+        element: <Statistics />,
       },
       {
         path: '*',

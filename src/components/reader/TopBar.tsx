@@ -6,9 +6,11 @@ interface TopBarProps {
   visible: boolean;
   bookTitle?: string;
   onBack: () => void;
+  isFinished?: boolean;
+  onToggleFinish?: () => void;
 }
 
-export const TopBar: React.FC<TopBarProps> = ({ visible, bookTitle, onBack }) => {
+export const TopBar: React.FC<TopBarProps> = ({ visible, bookTitle, onBack, isFinished, onToggleFinish }) => {
   if (!visible) return null;
 
   return (
@@ -32,36 +34,66 @@ export const TopBar: React.FC<TopBarProps> = ({ visible, bookTitle, onBack }) =>
         justifyContent: "space-between",
         color: "white",
         borderRadius: `0 0 ${TOP_DRAWER_RADIUS}px ${TOP_DRAWER_RADIUS}px`,
-        padding: `calc(${getSafeAreaInsets().top} + 8px) 12px 8px 12px`,
+        padding: `calc(${getSafeAreaInsets().top} + 12px) 16px 12px 16px`,
         boxShadow: "0 6px 24px rgba(0,0,0,0.35)",
         zIndex: 12,
       }}
     >
-      <button
-        onClick={onBack}
-        style={{
-          background: "none",
-          border: "none",
-          color: "#fff",
-          cursor: "pointer",
-          fontSize: "16px",
-        }}
-        title="返回"
-      >
-        {"<"}
-      </button>
+      <div style={{ width: 80, display: 'flex', alignItems: 'center', justifyContent: 'flex-start' }}>
+        <button
+          onClick={onBack}
+          style={{
+            background: "none",
+            border: "none",
+            color: "#fff",
+            cursor: "pointer",
+            fontSize: "16px",
+            padding: "4px",
+            display: "flex",
+            alignItems: "center",
+          }}
+          title="返回"
+        >
+          {"<"}
+        </button>
+      </div>
+      
       <div
         style={{
-          fontSize: "16px",
-          fontWeight: 500,
+          fontSize: "17px",
+          fontWeight: 600,
           overflow: "hidden",
           textOverflow: "ellipsis",
           whiteSpace: "nowrap",
+          flex: 1,
+          textAlign: "center",
+          margin: "0 4px",
         }}
       >
         {bookTitle}
       </div>
-      <div style={{ width: "24px" }} />
+      
+      {/* 右侧标记已读按钮 */}
+      <div
+        onClick={onToggleFinish}
+        style={{
+          width: 80,
+          display: "flex",
+          alignItems: "center",
+          gap: "4px",
+          cursor: "pointer",
+          padding: "4px 0",
+          borderRadius: "4px",
+          color: isFinished ? "#ff5252" : "white",
+          fontSize: "14px",
+          justifyContent: "flex-end",
+        }}
+      >
+        <svg viewBox="0 0 24 24" width="20" height="20" style={{ fill: isFinished ? "#ff5252" : "white", display: "block" }}>
+          <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
+        </svg>
+        <span>{isFinished ? "已完成" : "已读"}</span>
+      </div>
     </div>
   );
 };

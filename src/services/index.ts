@@ -55,7 +55,7 @@ export const log = async (message: string, level: 'info' | 'warn' | 'error' = 'i
   }).catch(() => {}); // 忽略日志错误
 };
 
-import { IBook, IGroup, IBookmark } from '../types';
+import { IBook, IGroup, IBookmark, IStatsSummary, IDailyStats, IRangeStats, IBookReadingStats } from '../types';
 import { DEFAULT_SETTINGS } from '../constants/config';
 
 // 书籍服务接口
@@ -272,3 +272,75 @@ export const saveReaderSettings = (settings: Partial<ReaderSettings>) => {
     return getReaderSettings();
   }
 };
+
+// ==================== 阅读统计服务 ====================
+
+// 统计服务接口
+export interface IStatsService {
+  saveReadingSession(bookId: number, duration: number, startTime: number, readDate: string, pagesRead?: number): Promise<void>;
+  getStatsSummary(): Promise<IStatsSummary>;
+  getDailyStats(days: number): Promise<IDailyStats[]>;
+  getReadingStatsByRange(rangeType: string, offset: number): Promise<IRangeStats>;
+  getDayStatsByHour(date: string): Promise<number[]>;
+  getBooksByDateRange(startDate: string, endDate: string): Promise<IBookReadingStats[]>;
+  markBookFinished(bookId: number): Promise<void>;
+  unmarkBookFinished(bookId: number): Promise<void>;
+}
+
+// Tauri 统计服务实现
+export class TauriStatsService implements IStatsService {
+  async saveReadingSession(
+    bookId: number,
+    duration: number,
+    startTime: number,
+    readDate: string,
+    pagesReadCount?: number
+  ): Promise<void> {
+    const invoke = await getInvoke();
+    await invoke('save_reading_session', {
+      bookId,
+      duration,
+      startTime,
+      readDate,
+      pagesReadCount
+    });
+  }
+
+  async getStatsSummary(): Promise<IStatsSummary> {
+    const invoke = await getInvoke();
+    return await invoke('get_stats_summary');
+  }
+
+  async getDailyStats(days: number): Promise<IDailyStats[]> {
+    const invoke = await getInvoke();
+    return await invoke('get_daily_stats', { days });
+  }
+
+  async getReadingStatsByRange(rangeType: string, offset: number): Promise<IRangeStats> {
+    const invoke = await getInvoke();
+    return await invoke('get_reading_stats_by_range', { rangeType, offset });
+  }
+
+  async getDayStatsByHour(date: string): Promise<number[]> {
+    const invoke = await getInvoke();
+    return await invoke('get_day_stats_by_hour', { date });
+  }
+
+  async getBooksByDateRange(startDate: string, endDate: string): Promise<IBookReadingStats[]> {
+    const invoke = await getInvoke();
+    return await invoke('get_books_by_date_range', { startDate, endDate });
+  }
+
+  async markBookFinished(bookId: number): Promise<void> {
+    const invoke = await getInvoke();
+    await invoke('mark_book_finished', { bookId });
+  }
+
+  async unmarkBookFinished(bookId: number): Promise<void> {
+    const invoke = await getInvoke();
+    await invoke('unmark_book_finished', { bookId });
+  }
+}
+
+// 统计服务实例
+export const statsService = new TauriStatsService();

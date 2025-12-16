@@ -22,6 +22,9 @@ use commands::{
     save_image_to_gallery,
     // import commands
     batch_read_files, batch_import_books, batch_get_pdf_info, frontend_log,
+    // stats commands
+    save_reading_session, get_stats_summary, get_daily_stats, get_reading_stats_by_range,
+    get_day_stats_by_hour, get_books_by_date_range, mark_book_finished, unmark_book_finished,
 };
 use markdown_commands::*;
 use pdf_commands::*;
@@ -165,7 +168,16 @@ pub fn run() {
             html_load_document,
             // Status bar control commands
             show_status_bar,
-            hide_status_bar
+            hide_status_bar,
+            // Stats commands
+            save_reading_session,
+            get_stats_summary,
+            get_daily_stats,
+            get_reading_stats_by_range,
+            get_day_stats_by_hour,
+            get_books_by_date_range,
+            mark_book_finished,
+            unmark_book_finished
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

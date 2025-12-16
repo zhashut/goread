@@ -4,6 +4,7 @@ pub mod filesystem;
 pub mod group;
 pub mod import;
 pub mod log;
+pub mod stats;
 
 // Re-export all commands
 pub use book::*;
@@ -12,3 +13,4 @@ pub use filesystem::*;
 pub use group::*;
 pub use import::*;
 pub use log::*;
+pub use stats::*;
