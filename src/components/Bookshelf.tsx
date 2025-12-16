@@ -1301,7 +1301,7 @@ export const Bookshelf: React.FC = () => {
                   <button
                     onClick={() => {
                       setMenuOpen(false);
-                      alert("GoRead - 轻量 PDF 阅读器");
+                      nav.toAbout();
                     }}
                     style={{
                       width: "100%",

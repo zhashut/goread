@@ -5,3 +5,4 @@ export { GroupDetail } from './GroupDetail';
 export { ImportFiles } from './ImportFiles';
 export { ScanResults } from './ScanResults';
 export { FileRow } from './FileRow';
+export { About } from './About';
