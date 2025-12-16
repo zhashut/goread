@@ -45,10 +45,15 @@ export const TopBar: React.FC<TopBarProps> = ({ visible, bookTitle, onBack, isFi
           style={{
             background: "none",
             border: "none",
+            boxShadow: "none",
+            borderRadius: 0,
+            outline: "none",
+            WebkitAppearance: "none",
+            appearance: "none",
+            padding: "4px",
             color: "#fff",
             cursor: "pointer",
             fontSize: "16px",
-            padding: "4px",
             display: "flex",
             alignItems: "center",
           }}

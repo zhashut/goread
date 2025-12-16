@@ -34,9 +34,9 @@ export const TOP_DRAWER_RADIUS = 15;
 // 顶部栏配置
 export const TOP_BAR_TAB_FONT_SIZE = 22; // 顶部选项卡（最近/全部）字体大小
 export const TOP_BAR_ICON_SIZE = 26; // 顶部图标（搜索/更多）大小
-export const TOP_BAR_TAB_PADDING_BOTTOM = 12; // 选项卡底部内边距（控制栏目高度）
+export const TOP_BAR_TAB_PADDING_BOTTOM = 6; // 选项卡底部内边距（控制栏目高度）
 export const TOP_BAR_MARGIN_BOTTOM = 16; // 顶部栏下方间距
-export const TOP_BAR_ICON_GAP = 20; // 图标之间的间距
+export const TOP_BAR_ICON_GAP = 12; // 图标之间的间距
 export const BOTTOM_DRAWER_RADIUS = 16;
 
 // Markdown 默认封面配置

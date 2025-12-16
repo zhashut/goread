@@ -3,7 +3,6 @@ import React, {
   useEffect,
   useMemo,
   useRef,
-  useLayoutEffect,
 } from "react";
 
 import { useAppNav } from "../router/useAppNav";
@@ -25,10 +24,10 @@ import {
   SELECTION_ICON_OFFSET_TOP,
   SELECTION_ICON_OFFSET_RIGHT,
   GROUP_COVER_PADDING,
-  TOP_BAR_TAB_FONT_SIZE,
   TOP_BAR_ICON_SIZE,
+  TOP_BAR_MARGIN_BOTTOM,
 } from "../constants/ui";
-import { BookshelfHeader } from "./BookshelfHeader";
+import { BookshelfTopBar } from "./BookshelfTopBar";
 import { Toast } from "./Toast";
 import { bookService, groupService, getReaderSettings } from "../services";
 import { GroupDetail } from "./GroupDetail";
@@ -84,22 +83,6 @@ export const Bookshelf: React.FC = () => {
 
   const [query] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
-  const [menuPos, setMenuPos] = useState<{ left: number; top: number }>({
-    left: 0,
-    top: 0,
-  });
-  const menuRef = useRef<HTMLDivElement | null>(null);
-  const menuBtnRef = useRef<HTMLButtonElement | null>(null);
-  // 标签页下划线动画
-  const tabsRef = useRef<HTMLDivElement | null>(null);
-  const recentLabelRef = useRef<HTMLDivElement | null>(null);
-  const allLabelRef = useRef<HTMLDivElement | null>(null);
-  const [underlinePos, setUnderlinePos] = useState<{
-    left: number;
-    width: number;
-  }>({ left: 0, width: 0 });
-  const [animateUnderline, setAnimateUnderline] = useState(false);
-  const [underlineReady, setUnderlineReady] = useState(false);
   
   const [groupOverlayOpen, setGroupOverlayOpen] = useState(false);
   const [overlayGroupId, setOverlayGroupId] = useState<number | null>(null);
@@ -218,13 +201,11 @@ export const Bookshelf: React.FC = () => {
     onLeft: () => {
       if (activeTab === "recent") {
         nav.toBookshelf("all", { replace: true });
-        setAnimateUnderline(true);
       }
     },
     onRight: () => {
       if (activeTab === "all") {
         nav.toBookshelf("recent", { replace: true });
-        setAnimateUnderline(true);
       }
     },
     isBlocked: () => dragActive || selectionMode || groupOverlayOpen || menuOpen || importOpen,
@@ -677,83 +658,6 @@ export const Bookshelf: React.FC = () => {
     return groups.filter((g) => (g.name || "").toLowerCase().includes(q));
   }, [groups, query]);
 
-  // 点击外部关闭更多菜单
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onDown = (e: MouseEvent) => {
-      const target = e.target as Node | null;
-      const inMenu = !!(
-        menuRef.current &&
-        target &&
-        menuRef.current.contains(target)
-      );
-      const inBtn = !!(
-        menuBtnRef.current &&
-        target &&
-        menuBtnRef.current.contains(target)
-      );
-      if (!inMenu && !inBtn) setMenuOpen(false);
-    };
-    const onEsc = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setMenuOpen(false);
-    };
-    window.addEventListener("mousedown", onDown);
-    window.addEventListener("keydown", onEsc);
-    return () => {
-      window.removeEventListener("mousedown", onDown);
-      window.removeEventListener("keydown", onEsc);
-    };
-  }, [menuOpen]);
-
-  // 计算“更多”菜单的定位：基于视口坐标居中于按钮；在靠近右侧时自动左移并保留安全边距
-  useLayoutEffect(() => {
-    if (!menuOpen) return;
-    const btn = menuBtnRef.current;
-    const menu = menuRef.current;
-    if (!btn || !menu) return;
-    const btnRect = btn.getBoundingClientRect();
-    const vw = document.documentElement.clientWidth;
-    const edge = 14; // 右侧安全边距（视口）
-    const menuWidth = menu.offsetWidth || 0;
-    let center = btnRect.left + btnRect.width / 2; // 视口坐标
-    const maxCenter = vw - edge - menuWidth / 2;
-    const minCenter = edge + menuWidth / 2;
-    center = Math.max(minCenter, Math.min(maxCenter, center));
-    const top = btnRect.bottom + 6; // 视口坐标
-    setMenuPos({ left: center, top });
-  }, [menuOpen]);
-
-  // 切换 active tab 或布局时平滑更新下划线位置
-  useLayoutEffect(() => {
-    const update = () => {
-      const target =
-        activeTab === "recent" ? recentLabelRef.current : allLabelRef.current;
-      if (!target || !tabsRef.current) return;
-      const tabsRect = tabsRef.current.getBoundingClientRect();
-      const rect = target.getBoundingClientRect();
-      setUnderlinePos({ left: rect.left - tabsRect.left, width: rect.width });
-      setUnderlineReady(true);
-    };
-    update();
-    window.addEventListener("resize", update);
-    return () => window.removeEventListener("resize", update);
-  }, [activeTab, loading]);
-
-  // 确保下划线在首次绘制时定位到当前 activeTab
-  useLayoutEffect(() => {
-    const update = () => {
-      const target =
-        activeTab === "recent" ? recentLabelRef.current : allLabelRef.current;
-      if (!target || !tabsRef.current) return;
-      const tabsRect = tabsRef.current.getBoundingClientRect();
-      const rect = target.getBoundingClientRect();
-      setUnderlinePos({ left: rect.left - tabsRect.left, width: rect.width });
-      setUnderlineReady(true);
-    };
-    update();
-    requestAnimationFrame(update);
-  }, []);
-
   if (loading) {
     return (
       <div
@@ -782,561 +686,133 @@ export const Bookshelf: React.FC = () => {
         overflow: "hidden",
       }}
     >
-      {selectionMode ? (
-        <BookshelfHeader
-          leftAlign="center"
-          left={
-            <>
-              <button
-                aria-label="返回"
-                onClick={exitSelection}
-                style={{
-                  background: "none",
-                  border: "none",
-                  boxShadow: "none",
-                  borderRadius: 0,
-                  cursor: "pointer",
-                  padding: 0,
-                  marginLeft: "-6px",
-                }}
-              >
-                <svg
-                  width={TOP_BAR_ICON_SIZE}
-                  height={TOP_BAR_ICON_SIZE}
-                  viewBox="0 0 24 24"
-                  fill="none"
-                >
-                  <path
-                    d="M14 18l-6-6 6-6"
-                    stroke="#333"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </button>
-              <span
-                style={{
-                  fontSize: TOP_BAR_TAB_FONT_SIZE,
-                  color: "#333",
-                  marginLeft: 8,
-                  fontWeight: 600,
-                  // 与左侧返回图标保持垂直居中视觉对齐
-                  display: "inline-flex",
-                  alignItems: "center",
-                  height: TOP_BAR_ICON_SIZE + "px",
-                  lineHeight: TOP_BAR_ICON_SIZE + "px",
-                  // 视觉微调：字体度量相对图形略低，向上平移1px
-                  transform: "translateY(-2px)",
-                }}
-              >
-                已选中({selectedCount})
-              </span>
-            </>
-          }
-          right={
-            <>
-              <button
-                aria-label="删除"
-                title="删除"
-                style={{
-                  background: "none",
-                  border: "none",
-                  boxShadow: "none",
-                  borderRadius: 0,
-                  cursor: selectedCount === 0 || dragActive ? "not-allowed" : "pointer",
-                  opacity: selectedCount === 0 || dragActive ? 0.4 : 1,
-                  padding: 0,
-                }}
-                disabled={selectedCount === 0 || dragActive}
-                onClick={() => {
-                  if (selectedCount === 0 || dragActive) return;
-                  setConfirmOpen(true);
-                }}
-              >
-                <IconDelete width={TOP_BAR_ICON_SIZE} height={TOP_BAR_ICON_SIZE} fill="#333" />
-              </button>
-              <button
-                aria-label="全选"
-                title={
-                  activeTab === "recent"
-                    ? selectedBookIds.size === (filteredBooks?.length || 0) &&
-                      (filteredBooks?.length || 0) > 0
-                      ? "取消全选"
-                      : "全选"
-                    : selectedGroupIds.size === (filteredGroups?.length || 0) &&
-                      (filteredGroups?.length || 0) > 0
-                  ? "取消全选"
-                  : "全选"
-                }
-                style={{
-                  background: "none",
-                  border: "none",
-                  boxShadow: "none",
-                  borderRadius: 0,
-                  cursor: dragActive ? "not-allowed" : "pointer",
-                  opacity: dragActive ? 0.4 : 1,
-                  padding: 0,
-                }}
-                disabled={dragActive}
-                onClick={() => {
-                  if (dragActive) return;
-                  selectAllCurrent();
-                }}
-              >
-                <svg
-                  width={TOP_BAR_ICON_SIZE}
-                  height={TOP_BAR_ICON_SIZE}
-                  viewBox="0 0 24 24"
-                  fill="none"
-                >
-                  {(() => {
-                    const allCount =
-                      activeTab === "recent"
-                        ? filteredBooks?.length || 0
-                        : filteredGroups?.length || 0;
-                    const selCount =
-                      activeTab === "recent"
-                        ? selectedBookIds.size
-                        : selectedGroupIds.size;
-                    const isAll = allCount > 0 && selCount === allCount;
-                    const stroke = isAll ? "#d23c3c" : "#333";
-                    return (
-                      <>
-                        <rect
-                          x="3"
-                          y="3"
-                          width="7"
-                          height="7"
-                          stroke={stroke}
-                          strokeWidth="2"
-                          rx="1"
-                        />
-                        <rect
-                          x="14"
-                          y="3"
-                          width="7"
-                          height="7"
-                          stroke={stroke}
-                          strokeWidth="2"
-                          rx="1"
-                        />
-                        <rect
-                          x="3"
-                          y="14"
-                          width="7"
-                          height="7"
-                          stroke={stroke}
-                          strokeWidth="2"
-                          rx="1"
-                        />
-                        <rect
-                          x="14"
-                          y="14"
-                          width="7"
-                          height="7"
-                          stroke={stroke}
-                          strokeWidth="2"
-                          rx="1"
-                        />
-                      </>
-                    );
-                  })()}
-                </svg>
-              </button>
-            </>
-          }
-        />
-      ) : (
-        <BookshelfHeader
-          leftAlign="flex-end"
-          leftContainerRef={tabsRef}
-          left={
-            <>
+      <BookshelfTopBar
+        mode={selectionMode ? "selection" : "default"}
+        activeTab={activeTab}
+        onTabChange={(tab) => nav.toBookshelf(tab, { replace: true })}
+        onSearch={() => nav.toSearch()}
+        onMenuAction={(action) => {
+          if (action === "import") nav.toImport({ fromTab: activeTab });
+          else if (action === "settings") nav.toSettings({ fromTab: activeTab });
+          else if (action === "statistics") nav.toStatistics({ fromTab: activeTab });
+          else if (action === "about") nav.toAbout();
+        }}
+        onMenuOpenChange={setMenuOpen}
+        selectedCount={selectedCount}
+        onExitSelection={exitSelection}
+        selectionActions={
+          <>
             <button
-              onClick={() => {
-                nav.toBookshelf("recent", { replace: true });
-                setAnimateUnderline(true);
-              }}
+              aria-label="删除"
+              title="删除"
               style={{
-                background: "transparent",
+                background: "none",
                 border: "none",
-                padding: 0,
-                cursor: "pointer",
                 boxShadow: "none",
                 borderRadius: 0,
-                marginRight: "15px",
+                cursor: selectedCount === 0 || dragActive ? "not-allowed" : "pointer",
+                opacity: selectedCount === 0 || dragActive ? 0.4 : 1,
+                padding: 0,
               }}
-              title="最近"
+              disabled={selectedCount === 0 || dragActive}
+              onClick={() => {
+                if (selectedCount === 0 || dragActive) return;
+                setConfirmOpen(true);
+              }}
             >
-                <div
-                  ref={recentLabelRef}
-                  style={{
-                    fontSize: TOP_BAR_TAB_FONT_SIZE + "px",
-                    color: activeTab === "recent" ? "#000" : "#bbb",
-                    transition: "color 200ms ease",
-                  }}
-                >
-                  最近
-                </div>
-              </button>
-              <button
-                onClick={() => {
-                  nav.toBookshelf("all", { replace: true });
-                  setAnimateUnderline(true);
-                }}
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  padding: 0,
-                  cursor: "pointer",
-                  boxShadow: "none",
-                  borderRadius: 0,
-                }}
-                title="全部"
+              <IconDelete width={TOP_BAR_ICON_SIZE} height={TOP_BAR_ICON_SIZE} fill="#333" />
+            </button>
+            <button
+              aria-label="全选"
+              title={
+                activeTab === "recent"
+                  ? selectedBookIds.size === (filteredBooks?.length || 0) &&
+                    (filteredBooks?.length || 0) > 0
+                    ? "取消全选"
+                    : "全选"
+                  : selectedGroupIds.size === (filteredGroups?.length || 0) &&
+                    (filteredGroups?.length || 0) > 0
+                  ? "取消全选"
+                  : "全选"
+              }
+              style={{
+                background: "none",
+                border: "none",
+                boxShadow: "none",
+                borderRadius: 0,
+                cursor: dragActive ? "not-allowed" : "pointer",
+                opacity: dragActive ? 0.4 : 1,
+                padding: 0,
+              }}
+              disabled={dragActive}
+              onClick={() => {
+                if (dragActive) return;
+                selectAllCurrent();
+              }}
+            >
+              <svg
+                width={TOP_BAR_ICON_SIZE}
+                height={TOP_BAR_ICON_SIZE}
+                viewBox="0 0 24 24"
+                fill="none"
               >
-                <div
-                  ref={allLabelRef}
-                  style={{
-                    fontSize: TOP_BAR_TAB_FONT_SIZE + "px",
-                    color: activeTab === "all" ? "#000" : "#bbb",
-                    transition: "color 200ms ease",
-                  }}
-                >
-                  全部
-                </div>
-              </button>
-              <div
-                style={{
-                  position: "absolute",
-                  bottom: 0,
-                  left: underlinePos.left,
-                  width: underlinePos.width,
-                  height: "3px",
-                  backgroundColor: "#d15158",
-                  transition: animateUnderline
-                    ? "left 250ms ease, width 250ms ease"
-                    : "none",
-                  opacity: underlineReady ? 1 : 0,
-                }}
-              />
-            </>
-          }
-          right={
-            <>
-              <button
-                title="搜索"
-                aria-label="搜索"
-                onClick={() => nav.toSearch()}
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  padding: 0,
-                  margin: 0,
-                  cursor: "pointer",
-                  color: "#333",
-                  WebkitAppearance: "none",
-                  appearance: "none",
-                  outline: "none",
-                  boxShadow: "none",
-                  borderRadius: 0,
-                  display: "inline-flex",
-                  alignItems: "center",
-                }}
-              >
-                <svg
-                  width={TOP_BAR_ICON_SIZE}
-                  height={TOP_BAR_ICON_SIZE}
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <circle cx="11" cy="11" r="7" stroke="#333" strokeWidth="2" />
-                  <line
-                    x1="20"
-                    y1="20"
-                    x2="16.5"
-                    y2="16.5"
-                    stroke="#333"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
-                </svg>
-              </button>
-              <button
-                ref={menuBtnRef}
-                title="更多"
-                aria-label="更多"
-                onClick={() => setMenuOpen((m) => !m)}
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  padding: 0,
-                  margin: 0,
-                  cursor: "pointer",
-                  color: "#333",
-                  WebkitAppearance: "none",
-                  appearance: "none",
-                  outline: "none",
-                  boxShadow: "none",
-                  borderRadius: 0,
-                  display: "inline-flex",
-                  alignItems: "center",
-                }}
-              >
-                <svg
-                  width={TOP_BAR_ICON_SIZE}
-                  height={TOP_BAR_ICON_SIZE}
-                  viewBox="0 0 24 24"
-                  fill="#333"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <circle cx="12" cy="5" r="2" />
-                  <circle cx="12" cy="12" r="2" />
-                  <circle cx="12" cy="19" r="2" />
-                </svg>
-              </button>
-              {menuOpen && (
-                <div
-                  ref={menuRef}
-                  style={{
-                    position: "fixed",
-                    left: menuPos.left,
-                    top: menuPos.top,
-                    transform: "translateX(-50%)",
-                    background: "#fff",
-                    border: "none",
-                    boxShadow: "0 6px 16px rgba(0,0,0,0.12)",
-                    borderRadius: "10px",
-                    padding: "8px 14px",
-                    width: "auto",
-                    minWidth: "100px",
-                    whiteSpace: "nowrap",
-                    zIndex: 20,
-                  }}
-                >
-                  <button
-                    onClick={() => {
-                      setMenuOpen(false);
-                      nav.toImport({ fromTab: activeTab });
-                    }}
-                    style={{
-                      width: "100%",
-                      background: "transparent",
-                      border: "none",
-                      boxShadow: "none",
-                      borderRadius: 0,
-                      padding: "8px 6px",
-                      cursor: "pointer",
-                      color: "#333",
-                      display: "flex",
-                      alignItems: "center",
-                      textAlign: "left",
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.backgroundColor = "#f7f7f7";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.backgroundColor = "transparent";
-                    }}
-                  >
-                    <svg
-                      style={{ marginRight: "8px" }}
-                      width="20"
-                      height="20"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      xmlns="http://www.w3.org/2000/svg"
-                      aria-hidden
-                    >
-                      <path
-                        d="M12 3v8"
-                        stroke="#333"
+                {(() => {
+                  const allCount =
+                    activeTab === "recent"
+                      ? filteredBooks?.length || 0
+                      : filteredGroups?.length || 0;
+                  const selCount =
+                    activeTab === "recent"
+                      ? selectedBookIds.size
+                      : selectedGroupIds.size;
+                  const isAll = allCount > 0 && selCount === allCount;
+                  const stroke = isAll ? "#d23c3c" : "#333";
+                  return (
+                    <>
+                      <rect
+                        x="3"
+                        y="3"
+                        width="7"
+                        height="7"
+                        stroke={stroke}
                         strokeWidth="2"
-                        strokeLinecap="round"
-                      />
-                      <path
-                        d="M9.5 8.5L12 11l2.5-2.5"
-                        stroke="#333"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
+                        rx="1"
                       />
                       <rect
-                        x="4"
-                        y="13"
-                        width="16"
+                        x="14"
+                        y="3"
+                        width="7"
                         height="7"
-                        rx="2"
-                        stroke="#333"
+                        stroke={stroke}
                         strokeWidth="2"
+                        rx="1"
                       />
-                    </svg>
-                    <span>导入</span>
-                  </button>
-                  <button
-                    onClick={() => {
-                      setMenuOpen(false);
-                      nav.toSettings({ fromTab: activeTab });
-                    }}
-                    style={{
-                      width: "100%",
-                      background: "transparent",
-                      border: "none",
-                      boxShadow: "none",
-                      borderRadius: 0,
-                      padding: "8px 6px",
-                      cursor: "pointer",
-                      color: "#333",
-                      display: "flex",
-                      alignItems: "center",
-                      textAlign: "left",
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.backgroundColor = "#f7f7f7";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.backgroundColor = "transparent";
-                    }}
-                  >
-                    <svg
-                      width="20"
-                      height="20"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      xmlns="http://www.w3.org/2000/svg"
-                      aria-hidden
-                      style={{ marginRight: "8px" }}
-                    >
-                      <circle
-                        cx="12"
-                        cy="12"
-                        r="9"
-                        stroke="#333"
+                      <rect
+                        x="3"
+                        y="14"
+                        width="7"
+                        height="7"
+                        stroke={stroke}
                         strokeWidth="2"
+                        rx="1"
                       />
-                      <circle
-                        cx="12"
-                        cy="12"
-                        r="3"
-                        stroke="#333"
+                      <rect
+                        x="14"
+                        y="14"
+                        width="7"
+                        height="7"
+                        stroke={stroke}
                         strokeWidth="2"
+                        rx="1"
                       />
-                      <path
-                        d="M12 4.5v2.3"
-                        stroke="#333"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                      />
-                      <path
-                        d="M12 17.2v2.3"
-                        stroke="#333"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                      />
-                    </svg>
-                    <span>设置</span>
-                  </button>
-                  {/* 统计按钮 */}
-                  <button
-                    onClick={() => {
-                      setMenuOpen(false);
-                      nav.toStatistics({ fromTab: activeTab });
-                    }}
-                    style={{
-                      width: "100%",
-                      background: "transparent",
-                      border: "none",
-                      boxShadow: "none",
-                      borderRadius: 0,
-                      padding: "8px 6px",
-                      cursor: "pointer",
-                      color: "#333",
-                      display: "flex",
-                      alignItems: "center",
-                      textAlign: "left",
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.backgroundColor = "#f7f7f7";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.backgroundColor = "transparent";
-                    }}
-                  >
-                    <svg
-                      width="20"
-                      height="20"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      xmlns="http://www.w3.org/2000/svg"
-                      aria-hidden
-                      style={{ marginRight: "8px" }}
-                    >
-                      {/* 柱状图图标 */}
-                      <rect x="3" y="12" width="4" height="8" rx="1" stroke="#333" strokeWidth="1.5" fill="none" />
-                      <rect x="10" y="8" width="4" height="12" rx="1" stroke="#333" strokeWidth="1.5" fill="none" />
-                      <rect x="17" y="4" width="4" height="16" rx="1" stroke="#333" strokeWidth="1.5" fill="none" />
-                    </svg>
-                    <span>统计</span>
-                  </button>
-                  {/* 关于按钮 */}
-                  <button
-                    onClick={() => {
-                      setMenuOpen(false);
-                      nav.toAbout();
-                    }}
-                    style={{
-                      width: "100%",
-                      background: "transparent",
-                      border: "none",
-                      boxShadow: "none",
-                      borderRadius: 0,
-                      padding: "8px 6px",
-                      cursor: "pointer",
-                      color: "#333",
-                      display: "flex",
-                      alignItems: "center",
-                      textAlign: "left",
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.backgroundColor = "#f7f7f7";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.backgroundColor = "transparent";
-                    }}
-                  >
-                    <svg
-                      width="20"
-                      height="20"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      xmlns="http://www.w3.org/2000/svg"
-                      aria-hidden
-                      style={{ marginRight: "8px" }}
-                    >
-                      <circle
-                        cx="12"
-                        cy="12"
-                        r="9"
-                        stroke="#333"
-                        strokeWidth="2"
-                      />
-                      <path
-                        d="M12 9v6"
-                        stroke="#333"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                      />
-                      <circle cx="12" cy="6.5" r="1.5" fill="#333" />
-                    </svg>
-                    <span>关于</span>
-                  </button>
-                </div>
-              )}
-            </>
-          }
-        />
-      )}
+                    </>
+                  );
+                })()}
+              </svg>
+            </button>
+          </>
+        }
+      />
 
       <div
         className="no-scrollbar"
@@ -1889,7 +1365,10 @@ export const Bookshelf: React.FC = () => {
           }}
         >
           {groupDetailSelectionActive && (
-            <div
+            <BookshelfTopBar
+              mode="selection"
+              selectedCount={groupDetailSelectedCount}
+              onExitSelection={() => nav.goBack()}
               onClick={(e) => e.stopPropagation()}
               style={{
                 position: "fixed",
@@ -1897,181 +1376,141 @@ export const Bookshelf: React.FC = () => {
                 left: 0,
                 right: 0,
                 background: "#fff",
-                display: "flex",
-                alignItems: "center",
-                padding: `calc(${getSafeAreaInsets().top} + 12px) 0 12px 16px`,
                 zIndex: 101,
+                padding: `calc(${getSafeAreaInsets().top} + 12px) 0 8px 16px`,
+                marginBottom: 0,
               }}
-            >
-              <button
-                onClick={() => {
-                  // 直接使用路由回退退出选择模式，避免事件传递不稳定
-                  nav.goBack();
-                }}
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  boxShadow: "none",
-                  borderRadius: 0,
-                  outline: "none",
-                  WebkitAppearance: "none",
-                  MozAppearance: "none",
-                  appearance: "none",
-                  WebkitTapHighlightColor: "transparent",
-                  padding: 0,
-                  cursor: "pointer",
-                  marginLeft: "-6px",
-                }}
-                title="返回"
-              >
-                <svg
-                  width={24}
-                  height={24}
-                  viewBox="0 0 24 24"
-                  fill="none"
-                >
-                  <path
-                    d="M14 18l-6-6 6-6"
-                    stroke="#333"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </button>
-              <span style={{ fontSize: 16, color: "#333", marginLeft: 8, fontWeight: 600, display: "inline-flex", alignItems: "center", height: "24px", lineHeight: "24px", transform: "translateY(-2px)" }}>
-                已选中({groupDetailSelectedCount})
-              </span>
-              <div style={{ flex: 1 }} />
-              <div style={{ display: "flex", alignItems: "center" }}>
-                <button
-                  aria-label="更改分组"
-                  title="更改分组"
-                  style={{
-                    background: "none",
-                    border: "none",
-                    boxShadow: "none",
-                    borderRadius: 0,
-                    cursor: groupDetailSelectedCount === 0 || dragActive ? "not-allowed" : "pointer",
-                    opacity: groupDetailSelectedCount === 0 || dragActive ? 0.4 : 1,
-                    padding: 0,
-                    width: "44px",
-                    height: "44px",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                  disabled={groupDetailSelectedCount === 0 || dragActive}
-                  onClick={() => {
-                    if (groupDetailSelectedCount === 0 || dragActive) return;
-                    const evt = new Event("goread:group-detail:open-move");
-                    window.dispatchEvent(evt);
-                  }}
-                >
-                  <IconMove width={24} height={24} fill="#333" />
-                </button>
-                <button
-                  aria-label="删除"
-                  title="删除"
-                  style={{
-                    background: "none",
-                    border: "none",
-                    boxShadow: "none",
-                    borderRadius: 0,
-                    cursor: groupDetailSelectedCount === 0 || dragActive ? "not-allowed" : "pointer",
-                    opacity: groupDetailSelectedCount === 0 || dragActive ? 0.4 : 1,
-                    padding: 0,
-                    width: "44px",
-                    height: "44px",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                  disabled={groupDetailSelectedCount === 0 || dragActive}
-                  onClick={() => {
-                    if (groupDetailSelectedCount === 0 || dragActive) return;
-                    const evt = new Event("goread:group-detail:open-confirm");
-                    window.dispatchEvent(evt);
-                  }}
-                >
-                  <IconDelete width={24} height={24} fill="#333" />
-                </button>
-                <button
-                  aria-label="全选"
-                  title="全选"
-                  style={{
-                    background: "none",
-                    border: "none",
-                    boxShadow: "none",
-                    borderRadius: 0,
-                    cursor: "pointer",
-                    padding: 0,
-                    width: "44px",
-                    height: "44px",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                  onClick={() => {
-                    const evt = new Event("goread:group-detail:select-all");
-                    window.dispatchEvent(evt);
-                  }}
-                >
-                  <svg
-                    width={24}
-                    height={24}
-                    viewBox="0 0 24 24"
-                    fill="none"
+              selectionActions={
+                <>
+                  <button
+                    aria-label="更改分组"
+                    title="更改分组"
+                    style={{
+                      background: "none",
+                      border: "none",
+                      boxShadow: "none",
+                      borderRadius: 0,
+                      cursor: groupDetailSelectedCount === 0 || dragActive ? "not-allowed" : "pointer",
+                      opacity: groupDetailSelectedCount === 0 || dragActive ? 0.4 : 1,
+                      padding: 0,
+                      width: "36px",
+                      height: "36px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                    disabled={groupDetailSelectedCount === 0 || dragActive}
+                    onClick={() => {
+                      if (groupDetailSelectedCount === 0 || dragActive) return;
+                      const evt = new Event("goread:group-detail:open-move");
+                      window.dispatchEvent(evt);
+                    }}
                   >
-                    {(() => {
-                      const allCount = (groups.find((g) => g.id === overlayGroupId)?.book_count || 0);
-                      const isAll = allCount > 0 && groupDetailSelectedCount === allCount;
-                      const stroke = isAll ? "#d23c3c" : "#333";
-                      return (
-                        <>
-                          <rect
-                            x="3"
-                            y="3"
-                            width="7"
-                            height="7"
-                            stroke={stroke}
-                            strokeWidth="2"
-                            rx="1"
-                          />
-                          <rect
-                            x="14"
-                            y="3"
-                            width="7"
-                            height="7"
-                            stroke={stroke}
-                            strokeWidth="2"
-                            rx="1"
-                          />
-                          <rect
-                            x="3"
-                            y="14"
-                            width="7"
-                            height="7"
-                            stroke={stroke}
-                            strokeWidth="2"
-                            rx="1"
-                          />
-                          <rect
-                            x="14"
-                            y="14"
-                            width="7"
-                            height="7"
-                            stroke={stroke}
-                            strokeWidth="2"
-                            rx="1"
-                          />
-                        </>
-                      );
-                    })()}
-                  </svg>
-                </button>
-              </div>
-            </div>
+                    <IconMove width={24} height={24} fill="#333" />
+                  </button>
+                  <button
+                    aria-label="删除"
+                    title="删除"
+                    style={{
+                      background: "none",
+                      border: "none",
+                      boxShadow: "none",
+                      borderRadius: 0,
+                      cursor: groupDetailSelectedCount === 0 || dragActive ? "not-allowed" : "pointer",
+                      opacity: groupDetailSelectedCount === 0 || dragActive ? 0.4 : 1,
+                      padding: 0,
+                      width: "36px",
+                      height: "36px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                    disabled={groupDetailSelectedCount === 0 || dragActive}
+                    onClick={() => {
+                      if (groupDetailSelectedCount === 0 || dragActive) return;
+                      const evt = new Event("goread:group-detail:open-confirm");
+                      window.dispatchEvent(evt);
+                    }}
+                  >
+                    <IconDelete width={24} height={24} fill="#333" />
+                  </button>
+                  <button
+                    aria-label="全选"
+                    title="全选"
+                    style={{
+                      background: "none",
+                      border: "none",
+                      boxShadow: "none",
+                      borderRadius: 0,
+                      cursor: "pointer",
+                      padding: 0,
+                      width: "36px",
+                      height: "36px",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                    onClick={() => {
+                      const evt = new Event("goread:group-detail:select-all");
+                      window.dispatchEvent(evt);
+                    }}
+                  >
+                    <svg
+                      width={24}
+                      height={24}
+                      viewBox="0 0 24 24"
+                      fill="none"
+                    >
+                      {(() => {
+                        const allCount = (groups.find((g) => g.id === overlayGroupId)?.book_count || 0);
+                        const isAll = allCount > 0 && groupDetailSelectedCount === allCount;
+                        const stroke = isAll ? "#d23c3c" : "#333";
+                        return (
+                          <>
+                            <rect
+                              x="3"
+                              y="3"
+                              width="7"
+                              height="7"
+                              stroke={stroke}
+                              strokeWidth="2"
+                              rx="1"
+                            />
+                            <rect
+                              x="14"
+                              y="3"
+                              width="7"
+                              height="7"
+                              stroke={stroke}
+                              strokeWidth="2"
+                              rx="1"
+                            />
+                            <rect
+                              x="3"
+                              y="14"
+                              width="7"
+                              height="7"
+                              stroke={stroke}
+                              strokeWidth="2"
+                              rx="1"
+                            />
+                            <rect
+                              x="14"
+                              y="14"
+                              width="7"
+                              height="7"
+                              stroke={stroke}
+                              strokeWidth="2"
+                              rx="1"
+                            />
+                          </>
+                        );
+                      })()}
+                    </svg>
+                  </button>
+                </>
+              }
+            />
           )}
           <div
             style={{
@@ -2079,6 +1518,7 @@ export const Bookshelf: React.FC = () => {
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
+              marginTop: TOP_BAR_MARGIN_BOTTOM + 35,
             }}
           >
             {/* 标题在容器外居中 */}
