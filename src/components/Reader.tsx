@@ -282,16 +282,11 @@ export const Reader: React.FC = () => {
               // 检查是否滚动到底部 (容差 50px)
               const atBottom = scrollContainer.scrollTop + scrollContainer.clientHeight >= scrollContainer.scrollHeight - 50;
               if (!atBottom) {
-                // 虽然页码满足条件（可能是初始 1/1），但并未滚动到底部，跳过
                 return;
               }
             } else {
-              // 没有滚动条，内容很短
-              // 如果保存的阅读进度是第1页，说明是首次打开或之前未阅读完，不自动标记
-              // 只有当之前已经保存过最后一页进度时才标记
-              if (savedPageAtOpenRef.current < totalPages) {
-                return;
-              }
+              // 没有滚动条，内容很短，不自动标记
+              return;
             }
           } else {
             // 容器还没准备好，保守起见不标记
@@ -304,6 +299,13 @@ export const Reader: React.FC = () => {
       
       const autoMark = async () => {
         try {
+          // 检查是否有阅读记录，如果没有说明是首次打开，不应该自动标记
+          const hasRecords = await statsService.hasReadingSessions(book.id);
+          if (!hasRecords) {
+            log(`[Reader] 书籍 ${book.id} 无阅读记录，跳过自动标记`);
+            return;
+          }
+          
           log(`[Reader] 进度 100%，自动标记为已读`);
           // 乐观更新
           setBook(prev => prev ? { ...prev, status: 1 } : null);
@@ -652,6 +654,30 @@ export const Reader: React.FC = () => {
       setBook(targetBook);
       setCurrentPage(targetBook.current_page);
       setTotalPages(targetBook.total_pages);
+      
+      // 检查并修正错误的已完成状态
+      // 如果书籍被标记为已完成(status=1)，但没有任何阅读记录，说明是误标记，需要撤销
+      if (targetBook.status === 1) {
+        try {
+          log(`[Reader] 检查书籍 ${targetBook.id} 的阅读记录，当前状态: ${targetBook.status}`);
+          const hasRecords = await statsService.hasReadingSessions(targetBook.id);
+          log(`[Reader] 书籍 ${targetBook.id} 是否有阅读记录: ${hasRecords}`);
+          if (!hasRecords) {
+            log(`[Reader] 书籍 ${targetBook.id} 被标记为已完成但无阅读记录，撤销标记`);
+            await statsService.unmarkBookFinished(targetBook.id);
+            // 更新本地状态
+            targetBook.status = 0;
+            targetBook.finished_at = null;
+            setBook({ ...targetBook });
+            log(`[Reader] 已撤销书籍 ${targetBook.id} 的已完成标记`);
+          } else {
+            log(`[Reader] 书籍 ${targetBook.id} 有阅读记录，保持已完成状态`);
+          }
+        } catch (e) {
+          console.error("检查阅读记录失败", e);
+          log(`[Reader] 检查阅读记录失败: ${e}`);
+        }
+      }
       
       // 打开即记录最近阅读时间（不依赖进度变化）
       try {

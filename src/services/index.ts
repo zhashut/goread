@@ -285,6 +285,7 @@ export interface IStatsService {
   getBooksByDateRange(startDate: string, endDate: string): Promise<IBookReadingStats[]>;
   markBookFinished(bookId: number): Promise<void>;
   unmarkBookFinished(bookId: number): Promise<void>;
+  hasReadingSessions(bookId: number): Promise<boolean>;
 }
 
 // Tauri 统计服务实现
@@ -339,6 +340,11 @@ export class TauriStatsService implements IStatsService {
   async unmarkBookFinished(bookId: number): Promise<void> {
     const invoke = await getInvoke();
     await invoke('unmark_book_finished', { bookId });
+  }
+
+  async hasReadingSessions(bookId: number): Promise<boolean> {
+    const invoke = await getInvoke();
+    return await invoke('has_reading_sessions', { bookId });
   }
 }
 

@@ -377,3 +377,19 @@ pub async fn unmark_book_finished(book_id: i64, db: DbState<'_>) -> Result<(), S
 
     Ok(())
 }
+
+/// 检查书籍是否有阅读记录
+#[tauri::command]
+pub async fn has_reading_sessions(book_id: i64, db: DbState<'_>) -> Result<bool, String> {
+    let pool = db.lock().await;
+
+    let count: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM reading_sessions WHERE book_id = ?",
+    )
+    .bind(book_id)
+    .fetch_one(&*pool)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    Ok(count.0 > 0)
+}

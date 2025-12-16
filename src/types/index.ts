@@ -11,7 +11,7 @@ export interface IBook {
   position_in_group?: number;
   created_at?: number;
   status?: number;        // 阅读状态：0=阅读中，1=已读完
-  finished_at?: number;   // 完成时间戳
+  finished_at?: number | null;   // 完成时间戳
 }
 
 export interface IGroup {
