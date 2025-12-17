@@ -81,6 +81,7 @@ export const GroupDetail: React.FC<{
 
   const booksRef = useRef<IBook[]>([]);
   const selectedRef = useRef<Set<number>>(new Set());
+  const selectionModeRef = useRef(selectionMode);
 
   const sensors = useDndSensors(isTouchDevice());
   const { dragActive, onDragStart, onDragEnd: onDragEndGuard, onDragCancel } = useDragGuard();
@@ -107,6 +108,10 @@ export const GroupDetail: React.FC<{
   useEffect(() => {
     selectedRef.current = new Set(selectedBookIds);
   }, [selectedBookIds]);
+
+  useEffect(() => {
+    selectionModeRef.current = selectionMode;
+  }, [selectionMode]);
 
   const reloadBooksAndGroups = async () => {
     const list = await groupService.getBooksByGroup(id);
@@ -146,7 +151,8 @@ export const GroupDetail: React.FC<{
   };
 
   const exitSelection = () => {
-    if (!selectionMode) return;
+    // 使用 ref 获取最新的 selectionMode 值，避免闭包问题
+    if (!selectionModeRef.current) return;
     // 使用路由回退退出选择模式；与系统返回键/手势保持一致
     nav.goBack();
   };
@@ -183,7 +189,8 @@ export const GroupDetail: React.FC<{
     const allIds = new Set(currentBooks.map((b) => b.id));
     const isAllSelected = selectedRef.current.size === allIds.size && allIds.size > 0;
     setSelectedBookIds(isAllSelected ? new Set() : allIds);
-    if (!selectionMode && allIds.size > 0) {
+    // 使用 ref 获取最新的 selectionMode 值，避免闭包问题
+    if (!selectionModeRef.current && allIds.size > 0) {
       // 进入选择模式：使用完整路径 + 当前查询参数，确保生成历史栈条目
       navigate(`${nav.location.pathname}${nav.location.search}`,
         { state: { selectionMode: true }, replace: false }
