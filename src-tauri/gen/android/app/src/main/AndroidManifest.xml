@@ -2,13 +2,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
     
-    <!-- Storage permissions for reading PDF files -->
+    <!-- 存储权限：用于读取本地电子书文件（PDF、EPUB、TXT等） -->
+    <!-- Android 10及以下使用 READ_EXTERNAL_STORAGE -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" 
-        android:maxSdkVersion="32" />
-    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
-    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
-    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
-    <!-- For Android 11+ to access all files -->
+        android:maxSdkVersion="29" />
+    <!-- Android 11+ 必须使用 MANAGE_EXTERNAL_STORAGE 才能访问文档类文件 -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" 
         android:minSdkVersion="30" />
 

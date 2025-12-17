@@ -7,6 +7,7 @@ import React, {
 
 import { useAppNav } from "../router/useAppNav";
 import { IBook, IGroup } from "../types";
+import { ensurePermissionForImport, ensurePermissionForDeleteLocal } from "../utils/storagePermission";
 import { IconDelete } from "./Icons";
   import {
   GRID_GAP_BOOK_CARDS,
@@ -513,6 +514,18 @@ export const Bookshelf: React.FC = () => {
 
   const confirmDelete = async (deleteLocal?: boolean) => {
     try {
+      // 如果要删除本地文件，先检查权限
+      let actualDeleteLocal = deleteLocal;
+      if (deleteLocal && activeTab !== "recent") {
+        const { allowed, downgrade } = await ensurePermissionForDeleteLocal();
+        if (!allowed) {
+          return; // 用户取消操作
+        }
+        if (downgrade) {
+          actualDeleteLocal = false; // 降级为不删除本地文件
+        }
+      }
+      
       if (activeTab === "recent") {
         const ids = Array.from(selectedBookIds);
         for (const id of ids) {
@@ -522,7 +535,7 @@ export const Bookshelf: React.FC = () => {
       } else {
         const ids = Array.from(selectedGroupIds);
         for (const gid of ids) {
-          await groupService.deleteGroup(gid, !!deleteLocal);
+          await groupService.deleteGroup(gid, !!actualDeleteLocal);
         }
         await Promise.all([loadGroups(), loadBooks()]);
       }
@@ -625,8 +638,15 @@ export const Bookshelf: React.FC = () => {
         activeTab={activeTab}
         onTabChange={(tab) => nav.toBookshelf(tab, { replace: true })}
         onSearch={() => nav.toSearch()}
-        onMenuAction={(action) => {
-          if (action === "import") nav.toImport({ fromTab: activeTab });
+        onMenuAction={async (action) => {
+          if (action === "import") {
+            // 在入口处请求存储权限，触发系统原生权限弹窗
+            const granted = await ensurePermissionForImport();
+            if (granted) {
+              nav.toImport({ fromTab: activeTab });
+            }
+            // 权限被拒绝则不跳转，用户可以稍后再试
+          }
           else if (action === "settings") nav.toSettings({ fromTab: activeTab });
           else if (action === "statistics") nav.toStatistics({ fromTab: activeTab });
           else if (action === "about") nav.toAbout();

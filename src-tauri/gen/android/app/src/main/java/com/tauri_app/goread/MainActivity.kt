@@ -39,15 +39,26 @@ class MainActivity : TauriActivity() {
   private val requestPermissionLauncher = registerForActivityResult(
     ActivityResultContracts.RequestMultiplePermissions()
   ) { permissions ->
-    // Handle permission results
-    permissions.entries.forEach { entry ->
-      val permission = entry.key
-      val isGranted = entry.value
-      if (!isGranted) {
-        // Permission denied, you might want to show a message to the user
-        println("Permission $permission denied")
-      }
+    // 检查是否所有权限都已授予
+    val allGranted = permissions.values.all { it }
+    println("[Permission] Results: $permissions, allGranted: $allGranted")
+    
+    // 回调通知前端权限结果
+    notifyPermissionResult(allGranted)
+  }
+  
+  // 用于处理 MANAGE_EXTERNAL_STORAGE 权限返回（Android 11+）
+  private val manageStorageLauncher = registerForActivityResult(
+    ActivityResultContracts.StartActivityForResult()
+  ) { _ ->
+    // 从设置页面返回后检查权限状态
+    val granted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+      Environment.isExternalStorageManager()
+    } else {
+      true
     }
+    println("[Permission] MANAGE_EXTERNAL_STORAGE result: $granted")
+    notifyPermissionResult(granted)
   }
   
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -62,8 +73,7 @@ class MainActivity : TauriActivity() {
     // Setup WindowInsets listener
     setupWindowInsetsListener()
     
-    // Request storage permissions
-    requestStoragePermissions()
+    // 不再在启动时请求权限，改为按需请求（由前端通过 StoragePermissionBridge 触发）
   }
   
   // This callback is provided by WryActivity when WebView is created
@@ -77,6 +87,9 @@ class MainActivity : TauriActivity() {
     
     // Expose status bar control functions to JavaScript
     webView.addJavascriptInterface(StatusBarBridge(), "StatusBarBridge")
+    
+    // 存储权限控制接口（供前端按需调用）
+    webView.addJavascriptInterface(StoragePermissionBridge(), "StoragePermissionBridge")
     
     // Default show status bar (only hide when entering Reader page based on user settings)
     windowInsetsController?.show(WindowInsetsCompat.Type.statusBars())
@@ -232,40 +245,85 @@ class MainActivity : TauriActivity() {
     }
   }
   
+  // 存储权限控制 Bridge（供前端按需调用）
+  inner class StoragePermissionBridge {
+    @android.webkit.JavascriptInterface
+    fun requestPermission() {
+      runOnUiThread {
+        requestStoragePermissions()
+      }
+    }
+    
+    @android.webkit.JavascriptInterface
+    fun hasPermission(): Boolean {
+      return checkStoragePermissionInternal()
+    }
+  }
+  
+  // 内部权限检查方法
+  private fun checkStoragePermissionInternal(): Boolean {
+    return when {
+      Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> {
+        // Android 11+ 必须使用 MANAGE_EXTERNAL_STORAGE 才能访问文档类文件
+        Environment.isExternalStorageManager()
+      }
+      else -> {
+        // Android 10 及以下使用 READ_EXTERNAL_STORAGE
+        ContextCompat.checkSelfPermission(
+          this,
+          Manifest.permission.READ_EXTERNAL_STORAGE
+        ) == PackageManager.PERMISSION_GRANTED
+      }
+    }
+  }
+  
+  // 通知前端权限结果
+  private fun notifyPermissionResult(granted: Boolean) {
+    webViewRef?.post {
+      val js = """
+        (function() {
+          if (typeof window.__onPermissionResult__ === 'function') {
+            window.__onPermissionResult__($granted);
+          }
+        })();
+      """.trimIndent()
+      webViewRef?.evaluateJavascript(js, null)
+    }
+  }
+
   private fun requestStoragePermissions() {
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-      // Android 11+ - Request MANAGE_EXTERNAL_STORAGE
-      if (!Environment.isExternalStorageManager()) {
+    // 已有权限则直接返回
+    if (checkStoragePermissionInternal()) {
+      notifyPermissionResult(true)
+      return
+    }
+    
+    when {
+      Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> {
+        // Android 11+ 必须使用 MANAGE_EXTERNAL_STORAGE 才能访问文档类文件（PDF/EPUB等）
+        // 此权限需要跳转设置页面手动开启
+        println("[Permission] Requesting MANAGE_EXTERNAL_STORAGE via settings")
         try {
           val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
           intent.data = Uri.parse("package:$packageName")
-          startActivity(intent)
+          manageStorageLauncher.launch(intent)
         } catch (e: Exception) {
           val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
-          startActivity(intent)
+          manageStorageLauncher.launch(intent)
         }
       }
-    } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-      // Android 13+ - Request granular media permissions
-      val permissions = arrayOf(
-        Manifest.permission.READ_MEDIA_IMAGES,
-        Manifest.permission.READ_MEDIA_VIDEO,
-        Manifest.permission.READ_MEDIA_AUDIO
-      )
-      val permissionsToRequest = permissions.filter {
-        ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
-      }
-      if (permissionsToRequest.isNotEmpty()) {
-        requestPermissionLauncher.launch(permissionsToRequest.toTypedArray())
-      }
-    } else {
-      // Android 6-12 - Request READ_EXTERNAL_STORAGE
-      if (ContextCompat.checkSelfPermission(
-          this,
-          Manifest.permission.READ_EXTERNAL_STORAGE
-        ) != PackageManager.PERMISSION_GRANTED
-      ) {
-        requestPermissionLauncher.launch(arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE))
+      else -> {
+        // Android 6-10 使用 READ_EXTERNAL_STORAGE（会触发系统原生弹窗）
+        if (ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.READ_EXTERNAL_STORAGE
+          ) != PackageManager.PERMISSION_GRANTED
+        ) {
+          println("[Permission] Requesting Android 6-10 READ_EXTERNAL_STORAGE")
+          requestPermissionLauncher.launch(arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE))
+        } else {
+          notifyPermissionResult(true)
+        }
       }
     }
   }

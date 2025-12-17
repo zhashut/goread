@@ -6,6 +6,7 @@ import { arrayMove, SortableContext, rectSortingStrategy } from "@dnd-kit/sortab
 import { IBook } from "../types";
 import { CARD_MIN_WIDTH, GRID_GAP_GROUP_DETAIL } from "../constants/ui";
 import { groupService, bookService } from "../services";
+import { ensurePermissionForDeleteLocal } from "../utils/storagePermission";
 import { SortableBookItem } from "./SortableBookItem";
 import ConfirmDeleteDrawer from "./ConfirmDeleteDrawer";
 import ChooseExistingGroupDrawer from "./ChooseExistingGroupDrawer";
@@ -200,9 +201,21 @@ export const GroupDetail: React.FC<{
 
   const confirmDelete = async (deleteLocal?: boolean) => {
     try {
+      // 如果要删除本地文件，先检查权限
+      let actualDeleteLocal = deleteLocal;
+      if (deleteLocal) {
+        const { allowed, downgrade } = await ensurePermissionForDeleteLocal();
+        if (!allowed) {
+          return; // 用户取消操作
+        }
+        if (downgrade) {
+          actualDeleteLocal = false; // 降级为不删除本地文件
+        }
+      }
+      
       const ids = Array.from(selectedBookIds);
       for (const bid of ids) {
-        await bookService.deleteBook(bid, !!deleteLocal);
+        await bookService.deleteBook(bid, !!actualDeleteLocal);
       }
       await reloadBooksAndGroups();
       exitSelection();

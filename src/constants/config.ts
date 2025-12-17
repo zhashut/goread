@@ -39,7 +39,7 @@ export const DEFAULT_SETTINGS = {
   pageTransition: true,
   recentDisplayCount: 9,
   scrollSpeed: 120,
-  pageGap: 4,
+  pageGap: 2,
   readingMode: 'vertical' as const,
   renderQuality: DEFAULT_RENDER_QUALITY,
 };

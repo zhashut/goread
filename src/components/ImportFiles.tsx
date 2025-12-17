@@ -309,25 +309,7 @@ export const ImportFiles: React.FC = () => {
     loadImportedBooks();
   }, []);
 
-  // 检查并请求存储权限
-  useEffect(() => {
-    const checkPermission = async () => {
-      try {
-        const hasPermission = await fileSystemService.checkStoragePermission();
-        if (!hasPermission) {
-          const granted = await fileSystemService.requestStoragePermission();
-          if (!granted) {
-            alert("需要存储权限才能扫描和浏览文件");
-          }
-        }
-      } catch (error) {
-        console.error("权限检查失败:", error);
-      }
-    };
-    checkPermission();
-  }, []);
-
-  // 加载根目录
+  // 加载根目录（权限已在入口处检查）
   useEffect(() => {
     const loadRootDirs = async () => {
       if (activeTab === "browse" && browseStack.length === 0) {
@@ -413,6 +395,7 @@ export const ImportFiles: React.FC = () => {
   };
 
   const startScan = async () => {
+    // 权限已在入口处检查，直接开始扫描
     setActiveTab("scan");
     setScanLoading(true);
     setDrawerOpen(true);
