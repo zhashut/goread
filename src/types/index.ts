@@ -98,3 +98,17 @@ export interface IRangeStats {
   total_seconds: number;
   previous_total_seconds: number;
 }
+
+export interface FileEntry {
+  type: "file" | "dir";
+  name: string;
+  path: string;
+  size?: number;
+  mtime?: number;
+  children_count?: number;
+}
+
+export interface ScanResultItem extends FileEntry {
+  imported?: boolean;
+  type: "file";
+}

@@ -2,15 +2,11 @@ import React, { useMemo, useRef, useState, useEffect } from "react";
 import { FileRow } from "./FileRow";
 import { useSearchParams } from "react-router-dom";
 import { useAppNav } from "../router/useAppNav";
-import { IBook, IGroup } from "../types";
-import { bookService } from "../services";
+import { FileEntry, ScanResultItem } from "../types";
 import { fileSystemService } from "../services/fileSystemService";
 import GroupingDrawer from "./GroupingDrawer";
 import ChooseExistingGroupDrawer from "./ChooseExistingGroupDrawer";
-import { waitNextFrame } from "../services/importUtils";
-import { logError } from "../services";
-import { loadGroupsWithPreviews, assignToExistingGroupAndFinish } from "../utils/groupImport";
-import { isSupportedFile, FORMAT_DISPLAY_NAMES, getBookFormat } from "../constants/fileTypes";
+import { isSupportedFile, getBookFormat } from "../constants/fileTypes";
 import { BookFormat } from "../services/formats/types";
 import { getSafeAreaInsets } from "../utils/layout";
 import {
@@ -19,22 +15,12 @@ import {
   SWIPE_MIN_SLOPE,
 } from "../constants/interactions";
 import { PageHeader } from "./PageHeader";
+import { SearchHeader } from "./SearchHeader";
+import { FormatFilterButton } from "./FormatFilterButton";
+import { ImportBottomBar } from "./ImportBottomBar";
+import { useImportedBooks, useImportGrouping, useSearchOverlay, useSelectAll } from "../hooks";
 
 type TabKey = "scan" | "browse";
-
-export interface FileEntry {
-  type: "file" | "dir";
-  name: string;
-  path: string;
-  size?: number; // 字节
-  mtime?: number; // 时间戳(毫秒)
-  children_count?: number; // 目录包含文件数
-}
-
-export interface ScanResultItem extends FileEntry {
-  imported?: boolean;
-  type: "file";
-}
 
 const fmtDate = (t?: number) => {
   if (!t) return "";
@@ -45,126 +31,6 @@ const fmtDate = (t?: number) => {
   const hh = `${d.getHours()}`.padStart(2, "0");
   const mm = `${d.getMinutes()}`.padStart(2, "0");
   return `${y}/${m}/${day} ${hh}:${mm}`;
-};
-
-interface SearchHeaderProps {
-  value: string;
-  onChange: (val: string) => void;
-  onClose: () => void;
-  onClear: () => void;
-}
-
-const SearchHeader: React.FC<SearchHeaderProps> = ({
-  value,
-  onChange,
-  onClose,
-  onClear,
-}) => {
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    // 稍微延迟聚焦，确保动画或渲染完成
-    const timer = setTimeout(() => {
-      inputRef.current?.focus();
-    }, 50);
-    return () => clearTimeout(timer);
-  }, []);
-
-  return (
-    <div style={{ padding: "10px 12px", paddingTop: `calc(${getSafeAreaInsets().top} + 10px)` }}>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          background: "#efefef",
-          borderRadius: 12,
-          height: 40,
-          padding: "0 8px",
-          overflow: "hidden",
-        }}
-      >
-        <button
-          onClick={onClose}
-          aria-label="返回"
-          title="返回"
-          style={{
-            background: "transparent",
-            border: "none",
-            width: 32,
-            height: "100%",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: 0,
-            margin: 0,
-            cursor: "pointer",
-            color: "#666",
-            boxShadow: "none",
-            borderRadius: 0,
-          }}
-        >
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-            <path
-              d="M15 18l-6-6 6-6"
-              stroke="#666"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </button>
-        <input
-          ref={inputRef}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder="搜索设备内书籍文件…"
-          style={{
-            flex: 1,
-            padding: "0 6px",
-            border: "none",
-            background: "transparent",
-            outline: "none",
-            fontSize: 14,
-            color: "#333",
-            caretColor: "#d15158",
-            height: "100%",
-            boxShadow: "none",
-            WebkitAppearance: "none",
-            appearance: "none",
-            borderRadius: 0,
-          }}
-        />
-        {value && (
-          <button
-            onClick={onClear}
-            title="清除"
-            aria-label="清除"
-            style={{
-              background: "transparent",
-              border: "none",
-              padding: "0 4px",
-              height: "100%",
-              display: "flex",
-              alignItems: "center",
-              cursor: "pointer",
-              boxShadow: "none",
-              borderRadius: 0,
-            }}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-              <circle cx="12" cy="12" r="10" stroke="#999" strokeWidth="2" />
-              <path
-                d="M9 9l6 6m0-6l-6 6"
-                stroke="#999"
-                strokeWidth="2"
-                strokeLinecap="round"
-              />
-            </svg>
-          </button>
-        )}
-      </div>
-    </div>
-  );
 };
 
 export const ImportFiles: React.FC = () => {
@@ -186,55 +52,37 @@ export const ImportFiles: React.FC = () => {
   // 顶部共享搜索（两个栏目共用）
   const [globalSearch] = useState("");
   const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
-  const [searchOpen, setSearchOpen] = useState(false);
   // 导入后的分组抽屉
-  const [groupingOpen, setGroupingOpen] = useState(false);
-  const [chooseGroupOpen, setChooseGroupOpen] = useState(false);
-  const [newGroupName, setNewGroupName] = useState("");
-  // 改为在分组确认后才开始导入：这里仅保存待导入的文件路径
-  const [pendingImportPaths, setPendingImportPaths] = useState<string[]>([]);
-  const [allGroups, setAllGroups] = useState<IGroup[]>([]);
-  const [groupPreviews, setGroupPreviews] = useState<Record<number, string[]>>(
-    {}
-  );
-  const [groupingLoading, setGroupingLoading] = useState(false);
+  const {
+    groupingOpen,
+    chooseGroupOpen,
+    newGroupName,
+    setNewGroupName,
+    allGroups,
+    groupPreviews,
+    groupingLoading,
+    setGroupingOpen,
+    setChooseGroupOpen,
+    openGroupingWithPaths,
+    openChooseGroup,
+    assignToGroupAndFinish,
+    createGroupAndFinish,
+  } = useImportGrouping({
+    onFinishImport: () => nav.toBookshelf("all", { replace: true }),
+  });
 
   const [browseStack, setBrowseStack] = useState<FileEntry[][]>([]);
   // 面包屑路径栈：与 browseStack 同步，索引 0 为根
   const [browseDirStack, setBrowseDirStack] = useState<
     { name: string; path: string }[]
   >([]);
-  const [browseSearch, setBrowseSearch] = useState("");
   const [filterFormat, setFilterFormat] = useState<'ALL' | BookFormat>('ALL');
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
+  const [browseSearch, setBrowseSearch] = useState("");
 
-  // Handle search open/close with history API to support back gesture
-  useEffect(() => {
-    const handlePopState = () => {
-      if (searchOpen) {
-        setSearchOpen(false);
-        setBrowseSearch("");
-      }
-    };
-
-    window.addEventListener("popstate", handlePopState);
-    return () => {
-      window.removeEventListener("popstate", handlePopState);
-    };
-  }, [searchOpen]);
-
-  const openSearch = () => {
-    if (!searchOpen) {
-      setSearchOpen(true);
-      window.history.pushState({ overlay: "search" }, "");
-    }
-  };
-
-  const closeSearch = () => {
-    if (searchOpen) {
-      window.history.back();
-    }
-  };
+  const { searchOpen, openSearch, closeSearch } = useSearchOverlay({
+    onReset: () => setBrowseSearch(""),
+  });
 
   // Reset filter when tab changes
   useEffect(() => {
@@ -250,7 +98,6 @@ export const ImportFiles: React.FC = () => {
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
 
   const handleTouchStart = (e: React.TouchEvent) => {
-    // 当任何抽屉、菜单或搜索框打开时，禁用侧滑手势
     if (drawerOpen || groupingOpen || chooseGroupOpen || scanLoading || groupingLoading || filterMenuOpen || searchOpen) return;
     touchStartRef.current = {
       x: e.touches[0].clientX,
@@ -293,28 +140,8 @@ export const ImportFiles: React.FC = () => {
   };
 
   const [browseLoading, setBrowseLoading] = useState(false);
-  const ROW_HEIGHT = 60; // 统一行高，复用 FileRow 的布局
-
-  // 从数据库获取所有已导入的书籍路径
-  const [allImportedBooks, setAllImportedBooks] = useState<IBook[]>([]);
-  const importedPaths = useMemo(
-    () => new Set(allImportedBooks.map((b) => b.file_path)),
-    [allImportedBooks]
-  );
-
-  // 加载已导入的书籍列表
-  useEffect(() => {
-    const loadImportedBooks = async () => {
-      try {
-        await bookService.initDatabase();
-        const books = await bookService.getAllBooks();
-        setAllImportedBooks(books);
-      } catch (error) {
-        console.error("加载已导入书籍失败:", error);
-      }
-    };
-    loadImportedBooks();
-  }, []);
+  const ROW_HEIGHT = 60;
+  const { importedPaths } = useImportedBooks();
 
   // 加载根目录（权限已在入口处检查）
   useEffect(() => {
@@ -476,63 +303,11 @@ export const ImportFiles: React.FC = () => {
   // 默认分组名由用户输入，不再从文件名推断
 
   const handleImportClick = async () => {
-    // 直接使用已选中的文件路径，不再弹出文件选择对话框
     if (selectedPaths.length === 0) {
       alert("请先选择要导入的文件");
       return;
     }
-    // 不立即导入，仅记录路径并打开分组抽屉
-    setPendingImportPaths(selectedPaths);
-    setGroupingOpen(true);
-  };
-
-  const openChooseGroup = async () => {
-    try {
-      const { groups, previews } = await loadGroupsWithPreviews();
-      setAllGroups(groups || []);
-      setGroupPreviews(previews);
-      setChooseGroupOpen(true);
-    } catch (e) {
-      console.error("Load groups failed", e);
-      setAllGroups([]);
-      setChooseGroupOpen(true);
-    }
-  };
-
-  const assignToGroupAndFinish = async (groupId: number) => {
-    try {
-      setGroupingLoading(true);
-      setGroupingOpen(false);
-      setChooseGroupOpen(false);
-      await assignToExistingGroupAndFinish(pendingImportPaths, groupId, () => nav.toBookshelf('all', { replace: true }));
-      setGroupingLoading(false);
-    } catch (e) {
-      setGroupingLoading(false);
-      alert("分组保存失败，请重试");
-      await logError('assignToGroupAndFinish failed', { error: String(e), groupId: groupId });
-    }
-  };
-
-  const createGroupAndFinish = async (name: string) => {
-    if (!name.trim()) return;
-    try {
-      setGroupingLoading(true);
-
-      // 立即跳转到“全部”，并关闭抽屉
-      setGroupingOpen(false);
-      setChooseGroupOpen(false);
-      nav.toBookshelf('all', { replace: true });
-      // 等待下一帧，确保首页（Bookshelf）已挂载并开始监听事件
-      await waitNextFrame();
-
-      const { createGroupAndImport } = await import("../services/importRunner");
-      await createGroupAndImport(pendingImportPaths, name.trim());
-      setGroupingLoading(false);
-    } catch (e) {
-      setGroupingLoading(false);
-      alert("创建分组失败，请重试");
-      await logError('createGroupAndFinish failed', { error: String(e), name: name.trim() });
-    }
+    openGroupingWithPaths(selectedPaths);
   };
 
   const goInto = (entry: FileEntry) => {
@@ -613,112 +388,42 @@ export const ImportFiles: React.FC = () => {
   }, [searchParams, browseDirStack, browseStack]);
 
   const Header: React.FC = () => {
-    // 右侧控件区域
-    const rightContent = (activeTab === "browse" || (activeTab === "scan" && filteredScan.length > 0)) ? (
-      <div style={{ display: "flex", alignItems: "center" }}>
-        {/* Filter Button */}
-        <div style={{ position: 'relative' }}>
-          <button
-            aria-label="筛选"
-            title="筛选格式"
-            disabled={!canFilter}
-            style={{
-              background: "none",
-              border: "none",
-              boxShadow: "none",
-              borderRadius: 4,
-              cursor: canFilter ? "pointer" : "default",
-              padding: 0,
-              marginRight: 16,
-              width: 32,
-              height: 32,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              backgroundColor: filterMenuOpen || filterFormat !== 'ALL' ? '#f5f5f5' : 'transparent',
-              opacity: canFilter ? 1 : 0.3,
-            }}
-            onClick={(e) => {
-                e.stopPropagation();
-                if (canFilter) {
-                    setFilterMenuOpen(!filterMenuOpen);
-                }
-            }}
-          >
-            <svg width="24" height="24" viewBox="0 0 24 24" fill={filterFormat !== 'ALL' && canFilter ? '#d43d3d' : '#333'}>
-              <path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z"/>
-            </svg>
-          </button>
+    const browseCandidates = currentBrowse
+      .filter(
+        (it) =>
+          it.type === "file" &&
+          isSupportedFile(it.path) &&
+          !importedPaths.has(it.path)
+      )
+      .map((it) => it.path);
+    const scanCandidates = filteredScan
+      .filter((it) => !it.imported)
+      .map((it) => it.path);
+    const candidates =
+      activeTab === "browse" ? browseCandidates : scanCandidates;
 
-          {/* Dropdown Menu */}
-          {filterMenuOpen && canFilter && (
-            <>
-              <div 
-                style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 999 }}
-                onClick={() => setFilterMenuOpen(false)}
-              />
-              <div style={{
-                position: 'absolute',
-                top: 40,
-                right: -8, 
-                background: '#fff',
-                borderRadius: 8,
-                boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
-                width: 140,
-                padding: '8px 0',
-                border: '1px solid #f0f0f0',
-                zIndex: 1000,
-                maxHeight: 400,
-                overflowY: 'auto',
-                animation: 'fadeIn 0.1s ease-out',
-              }}>
-                <style>{`
-                    @keyframes fadeIn {
-                        from { opacity: 0; transform: scale(0.95); }
-                        to { opacity: 1; transform: scale(1); }
-                    }
-                `}</style>
-                <div 
-                    style={{
-                        padding: '10px 16px',
-                        fontSize: 14,
-                        color: filterFormat === 'ALL' ? '#d43d3d' : '#333',
-                        backgroundColor: filterFormat === 'ALL' ? '#fffbfb' : 'transparent',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        fontWeight: filterFormat === 'ALL' ? 500 : 400
-                    }}
-                    onClick={() => { setFilterFormat('ALL'); setFilterMenuOpen(false); }}
-                >
-                    全部格式
-                    {filterFormat === 'ALL' && <span style={{ color: '#d43d3d', fontSize: 12 }}>✓</span>}
-                </div>
-                {(Object.keys(FORMAT_DISPLAY_NAMES) as BookFormat[]).map(fmt => (
-                    <div 
-                        key={fmt}
-                        style={{
-                            padding: '10px 16px',
-                            fontSize: 14,
-                            color: filterFormat === fmt ? '#d43d3d' : '#333',
-                            backgroundColor: filterFormat === fmt ? '#fffbfb' : 'transparent',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            fontWeight: filterFormat === fmt ? 500 : 400
-                        }}
-                        onClick={() => { setFilterFormat(fmt); setFilterMenuOpen(false); }}
-                    >
-                        {FORMAT_DISPLAY_NAMES[fmt]}
-                        {filterFormat === fmt && <span style={{ color: '#d43d3d', fontSize: 12 }}>✓</span>}
-                    </div>
-                ))}
-              </div>
-            </>
-          )}
-        </div>
+    const { canSelectAll, strokeColor, toggleSelectAll } = useSelectAll({
+      selected: selectedPaths,
+      setSelected: setSelectedPaths,
+      candidates,
+    });
+
+    const rightContent =
+      activeTab === "browse" ||
+      (activeTab === "scan" && filteredScan.length > 0) ? (
+      <div style={{ display: "flex", alignItems: "center" }}>
+        <FormatFilterButton
+          filterFormat={filterFormat}
+          menuOpen={filterMenuOpen}
+          onMenuOpenChange={(open) => {
+            if (!canFilter && open) return;
+            setFilterMenuOpen(open);
+          }}
+          onSelect={(fmt) => {
+            setFilterFormat(fmt);
+          }}
+          canFilter={canFilter}
+        />
 
         {activeTab === "browse" && (
           <button
@@ -755,66 +460,20 @@ export const ImportFiles: React.FC = () => {
             boxShadow: "none",
             borderRadius: 0,
             padding: 0,
-            cursor: (() => {
-              const candidates = activeTab === "browse"
-                ? currentBrowse
-                    .filter((it) => it.type === "file" && isSupportedFile(it.path) && !importedPaths.has(it.path))
-                    .map((it) => it.path)
-                : filteredScan.filter((it) => !it.imported).map((it) => it.path);
-              return candidates.length > 0 ? "pointer" : "not-allowed";
-            })(),
-            opacity: (() => {
-              const candidates = activeTab === "browse"
-                ? currentBrowse
-                    .filter((it) => it.type === "file" && isSupportedFile(it.path) && !importedPaths.has(it.path))
-                    .map((it) => it.path)
-                : filteredScan.filter((it) => !it.imported).map((it) => it.path);
-              return candidates.length > 0 ? 1 : 0.45;
-            })(),
+            cursor: canSelectAll ? "pointer" : "not-allowed",
+            opacity: canSelectAll ? 1 : 0.45,
           }}
-          disabled={(() => {
-            const candidates = activeTab === "browse"
-              ? currentBrowse
-                  .filter((it) => it.type === "file" && isSupportedFile(it.path) && !importedPaths.has(it.path))
-                  .map((it) => it.path)
-              : filteredScan.filter((it) => !it.imported).map((it) => it.path);
-            return candidates.length === 0;
-          })()}
-          onClick={() => {
-            const candidates = activeTab === "browse"
-              ? currentBrowse
-                  .filter((it) => it.type === "file" && isSupportedFile(it.path) && !importedPaths.has(it.path))
-                  .map((it) => it.path)
-              : filteredScan.filter((it) => !it.imported).map((it) => it.path);
-            if (candidates.length === 0) return;
-            const allSelected = candidates.every((p) => selectedPaths.includes(p));
-            setSelectedPaths(
-              allSelected
-                ? selectedPaths.filter((p) => !candidates.includes(p))
-                : Array.from(new Set([...selectedPaths, ...candidates]))
-            );
-          }}
+          disabled={!canSelectAll}
+          onClick={toggleSelectAll}
         >
-          {(() => {
-            const candidates = activeTab === "browse"
-              ? currentBrowse
-                  .filter((it) => it.type === "file" && isSupportedFile(it.path) && !importedPaths.has(it.path))
-                  .map((it) => it.path)
-              : filteredScan.filter((it) => !it.imported).map((it) => it.path);
-            const canSelectAll = candidates.length > 0;
-            const allSelected = canSelectAll && candidates.every((p) => selectedPaths.includes(p));
-            const strokeColor = canSelectAll ? (allSelected ? "#d23c3c" : "#333") : "#bbb";
-            return (
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                <rect x="3" y="3" width="7" height="7" stroke={strokeColor} strokeWidth="2" />
-                <rect x="14" y="3" width="7" height="7" stroke={strokeColor} strokeWidth="2" />
-                <rect x="3" y="14" width="7" height="7" stroke={strokeColor} strokeWidth="2" />
-                <rect x="14" y="14" width="7" height="7" stroke={strokeColor} strokeWidth="2" />
-                <path d="M6 8l2-2" stroke={strokeColor} strokeWidth="2" strokeLinecap="round" />
-                <path d="M17 19l2-2" stroke={strokeColor} strokeWidth="2" strokeLinecap="round" />
-              </svg>
-            );
-          })()}
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+            <rect x="3" y="3" width="7" height="7" stroke={strokeColor} strokeWidth="2" />
+            <rect x="14" y="3" width="7" height="7" stroke={strokeColor} strokeWidth="2" />
+            <rect x="3" y="14" width="7" height="7" stroke={strokeColor} strokeWidth="2" />
+            <rect x="14" y="14" width="7" height="7" stroke={strokeColor} strokeWidth="2" />
+            <path d="M6 8l2-2" stroke={strokeColor} strokeWidth="2" strokeLinecap="round" />
+            <path d="M17 19l2-2" stroke={strokeColor} strokeWidth="2" strokeLinecap="round" />
+          </svg>
         </button>
       </div>
     ) : undefined;
@@ -1090,6 +749,9 @@ export const ImportFiles: React.FC = () => {
             onChange={setBrowseSearch}
             onClose={closeSearch}
             onClear={() => setBrowseSearch("")}
+            placeholder="搜索设备内书籍文件…"
+            autoFocus
+            autoFocusDelay={50}
           />
         ) : (
           <>
@@ -1135,40 +797,32 @@ export const ImportFiles: React.FC = () => {
         )}
       </div>
 
-      {/* Footer Area */}
       {!(activeTab === "browse" && browseLoading && browseStack.length === 0) && (
-        <div
-          style={{
-            flex: "none",
-            background: "#d23c3c",
-            zIndex: 10,
-            boxSizing: "border-box",
+        <ImportBottomBar
+          label={
+            activeTab === "scan" &&
+            scanList.length === 0 &&
+            globalSearch.trim() === "" &&
+            !scanLoading
+              ? scanLoading
+                ? "正在扫描…"
+                : "立即扫描"
+              : `导入(${selectedPaths.length})`
+          }
+          disabled={scanLoading}
+          onClick={() => {
+            if (
+              activeTab === "scan" &&
+              scanList.length === 0 &&
+              globalSearch.trim() === "" &&
+              !scanLoading
+            ) {
+              if (!scanLoading) startScan();
+            } else {
+              handleImportClick();
+            }
           }}
-        >
-          <div
-            role="button"
-            onClick={() => {
-              if (activeTab === "scan" && scanList.length === 0 && globalSearch.trim() === "" && !scanLoading) {
-                 if (!scanLoading) startScan();
-              } else {
-                 handleImportClick();
-              }
-            }}
-            style={{
-              padding: "10px 16px",
-              color: "#fff",
-              textAlign: "center",
-              cursor: scanLoading ? "default" : "pointer",
-              userSelect: "none",
-            }}
-          >
-            <span style={{ fontSize: 14, letterSpacing: 1 }}>
-              {activeTab === "scan" && scanList.length === 0 && globalSearch.trim() === "" && !scanLoading
-                ? (scanLoading ? "正在扫描…" : "立即扫描")
-                : `导入(${selectedPaths.length})`}
-            </span>
-          </div>
-        </div>
+        />
       )}
 
       {/* Drawers */}

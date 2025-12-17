@@ -4,7 +4,61 @@ import { IBook } from "../types";
 import { COVER_ASPECT_RATIO_COMPACT, GRID_GAP_BOOK_CARDS, CARD_MIN_WIDTH } from "../constants/ui";
 import { bookService } from "../services";
 import { BookCard } from "./BookCard";
-import { getSafeAreaInsets } from "../utils/layout";
+import { SearchHeader } from "./SearchHeader";
+
+const EmptyState: React.FC = () => {
+  return (
+    <div
+      style={{
+        position: "absolute",
+        top: "50%",
+        left: "50%",
+        transform: "translate(-50%, -50%)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        color: "#bbb",
+        flexDirection: "column",
+      }}
+    >
+      <svg
+        width="64"
+        height="64"
+        viewBox="0 0 24 24"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+        style={{ marginBottom: "8px" }}
+      >
+        <rect
+          x="4"
+          y="3"
+          width="16"
+          height="18"
+          rx="2"
+          stroke="#ccc"
+          strokeWidth="2"
+        />
+        <line
+          x1="7"
+          y1="8"
+          x2="17"
+          y2="8"
+          stroke="#ccc"
+          strokeWidth="2"
+        />
+        <line
+          x1="7"
+          y1="12"
+          x2="17"
+          y2="12"
+          stroke="#ccc"
+          strokeWidth="2"
+        />
+      </svg>
+      <div>没有文件信息</div>
+    </div>
+  );
+};
 
 export const Search: React.FC = () => {
   const nav = useAppNav();
@@ -45,123 +99,35 @@ export const Search: React.FC = () => {
         flexDirection: "column",
         background: "#fafafa",
         overflow: "hidden",
-        paddingTop: getSafeAreaInsets().top,
       }}
     >
-      {/* 顶部搜索栏 */}
-      <div style={{ padding: "10px 12px", flexShrink: 0 }}>
+      <SearchHeader
+        value={query}
+        onChange={setQuery}
+        onClose={() => nav.goBack()}
+        onClear={() => setQuery("")}
+        placeholder="输入书名关键词..."
+        autoFocus
+      />
+      {query.trim() !== "" && (
         <div
           style={{
-            display: "flex",
-            alignItems: "center",
-            background: "#efefef",
-            borderRadius: "12px",
-            height: "40px",
-            padding: "0 8px",
-            overflow: "hidden",
+            marginTop: "8px",
+            fontSize: "14px",
+            color: "#666",
+            padding: "0 12px",
+            flexShrink: 0,
           }}
         >
-          <button
-            onClick={() => nav.goBack()}
-            aria-label="返回"
-            title="返回"
-            style={{
-              background: "transparent",
-              border: "none",
-              width: "32px",
-              height: "100%",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: 0,
-              margin: 0,
-              cursor: "pointer",
-              color: "#666",
-              boxShadow: "none",
-              borderRadius: 0,
-            }}
-          >
-            <svg
-              width="22"
-              height="22"
-              viewBox="0 0 24 24"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path
-                d="M15 18l-6-6 6-6"
-                stroke="#666"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </button>
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="输入书名关键词..."
-            autoFocus
-            style={{
-              flex: 1,
-              padding: "0 6px",
-              border: "none",
-              background: "transparent",
-              outline: "none",
-              fontSize: "14px",
-              color: "#333",
-              caretColor: "#d15158",
-              height: "100%",
-              boxShadow: "none",
-              WebkitAppearance: "none",
-              appearance: "none",
-              borderRadius: 0,
-            }}
-          />
-          {query && (
-            <button
-              onClick={() => setQuery("")}
-              title="清除"
-              aria-label="清除"
-              style={{
-                background: "transparent",
-                border: "none",
-                padding: "0 4px",
-                height: "100%",
-                display: "flex",
-                alignItems: "center",
-                cursor: "pointer",
-                boxShadow: "none",
-                borderRadius: 0,
-              }}
-            >
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <circle cx="12" cy="12" r="10" stroke="#999" strokeWidth="2" />
-                <path
-                  d="M9 9l6 6m0-6l-6 6"
-                  stroke="#999"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                />
-              </svg>
-            </button>
-          )}
+          共 {results.length} 本
         </div>
-        {query.trim() !== "" && (
-          <div style={{ marginTop: "8px", fontSize: "14px", color: "#666" }}>
-            共 {results.length} 本
-          </div>
-        )}
-      </div>
+      )}
 
       {/* 结果区域 */}
-      <div className="no-scrollbar" style={{ flex: 1, overflowY: "auto" }}>
+      <div
+        className="no-scrollbar"
+        style={{ flex: 1, overflowY: "auto", position: "relative" }}
+      >
         {loading ? (
           <div
             style={{
@@ -175,99 +141,9 @@ export const Search: React.FC = () => {
             加载中…
           </div>
         ) : !query ? (
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              height: "100%",
-              color: "#bbb",
-              flexDirection: "column",
-            }}
-          >
-            <svg
-              width="64"
-              height="64"
-              viewBox="0 0 24 24"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-              style={{ marginBottom: "8px" }}
-            >
-              <rect
-                x="4"
-                y="3"
-                width="16"
-                height="18"
-                rx="2"
-                stroke="#ccc"
-                strokeWidth="2"
-              />
-              <line
-                x1="7"
-                y1="8"
-                x2="17"
-                y2="8"
-                stroke="#ccc"
-                strokeWidth="2"
-              />
-              <line
-                x1="7"
-                y1="12"
-                x2="17"
-                y2="12"
-                stroke="#ccc"
-                strokeWidth="2"
-              />
-            </svg>
-            <div>没有文件信息</div>
-          </div>
+          <EmptyState />
         ) : results.length === 0 ? (
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              height: "100%",
-              color: "#bbb",
-              flexDirection: "column",
-            }}
-          >
-            <svg
-              width="64"
-              height="64"
-              viewBox="0 0 24 24"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-              style={{ marginBottom: "8px" }}
-            >
-              <rect
-                x="4"
-                y="3"
-                width="16"
-                height="18"
-                rx="2"
-                stroke="#ccc"
-                strokeWidth="2"
-              />
-              <line
-                x1="7"
-                y1="8"
-                x2="17"
-                y2="8"
-                stroke="#ccc"
-                strokeWidth="2"
-              />
-              <line
-                x1="7"
-                y1="12"
-                x2="17"
-                y2="12"
-                stroke="#ccc"
-                strokeWidth="2"
-              />
-            </svg>
-            <div>没有文件信息</div>
-          </div>
+          <EmptyState />
         ) : (
           <div
             style={{
