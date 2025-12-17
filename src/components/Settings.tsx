@@ -21,6 +21,7 @@ import {
 } from "../constants/config";
 import { getSafeAreaInsets } from "../utils/layout";
 import { CustomSelect } from "./CustomSelect";
+import { PageHeader } from "./PageHeader";
 
 export const Settings: React.FC = () => {
   const [settings, setSettings] = useState<ReaderSettings>(getReaderSettings());
@@ -67,40 +68,11 @@ export const Settings: React.FC = () => {
         paddingBottom: getSafeAreaInsets().bottom,
       }}
     >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          padding: `calc(${getSafeAreaInsets().top} + 12px) 16px 12px 16px`,
-          backgroundColor: "#fff",
-          boxShadow: "0 1px 6px rgba(0,0,0,0.08)",
-        }}
-      >
-        <button
-          onClick={goBack}
-          style={{
-            background: "transparent",
-            border: "none",
-            color: "#333",
-            fontSize: "25px",
-            cursor: "pointer",
-            marginRight: "20px",
-            padding: 0,
-            boxShadow: "none",
-            borderRadius: 0,
-            outline: "none",
-            WebkitAppearance: "none",
-            MozAppearance: "none",
-            appearance: "none",
-          }}
-          title="返回"
-        >
-          {"<"}
-        </button>
-        <div style={{ fontSize: "17.5px", fontWeight: 600, color: "#333" }}>
-          设置
-        </div>
-      </div>
+      <PageHeader
+        title="设置"
+        onBack={goBack}
+        style={{ boxShadow: "0 1px 6px rgba(0,0,0,0.08)" }}
+      />
 
       <div
         style={{

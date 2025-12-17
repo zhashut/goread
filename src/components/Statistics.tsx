@@ -5,6 +5,7 @@ import { IStatsSummary, IDailyStats, IRangeStats, IBookReadingStats } from '../t
 import { HtmlCover } from './covers/HtmlCover';
 import { MarkdownCover } from './covers/MarkdownCover';
 import { getSafeAreaInsets } from '../utils/layout';
+import { PageHeader } from './PageHeader';
 
 // 根据书名判断书籍格式
 const getBookFormat = (title: string): 'html' | 'markdown' | 'other' => {
@@ -348,40 +349,13 @@ export const Statistics: React.FC = () => {
         className="hide-scrollbar"
       >
       {/* 顶部导航栏 */}
-      <div style={{
-        background: COLORS.cardBg,
-        padding: `calc(${getSafeAreaInsets().top} + 16px) 16px 16px 16px`,
-        display: 'flex',
-        alignItems: 'center',
-        fontSize: 18,
-        fontWeight: 600,
-        position: 'sticky',
-        top: 0,
-        zIndex: 100,
-        boxShadow: '0 1px 0 rgba(0,0,0,0.05)'
-      }}>
-        <button
-          onClick={() => nav.goBack()}
-          style={{
-            background: 'transparent',
-            border: 'none',
-            color: COLORS.textMain,
-            fontSize: 25,
-            cursor: 'pointer',
-            marginRight: 20,
-            padding: 0,
-            boxShadow: 'none',
-            borderRadius: 0,
-            outline: 'none',
-            WebkitAppearance: 'none',
-            MozAppearance: 'none',
-            appearance: 'none',
-          }}
-        >
-          {'<'}
-        </button>
-        <span style={{ fontSize: 18, fontWeight: 600, color: COLORS.textMain }}>阅读统计</span>
-      </div>
+      <PageHeader
+        title="阅读统计"
+        onBack={() => nav.goBack()}
+        sticky
+        backgroundColor={COLORS.cardBg}
+        style={{ boxShadow: '0 1px 0 rgba(0,0,0,0.05)' }}
+      />
 
       {/* 核心数据概览卡片 */}
       <div style={{

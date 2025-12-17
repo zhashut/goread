@@ -18,6 +18,7 @@ import {
   SWIPE_MIN_DISTANCE,
   SWIPE_MIN_SLOPE,
 } from "../constants/interactions";
+import { PageHeader } from "./PageHeader";
 
 type TabKey = "scan" | "browse";
 
@@ -70,7 +71,7 @@ const SearchHeader: React.FC<SearchHeaderProps> = ({
   }, []);
 
   return (
-    <div style={{ padding: "10px 12px" }}>
+    <div style={{ padding: "10px 12px", paddingTop: `calc(${getSafeAreaInsets().top} + 10px)` }}>
       <div
         style={{
           display: "flex",
@@ -241,10 +242,16 @@ export const ImportFiles: React.FC = () => {
       setFilterMenuOpen(false);
   }, [activeTab]);
 
+  // 路由变化时关闭筛选菜单，避免遮罩层阻挡返回按钮
+  useEffect(() => {
+    setFilterMenuOpen(false);
+  }, [nav.location.pathname]);
+
   const touchStartRef = useRef<{ x: number; y: number } | null>(null);
 
   const handleTouchStart = (e: React.TouchEvent) => {
-    if (drawerOpen || groupingOpen || chooseGroupOpen || scanLoading || groupingLoading) return;
+    // 当任何抽屉、菜单或搜索框打开时，禁用侧滑手势
+    if (drawerOpen || groupingOpen || chooseGroupOpen || scanLoading || groupingLoading || filterMenuOpen || searchOpen) return;
     touchStartRef.current = {
       x: e.touches[0].clientX,
       y: e.touches[0].clientY,
@@ -606,248 +613,233 @@ export const ImportFiles: React.FC = () => {
   }, [searchParams, browseDirStack, browseStack]);
 
   const Header: React.FC = () => {
-    return (
-      <div
-        style={{ display: "flex", alignItems: "center", padding: "12px 12px" }}
-      >
+    // 右侧控件区域
+    const rightContent = (activeTab === "browse" || (activeTab === "scan" && filteredScan.length > 0)) ? (
+      <div style={{ display: "flex", alignItems: "center" }}>
+        {/* Filter Button */}
+        <div style={{ position: 'relative' }}>
+          <button
+            aria-label="筛选"
+            title="筛选格式"
+            disabled={!canFilter}
+            style={{
+              background: "none",
+              border: "none",
+              boxShadow: "none",
+              borderRadius: 4,
+              cursor: canFilter ? "pointer" : "default",
+              padding: 0,
+              marginRight: 16,
+              width: 32,
+              height: 32,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: filterMenuOpen || filterFormat !== 'ALL' ? '#f5f5f5' : 'transparent',
+              opacity: canFilter ? 1 : 0.3,
+            }}
+            onClick={(e) => {
+                e.stopPropagation();
+                if (canFilter) {
+                    setFilterMenuOpen(!filterMenuOpen);
+                }
+            }}
+          >
+            <svg width="24" height="24" viewBox="0 0 24 24" fill={filterFormat !== 'ALL' && canFilter ? '#d43d3d' : '#333'}>
+              <path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z"/>
+            </svg>
+          </button>
+
+          {/* Dropdown Menu */}
+          {filterMenuOpen && canFilter && (
+            <>
+              <div 
+                style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 999 }}
+                onClick={() => setFilterMenuOpen(false)}
+              />
+              <div style={{
+                position: 'absolute',
+                top: 40,
+                right: -8, 
+                background: '#fff',
+                borderRadius: 8,
+                boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+                width: 140,
+                padding: '8px 0',
+                border: '1px solid #f0f0f0',
+                zIndex: 1000,
+                maxHeight: 400,
+                overflowY: 'auto',
+                animation: 'fadeIn 0.1s ease-out',
+              }}>
+                <style>{`
+                    @keyframes fadeIn {
+                        from { opacity: 0; transform: scale(0.95); }
+                        to { opacity: 1; transform: scale(1); }
+                    }
+                `}</style>
+                <div 
+                    style={{
+                        padding: '10px 16px',
+                        fontSize: 14,
+                        color: filterFormat === 'ALL' ? '#d43d3d' : '#333',
+                        backgroundColor: filterFormat === 'ALL' ? '#fffbfb' : 'transparent',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        fontWeight: filterFormat === 'ALL' ? 500 : 400
+                    }}
+                    onClick={() => { setFilterFormat('ALL'); setFilterMenuOpen(false); }}
+                >
+                    全部格式
+                    {filterFormat === 'ALL' && <span style={{ color: '#d43d3d', fontSize: 12 }}>✓</span>}
+                </div>
+                {(Object.keys(FORMAT_DISPLAY_NAMES) as BookFormat[]).map(fmt => (
+                    <div 
+                        key={fmt}
+                        style={{
+                            padding: '10px 16px',
+                            fontSize: 14,
+                            color: filterFormat === fmt ? '#d43d3d' : '#333',
+                            backgroundColor: filterFormat === fmt ? '#fffbfb' : 'transparent',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            fontWeight: filterFormat === fmt ? 500 : 400
+                        }}
+                        onClick={() => { setFilterFormat(fmt); setFilterMenuOpen(false); }}
+                    >
+                        {FORMAT_DISPLAY_NAMES[fmt]}
+                        {filterFormat === fmt && <span style={{ color: '#d43d3d', fontSize: 12 }}>✓</span>}
+                    </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+
+        {activeTab === "browse" && (
+          <button
+            aria-label="搜索"
+            title="搜索"
+            style={{
+              background: "none",
+              border: "none",
+              boxShadow: "none",
+              borderRadius: 0,
+              cursor: "pointer",
+              padding: 0,
+              marginRight: 16,
+            }}
+            onClick={openSearch}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+              <circle cx="11" cy="11" r="7" stroke="#333" strokeWidth="2" />
+              <path
+                d="M21 21l-4-4"
+                stroke="#333"
+                strokeWidth="2"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
+        )}
         <button
-          aria-label="返回"
-          onClick={() => {
-            const state: any = nav.location.state || {};
-            // 直接退出导入页面，不再逐级返回
-            if (state.fromTab === "all") nav.toBookshelf('all');
-            else nav.toBookshelf('recent');
-          }}
+          aria-label="全选"
+          title="全选"
           style={{
             background: "none",
             border: "none",
             boxShadow: "none",
             borderRadius: 0,
-            cursor: "pointer",
             padding: 0,
+            cursor: (() => {
+              const candidates = activeTab === "browse"
+                ? currentBrowse
+                    .filter((it) => it.type === "file" && isSupportedFile(it.path) && !importedPaths.has(it.path))
+                    .map((it) => it.path)
+                : filteredScan.filter((it) => !it.imported).map((it) => it.path);
+              return candidates.length > 0 ? "pointer" : "not-allowed";
+            })(),
+            opacity: (() => {
+              const candidates = activeTab === "browse"
+                ? currentBrowse
+                    .filter((it) => it.type === "file" && isSupportedFile(it.path) && !importedPaths.has(it.path))
+                    .map((it) => it.path)
+                : filteredScan.filter((it) => !it.imported).map((it) => it.path);
+              return candidates.length > 0 ? 1 : 0.45;
+            })(),
+          }}
+          disabled={(() => {
+            const candidates = activeTab === "browse"
+              ? currentBrowse
+                  .filter((it) => it.type === "file" && isSupportedFile(it.path) && !importedPaths.has(it.path))
+                  .map((it) => it.path)
+              : filteredScan.filter((it) => !it.imported).map((it) => it.path);
+            return candidates.length === 0;
+          })()}
+          onClick={() => {
+            const candidates = activeTab === "browse"
+              ? currentBrowse
+                  .filter((it) => it.type === "file" && isSupportedFile(it.path) && !importedPaths.has(it.path))
+                  .map((it) => it.path)
+              : filteredScan.filter((it) => !it.imported).map((it) => it.path);
+            if (candidates.length === 0) return;
+            const allSelected = candidates.every((p) => selectedPaths.includes(p));
+            setSelectedPaths(
+              allSelected
+                ? selectedPaths.filter((p) => !candidates.includes(p))
+                : Array.from(new Set([...selectedPaths, ...candidates]))
+            );
           }}
         >
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-            <path
-              d="M15 18l-6-6 6-6"
-              stroke="#333"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
+          {(() => {
+            const candidates = activeTab === "browse"
+              ? currentBrowse
+                  .filter((it) => it.type === "file" && isSupportedFile(it.path) && !importedPaths.has(it.path))
+                  .map((it) => it.path)
+              : filteredScan.filter((it) => !it.imported).map((it) => it.path);
+            const canSelectAll = candidates.length > 0;
+            const allSelected = canSelectAll && candidates.every((p) => selectedPaths.includes(p));
+            const strokeColor = canSelectAll ? (allSelected ? "#d23c3c" : "#333") : "#bbb";
+            return (
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <rect x="3" y="3" width="7" height="7" stroke={strokeColor} strokeWidth="2" />
+                <rect x="14" y="3" width="7" height="7" stroke={strokeColor} strokeWidth="2" />
+                <rect x="3" y="14" width="7" height="7" stroke={strokeColor} strokeWidth="2" />
+                <rect x="14" y="14" width="7" height="7" stroke={strokeColor} strokeWidth="2" />
+                <path d="M6 8l2-2" stroke={strokeColor} strokeWidth="2" strokeLinecap="round" />
+                <path d="M17 19l2-2" stroke={strokeColor} strokeWidth="2" strokeLinecap="round" />
+              </svg>
+            );
+          })()}
         </button>
-        <span style={{ fontSize: 16, color: "#333", marginLeft: 8 }}>
-          {scanList.length > 0 ? `扫描结果(${scanList.length})` : "导入文件"}
-        </span>
-        <div style={{ flex: 1 }} />
-        {(activeTab === "browse" || (activeTab === "scan" && filteredScan.length > 0)) && (
-          <div style={{ display: "flex", alignItems: "center" }}>
-            {/* Filter Button */}
-            <div style={{ position: 'relative' }}>
-              <button
-                aria-label="筛选"
-                title="筛选格式"
-                disabled={!canFilter}
-                style={{
-                  background: "none",
-                  border: "none",
-                  boxShadow: "none",
-                  borderRadius: 4,
-                  cursor: canFilter ? "pointer" : "default",
-                  padding: 0,
-                  marginRight: 16,
-                  width: 32,
-                  height: 32,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  backgroundColor: filterMenuOpen || filterFormat !== 'ALL' ? '#f5f5f5' : 'transparent',
-                  opacity: canFilter ? 1 : 0.3,
-                }}
-                onClick={(e) => {
-                    e.stopPropagation();
-                    if (canFilter) {
-                        setFilterMenuOpen(!filterMenuOpen);
-                    }
-                }}
-              >
-                <svg width="24" height="24" viewBox="0 0 24 24" fill={filterFormat !== 'ALL' && canFilter ? '#d43d3d' : '#333'}>
-                  <path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z"/>
-                </svg>
-              </button>
-
-              {/* Dropdown Menu */}
-              {filterMenuOpen && canFilter && (
-                <>
-                  <div 
-                    style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 999 }}
-                    onClick={() => setFilterMenuOpen(false)}
-                  />
-                  <div style={{
-                    position: 'absolute',
-                    top: 40,
-                    right: -8, 
-                    background: '#fff',
-                    borderRadius: 8,
-                    boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
-                    width: 140,
-                    padding: '8px 0',
-                    border: '1px solid #f0f0f0',
-                    zIndex: 1000,
-                    maxHeight: 400,
-                    overflowY: 'auto',
-                    animation: 'fadeIn 0.1s ease-out',
-                  }}>
-                    <style>{`
-                        @keyframes fadeIn {
-                            from { opacity: 0; transform: scale(0.95); }
-                            to { opacity: 1; transform: scale(1); }
-                        }
-                    `}</style>
-                    <div 
-                        style={{
-                            padding: '10px 16px',
-                            fontSize: 14,
-                            color: filterFormat === 'ALL' ? '#d43d3d' : '#333',
-                            backgroundColor: filterFormat === 'ALL' ? '#fffbfb' : 'transparent',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            fontWeight: filterFormat === 'ALL' ? 500 : 400
-                        }}
-                        onClick={() => { setFilterFormat('ALL'); setFilterMenuOpen(false); }}
-                    >
-                        全部格式
-                        {filterFormat === 'ALL' && <span style={{ color: '#d43d3d', fontSize: 12 }}>✓</span>}
-                    </div>
-                    {(Object.keys(FORMAT_DISPLAY_NAMES) as BookFormat[]).map(fmt => (
-                        <div 
-                            key={fmt}
-                            style={{
-                                padding: '10px 16px',
-                                fontSize: 14,
-                                color: filterFormat === fmt ? '#d43d3d' : '#333',
-                                backgroundColor: filterFormat === fmt ? '#fffbfb' : 'transparent',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center',
-                                fontWeight: filterFormat === fmt ? 500 : 400
-                            }}
-                            onClick={() => { setFilterFormat(fmt); setFilterMenuOpen(false); }}
-                        >
-                            {FORMAT_DISPLAY_NAMES[fmt]}
-                            {filterFormat === fmt && <span style={{ color: '#d43d3d', fontSize: 12 }}>✓</span>}
-                        </div>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
-
-            {activeTab === "browse" && (
-              <button
-                aria-label="搜索"
-                title="搜索"
-                style={{
-                  background: "none",
-                  border: "none",
-                  boxShadow: "none",
-                  borderRadius: 0,
-                  cursor: "pointer",
-                  padding: 0,
-                  marginRight: 16,
-                }}
-                onClick={openSearch}
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                  <circle cx="11" cy="11" r="7" stroke="#333" strokeWidth="2" />
-                  <path
-                    d="M21 21l-4-4"
-                    stroke="#333"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
-                </svg>
-              </button>
-            )}
-            <button
-              aria-label="全选"
-              title="全选"
-              style={{
-                background: "none",
-                border: "none",
-                boxShadow: "none",
-                borderRadius: 0,
-                padding: 0,
-                cursor: (() => {
-                  const candidates = activeTab === "browse"
-                    ? currentBrowse
-                        .filter((it) => it.type === "file" && isSupportedFile(it.path) && !importedPaths.has(it.path))
-                        .map((it) => it.path)
-                    : filteredScan.filter((it) => !it.imported).map((it) => it.path);
-                  return candidates.length > 0 ? "pointer" : "not-allowed";
-                })(),
-                opacity: (() => {
-                  const candidates = activeTab === "browse"
-                    ? currentBrowse
-                        .filter((it) => it.type === "file" && isSupportedFile(it.path) && !importedPaths.has(it.path))
-                        .map((it) => it.path)
-                    : filteredScan.filter((it) => !it.imported).map((it) => it.path);
-                  return candidates.length > 0 ? 1 : 0.45;
-                })(),
-              }}
-              disabled={(() => {
-                const candidates = activeTab === "browse"
-                  ? currentBrowse
-                      .filter((it) => it.type === "file" && isSupportedFile(it.path) && !importedPaths.has(it.path))
-                      .map((it) => it.path)
-                  : filteredScan.filter((it) => !it.imported).map((it) => it.path);
-                return candidates.length === 0;
-              })()}
-              onClick={() => {
-                const candidates = activeTab === "browse"
-                  ? currentBrowse
-                      .filter((it) => it.type === "file" && isSupportedFile(it.path) && !importedPaths.has(it.path))
-                      .map((it) => it.path)
-                  : filteredScan.filter((it) => !it.imported).map((it) => it.path);
-                if (candidates.length === 0) return;
-                const allSelected = candidates.every((p) => selectedPaths.includes(p));
-                setSelectedPaths(
-                  allSelected
-                    ? selectedPaths.filter((p) => !candidates.includes(p))
-                    : Array.from(new Set([...selectedPaths, ...candidates]))
-                );
-              }}
-            >
-              {(() => {
-                const candidates = activeTab === "browse"
-                  ? currentBrowse
-                      .filter((it) => it.type === "file" && isSupportedFile(it.path) && !importedPaths.has(it.path))
-                      .map((it) => it.path)
-                  : filteredScan.filter((it) => !it.imported).map((it) => it.path);
-                const canSelectAll = candidates.length > 0;
-                const allSelected = canSelectAll && candidates.every((p) => selectedPaths.includes(p));
-                const strokeColor = canSelectAll ? (allSelected ? "#d23c3c" : "#333") : "#bbb";
-                return (
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                    <rect x="3" y="3" width="7" height="7" stroke={strokeColor} strokeWidth="2" />
-                    <rect x="14" y="3" width="7" height="7" stroke={strokeColor} strokeWidth="2" />
-                    <rect x="3" y="14" width="7" height="7" stroke={strokeColor} strokeWidth="2" />
-                    <rect x="14" y="14" width="7" height="7" stroke={strokeColor} strokeWidth="2" />
-                    <path d="M6 8l2-2" stroke={strokeColor} strokeWidth="2" strokeLinecap="round" />
-                    <path d="M17 19l2-2" stroke={strokeColor} strokeWidth="2" strokeLinecap="round" />
-                  </svg>
-                );
-              })()}
-            </button>
-          </div>
-        )}
       </div>
+    ) : undefined;
+
+    // 返回按钮回调
+    const handleBack = () => {
+      // 先关闭筛选菜单，避免遮罩层阻挡导航
+      setFilterMenuOpen(false);
+      
+      const state: any = nav.location.state || {};
+      // 直接退出导入页面，不再逐级返回
+      if (state.fromTab === "all") nav.toBookshelf('all');
+      else nav.toBookshelf('recent');
+    };
+
+    return (
+      <PageHeader
+        title={scanList.length > 0 ? `扫描结果(${scanList.length})` : "导入文件"}
+        onBack={handleBack}
+        rightContent={rightContent}
+        style={{ padding: '0 12px' }}
+      />
     );
   };
+
 
   const Tabs: React.FC = () => (
     <div style={{ display: "flex", padding: "8px 0 0 0" }}>
@@ -1086,7 +1078,6 @@ export const ImportFiles: React.FC = () => {
         overflow: "hidden",
         display: "flex",
         flexDirection: "column",
-        paddingTop: getSafeAreaInsets().top,
         boxSizing: "border-box",
         background: "#fff",
       }}

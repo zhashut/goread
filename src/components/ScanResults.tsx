@@ -11,6 +11,7 @@ import { loadGroupsWithPreviews, assignToExistingGroupAndFinish } from "../utils
 import { getSafeAreaInsets } from "../utils/layout";
 import { FORMAT_DISPLAY_NAMES, getBookFormat } from "../constants/fileTypes";
 import { BookFormat } from "../services/formats/types";
+import { PageHeader } from "./PageHeader";
 
 export interface FileEntry {
   type: "file" | "dir";
@@ -25,6 +26,299 @@ export interface ScanResultItem extends FileEntry {
   type: "file";
 }
 
+/** 搜索模式下的顶部栏 */
+const SearchHeader: React.FC<{
+  globalSearch: string;
+  onSearchChange: (val: string) => void;
+  onClose: () => void;
+}> = ({ globalSearch, onSearchChange, onClose }) => (
+  <div style={{ padding: "10px 12px", paddingTop: `calc(${getSafeAreaInsets().top} + 10px)` }}>
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        background: "#efefef",
+        borderRadius: 12,
+        height: 40,
+        padding: "0 8px",
+        overflow: "hidden",
+      }}
+    >
+      <button
+        onClick={onClose}
+        aria-label="返回"
+        title="返回"
+        style={{
+          background: "transparent",
+          border: "none",
+          width: 32,
+          height: "100%",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 0,
+          margin: 0,
+          cursor: "pointer",
+          color: "#666",
+          boxShadow: "none",
+          borderRadius: 0,
+        }}
+      >
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+          <path
+            d="M15 18l-6-6 6-6"
+            stroke="#666"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </button>
+      <input
+        value={globalSearch}
+        onChange={(e) => onSearchChange(e.target.value)}
+        placeholder="搜索扫描结果中的文件…"
+        autoFocus
+        style={{
+          flex: 1,
+          padding: "0 6px",
+          border: "none",
+          background: "transparent",
+          outline: "none",
+          fontSize: 14,
+          color: "#333",
+          caretColor: "#d15158",
+          height: "100%",
+          boxShadow: "none",
+          WebkitAppearance: "none",
+          appearance: "none",
+          borderRadius: 0,
+        }}
+      />
+      {globalSearch && (
+        <button
+          onClick={() => onSearchChange("")}
+          title="清除"
+          aria-label="清除"
+          style={{
+            background: "transparent",
+            border: "none",
+            padding: "0 4px",
+            height: "100%",
+            display: "flex",
+            alignItems: "center",
+            cursor: "pointer",
+            boxShadow: "none",
+            borderRadius: 0,
+          }}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="12" r="10" stroke="#999" strokeWidth="2" />
+            <path
+              d="M9 9l6 6m0-6l-6 6"
+              stroke="#999"
+              strokeWidth="2"
+              strokeLinecap="round"
+            />
+          </svg>
+        </button>
+      )}
+    </div>
+  </div>
+);
+
+/** 普通模式下的顶部栏，使用 PageHeader 组件 */
+const Header: React.FC<{
+  title: string;
+  onBack: () => void;
+  filterFormat: 'ALL' | BookFormat;
+  filterMenuOpen: boolean;
+  onFilterClick: (e: React.MouseEvent) => void;
+  onFilterSelect: (fmt: 'ALL' | BookFormat) => void;
+  onFilterMenuClose: () => void;
+  onSearchClick: () => void;
+  filtered: ScanResultItem[];
+  selectedPaths: string[];
+  onSelectAll: () => void;
+}> = ({
+  title,
+  onBack,
+  filterFormat,
+  filterMenuOpen,
+  onFilterClick,
+  onFilterSelect,
+  onFilterMenuClose,
+  onSearchClick,
+  filtered,
+  selectedPaths,
+  onSelectAll,
+}) => {
+  const candidates = filtered
+    .filter((it) => !it.imported && it.type === "file")
+    .map((it) => it.path);
+  const canSelectAll = candidates.length > 0;
+  const allSelected = canSelectAll && candidates.every((p) => selectedPaths.includes(p));
+  const strokeColor = canSelectAll ? (allSelected ? "#d23c3c" : "#333") : "#bbb";
+
+  return (
+    <PageHeader
+      title={title}
+      onBack={onBack}
+      rightContent={
+        <div style={{ display: "flex", alignItems: "center" }}>
+          {/* 筛选按钮 */}
+          <div style={{ position: 'relative' }}>
+            <button
+              aria-label="筛选"
+              title="筛选格式"
+              style={{
+                background: "none",
+                border: "none",
+                boxShadow: "none",
+                borderRadius: 4,
+                cursor: "pointer",
+                padding: 0,
+                marginRight: 16,
+                width: 32,
+                height: 32,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                backgroundColor: filterMenuOpen || filterFormat !== 'ALL' ? '#f5f5f5' : 'transparent',
+              }}
+              onClick={onFilterClick}
+            >
+              <svg width="24" height="24" viewBox="0 0 24 24" fill={filterFormat !== 'ALL' ? '#d43d3d' : '#333'}>
+                <path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z"/>
+              </svg>
+            </button>
+
+            {/* 下拉菜单 */}
+            {filterMenuOpen && (
+              <>
+                <div 
+                  style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 999 }}
+                  onClick={onFilterMenuClose}
+                />
+                <div style={{
+                  position: 'absolute',
+                  top: 40,
+                  right: -8, 
+                  background: '#fff',
+                  borderRadius: 8,
+                  boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+                  width: 140,
+                  padding: '8px 0',
+                  border: '1px solid #f0f0f0',
+                  zIndex: 1000,
+                  maxHeight: 400,
+                  overflowY: 'auto',
+                  animation: 'fadeIn 0.1s ease-out',
+                }}>
+                  <style>{`
+                    @keyframes fadeIn {
+                      from { opacity: 0; transform: scale(0.95); }
+                      to { opacity: 1; transform: scale(1); }
+                    }
+                  `}</style>
+                  <div 
+                    style={{
+                      padding: '10px 16px',
+                      fontSize: 14,
+                      color: filterFormat === 'ALL' ? '#d43d3d' : '#333',
+                      backgroundColor: filterFormat === 'ALL' ? '#fffbfb' : 'transparent',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      fontWeight: filterFormat === 'ALL' ? 500 : 400
+                    }}
+                    onClick={() => onFilterSelect('ALL')}
+                  >
+                    全部格式
+                    {filterFormat === 'ALL' && <span style={{ color: '#d43d3d', fontSize: 12 }}>✓</span>}
+                  </div>
+                  {(Object.keys(FORMAT_DISPLAY_NAMES) as BookFormat[]).map(fmt => (
+                    <div 
+                      key={fmt}
+                      style={{
+                        padding: '10px 16px',
+                        fontSize: 14,
+                        color: filterFormat === fmt ? '#d43d3d' : '#333',
+                        backgroundColor: filterFormat === fmt ? '#fffbfb' : 'transparent',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        fontWeight: filterFormat === fmt ? 500 : 400
+                      }}
+                      onClick={() => onFilterSelect(fmt)}
+                    >
+                      {FORMAT_DISPLAY_NAMES[fmt]}
+                      {filterFormat === fmt && <span style={{ color: '#d43d3d', fontSize: 12 }}>✓</span>}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* 搜索按钮 */}
+          <button
+            aria-label="搜索"
+            title="搜索"
+            style={{
+              background: "none",
+              border: "none",
+              boxShadow: "none",
+              borderRadius: 0,
+              cursor: "pointer",
+              padding: 0,
+              marginRight: 24,
+            }}
+            onClick={onSearchClick}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+              <circle cx="11" cy="11" r="7" stroke="#333" strokeWidth="2" />
+              <path
+                d="M21 21l-4-4"
+                stroke="#333"
+                strokeWidth="2"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
+
+          {/* 全选按钮 */}
+          <button
+            aria-label="全选"
+            title="全选"
+            style={{
+              background: "none",
+              border: "none",
+              boxShadow: "none",
+              borderRadius: 0,
+              padding: 0,
+              cursor: canSelectAll ? "pointer" : "not-allowed",
+              opacity: canSelectAll ? 1 : 0.45,
+            }}
+            disabled={!canSelectAll}
+            onClick={onSelectAll}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+              <rect x="3" y="3" width="7" height="7" stroke={strokeColor} strokeWidth="2" />
+              <rect x="14" y="3" width="7" height="7" stroke={strokeColor} strokeWidth="2" />
+              <rect x="3" y="14" width="7" height="7" stroke={strokeColor} strokeWidth="2" />
+              <rect x="14" y="14" width="7" height="7" stroke={strokeColor} strokeWidth="2" />
+              <path d="M6 8l2-2" stroke={strokeColor} strokeWidth="2" strokeLinecap="round" />
+              <path d="M17 19l2-2" stroke={strokeColor} strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+      }
+    />
+  );
+};
 
 export const ScanResults: React.FC = () => {
   const nav = useAppNav();
@@ -50,6 +344,11 @@ export const ScanResults: React.FC = () => {
       window.removeEventListener("popstate", handlePopState);
     };
   }, [searchOpen]);
+
+  // 路由变化时关闭筛选菜单，避免遮罩层阻挡返回按钮
+  useEffect(() => {
+    setFilterMenuOpen(false);
+  }, [nav.location.pathname]);
 
   const openSearch = () => {
     setSearchOpen(true);
@@ -206,7 +505,6 @@ export const ScanResults: React.FC = () => {
         width: "100vw",
         display: "flex",
         flexDirection: "column",
-        paddingTop: getSafeAreaInsets().top,
         boxSizing: "border-box",
         overflow: "hidden",
         background: "#fff",
@@ -214,330 +512,46 @@ export const ScanResults: React.FC = () => {
     >
       {/* Header / Search overlay */}
       {searchOpen ? (
-        <div style={{ padding: "10px 12px" }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              background: "#efefef",
-              borderRadius: 12,
-              height: 40,
-              padding: "0 8px",
-              overflow: "hidden",
-            }}
-          >
-            <button
-              onClick={closeSearch}
-              aria-label="返回"
-              title="返回"
-              style={{
-                background: "transparent",
-                border: "none",
-                width: 32,
-                height: "100%",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                padding: 0,
-                margin: 0,
-                cursor: "pointer",
-                color: "#666",
-                boxShadow: "none",
-                borderRadius: 0,
-              }}
-            >
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-                <path
-                  d="M15 18l-6-6 6-6"
-                  stroke="#666"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </button>
-            <input
-              value={globalSearch}
-              onChange={(e) => setGlobalSearch(e.target.value)}
-              placeholder="搜索扫描结果中的文件…"
-              autoFocus
-              style={{
-                flex: 1,
-                padding: "0 6px",
-                border: "none",
-                background: "transparent",
-                outline: "none",
-                fontSize: 14,
-                color: "#333",
-                caretColor: "#d15158",
-                height: "100%",
-                boxShadow: "none",
-                WebkitAppearance: "none",
-                appearance: "none",
-                borderRadius: 0,
-              }}
-            />
-            {globalSearch && (
-              <button
-                onClick={() => setGlobalSearch("")}
-                title="清除"
-                aria-label="清除"
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  padding: "0 4px",
-                  height: "100%",
-                  display: "flex",
-                  alignItems: "center",
-                  cursor: "pointer",
-                  boxShadow: "none",
-                  borderRadius: 0,
-                }}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                  <circle
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="#999"
-                    strokeWidth="2"
-                  />
-                  <path
-                    d="M9 9l6 6m0-6l-6 6"
-                    stroke="#999"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
-                </svg>
-              </button>
-            )}
-          </div>
-        </div>
+        <SearchHeader
+          globalSearch={globalSearch}
+          onSearchChange={setGlobalSearch}
+          onClose={closeSearch}
+        />
       ) : (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            padding: "12px 12px",
+        <Header
+          title={`扫描结果(${results.length})`}
+          onBack={() => {
+            // 先关闭筛选菜单，避免遮罩层阻挡导航
+            setFilterMenuOpen(false);
+            
+            if (state?.fromTab === "all") nav.toBookshelf('all');
+            else nav.goBack();
           }}
-        >
-          <button
-            aria-label="返回"
-            onClick={() => {
-              if (state?.fromTab === "all") nav.toBookshelf('all');
-              else nav.goBack();
-            }}
-            style={{
-              background: "none",
-              border: "none",
-              boxShadow: "none",
-              borderRadius: 0,
-              cursor: "pointer",
-              padding: 0,
-            }}
-          >
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-              <path
-                d="M15 18l-6-6 6-6"
-                stroke="#333"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </button>
-          <span style={{ fontSize: 16, color: "#333", marginLeft: 8 }}>
-            扫描结果({results.length})
-          </span>
-          <div style={{ flex: 1 }} />
-          <div style={{ display: "flex", alignItems: "center" }}>
-            {/* 筛选按钮 */}
-            <div style={{ position: 'relative' }}>
-              <button
-                aria-label="筛选"
-                title="筛选格式"
-                style={{
-                  background: "none",
-                  border: "none",
-                  boxShadow: "none",
-                  borderRadius: 4,
-                  cursor: "pointer",
-                  padding: 0,
-                  marginRight: 16,
-                  width: 32,
-                  height: 32,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  backgroundColor: filterMenuOpen || filterFormat !== 'ALL' ? '#f5f5f5' : 'transparent',
-                }}
-                onClick={(e) => {
-                    e.stopPropagation();
-                    setFilterMenuOpen(!filterMenuOpen);
-                }}
-              >
-                <svg width="24" height="24" viewBox="0 0 24 24" fill={filterFormat !== 'ALL' ? '#d43d3d' : '#333'}>
-                  <path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z"/>
-                </svg>
-              </button>
-
-              {/* 下拉菜单 */}
-              {filterMenuOpen && (
-                <>
-                  <div 
-                    style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 999 }}
-                    onClick={() => setFilterMenuOpen(false)}
-                  />
-                  <div style={{
-                    position: 'absolute',
-                    top: 40,
-                    right: -8, 
-                    background: '#fff',
-                    borderRadius: 8,
-                    boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
-                    width: 140,
-                    padding: '8px 0',
-                    border: '1px solid #f0f0f0',
-                    zIndex: 1000,
-                    maxHeight: 400,
-                    overflowY: 'auto',
-                    animation: 'fadeIn 0.1s ease-out',
-                  }}>
-                    <style>{`
-                        @keyframes fadeIn {
-                            from { opacity: 0; transform: scale(0.95); }
-                            to { opacity: 1; transform: scale(1); }
-                        }
-                    `}</style>
-                    <div 
-                        style={{
-                            padding: '10px 16px',
-                            fontSize: 14,
-                            color: filterFormat === 'ALL' ? '#d43d3d' : '#333',
-                            backgroundColor: filterFormat === 'ALL' ? '#fffbfb' : 'transparent',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            alignItems: 'center',
-                            fontWeight: filterFormat === 'ALL' ? 500 : 400
-                        }}
-                        onClick={() => { setFilterFormat('ALL'); setFilterMenuOpen(false); }}
-                    >
-                        全部格式
-                        {filterFormat === 'ALL' && <span style={{ color: '#d43d3d', fontSize: 12 }}>✓</span>}
-                    </div>
-                    {(Object.keys(FORMAT_DISPLAY_NAMES) as BookFormat[]).map(fmt => (
-                        <div 
-                            key={fmt}
-                            style={{
-                                padding: '10px 16px',
-                                fontSize: 14,
-                                color: filterFormat === fmt ? '#d43d3d' : '#333',
-                                backgroundColor: filterFormat === fmt ? '#fffbfb' : 'transparent',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center',
-                                fontWeight: filterFormat === fmt ? 500 : 400
-                            }}
-                            onClick={() => { setFilterFormat(fmt); setFilterMenuOpen(false); }}
-                        >
-                            {FORMAT_DISPLAY_NAMES[fmt]}
-                            {filterFormat === fmt && <span style={{ color: '#d43d3d', fontSize: 12 }}>✓</span>}
-                        </div>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
-
-            <button
-              aria-label="搜索"
-              title="搜索"
-              style={{
-                background: "none",
-                border: "none",
-                boxShadow: "none",
-                borderRadius: 0,
-                cursor: "pointer",
-                padding: 0,
-                marginRight: 24,
-              }}
-              onClick={openSearch}
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                <circle cx="11" cy="11" r="7" stroke="#333" strokeWidth="2" />
-                <path
-                  d="M21 21l-4-4"
-                  stroke="#333"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                />
-              </svg>
-            </button>
-            <button
-              aria-label="全选"
-              title="全选"
-              style={{
-                background: "none",
-                border: "none",
-                boxShadow: "none",
-                borderRadius: 0,
-                padding: 0,
-                cursor: (() => {
-                  const candidates = filtered
-                    .filter((it) => !it.imported && it.type === "file")
-                    .map((it) => it.path);
-                  return candidates.length > 0 ? "pointer" : "not-allowed";
-                })(),
-                opacity: (() => {
-                  const candidates = filtered
-                    .filter((it) => !it.imported && it.type === "file")
-                    .map((it) => it.path);
-                  return candidates.length > 0 ? 1 : 0.45;
-                })(),
-              }}
-              disabled={(() => {
-                const candidates = filtered
-                  .filter((it) => !it.imported && it.type === "file")
-                  .map((it) => it.path);
-                return candidates.length === 0;
-              })()}
-              onClick={() => {
-                const candidates = filtered
-                  .filter((it) => !it.imported && it.type === "file")
-                  .map((it) => it.path);
-                const allSelected =
-                  candidates.length > 0 &&
-                  candidates.every((p) => selectedPaths.includes(p));
-                setSelectedPaths(
-                  allSelected
-                    ? selectedPaths.filter((p) => !candidates.includes(p))
-                    : Array.from(new Set([...selectedPaths, ...candidates]))
-                );
-              }}
-            >
-              {(() => {
-                const candidates = filtered
-                  .filter((it) => !it.imported && it.type === "file")
-                  .map((it) => it.path);
-                const canSelectAll = candidates.length > 0;
-                const allSelected = canSelectAll && candidates.every((p) => selectedPaths.includes(p));
-                const strokeColor = canSelectAll ? (allSelected ? "#d23c3c" : "#333") : "#bbb";
-                return (
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                    <rect x="3" y="3" width="7" height="7" stroke={strokeColor} strokeWidth="2" />
-                    <rect x="14" y="3" width="7" height="7" stroke={strokeColor} strokeWidth="2" />
-                    <rect x="3" y="14" width="7" height="7" stroke={strokeColor} strokeWidth="2" />
-                    <rect x="14" y="14" width="7" height="7" stroke={strokeColor} strokeWidth="2" />
-                    <path d="M6 8l2-2" stroke={strokeColor} strokeWidth="2" strokeLinecap="round" />
-                    <path d="M17 19l2-2" stroke={strokeColor} strokeWidth="2" strokeLinecap="round" />
-                  </svg>
-                );
-              })()}
-            </button>
-          </div>
-        </div>
+          filterFormat={filterFormat}
+          filterMenuOpen={filterMenuOpen}
+          onFilterClick={(e) => {
+            e.stopPropagation();
+            setFilterMenuOpen(!filterMenuOpen);
+          }}
+          onFilterSelect={(fmt) => { setFilterFormat(fmt); setFilterMenuOpen(false); }}
+          onFilterMenuClose={() => setFilterMenuOpen(false)}
+          onSearchClick={openSearch}
+          filtered={filtered}
+          selectedPaths={selectedPaths}
+          onSelectAll={() => {
+            const candidates = filtered
+              .filter((it) => !it.imported && it.type === "file")
+              .map((it) => it.path);
+            const allSelected =
+              candidates.length > 0 &&
+              candidates.every((p) => selectedPaths.includes(p));
+            setSelectedPaths(
+              allSelected
+                ? selectedPaths.filter((p) => !candidates.includes(p))
+                : Array.from(new Set([...selectedPaths, ...candidates]))
+            );
+          }}
+        />
       )}
 
       {/* 搜索输入已在顶部覆盖栏显示 */}

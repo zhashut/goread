@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAppNav } from '../router/useAppNav';
 import { getSafeAreaInsets } from '../utils/layout';
+import { PageHeader } from './PageHeader';
 import { getVersion } from '@tauri-apps/api/app';
 import { openUrl } from '@tauri-apps/plugin-opener';
 
@@ -106,29 +107,7 @@ export const About: React.FC = () => {
       msOverflowStyle?: string;
       WebkitOverflowScrolling?: string;
     },
-    header: {
-      backgroundColor: '#ffffff',
-      height: '50px',
-      display: 'flex',
-      alignItems: 'center',
-      padding: '0 16px',
-      position: 'sticky' as const,
-      top: 0,
-      zIndex: 100,
-      paddingTop: safeArea.top,
-    },
-    headerTitle: {
-      margin: 0,
-      fontSize: '18px',
-      fontWeight: 500,
-      marginLeft: '20px',
-    },
-    backIcon: {
-      width: '24px',
-      height: '24px',
-      fill: '#212121',
-      cursor: 'pointer',
-    },
+
     brandSection: {
       backgroundColor: '#ffffff',
       padding: '40px 0',
@@ -258,16 +237,11 @@ export const About: React.FC = () => {
       `}</style>
       <div style={styles.container} className="about-container">
         {/* 顶部导航栏 */}
-        <div style={styles.header}>
-        <svg
-          style={styles.backIcon}
-          viewBox="0 0 24 24"
-          onClick={() => nav.goBack()}
-        >
-          <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
-        </svg>
-        <h1 style={styles.headerTitle}>关于</h1>
-      </div>
+        <PageHeader
+          title="关于"
+          onBack={() => nav.goBack()}
+          sticky
+        />
 
       {/* 品牌区域 */}
       <div style={styles.brandSection}>
