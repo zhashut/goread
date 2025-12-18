@@ -26,25 +26,51 @@ const GroupingDrawer: React.FC<GroupingDrawerProps> = ({
   const [isComposing, setIsComposing] = useState<boolean>(false);
   const [isInputFocused, setIsInputFocused] = useState<boolean>(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const lastHeightRef = useRef(window.innerHeight);
 
   useEffect(() => {
     setLocalValue(newGroupName || "");
   }, [newGroupName]);
 
-  // 监听视口高度变化，处理键盘收起但未失焦的情况
+  // 监听键盘收起事件，处理点击键盘收起按钮但未触发 blur 的情况
   useEffect(() => {
-    const handleResize = () => {
-      const currentHeight = window.innerHeight;
-      // 如果高度显著增加（>200px），说明键盘收起了
-      if (currentHeight - lastHeightRef.current > 200) {
+    let useNativeEvent = false;
+    const vp = window.visualViewport;
+    let maxH = vp?.height ?? window.innerHeight;
+    let lastW = window.innerWidth;
+
+    // 键盘收起时让输入框失焦
+    const blurInput = () => {
+      if (document.activeElement === inputRef.current) {
         setIsInputFocused(false);
         inputRef.current?.blur();
       }
-      lastHeightRef.current = currentHeight;
     };
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
+
+    // 原生键盘事件（优先使用，由 tauri-plugin-virtual-keyboard 等插件提供）
+    const onNativeHide = () => { useNativeEvent = true; blurInput(); };
+
+    // 降级方案：通过视口高度变化检测键盘收起
+    const onResize = () => {
+      if (useNativeEvent) return;
+      const h = vp?.height ?? window.innerHeight;
+      const w = window.innerWidth;
+      // 屏幕旋转时重置基准
+      if (Math.abs(w - lastW) > 50) { lastW = w; maxH = h; return; }
+      lastW = w;
+      if (h > maxH) maxH = h;
+      // 高度恢复到接近最大值时，判定键盘已收起
+      if (maxH - h < 100) blurInput();
+    };
+
+    window.addEventListener("keyboardWillHide", onNativeHide);
+    window.addEventListener("keyboardDidHide", onNativeHide);
+    (vp || window).addEventListener("resize", onResize);
+
+    return () => {
+      window.removeEventListener("keyboardWillHide", onNativeHide);
+      window.removeEventListener("keyboardDidHide", onNativeHide);
+      (vp || window).removeEventListener("resize", onResize);
+    };
   }, []);
 
   return (
