@@ -26,6 +26,8 @@ use commands::{
     save_reading_session, get_stats_summary, get_daily_stats, get_reading_stats_by_range,
     get_day_stats_by_hour, get_books_by_date_range, mark_book_finished, unmark_book_finished,
     has_reading_sessions,
+    // backup commands
+    export_app_data, import_app_data,
 };
 use markdown_commands::*;
 use pdf_commands::*;
@@ -180,6 +182,10 @@ pub fn run() {
             mark_book_finished,
             unmark_book_finished,
             has_reading_sessions
+            ,
+            // Backup commands
+            export_app_data,
+            import_app_data
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

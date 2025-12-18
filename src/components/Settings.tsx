@@ -1,9 +1,5 @@
 import React, { useEffect, useState } from "react";
-import {
-  getReaderSettings,
-  saveReaderSettings,
-  ReaderSettings,
-} from "../services";
+import { getReaderSettings, saveReaderSettings, ReaderSettings } from "../services";
 import { useAppNav } from "../router/useAppNav";
 // 注意：此处特意不导入 statusBarService
 // 状态栏控制应仅在阅读页进行，而非设置页
@@ -22,6 +18,7 @@ import {
 import { getSafeAreaInsets } from "../utils/layout";
 import { CustomSelect } from "./CustomSelect";
 import { PageHeader } from "./PageHeader";
+import { exportAppData, importAppData } from "../services/dataBackupService";
 
 export const Settings: React.FC = () => {
   const [settings, setSettings] = useState<ReaderSettings>(getReaderSettings());
@@ -175,6 +172,63 @@ export const Settings: React.FC = () => {
                 }))
               }
             />
+          }
+        />
+
+        <Row
+          label="多语言 (Language)"
+          right={
+            <CustomSelect
+              value={"zh"}
+              options={[
+                { value: "zh", label: "简体中文" },
+                { value: "en", label: "English" },
+              ]}
+              onChange={() => {}}
+              style={{ minWidth: 100 }}
+            />
+          }
+        />
+
+        <Row
+          label="数据管理"
+          right={
+            <div style={{ display: "flex", gap: 10 }}>
+              <button
+                style={{
+                  padding: "6px 16px",
+                  fontSize: 13,
+                  borderRadius: 20,
+                  border: "1px solid #d15158",
+                  background: "#fff",
+                  color: "#d15158",
+                  cursor: "pointer",
+                  fontWeight: 500,
+                }}
+                onClick={() => {
+                  exportAppData();
+                }}
+              >
+                导出
+              </button>
+              <button
+                style={{
+                  padding: "6px 16px",
+                  fontSize: 13,
+                  borderRadius: 20,
+                  border: "1px solid #d15158",
+                  background: "#fff",
+                  color: "#d15158",
+                  cursor: "pointer",
+                  fontWeight: 500,
+                }}
+                onClick={() => {
+                  importAppData();
+                }}
+              >
+                导入
+              </button>
+            </div>
           }
         />
 
