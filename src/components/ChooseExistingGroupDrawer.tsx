@@ -36,7 +36,10 @@ const ChooseExistingGroupDrawer: React.FC<ChooseExistingGroupDrawerProps> = ({
         alignItems: "flex-end",
         zIndex: 1001,
       }}
-      onClick={onClose}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClose();
+      }}
     >
       <div
         role="dialog"

@@ -61,9 +61,9 @@ const GroupingDrawer: React.FC<GroupingDrawerProps> = ({
         alignItems: "flex-end",
         zIndex: 1000,
       }}
-      onPointerDown={(e) => {
+      onClick={(e) => {
         if (e.target === e.currentTarget) {
-          e.preventDefault();
+          e.stopPropagation();
           onClose();
         }
       }}

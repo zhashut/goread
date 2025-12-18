@@ -163,6 +163,10 @@ export const ScanResults: React.FC = () => {
     createGroupAndFinish,
   } = useImportGrouping({
     onFinishImport: () => {
+      // 关闭搜索视图（如果有）
+      if (searchOpen) {
+        closeSearch();
+      }
       nav.finishImportFlow();
     },
   });

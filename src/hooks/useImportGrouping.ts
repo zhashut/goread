@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { IGroup } from "../types";
 import { loadGroupsWithPreviews, assignToExistingGroupAndFinish } from "../utils/groupImport";
 import { waitNextFrame } from "../services/importUtils";
@@ -18,6 +18,63 @@ export const useImportGrouping = (options: UseImportGroupingOptions) => {
     {}
   );
   const [groupingLoading, setGroupingLoading] = useState(false);
+
+  // 历史记录管理：GroupingDrawer
+  const isGroupingPopping = useRef(false);
+  useEffect(() => {
+    if (groupingOpen) {
+      const currentState = window.history.state;
+      const state =
+        typeof currentState === "object" && currentState !== null
+          ? { ...currentState, drawer: "grouping" }
+          : { drawer: "grouping" };
+      window.history.pushState(state, "");
+
+      const onPop = (e: PopStateEvent) => {
+        // 如果回退后依然是 grouping 状态（说明是从更深层回退回来的），则不关闭
+        if (e.state?.drawer === "grouping") return;
+
+        isGroupingPopping.current = true;
+        setGroupingOpen(false);
+        setTimeout(() => (isGroupingPopping.current = false), 0);
+      };
+
+      window.addEventListener("popstate", onPop);
+      return () => {
+        window.removeEventListener("popstate", onPop);
+        if (!isGroupingPopping.current) {
+          window.history.back();
+        }
+      };
+    }
+  }, [groupingOpen]);
+
+  // 历史记录管理：ChooseExistingGroupDrawer
+  const isChoosePopping = useRef(false);
+  useEffect(() => {
+    if (chooseGroupOpen) {
+      const currentState = window.history.state;
+      const state =
+        typeof currentState === "object" && currentState !== null
+          ? { ...currentState, drawer: "choose" }
+          : { drawer: "choose" };
+      window.history.pushState(state, "");
+
+      const onPop = (_e: PopStateEvent) => {
+        isChoosePopping.current = true;
+        setChooseGroupOpen(false);
+        setTimeout(() => (isChoosePopping.current = false), 0);
+      };
+
+      window.addEventListener("popstate", onPop);
+      return () => {
+        window.removeEventListener("popstate", onPop);
+        if (!isChoosePopping.current) {
+          window.history.back();
+        }
+      };
+    }
+  }, [chooseGroupOpen]);
 
   const openGroupingWithPaths = (paths: string[]) => {
     if (!paths.length) return;

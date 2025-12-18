@@ -52,6 +52,12 @@ export const ImportFiles: React.FC = () => {
   // 顶部共享搜索（两个栏目共用）
   const [globalSearch] = useState("");
   const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
+
+  const [browseSearch, setBrowseSearch] = useState("");
+  const { searchOpen, openSearch, closeSearch } = useSearchOverlay({
+    onReset: () => setBrowseSearch(""),
+  });
+
   // 导入后的分组抽屉
   const {
     groupingOpen,
@@ -68,7 +74,13 @@ export const ImportFiles: React.FC = () => {
     assignToGroupAndFinish,
     createGroupAndFinish,
   } = useImportGrouping({
-    onFinishImport: () => nav.toBookshelf("all", { replace: true }),
+    onFinishImport: () => {
+      // 关闭搜索视图（如果有）
+      if (searchOpen) {
+        closeSearch();
+      }
+      nav.toBookshelf("all", { replace: true });
+    },
   });
 
   const [browseStack, setBrowseStack] = useState<FileEntry[][]>([]);
@@ -78,11 +90,6 @@ export const ImportFiles: React.FC = () => {
   >([]);
   const [filterFormat, setFilterFormat] = useState<'ALL' | BookFormat>('ALL');
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
-  const [browseSearch, setBrowseSearch] = useState("");
-
-  const { searchOpen, openSearch, closeSearch } = useSearchOverlay({
-    onReset: () => setBrowseSearch(""),
-  });
 
   // Reset filter when tab changes
   useEffect(() => {
@@ -701,28 +708,6 @@ export const ImportFiles: React.FC = () => {
           />
         )
       )}
-
-      {/* 分组抽屉*/}
-      {groupingOpen && (
-        <GroupingDrawer
-          open={groupingOpen}
-          onClose={() => setGroupingOpen(false)}
-          newGroupName={newGroupName}
-          onNewGroupNameChange={(val) => setNewGroupName(val)}
-          onChooseExistingGroup={openChooseGroup}
-          onConfirmName={() => createGroupAndFinish(newGroupName)}
-          loading={groupingLoading}
-        />
-      )}
-
-      {/* 选择现有分组抽屉 */}
-      <ChooseExistingGroupDrawer
-        open={chooseGroupOpen}
-        groups={allGroups}
-        groupPreviews={groupPreviews}
-        onClose={() => setChooseGroupOpen(false)}
-        onSelectGroup={assignToGroupAndFinish}
-      />
     </div>
   );
 
@@ -890,6 +875,28 @@ export const ImportFiles: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* 分组抽屉*/}
+      {groupingOpen && (
+        <GroupingDrawer
+          open={groupingOpen}
+          onClose={() => setGroupingOpen(false)}
+          newGroupName={newGroupName}
+          onNewGroupNameChange={(val) => setNewGroupName(val)}
+          onChooseExistingGroup={openChooseGroup}
+          onConfirmName={() => createGroupAndFinish(newGroupName)}
+          loading={groupingLoading}
+        />
+      )}
+
+      {/* 选择现有分组抽屉 */}
+      <ChooseExistingGroupDrawer
+        open={chooseGroupOpen}
+        groups={allGroups}
+        groupPreviews={groupPreviews}
+        onClose={() => setChooseGroupOpen(false)}
+        onSelectGroup={assignToGroupAndFinish}
+      />
     </div>
   );
 };
