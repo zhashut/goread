@@ -119,20 +119,15 @@ export const About: React.FC = () => {
     appIcon: {
       width: '80px',
       height: '80px',
-      backgroundColor: '#e53935',
       borderRadius: '16px',
       margin: '0 auto 16px',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      color: 'white',
-      fontSize: '32px',
-      fontWeight: 'bold',
-      boxShadow: '0 4px 10px rgba(229, 57, 53, 0.3)',
     },
     appName: {
       fontSize: '24px',
-      color: '#e53935',
+      color: '#1a1a1a',
       fontWeight: 600,
       letterSpacing: '1px',
       margin: 0,
@@ -248,9 +243,16 @@ export const About: React.FC = () => {
       {/* 品牌区域 */}
       <div style={styles.brandSection}>
         <div style={styles.appIcon}>
-          <svg style={{ width: '48px', height: '48px', fill: 'white' }} viewBox="0 0 24 24">
-            <path d="M18 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 4h5v8l-2.5-1.5L6 12V4z" />
-          </svg>
+          <img
+            src="/app-icon.svg"
+            alt="App Icon"
+            style={{
+              width: '64px',
+              height: '64px',
+              borderRadius: '12px',
+              filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.18))',
+            }}
+          />
         </div>
         <h2 style={styles.appName}>GOREAD</h2>
         <div style={styles.appVersion}>Version {version}</div>
@@ -349,7 +351,7 @@ export const About: React.FC = () => {
           <div style={styles.modalContent}>
             <h3 style={{ marginTop: 0, color: '#333' }}>{t('supportAuthor')}</h3>
             <img
-              src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=ReplaceWithYourWxCode"
+              src="/pay_pic.png"
               alt="捐赠二维码"
               style={styles.qrImage}
             />
