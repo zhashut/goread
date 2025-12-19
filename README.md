@@ -8,6 +8,8 @@
 
 GoRead 是一款专为本地电子书阅读打造的轻量级阅读器应用，支持桌面与移动端（Android / iOS），让你在多设备上都能获得统一、流畅的阅读体验。
 
+> 获取电子书线上来源：<a href="https://z-lib.id" target="_blank">Z-Library</a> — 在线获取后可导入到本地管理。
+
 ---
 
 ## 应用简介
@@ -140,7 +142,6 @@ npm run tauri ios build
 ```
 
 如需为 Android 生成签名密钥，可参考如下命令：
-
 ```bash
 keytool -genkey -v \
   -keystore "release-key.keystore" \
@@ -153,7 +154,6 @@ keytool -genkey -v \
 ---
 
 ## 参与与反馈
-
 GoRead 仍在持续迭代中，欢迎你：
 
 - 提交问题或建议，帮助我们改进产品体验

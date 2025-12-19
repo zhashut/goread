@@ -8,6 +8,9 @@ English | [简体中文](README.md)
 
 GoRead is a lightweight reader application designed specifically for local e‑book reading. It supports both desktop and mobile platforms (Android / iOS), providing a consistent and smooth reading experience across your devices.
 
+> Online e‑book source: <a href="https://z-lib.id" target="_blank">Z-Library</a> — download online and import locally.
+
+
 ---
 
 ## Overview
@@ -142,7 +145,6 @@ npm run tauri ios build
 ```
 
 To generate a signing key for Android, you can use a command similar to:
-
 ```bash
 keytool -genkey -v \
   -keystore "release-key.keystore" \
@@ -155,7 +157,6 @@ keytool -genkey -v \
 ---
 
 ## Contributing & Feedback
-
 GoRead is under active development. You are welcome to:
 
 - Report issues or suggestions to help improve the experience
