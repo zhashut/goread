@@ -250,9 +250,18 @@ export const ScanResults: React.FC = () => {
       {/* 搜索输入已在顶部覆盖栏显示 */}
 
       {/* List */}
-      <div
-        style={{ flex: 1, overflowY: "auto", padding: "8px 12px" }}
-      >
+      <style>
+        {`
+          .no-scrollbar::-webkit-scrollbar {
+            display: none;
+          }
+          .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+          }
+        `}
+      </style>
+      <div className="no-scrollbar" style={{ flex: 1, overflowY: "auto", padding: "8px 12px" }}>
         {filtered.map((item) => (
           <FileRow
             key={item.path}

@@ -29,9 +29,9 @@ android {
     signingConfigs {
         create("release") {
             storeFile = file("release-key.keystore")
-            storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "123456"
+            storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "zhashut@goread"
             keyAlias = System.getenv("KEY_ALIAS") ?: "goread"
-            keyPassword = System.getenv("KEY_PASSWORD") ?: "123456"
+            keyPassword = System.getenv("KEY_PASSWORD") ?: "zhashut@goread"
         }
     }
     
@@ -80,6 +80,7 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("androidx.activity:activity-ktx:1.10.1")
     implementation("com.google.android.material:material:1.12.0")
+    implementation("androidx.documentfile:documentfile:1.0.1")
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.4")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.0")

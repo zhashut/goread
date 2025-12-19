@@ -32,6 +32,7 @@
   "scanFailed": "扫描失败，请重试",
   "importSuccess": "导入成功",
   "imported": "已导入",
+  "chooseDirectoryScan": "选择目录扫描",
   "deleteDrawer": {
     "title": "注意",
     "descRecent": "本次操作将会删除 {{count}} 个最近阅读记录（不清除阅读进度），是否继续？",

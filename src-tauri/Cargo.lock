@@ -3,6 +3,32 @@
 version = 4
 
 [[package]]
+name = "GoRead"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "chardetng",
+ "chrono",
+ "encoding_rs",
+ "futures",
+ "image 0.24.9",
+ "moka",
+ "pdfium-render",
+ "regex",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-fs",
+ "tauri-plugin-opener",
+ "tauri-plugin-sql",
+ "tokio",
+ "webp",
+]
+
+[[package]]
 name = "adler2"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1590,32 +1616,6 @@ dependencies = [
  "glib-sys",
  "libc",
  "system-deps",
-]
-
-[[package]]
-name = "goread"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "chardetng",
- "chrono",
- "encoding_rs",
- "futures",
- "image 0.24.9",
- "moka",
- "pdfium-render",
- "regex",
- "serde",
- "serde_json",
- "sqlx",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-fs",
- "tauri-plugin-opener",
- "tauri-plugin-sql",
- "tokio",
- "webp",
 ]
 
 [[package]]

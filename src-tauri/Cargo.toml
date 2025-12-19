@@ -1,7 +1,7 @@
 [package]
-name = "goread"
+name = "GoRead"
 version = "0.1.0"
-description = "goread"
+description = "GoRead"
 authors = ["zhashut"]
 edition = "2021"
 

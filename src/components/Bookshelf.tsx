@@ -7,7 +7,7 @@ import React, {
 
 import { useAppNav } from "../router/useAppNav";
 import { IBook, IGroup } from "../types";
-import { ensurePermissionForImport, ensurePermissionForDeleteLocal } from "../utils/storagePermission";
+import { ensurePermissionForDeleteLocal, requestStoragePermission, checkStoragePermission } from "../utils/storagePermission";
 import { IconDelete } from "./Icons";
   import {
   GRID_GAP_BOOK_CARDS,
@@ -640,12 +640,10 @@ export const Bookshelf: React.FC = () => {
         onSearch={() => nav.toSearch()}
         onMenuAction={async (action) => {
           if (action === "import") {
-            // 在入口处请求存储权限，触发系统原生权限弹窗
-            const granted = await ensurePermissionForImport();
-            if (granted) {
-              nav.toImport({ fromTab: activeTab });
-            }
-            // 权限被拒绝则不跳转，用户可以稍后再试
+            const ok = await checkStoragePermission();
+            if (ok) { nav.toImport({ fromTab: activeTab, initialTab: "scan" }); return; }
+            const granted = await requestStoragePermission();
+            if (granted) { nav.toImport({ fromTab: activeTab, initialTab: "scan" }); }
           }
           else if (action === "settings") nav.toSettings({ fromTab: activeTab });
           else if (action === "statistics") nav.toStatistics({ fromTab: activeTab });

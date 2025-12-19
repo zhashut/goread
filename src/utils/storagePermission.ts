@@ -48,27 +48,20 @@ class AndroidStoragePermissionHandler implements StoragePermissionHandler {
     }
 
     async checkPermission(): Promise<boolean> {
-        // 使用缓存
         if (this.permissionCache !== null) {
             return this.permissionCache;
         }
-
         try {
-            // 优先使用 Native Bridge
+            let systemGranted = false;
             if (typeof (window as any).StoragePermissionBridge !== 'undefined') {
                 const bridge = (window as any).StoragePermissionBridge;
-                this.permissionCache = bridge.hasPermission();
-            } else {
-                // 回退到 Tauri command
-                this.permissionCache = await fileSystemService.checkStoragePermission();
+                systemGranted = !!bridge.hasPermission();
             }
-
-            // 设置缓存过期
+            const readable = await fileSystemService.checkStoragePermission();
+            const hasBridge = typeof (window as any).StoragePermissionBridge !== 'undefined';
+            this.permissionCache = hasBridge ? (systemGranted && readable) : readable;
             if (this.cacheExpireTimer) clearTimeout(this.cacheExpireTimer);
-            this.cacheExpireTimer = setTimeout(() => {
-                this.permissionCache = null;
-            }, this.CACHE_EXPIRE_MS);
-
+            this.cacheExpireTimer = setTimeout(() => { this.permissionCache = null; }, this.CACHE_EXPIRE_MS);
             return this.permissionCache ?? false;
         } catch (error) {
             console.error('[Android] 检查存储权限失败:', error);
@@ -107,10 +100,10 @@ class AndroidStoragePermissionHandler implements StoragePermissionHandler {
                 
                 return await resultPromise;
             }
-            // 回退到 Tauri command
             const result = await fileSystemService.requestStoragePermission();
             this.clearCache();
-            return result;
+            const readable = await fileSystemService.checkStoragePermission();
+            return result && readable;
         } catch (error) {
             console.error('[Android] 请求存储权限失败:', error);
             return false;

@@ -16,6 +16,20 @@ pub struct FileEntry {
     pub children_count: Option<u32>,
 }
 
+fn normalize_android_path(path: &Path) -> String {
+    let s = path.to_string_lossy().to_string();
+    #[cfg(target_os = "android")]
+    {
+        if s.starts_with("/sdcard/") {
+            return s.replacen("/sdcard", "/storage/emulated/0", 1);
+        }
+        if s.starts_with("/storage/self/primary/") {
+            return s.replacen("/storage/self/primary", "/storage/emulated/0", 1);
+        }
+    }
+    s
+}
+
 // 递归扫描 PDF 文件（使用迭代方式避免递归 async 函数的问题）
 async fn scan_pdf_files_recursive(
     dir: &Path,
@@ -23,6 +37,7 @@ async fn scan_pdf_files_recursive(
     scanned_count: &mut u32,
     app_handle: Option<&tauri::AppHandle>,
     cancel_flag: &Arc<AtomicBool>,
+    seen_paths: &mut std::collections::HashSet<String>,
 ) -> std::io::Result<()> {
     use std::collections::VecDeque;
 
@@ -89,7 +104,7 @@ async fn scan_pdf_files_recursive(
                             .and_then(|n| n.to_str())
                             .unwrap_or("")
                             .to_string();
-                        let path_str = path.to_string_lossy().to_string();
+                        let path_str = normalize_android_path(&path);
                         let size = metadata.len();
                         let mtime = metadata
                             .modified()
@@ -97,14 +112,16 @@ async fn scan_pdf_files_recursive(
                             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                             .map(|d| d.as_secs() as i64 * 1000);
 
-                        results.push(FileEntry {
-                            name,
-                            path: path_str,
-                            entry_type: "file".to_string(),
-                            size: Some(size),
-                            mtime,
-                            children_count: None,
-                        });
+                        if seen_paths.insert(path_str.clone()) {
+                            results.push(FileEntry {
+                                name,
+                                path: path_str,
+                                entry_type: "file".to_string(),
+                                size: Some(size),
+                                mtime,
+                                children_count: None,
+                            });
+                        }
 
                         // 找到PDF时立即发送更新
                         if let Some(app) = app_handle {
@@ -151,6 +168,23 @@ pub async fn scan_pdf_files(
                 roots.push(PathBuf::from("/storage/emulated/0/Documents"));
                 roots.push(PathBuf::from("/storage/emulated/0/Books"));
             }
+            let sdcard = PathBuf::from("/sdcard");
+            if sdcard.exists() { roots.push(sdcard); }
+            let storage_base = PathBuf::from("/storage");
+            if storage_base.exists() {
+                if let Ok(mut entries) = tokio::fs::read_dir(&storage_base).await {
+                    while let Ok(Some(ent)) = entries.next_entry().await {
+                        let p = ent.path();
+                        if p.is_dir() {
+                            if let Some(name) = p.file_name().and_then(|s| s.to_str()) {
+                                if name.contains('-') {
+                                    roots.push(p);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         #[cfg(target_os = "ios")]
@@ -177,6 +211,7 @@ pub async fn scan_pdf_files(
     cancel_flag.store(false, Ordering::SeqCst);
     let mut results = Vec::new();
     let mut scanned_count = 0u32;
+    let mut seen_paths = std::collections::HashSet::new();
 
     for root in roots {
         if !root.exists() {
@@ -189,6 +224,7 @@ pub async fn scan_pdf_files(
             &mut scanned_count,
             Some(&app_handle),
             &cancel_flag,
+            &mut seen_paths,
         )
         .await;
     }
@@ -369,10 +405,28 @@ fn is_pdf_file(path: &Path) -> bool {
 #[tauri::command]
 pub async fn get_root_directories(app_handle: tauri::AppHandle) -> Result<Vec<FileEntry>, String> {
     #[cfg(target_os = "android")]
-    let roots = vec![
-        PathBuf::from("/storage/emulated/0"),
-        PathBuf::from("/sdcard"),
-    ];
+    let roots = {
+        let mut v = vec![
+            PathBuf::from("/storage/emulated/0"),
+            PathBuf::from("/sdcard"),
+        ];
+        let storage_base = PathBuf::from("/storage");
+        if storage_base.exists() {
+            if let Ok(mut entries) = tokio::fs::read_dir(&storage_base).await {
+                while let Ok(Some(ent)) = entries.next_entry().await {
+                    let p = ent.path();
+                    if p.is_dir() {
+                        if let Some(name) = p.file_name().and_then(|s| s.to_str()) {
+                            if name.contains('-') {
+                                v.push(p);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        v
+    };
 
     #[cfg(target_os = "ios")]
     let roots = vec![app_handle.path().document_dir().unwrap_or_else(|_| PathBuf::from("/private/var/mobile/Documents"))];
@@ -527,6 +581,7 @@ async fn scan_supported_files_recursive(
     scanned_count: &mut u32,
     app_handle: Option<&tauri::AppHandle>,
     cancel_flag: &Arc<AtomicBool>,
+    seen_paths: &mut std::collections::HashSet<String>,
 ) -> std::io::Result<()> {
     use std::collections::VecDeque;
 
@@ -569,20 +624,22 @@ async fn scan_supported_files_recursive(
             } else if metadata.is_file() {
                 if is_supported_file(&path) {
                     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
-                    let path_str = path.to_string_lossy().to_string();
+                    let path_str = normalize_android_path(&path);
                     let size = metadata.len();
                     let mtime = metadata.modified().ok()
                         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                         .map(|d| d.as_secs() as i64 * 1000);
 
-                    results.push(FileEntry {
-                        name,
-                        path: path_str,
-                        entry_type: "file".to_string(),
-                        size: Some(size),
-                        mtime,
-                        children_count: None,
-                    });
+                    if seen_paths.insert(path_str.clone()) {
+                        results.push(FileEntry {
+                            name,
+                            path: path_str,
+                            entry_type: "file".to_string(),
+                            size: Some(size),
+                            mtime,
+                            children_count: None,
+                        });
+                    }
 
                     if let Some(app) = app_handle {
                         let count = results.len() as u32;
@@ -620,6 +677,23 @@ pub async fn scan_book_files(
                 roots.push(PathBuf::from("/storage/emulated/0/Documents"));
                 roots.push(PathBuf::from("/storage/emulated/0/Books"));
             }
+            let sdcard = PathBuf::from("/sdcard");
+            if sdcard.exists() { roots.push(sdcard); }
+            let storage_base = PathBuf::from("/storage");
+            if storage_base.exists() {
+                if let Ok(mut entries) = tokio::fs::read_dir(&storage_base).await {
+                    while let Ok(Some(ent)) = entries.next_entry().await {
+                        let p = ent.path();
+                        if p.is_dir() {
+                            if let Some(name) = p.file_name().and_then(|s| s.to_str()) {
+                                if name.contains('-') {
+                                    roots.push(p);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
         #[cfg(target_os = "ios")]
         { roots.push(app_handle.path().document_dir().unwrap_or_else(|_| PathBuf::from("/private/var/mobile/Documents"))); }
@@ -633,10 +707,11 @@ pub async fn scan_book_files(
     cancel_flag.store(false, Ordering::SeqCst);
     let mut results = Vec::new();
     let mut scanned_count = 0u32;
+    let mut seen_paths = std::collections::HashSet::new();
 
     for root in roots {
         if !root.exists() { continue; }
-        let _ = scan_supported_files_recursive(&root, &mut results, &mut scanned_count, Some(&app_handle), &cancel_flag).await;
+        let _ = scan_supported_files_recursive(&root, &mut results, &mut scanned_count, Some(&app_handle), &cancel_flag, &mut seen_paths).await;
     }
 
     let _ = app_handle.emit(
@@ -654,15 +729,29 @@ pub async fn scan_book_files(
 pub async fn check_storage_permission() -> Result<bool, String> {
     #[cfg(target_os = "android")]
     {
-        // Test multiple common paths to verify storage access
-        let test_paths = vec![
-            "/storage/emulated/0",
-            "/storage/emulated/0/Download",
-            "/storage/emulated/0/Documents",
+        let mut test_paths: Vec<String> = vec![
+            "/storage/emulated/0".to_string(),
+            "/storage/emulated/0/Download".to_string(),
+            "/storage/emulated/0/Documents".to_string(),
+            "/sdcard".to_string(),
         ];
-        
+        let storage_base = std::path::Path::new("/storage");
+        if storage_base.exists() {
+            if let Ok(mut entries) = tokio::fs::read_dir(storage_base).await {
+                while let Ok(Some(ent)) = entries.next_entry().await {
+                    let p = ent.path();
+                    if p.is_dir() {
+                        if let Some(name) = p.file_name().and_then(|s| s.to_str()) {
+                            if name.contains('-') {
+                                test_paths.push(p.to_string_lossy().to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
         for path_str in test_paths {
-            let path = std::path::Path::new(path_str);
+            let path = std::path::Path::new(&path_str);
             if path.exists() {
                 match tokio::fs::read_dir(path).await {
                     Ok(_) => return Ok(true),

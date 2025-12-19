@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2.0.0",
-  "productName": "goread",
+  "productName": "GoRead",
   "version": "0.1.0",
   "identifier": "com.tauri-app.goread",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "goread",
+        "title": "GoRead",
         "width": 800,
         "height": 600,
         "resizable": true,

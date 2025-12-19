@@ -20,6 +20,7 @@ import { SearchHeader } from "./SearchHeader";
 import { FormatFilterButton } from "./FormatFilterButton";
 import { ImportBottomBar } from "./ImportBottomBar";
 import { useImportedBooks, useImportGrouping, useSearchOverlay, useSelectAll } from "../hooks";
+import { checkStoragePermission as checkStoragePermissionUtil } from "../utils/storagePermission";
 
 type TabKey = "scan" | "browse";
 
@@ -239,8 +240,75 @@ export const ImportFiles: React.FC = () => {
     nav.toImportResults({ results: mapped, fromTab: (nav.location.state as any)?.fromTab });
   };
 
+  const startSafScan = async () => {
+    try {
+      const bridge = (window as any).SafBridge;
+      if (!bridge) {
+        alert(t('scanFailed'));
+        return;
+      }
+      setActiveTab("scan");
+      setScanLoading(true);
+      setDrawerOpen(true);
+      setScannedCount(0);
+      setFoundPdfCount(0);
+      scannedCountRef.current = 0;
+      foundPdfCountRef.current = 0;
+      scanCancelledRef.current = false;
+
+      const onTreeSelected = (uriStr: string) => {
+        delete (window as any).__onSafTreeSelected__;
+        if (!uriStr) {
+          setScanLoading(false);
+          setDrawerOpen(false);
+          alert(t('scanFailed'));
+          return;
+        }
+        (window as any).__onSafScanResult__ = (json: string) => {
+          delete (window as any).__onSafScanResult__;
+          try {
+            const arr = JSON.parse(json || "[]") as any[];
+            const results: FileEntry[] = arr
+              .map((it) => ({
+                name: String(it?.name || ''),
+                path: String(it?.path || ''),
+                type: 'file' as const,
+                size: typeof it?.size === 'number' ? it.size : undefined,
+                mtime: typeof it?.mtime === 'number' ? it.mtime : undefined,
+              }))
+              .filter((it) => {
+                // 以文件名作为扩展名判断，避免 content:// 路径没有扩展名
+                return isSupportedFile(it.name);
+              });
+            setFoundPdfCount(results.length);
+            completeScan(results);
+          } catch (e) {
+            console.error("SAF 扫描结果解析失败:", e);
+            setScanLoading(false);
+            setDrawerOpen(false);
+            alert(t('scanFailed'));
+          }
+        };
+        bridge.scanTree(uriStr);
+      };
+
+      (window as any).__onSafTreeSelected__ = onTreeSelected;
+      bridge.openDocumentTree();
+    } catch (e) {
+      console.error("SAF 扫描失败:", e);
+      setScanLoading(false);
+      setDrawerOpen(false);
+      alert(t('scanFailed'));
+    }
+  };
+
   const startScan = async () => {
-    // 权限已在入口处检查，直接开始扫描
+    const readable = await checkStoragePermissionUtil();
+    if (!readable) {
+      setActiveTab("browse");
+      alert(t('scanFailed'));
+      return;
+    }
     setActiveTab("scan");
     setScanLoading(true);
     setDrawerOpen(true);
@@ -462,6 +530,26 @@ export const ImportFiles: React.FC = () => {
                 strokeLinecap="round"
               />
             </svg>
+          </button>
+        )}
+        {activeTab === "scan" && filteredScan.length === 0 && !scanLoading && (
+          <button
+            aria-label={t('chooseDirectoryScan')}
+            title={t('chooseDirectoryScan')}
+            style={{
+              background: "none",
+              border: "none",
+              boxShadow: "none",
+              borderRadius: 0,
+              cursor: "pointer",
+              padding: 0,
+              marginRight: 16,
+              color: "#333",
+              fontSize: 13,
+            }}
+            onClick={() => startSafScan()}
+          >
+            {t('chooseDirectoryScan')}
           </button>
         )}
         <button

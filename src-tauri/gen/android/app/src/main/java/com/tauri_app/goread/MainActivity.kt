@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.os.Environment
 import android.provider.Settings
 import android.webkit.WebView
+import androidx.documentfile.provider.DocumentFile
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -35,6 +36,24 @@ class MainActivity : TauriActivity() {
   // Status bar controller
   private var windowInsetsController: WindowInsetsControllerCompat? = null
   private var isStatusBarVisible = true  // Default to visible (only hide in Reader page)
+  
+  // SAF 目录选择回调
+  private val openDocumentTreeLauncher = registerForActivityResult(
+    ActivityResultContracts.OpenDocumentTree()
+  ) { uri ->
+    val selected = uri?.toString() ?: ""
+    if (uri != null) {
+      try {
+        // 持久化授权以便后续访问
+        contentResolver.takePersistableUriPermission(
+          uri,
+          Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        )
+      } catch (_: Exception) {}
+      savePersistedTreeUri(selected)
+    }
+    notifySafTreeSelected(selected)
+  }
   
   private val requestPermissionLauncher = registerForActivityResult(
     ActivityResultContracts.RequestMultiplePermissions()
@@ -90,6 +109,8 @@ class MainActivity : TauriActivity() {
     
     // 存储权限控制接口（供前端按需调用）
     webView.addJavascriptInterface(StoragePermissionBridge(), "StoragePermissionBridge")
+    // SAF 文件访问接口（目录选择、扫描与复制）
+    webView.addJavascriptInterface(SafBridge(), "SafBridge")
     
     // Default show status bar (only hide when entering Reader page based on user settings)
     windowInsetsController?.show(WindowInsetsCompat.Type.statusBars())
@@ -260,6 +281,59 @@ class MainActivity : TauriActivity() {
     }
   }
   
+  // SAF 桥接：目录选择、扫描与复制
+  inner class SafBridge {
+    @android.webkit.JavascriptInterface
+    fun openDocumentTree() {
+      runOnUiThread {
+        openDocumentTreeLauncher.launch(null)
+      }
+    }
+    
+    @android.webkit.JavascriptInterface
+    fun getPersistedTreeUri(): String {
+      return loadPersistedTreeUri() ?: ""
+    }
+    
+    @android.webkit.JavascriptInterface
+    fun clearPersistedTreeUri(): Boolean {
+      return try {
+        val prefs = getSharedPreferences("saf_prefs", MODE_PRIVATE)
+        prefs.edit().remove("tree_uri").apply()
+        true
+      } catch (_: Exception) {
+        false
+      }
+    }
+    
+    @android.webkit.JavascriptInterface
+    fun scanTree(uriStr: String) {
+      if (uriStr.isBlank()) {
+        notifySafScanResult("[]")
+        return
+      }
+      Thread {
+        try {
+          val uri = Uri.parse(uriStr)
+          val arr = scanDocumentTree(uri)
+          notifySafScanResult(arr.toString())
+        } catch (e: Exception) {
+          notifySafScanResult("[]")
+        }
+      }.start()
+    }
+    
+    @android.webkit.JavascriptInterface
+    fun copyToAppDir(uriStr: String): String {
+      return try {
+        val uri = Uri.parse(uriStr)
+        copyDocumentToAppDir(uri) ?: ""
+      } catch (_: Exception) {
+        ""
+      }
+    }
+  }
+  
   // 内部权限检查方法
   private fun checkStoragePermissionInternal(): Boolean {
     return when {
@@ -289,6 +363,137 @@ class MainActivity : TauriActivity() {
       """.trimIndent()
       webViewRef?.evaluateJavascript(js, null)
     }
+  }
+  
+  // SAF：通知目录选择结果
+  private fun notifySafTreeSelected(uriStr: String) {
+    webViewRef?.post {
+      val safe = uriStr.replace("\\", "\\\\").replace("'", "\\'")
+      val js = """
+        (function() {
+          if (typeof window.__onSafTreeSelected__ === 'function') {
+            window.__onSafTreeSelected__('$safe');
+          }
+        })();
+      """.trimIndent()
+      webViewRef?.evaluateJavascript(js, null)
+    }
+  }
+  
+  // SAF：通知扫描结果（JSON 数组字符串）
+  private fun notifySafScanResult(json: String) {
+    webViewRef?.post {
+      val safe = json.replace("\\", "\\\\").replace("'", "\\'")
+      val js = """
+        (function() {
+          if (typeof window.__onSafScanResult__ === 'function') {
+            window.__onSafScanResult__('$safe');
+          }
+        })();
+      """.trimIndent()
+      webViewRef?.evaluateJavascript(js, null)
+    }
+  }
+  
+  // SAF：保存持久化的目录 URI
+  private fun savePersistedTreeUri(uriStr: String) {
+    try {
+      val prefs = getSharedPreferences("saf_prefs", MODE_PRIVATE)
+      prefs.edit().putString("tree_uri", uriStr).apply()
+    } catch (_: Exception) {}
+  }
+  
+  // SAF：读取持久化的目录 URI
+  private fun loadPersistedTreeUri(): String? {
+    return try {
+      val prefs = getSharedPreferences("saf_prefs", MODE_PRIVATE)
+      prefs.getString("tree_uri", null)
+    } catch (_: Exception) { null }
+  }
+  
+  // SAF：递归扫描选定目录，返回 JSON 数组
+  private fun scanDocumentTree(rootUri: Uri): org.json.JSONArray {
+    val root = DocumentFile.fromTreeUri(this, rootUri)
+    val results = org.json.JSONArray()
+    if (root == null) return results
+    val stack = java.util.ArrayDeque<DocumentFile>()
+    stack.add(root)
+    while (!stack.isEmpty()) {
+      val current = stack.removeFirst()
+      val children = current.listFiles()
+      for (child in children) {
+        if (child.isDirectory) {
+          stack.add(child)
+        } else if (child.isFile) {
+          val name = child.name ?: "unknown"
+          val uri = child.uri.toString()
+          val size = try { child.length() } catch (_: Exception) { 0L }
+          val mtime = try { child.lastModified() } catch (_: Exception) { 0L }
+          val obj = org.json.JSONObject()
+          obj.put("name", name)
+          obj.put("path", uri)
+          obj.put("type", "file")
+          obj.put("size", size)
+          obj.put("mtime", mtime)
+          results.put(obj)
+        }
+      }
+    }
+    return results
+  }
+  
+  // SAF：复制单个文件到应用私有目录，返回目标路径
+  private fun copyDocumentToAppDir(uri: Uri): String? {
+    val name = queryDisplayName(uri) ?: "imported"
+    val baseDir = filesDir.resolve("imports")
+    if (!baseDir.exists()) { baseDir.mkdirs() }
+    var dest = java.io.File(baseDir, sanitizeFileName(name))
+    var index = 1
+    while (dest.exists()) {
+      val dot = dest.name.lastIndexOf('.')
+      val prefix = if (dot > 0) dest.name.substring(0, dot) else dest.name
+      val ext = if (dot > 0) dest.name.substring(dot) else ""
+      dest = java.io.File(baseDir, "${prefix}(${index})${ext}")
+      index++
+    }
+    return try {
+      contentResolver.openInputStream(uri).use { `in` ->
+        if (`in` == null) return null
+        java.io.FileOutputStream(dest).use { out ->
+          val buf = ByteArray(1024 * 64)
+          while (true) {
+            val r = `in`.read(buf)
+            if (r <= 0) break
+            out.write(buf, 0, r)
+          }
+          out.flush()
+        }
+      }
+      dest.absolutePath
+    } catch (_: Exception) {
+      null
+    }
+  }
+  
+  // SAF：查询显示名
+  private fun queryDisplayName(uri: Uri): String? {
+    return try {
+      val cursor = contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)
+      if (cursor != null) {
+        cursor.use {
+          if (it.moveToFirst()) {
+            val idx = it.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+            if (idx >= 0) return it.getString(idx)
+          }
+        }
+      }
+      null
+    } catch (_: Exception) { null }
+  }
+  
+  // SAF：文件名清理
+  private fun sanitizeFileName(name: String): String {
+    return name.replace(Regex("[\\\\/:*?\"<>|]"), "_")
   }
 
   private fun requestStoragePermissions() {
