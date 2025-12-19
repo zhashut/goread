@@ -1,6 +1,10 @@
-# GoRead
-
 English | [简体中文](README.md)
+
+<p align="center">
+  <img src="./public/app-icon.svg" alt="GoRead Icon" width="128" height="128">
+</p>
+
+# GoRead
 
 GoRead is a lightweight reader application designed specifically for local e‑book reading. It supports both desktop and mobile platforms (Android / iOS), providing a consistent and smooth reading experience across your devices.
 
@@ -43,6 +47,10 @@ You can consolidate e‑books scattered across different folders, organize them 
 ### 6. Local Storage & Privacy
 - All books and reading data are stored locally on your device
 - No upload of your library or reading history, suitable for users who care about privacy
+
+### 7. Multilingual & Internationalization
+- Built-in English and Simplified Chinese UI, follows system language by default
+- Planned in-app language switch and more languages support
 
 ---
 
