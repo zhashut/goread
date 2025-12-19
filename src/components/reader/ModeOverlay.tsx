@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from 'react-i18next';
 import { getSafeAreaInsets } from "../../utils/layout";
 
 
@@ -15,6 +16,8 @@ export const ModeOverlay: React.FC<ModeOverlayProps> = ({
   onClose,
   onChangeMode,
 }) => {
+  const { t } = useTranslation('reader');
+  
   if (!visible) return null;
 
   return (
@@ -75,9 +78,9 @@ export const ModeOverlay: React.FC<ModeOverlayProps> = ({
           >
             <span style={{ fontSize: "18px", marginRight: "12px" }}>▤</span>
             <div>
-              <div style={{ fontSize: "14px" }}>横向阅读</div>
+              <div style={{ fontSize: "14px" }}>{t('horizontalReading')}</div>
               <div style={{ fontSize: "12px", opacity: 0.7 }}>
-                左右翻页，适合分页浏览
+                {t('horizontalReadingDesc')}
               </div>
             </div>
           </button>
@@ -97,9 +100,9 @@ export const ModeOverlay: React.FC<ModeOverlayProps> = ({
           >
             <span style={{ fontSize: "18px", marginRight: "12px" }}>▮</span>
             <div>
-              <div style={{ fontSize: "14px" }}>纵向阅读</div>
+              <div style={{ fontSize: "14px" }}>{t('verticalReading')}</div>
               <div style={{ fontSize: "12px", opacity: 0.7 }}>
-                向下滚动，连续阅读
+                {t('verticalReadingDesc')}
               </div>
             </div>
           </button>

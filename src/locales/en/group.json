@@ -1,0 +1,16 @@
+{
+  "loading": "Loading...",
+  "noBooks": "No books in this group",
+  "confirmDelete": "Confirm to delete this book and its bookmarks?",
+  "deleteFailed": "Delete failed, please try again",
+  "deleteSuccess": "Deleted successfully",
+  "moveTo": "Move to group",
+  "moveFailed": "Move failed, please try again",
+  "loadGroupsFailed": "Failed to load group list",
+  "changeGroup": "Change Group",
+  "delete": "Delete",
+  "selectAll": "Select All",
+  "groupNameExists": "Group name already exists",
+  "updateFailed": "Update failed",
+  "defaultGroupName": "Group"
+}

@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from 'react-i18next';
 import { BOTTOM_DRAWER_RADIUS } from "../../constants/ui";
 
 interface BottomBarProps {
@@ -47,6 +48,8 @@ export const BottomBar: React.FC<BottomBarProps> = ({
   onAddBookmark,
   onOpenMore,
 }) => {
+  const { t } = useTranslation('reader');
+  
   if (!visible) return null;
 
   return (
@@ -106,7 +109,7 @@ export const BottomBar: React.FC<BottomBarProps> = ({
               opacity: currentPage <= 1 ? 0.5 : 1,
             }}
           >
-            上一章
+            {t('prevChapter')}
           </span>
           <span
             onClick={onNextChapter}
@@ -115,7 +118,7 @@ export const BottomBar: React.FC<BottomBarProps> = ({
               opacity: currentPage >= totalPages ? 0.5 : 1,
             }}
           >
-            下一章
+            {t('nextChapter')}
           </span>
         </div>
         {(() => {
@@ -202,7 +205,7 @@ export const BottomBar: React.FC<BottomBarProps> = ({
               cursor: "pointer",
               fontSize: "clamp(16px, 3.2vw, 18px)",
             }}
-            title="目录"
+            title={t('toc')}
           >
             ≡
           </button>
@@ -213,7 +216,7 @@ export const BottomBar: React.FC<BottomBarProps> = ({
               marginTop: "6px",
             }}
           >
-            目录
+            {t('toc')}
           </div>
         </div>
         <div
@@ -237,7 +240,7 @@ export const BottomBar: React.FC<BottomBarProps> = ({
               cursor: "pointer",
               fontSize: "clamp(16px, 3.2vw, 18px)",
             }}
-            title="阅读方式"
+            title={t('readingMode')}
           >
             {readingMode === "horizontal" ? "▤" : "▮"}
           </button>
@@ -248,7 +251,7 @@ export const BottomBar: React.FC<BottomBarProps> = ({
               marginTop: "6px",
             }}
           >
-            阅读方式
+            {t('readingMode')}
           </div>
         </div>
         <div
@@ -272,7 +275,7 @@ export const BottomBar: React.FC<BottomBarProps> = ({
               cursor: "pointer",
               fontSize: "clamp(16px, 3.2vw, 18px)",
             }}
-            title={readingMode === "horizontal" ? "自动翻页" : "自动滚动"}
+            title={readingMode === "horizontal" ? t('autoFlip') : t('autoScroll')}
           >
             ☰
           </button>
@@ -283,7 +286,7 @@ export const BottomBar: React.FC<BottomBarProps> = ({
               marginTop: "6px",
             }}
           >
-            {readingMode === "horizontal" ? "自动翻页" : "自动滚动"}
+            {readingMode === "horizontal" ? t('autoFlip') : t('autoScroll')}
           </div>
         </div>
         <div
@@ -307,7 +310,7 @@ export const BottomBar: React.FC<BottomBarProps> = ({
               cursor: "pointer",
               fontSize: "clamp(16px, 3.2vw, 18px)",
             }}
-            title="书签"
+            title={t('bookmark')}
           >
             🔖
           </button>
@@ -318,7 +321,7 @@ export const BottomBar: React.FC<BottomBarProps> = ({
               marginTop: "6px",
             }}
           >
-            书签
+            {t('bookmark')}
           </div>
         </div>
         <div
@@ -342,7 +345,7 @@ export const BottomBar: React.FC<BottomBarProps> = ({
               cursor: "pointer",
               fontSize: "clamp(16px, 3.2vw, 18px)",
             }}
-            title="更多"
+            title={t('more')}
           >
             …
           </button>
@@ -353,7 +356,7 @@ export const BottomBar: React.FC<BottomBarProps> = ({
               marginTop: "6px",
             }}
           >
-            更多
+            {t('more')}
           </div>
         </div>
       </div>

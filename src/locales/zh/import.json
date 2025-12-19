@@ -1,0 +1,28 @@
+{
+  "scanResults": "扫描结果({{count}})",
+  "search": "搜索",
+  "selectAll": "全选",
+  "searchPlaceholder": "搜索扫描结果中的文件…",
+  "pleaseSelectFiles": "请先选择要导入的文件",
+  "imported": "已导入",
+  "import": "导入({{count}})",
+  "importProgress": "导入进度",
+  "importingBook": "正在导入「{{title}}」书籍",
+  "stopImport": "停止导入",
+  "howToGroup": "如何分组？",
+  "inputNewGroupName": "输入新的分组名",
+  "importToExistingGroup": "导入到现有分组",
+  "confirmName": "确定命名",
+  "existingGroups": "现有分组",
+  "filterFormats": "筛选格式",
+  "format": {
+    "all": "全部格式",
+    "pdf": "PDF",
+    "epub": "EPUB",
+    "markdown": "Markdown",
+    "mobi": "MOBI",
+    "azw3": "AZW3/Kindle",
+    "fb2": "FB2",
+    "html": "HTML"
+  }
+}

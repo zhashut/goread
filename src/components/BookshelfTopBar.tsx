@@ -4,6 +4,7 @@ import React, {
   useLayoutEffect,
   useEffect,
 } from "react";
+import { useTranslation } from "react-i18next";
 import {
   TOP_BAR_ICON_SIZE,
   TOP_BAR_TAB_FONT_SIZE,
@@ -34,6 +35,8 @@ interface BookshelfTopBarProps
 }
 
 export const BookshelfTopBar: React.FC<BookshelfTopBarProps> = (props) => {
+  const { t } = useTranslation('bookshelf');
+  const { t: tc } = useTranslation('common');
   const {
     mode,
     activeTab = "recent",
@@ -166,7 +169,7 @@ export const BookshelfTopBar: React.FC<BookshelfTopBarProps> = (props) => {
           }}
         >
           <button
-            aria-label="返回"
+            aria-label={tc('back')}
             onClick={onExitSelection}
             style={{
               background: "none",
@@ -206,7 +209,7 @@ export const BookshelfTopBar: React.FC<BookshelfTopBarProps> = (props) => {
               transform: "translateY(-2px)",
             }}
           >
-            已选中({selectedCount})
+            {tc('selected', { count: selectedCount })}
           </span>
         </div>
         <div
@@ -260,7 +263,7 @@ export const BookshelfTopBar: React.FC<BookshelfTopBarProps> = (props) => {
             borderRadius: 0,
             marginRight: "15px",
           }}
-          title="最近"
+          title={t('recent')}
         >
           <div
             ref={recentLabelRef}
@@ -270,7 +273,7 @@ export const BookshelfTopBar: React.FC<BookshelfTopBarProps> = (props) => {
               transition: "color 200ms ease",
             }}
           >
-            最近
+            {t('recent')}
           </div>
         </button>
         <button
@@ -288,7 +291,7 @@ export const BookshelfTopBar: React.FC<BookshelfTopBarProps> = (props) => {
             boxShadow: "none",
             borderRadius: 0,
           }}
-          title="全部"
+          title={t('all')}
         >
           <div
             ref={allLabelRef}
@@ -298,7 +301,7 @@ export const BookshelfTopBar: React.FC<BookshelfTopBarProps> = (props) => {
               transition: "color 200ms ease",
             }}
           >
-            全部
+            {t('all')}
           </div>
         </button>
         <div
@@ -325,8 +328,8 @@ export const BookshelfTopBar: React.FC<BookshelfTopBarProps> = (props) => {
         }}
       >
         <button
-          title="搜索"
-          aria-label="搜索"
+          title={tc('search')}
+          aria-label={tc('search')}
           onClick={onSearch}
           style={{
             background: "transparent",
@@ -365,8 +368,8 @@ export const BookshelfTopBar: React.FC<BookshelfTopBarProps> = (props) => {
         </button>
         <button
           ref={menuBtnRef}
-          title="更多"
-          aria-label="更多"
+          title={tc('more')}
+          aria-label={tc('more')}
           onClick={() => setMenuOpen((m) => !m)}
           style={{
             background: "transparent",
@@ -428,76 +431,17 @@ export const BookshelfTopBar: React.FC<BookshelfTopBarProps> = (props) => {
                   viewBox="0 0 24 24"
                   fill="none"
                   xmlns="http://www.w3.org/2000/svg"
+                  stroke="#444"
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
                 >
-                  <path
-                    d="M12 3v8"
-                    stroke="#333"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
-                  <path
-                    d="M9.5 8.5L12 11l2.5-2.5"
-                    stroke="#333"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                  <rect
-                    x="4"
-                    y="13"
-                    width="16"
-                    height="7"
-                    rx="2"
-                    stroke="#333"
-                    strokeWidth="2"
-                  />
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
                 </svg>
               }
-              label="导入"
-            />
-            <MenuButton
-              onClick={() => {
-                setMenuOpen(false);
-                onMenuAction?.("settings");
-              }}
-              icon={
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                  style={{ marginRight: "8px" }}
-                >
-                  <circle
-                    cx="12"
-                    cy="12"
-                    r="9"
-                    stroke="#333"
-                    strokeWidth="2"
-                  />
-                  <circle
-                    cx="12"
-                    cy="12"
-                    r="3"
-                    stroke="#333"
-                    strokeWidth="2"
-                  />
-                  <path
-                    d="M12 4.5v2.3"
-                    stroke="#333"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
-                  <path
-                    d="M12 17.2v2.3"
-                    stroke="#333"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
-                </svg>
-              }
-              label="设置"
+              label={t('import')}
             />
             <MenuButton
               onClick={() => {
@@ -545,7 +489,31 @@ export const BookshelfTopBar: React.FC<BookshelfTopBarProps> = (props) => {
                   />
                 </svg>
               }
-              label="统计"
+              label={t('statistics')}
+            />
+            <MenuButton
+              onClick={() => {
+                setMenuOpen(false);
+                onMenuAction?.("settings");
+              }}
+              icon={
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                  style={{ marginRight: "8px" }}
+                  stroke="#444"
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+              }
+              label={t('settings')}
             />
             <MenuButton
               onClick={() => {
@@ -560,29 +528,17 @@ export const BookshelfTopBar: React.FC<BookshelfTopBarProps> = (props) => {
                   fill="none"
                   xmlns="http://www.w3.org/2000/svg"
                   style={{ marginRight: "8px" }}
+                  stroke="#444"
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
                 >
-                  <circle
-                    cx="12"
-                    cy="12"
-                    r="9"
-                    stroke="#333"
-                    strokeWidth="2"
-                  />
-                  <path
-                    d="M12 7v2"
-                    stroke="#333"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
-                  <path
-                    d="M12 11v6"
-                    stroke="#333"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
+                  <rect x="3" y="3" width="18" height="18" rx="5" ry="5" />
+                  <line x1="12" y1="16" x2="12" y2="12" />
+                  <line x1="12" y1="8" x2="12.01" y2="8" />
                 </svg>
               }
-              label="关于"
+              label={t('about')}
             />
           </div>
         )}

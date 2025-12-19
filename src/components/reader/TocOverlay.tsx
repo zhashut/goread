@@ -1,4 +1,5 @@
 import React, { useState, useRef } from "react";
+import { useTranslation } from 'react-i18next';
 import { TocNode } from "./types";
 import { IBookmark } from "../../types";
 import { getSafeAreaInsets } from "../../utils/layout";
@@ -24,6 +25,7 @@ export const TocOverlay: React.FC<TocOverlayProps> = ({
   onDeleteBookmark,
   setToc,
 }) => {
+  const { t } = useTranslation('reader');
   const [leftTab, setLeftTab] = useState<"toc" | "bookmark">("toc");
   const tocItemRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -125,7 +127,7 @@ export const TocOverlay: React.FC<TocOverlayProps> = ({
             </span>
             {typeof node.page === "number" && !node.anchor && (
               <span style={{ fontSize: "12px", opacity: 0.7, marginLeft: 6 }}>
-                第 {node.page} 页
+                {t('page', { page: node.page })}
               </span>
             )}
           </div>
@@ -242,7 +244,7 @@ export const TocOverlay: React.FC<TocOverlayProps> = ({
               }}
             >
             <span style={{ marginRight: "6px" }}>≡</span>
-            <span>目录</span>
+            <span>{t('toc')}</span>
           </button>
           <button
             onClick={() => setLeftTab("bookmark")}
@@ -260,7 +262,7 @@ export const TocOverlay: React.FC<TocOverlayProps> = ({
             }}
           >
             <span style={{ marginRight: "6px" }}>🔖</span>
-            <span>书签</span>
+            <span>{t('bookmark')}</span>
           </button>
         </div>
 
@@ -278,7 +280,7 @@ export const TocOverlay: React.FC<TocOverlayProps> = ({
           {leftTab === "toc" ? (
             toc.length === 0 ? (
               <div style={{ fontSize: "13px", opacity: 0.6 }}>
-                无目录信息
+                {t('noToc')}
               </div>
             ) : (
               <div>{renderTocTree(toc, 0)}</div>
@@ -294,7 +296,7 @@ export const TocOverlay: React.FC<TocOverlayProps> = ({
                 height: "100%",
               }}
             >
-              没有添加书签
+              {t('noBookmarks')}
             </div>
           ) : (
             <div>
@@ -329,7 +331,7 @@ export const TocOverlay: React.FC<TocOverlayProps> = ({
                       {bm.title}
                     </span>
                     <span style={{ fontSize: "12px", opacity: 0.7 }}>
-                      第 {bm.page_number} 页
+                      {t('page', { page: bm.page_number })}
                     </span>
                   </div>
                   <button
@@ -344,7 +346,7 @@ export const TocOverlay: React.FC<TocOverlayProps> = ({
                       cursor: "pointer",
                       fontSize: "12px",
                     }}
-                    title="删除书签"
+                    title={t('deleteBookmark')}
                   >
                     ✕
                   </button>

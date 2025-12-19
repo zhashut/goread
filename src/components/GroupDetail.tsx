@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef, useLayoutEffect } from "react";
+import { useTranslation } from 'react-i18next';
 import { useParams, useNavigate, useNavigationType } from "react-router-dom";
 import { useAppNav } from "../router/useAppNav";
 import { DndContext, closestCenter, DragEndEvent } from "@dnd-kit/core";
@@ -19,6 +20,7 @@ export const GroupDetail: React.FC<{
   groupIdProp?: number;
   onClose?: () => void;
 }> = ({ groupIdProp, onClose }) => {
+  const { t } = useTranslation('group');
   const { groupId } = useParams();
   const navigate = useNavigate();
   const navType = useNavigationType();
@@ -220,7 +222,7 @@ export const GroupDetail: React.FC<{
       await reloadBooksAndGroups();
       exitSelection();
     } catch {
-      alert("删除失败，请重试");
+      alert(t('deleteFailed'));
     }
   };
 
@@ -272,10 +274,10 @@ export const GroupDetail: React.FC<{
       setAllGroups(validGroups);
       setGroupPreviews(previews);
       setMoveDrawerOpen(true);
-    } catch (e) {
-      console.error("加载分组失败", e);
-      alert("无法加载分组列表");
-    }
+      } catch (e) {
+        console.error("加载分组失败", e);
+        alert(t('loadGroupsFailed'));
+      }
   };
 
   const handleMoveBooks = async (targetGroupId: number) => {
@@ -311,7 +313,7 @@ export const GroupDetail: React.FC<{
       
     } catch (e) {
       console.error("移动书籍失败", e);
-      alert("移动失败，请重试");
+      alert(t('moveFailed'));
     }
   };
 
@@ -320,16 +322,16 @@ export const GroupDetail: React.FC<{
       let ok: boolean = false;
       try {
         const { confirm } = await import("@tauri-apps/plugin-dialog");
-        ok = await confirm("确认删除该书籍及其书签？", { title: "goread" });
+        ok = await confirm(t('confirmDelete'), { title: "goread" });
       } catch {
-        ok = window.confirm("确认删除该书籍及其书签？");
+        ok = window.confirm(t('confirmDelete'));
       }
       if (!ok) return;
       await bookService.deleteBook(book.id);
       await reloadBooksAndGroups();
     } catch (err) {
       console.error("删除失败", err);
-      alert("删除书籍失败，请重试");
+      alert(t('deleteFailed'));
     }
   };
 
@@ -355,7 +357,7 @@ export const GroupDetail: React.FC<{
             color: "#666",
           }}
         >
-          加载中…
+          {t('loading')}
         </div>
       ) : books.length === 0 ? (
         <div
@@ -367,7 +369,7 @@ export const GroupDetail: React.FC<{
             color: "#999",
           }}
         >
-          该分组暂无书籍
+          {t('noBooks')}
         </div>
       ) : (
           <div
@@ -459,7 +461,7 @@ export const GroupDetail: React.FC<{
         groupPreviews={groupPreviews}
         onClose={() => setMoveDrawerOpen(false)}
         onSelectGroup={handleMoveBooks}
-        title="移动到分组"
+        title={t('moveTo')}
       />
     </div>
   );

@@ -1,0 +1,5 @@
+{
+  "placeholder": "输入书名关键词...",
+  "noFiles": "没有文件信息",
+  "totalBooks": "共 {{count}} 本"
+}

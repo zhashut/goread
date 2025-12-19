@@ -1,0 +1,36 @@
+{
+  "title": "Settings",
+  "volumeKeyTurnPage": "Volume Key Page Turn",
+  "clickTurnPage": "Tap to Turn Page",
+  "showStatusBar": "Show Status Bar",
+  "pageTransition": "Page Transition",
+  "recentDisplayCount": "Recent Display Count",
+  "renderQuality": "Render Quality",
+  "language": "Language",
+  "dataManagement": "Data Management",
+  "export": "Export",
+  "import": "Import",
+  "scrollSpeed": "Scroll Speed",
+  "pageGap": "Page Gap",
+  "unlimited": "Unlimited",
+  "quality": {
+    "thumbnail": "Thumbnail",
+    "standard": "Standard",
+    "high": "High",
+    "best": "Best"
+  },
+  "backup": {
+    "dialogNotSupportedSave": "File save dialog is not supported in this environment",
+    "dialogNotSupportedOpen": "File open dialog is not supported in this environment",
+    "fileFilterName": "GoRead Backup File",
+    "exportSuccess": "Backup exported successfully",
+    "exportFailedWithReason": "Export failed, please try again\\n\\nReason: {{reason}}",
+    "importConfirm": "Importing backup will overwrite all data in the app (bookshelf, groups, reading history, statistics and reading settings) and cannot be undone. Continue?",
+    "importSuccess": "Import succeeded. The app will close, please reopen to apply latest data",
+    "importFailedWithReason": "Import failed, please try again\\n\\nReason: {{reason}}",
+    "errorParseBackupFailed": "Failed to parse backup file, please check if the file is complete",
+    "errorUnsupportedVersion": "Backup file version is not supported by this app",
+    "errorNotGoreadBackup": "The backup file was not created by GoRead",
+    "errorMissingData": "Backup file is missing required data contents"
+  }
+}

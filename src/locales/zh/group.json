@@ -1,0 +1,16 @@
+{
+  "loading": "加载中…",
+  "noBooks": "该分组暂无书籍",
+  "confirmDelete": "确认删除该书籍及其书签？",
+  "deleteFailed": "删除失败，请重试",
+  "deleteSuccess": "删除成功",
+  "moveTo": "移动到分组",
+  "moveFailed": "移动失败，请重试",
+  "loadGroupsFailed": "无法加载分组列表",
+  "changeGroup": "更改分组",
+  "delete": "删除",
+  "selectAll": "全选",
+  "groupNameExists": "分组名称已存在",
+  "updateFailed": "修改失败",
+  "defaultGroupName": "分组"
+}

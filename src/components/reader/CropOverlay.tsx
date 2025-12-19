@@ -1,4 +1,5 @@
 import React, { useState, useRef } from "react";
+import { useTranslation } from 'react-i18next';
 import { save } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { log } from "../../services";
@@ -20,6 +21,7 @@ export const CropOverlay: React.FC<CropOverlayProps> = ({
   onSaveSuccess,
   onSaveError,
 }) => {
+  const { t } = useTranslation('reader');
   const [cropRect, setCropRect] = useState<CropRect | null>(null);
   const [interactionState, setInteractionState] = useState<{
     type: InteractionType;
@@ -295,7 +297,7 @@ export const CropOverlay: React.FC<CropOverlayProps> = ({
             <line x1="6" y1="6" x2="18" y2="18"></line>
           </svg>
         </button>
-        <span style={{ fontSize: "18px", fontWeight: 500 }}>裁切</span>
+        <span style={{ fontSize: "18px", fontWeight: 500 }}>{t('crop')}</span>
         <button
           onClick={(e) => {
             e.stopPropagation();

@@ -246,6 +246,7 @@ export type ReaderSettings = {
   pageGap: number; // 像素
   readingMode?: 'horizontal' | 'vertical'; // 阅读方式（可选，向后兼容）
   renderQuality?: string; // 书籍渲染质量
+  language?: 'zh' | 'en'; // 语言设置
 };
 
 const SETTINGS_KEY = 'reader_settings_v1';

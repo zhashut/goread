@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from 'react-i18next';
 
 export interface FileRowProps {
   name: string;
@@ -48,6 +49,7 @@ export const FileRow: React.FC<FileRowProps> = ({
   mode = "select",
   onClickRow,
 }) => {
+  const { t } = useTranslation('import');
   // 调整图标大小适配新的长方形图标 (36:44 比例)
   const iconWidth = Math.round(rowHeight * 0.6); // 36px for 60px row
   const iconHeight = Math.round(iconWidth * (44 / 36)); 
@@ -122,7 +124,7 @@ export const FileRow: React.FC<FileRowProps> = ({
       {mode === "select" ? (
         imported ? (
           <div style={{ color: "#3a8f3a", fontSize: 12, marginRight: 8 }}>
-            已导入
+            {t('imported')}
           </div>
         ) : selected ? (
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none">

@@ -1,0 +1,22 @@
+{
+  "back": "Back",
+  "cancel": "Cancel",
+  "confirm": "Confirm",
+  "delete": "Delete",
+  "save": "Save",
+  "edit": "Edit",
+  "search": "Search",
+  "more": "More",
+  "loading": "Loading...",
+  "selectAll": "Select All",
+  "selected": "Selected ({{count}})",
+  "books": "{{count}} books",
+  "items": "{{count}} items",
+  "noData": "No Data",
+  "retry": "Retry",
+  "success": "Success",
+  "failed": "Failed",
+  "tips": "Tips",
+  "warning": "Warning",
+  "error": "Error"
+}

@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { getReaderSettings, saveReaderSettings, ReaderSettings } from "../services";
 import { useAppNav } from "../router/useAppNav";
+import { supportedLanguages, changeLanguage } from "../locales";
 // 注意：此处特意不导入 statusBarService
 // 状态栏控制应仅在阅读页进行，而非设置页
 import {
-  RENDER_QUALITY_OPTIONS,
   RECENT_DISPLAY_COUNT_OPTIONS,
   RECENT_DISPLAY_COUNT_UNLIMITED,
   SCROLL_SPEED_MIN,
@@ -21,12 +22,30 @@ import { PageHeader } from "./PageHeader";
 import { exportAppData, importAppData } from "../services/dataBackupService";
 
 export const Settings: React.FC = () => {
+  const { t, i18n } = useTranslation('settings');
   const [settings, setSettings] = useState<ReaderSettings>(getReaderSettings());
 
   const nav = useAppNav();
 
   const goBack = () => {
     nav.goBack();
+  };
+
+  // 处理语言切换
+  const handleLanguageChange = (lng: string | number) => {
+    const langCode = String(lng) as 'zh' | 'en';
+    changeLanguage(langCode);
+    setSettings((s) => ({ ...s, language: langCode }));
+  };
+
+  // 获取渲染质量选项（根据当前语言）
+  const getRenderQualityOptions = () => {
+    return [
+      { value: "thumbnail", label: t('quality.thumbnail') },
+      { value: "standard", label: t('quality.standard') },
+      { value: "high", label: t('quality.high') },
+      { value: "best", label: t('quality.best') },
+    ];
   };
 
   useEffect(() => {
@@ -66,7 +85,7 @@ export const Settings: React.FC = () => {
       }}
     >
       <PageHeader
-        title="设置"
+        title={t('title')}
         onBack={goBack}
         style={{ boxShadow: "0 1px 6px rgba(0,0,0,0.08)" }}
       />
@@ -81,7 +100,7 @@ export const Settings: React.FC = () => {
         }}
       >
         <Row
-          label="音量键翻页"
+          label={t('volumeKeyTurnPage')}
           right={
             <input
               className="settings-toggle"
@@ -97,7 +116,7 @@ export const Settings: React.FC = () => {
           }
         />
         <Row
-          label="点击翻页"
+          label={t('clickTurnPage')}
           right={
             <input
               className="settings-toggle"
@@ -110,7 +129,7 @@ export const Settings: React.FC = () => {
           }
         />
         <Row
-          label="显示状态栏"
+          label={t('showStatusBar')}
           right={
             <input
               className="settings-toggle"
@@ -124,7 +143,7 @@ export const Settings: React.FC = () => {
           }
         />
         <Row
-          label="翻页动画"
+          label={t('pageTransition')}
           right={
             <input
               className="settings-toggle"
@@ -138,7 +157,7 @@ export const Settings: React.FC = () => {
         />
 
         <Row
-          label="最近显示数量"
+          label={t('recentDisplayCount')}
           right={
             <CustomSelect
               value={settings.recentDisplayCount}
@@ -147,7 +166,7 @@ export const Settings: React.FC = () => {
                   value: n,
                   label: n,
                 })),
-                { value: RECENT_DISPLAY_COUNT_UNLIMITED, label: "不限" },
+                { value: RECENT_DISPLAY_COUNT_UNLIMITED, label: t('unlimited') },
               ]}
               onChange={(val) =>
                 setSettings((s) => ({
@@ -160,11 +179,11 @@ export const Settings: React.FC = () => {
         />
 
         <Row
-          label="书籍渲染质量"
+          label={t('renderQuality')}
           right={
             <CustomSelect
               value={settings.renderQuality || "standard"}
-              options={RENDER_QUALITY_OPTIONS}
+              options={getRenderQualityOptions()}
               onChange={(val) =>
                 setSettings((s) => ({
                   ...s,
@@ -176,22 +195,22 @@ export const Settings: React.FC = () => {
         />
 
         <Row
-          label="多语言 (Language)"
+          label={t('language')}
           right={
             <CustomSelect
-              value={"zh"}
-              options={[
-                { value: "zh", label: "简体中文" },
-                { value: "en", label: "English" },
-              ]}
-              onChange={() => {}}
+              value={settings.language || i18n.language}
+              options={supportedLanguages.map((lang) => ({
+                value: lang.code,
+                label: lang.label,
+              }))}
+              onChange={handleLanguageChange}
               style={{ minWidth: 100 }}
             />
           }
         />
 
         <Row
-          label="数据管理"
+          label={t('dataManagement')}
           right={
             <div style={{ display: "flex", gap: 10 }}>
               <button
@@ -209,7 +228,7 @@ export const Settings: React.FC = () => {
                   exportAppData();
                 }}
               >
-                导出
+                {t('export')}
               </button>
               <button
                 style={{
@@ -226,7 +245,7 @@ export const Settings: React.FC = () => {
                   importAppData();
                 }}
               >
-                导入
+                {t('import')}
               </button>
             </div>
           }
@@ -241,7 +260,7 @@ export const Settings: React.FC = () => {
               marginBottom: "8px",
             }}
           >
-            <span style={{ color: "#333", fontSize: "15px" }}>滚动速度</span>
+            <span style={{ color: "#333", fontSize: "15px" }}>{t('scrollSpeed')}</span>
             <span style={{ color: "#999", fontSize: "12px" }}>
               {settings.scrollSpeed} px/s
             </span>
@@ -284,7 +303,7 @@ export const Settings: React.FC = () => {
               marginBottom: "8px",
             }}
           >
-            <span style={{ color: "#333", fontSize: "15px" }}>页面间隙</span>
+            <span style={{ color: "#333", fontSize: "15px" }}>{t('pageGap')}</span>
             <span style={{ color: "#999", fontSize: "12px" }}>
               {settings.pageGap} px
             </span>

@@ -3,6 +3,8 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import { initSafeAreaInsets } from "./utils/layout";
 import { statusBarService } from "./services/statusBarService";
+import i18n, { getSystemLanguage } from "./locales";
+import { getReaderSettings } from "./services";
 
 // 抑制 ResizeObserver loop 错误（常见的浏览器警告，不影响功能）
 const resizeObserverErr = (e: ErrorEvent) => {
@@ -18,6 +20,16 @@ initSafeAreaInsets();
 // 等待Tauri API加载
 const setupApp = async () => {
   try {
+    // 初始化语言设置：优先使用用户设置，否则使用系统语言
+    const settings = getReaderSettings();
+    if (settings.language) {
+      i18n.changeLanguage(settings.language);
+    } else {
+      // 首次使用，检测系统语言
+      const systemLang = getSystemLanguage();
+      i18n.changeLanguage(systemLang);
+    }
+
     // 动态导入Tauri API
     await import('@tauri-apps/api/core');
     console.log('Tauri API loaded successfully');

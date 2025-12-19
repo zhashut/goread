@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { getSafeAreaInsets } from "../utils/layout";
 
 export type DeleteContext = "recent" | "all-groups" | "group-detail";
@@ -19,13 +20,14 @@ const ConfirmDeleteDrawer: React.FC<ConfirmDeleteDrawerProps> = ({
   onConfirm,
 }) => {
   if (!open) return null;
-  const title = "注意!";
+  const { t } = useTranslation("bookshelf");
+  const title = t("deleteDrawer.title");
   const desc =
     context === "recent"
-      ? `本次操作将会删除 ${count} 个最近阅读记录（不清除阅读进度），是否继续？`
+      ? t("deleteDrawer.descRecent", { count })
       : context === "all-groups"
-      ? `本次操作将会删除 ${count} 个分组（包含分组内所有书籍信息等）。可选：同时删除手机本地文件。`
-      : `本次操作将会删除 ${count} 本书籍(包含阅读进度与书签等不影响源文件)，是否继续？`;
+      ? t("deleteDrawer.descAllGroups", { count })
+      : t("deleteDrawer.descGroupDetail", { count });
 
   const [deleteLocal, setDeleteLocal] = React.useState(false);
 
@@ -121,7 +123,7 @@ const ConfirmDeleteDrawer: React.FC<ConfirmDeleteDrawerProps> = ({
               </svg>
             )}
             <span style={{ fontSize: "13px", color: "#777" }}>
-              删除本地文件
+              {t("deleteDrawer.deleteLocalFile")}
             </span>
           </button>
         )}
@@ -154,7 +156,7 @@ const ConfirmDeleteDrawer: React.FC<ConfirmDeleteDrawerProps> = ({
               textAlign: "center",
             }}
           >
-            取消
+            {t("deleteDrawer.cancel")}
           </button>
           <button
             onClick={() => onConfirm(deleteLocal)}
@@ -176,7 +178,7 @@ const ConfirmDeleteDrawer: React.FC<ConfirmDeleteDrawerProps> = ({
               textAlign: "center",
             }}
           >
-            删除
+            {t("deleteDrawer.confirm")}
           </button>
         </div>
       </div>

@@ -4,6 +4,7 @@
  */
 
 import { BookFormat } from '../services/formats/types';
+import i18n from '../locales';
 
 /** 支持的文件扩展名 */
 export const SUPPORTED_FILE_EXTENSIONS = [
@@ -35,7 +36,7 @@ const EXTENSION_FORMAT_MAP: Record<string, BookFormat> = {
   '.htm': 'html',
 };
 
-/** 格式显示名称 */
+/** 格式显示名称（默认英文） */
 export const FORMAT_DISPLAY_NAMES: Record<BookFormat, string> = {
   pdf: 'PDF',
   epub: 'EPUB',
@@ -100,7 +101,10 @@ export function getFileTypeDisplayName(extensions: readonly string[]): string {
   return extensions.map(ext => ext.toUpperCase().slice(1)).join(', ');
 }
 
-/** 获取格式的显示名称 */
+/** 获取格式的显示名称（带多语言） */
 export function getFormatDisplayName(format: BookFormat): string {
+  const key = `import:format.${format}`;
+  const translated = i18n.t(key as any) as unknown as string;
+  if (translated && translated !== key) return translated;
   return FORMAT_DISPLAY_NAMES[format] || format.toUpperCase();
 }

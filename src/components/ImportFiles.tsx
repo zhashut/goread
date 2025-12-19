@@ -1,4 +1,5 @@
-import React, { useMemo, useRef, useState, useEffect } from "react";
+import React, { useMemo, useRef, useState, useEffect, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { FileRow } from "./FileRow";
 import { useSearchParams } from "react-router-dom";
 import { useAppNav } from "../router/useAppNav";
@@ -34,6 +35,8 @@ const fmtDate = (t?: number) => {
 };
 
 export const ImportFiles: React.FC = () => {
+  const { t } = useTranslation('bookshelf');
+  const { t: tc } = useTranslation('common');
   const nav = useAppNav();
   const [searchParams, setSearchParams] = useSearchParams();
   const initialTab = (nav.location.state as any)?.initialTab as TabKey | undefined;
@@ -158,16 +161,17 @@ export const ImportFiles: React.FC = () => {
         try {
           const roots = await fileSystemService.getRootDirectories();
           setBrowseStack([roots]);
-          setBrowseDirStack([{ name: "存储设备", path: "" }]);
+          setBrowseDirStack([{ name: t('storageDevices'), path: "" }]);
         } catch (error) {
-          console.error("加载根目录失败:", error);
-          alert("加载根目录失败，请检查权限");
+        console.error("加载根目录失败:", error);
+          alert(t('loadRootFailed'));
         } finally {
           setBrowseLoading(false);
         }
       }
     };
     loadRootDirs();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
   const filteredScan = useMemo(() => {
@@ -277,7 +281,7 @@ export const ImportFiles: React.FC = () => {
       console.error("扫描失败:", error);
       const msg =
         typeof error?.message === "string" ? error.message : String(error);
-      alert(`扫描失败，请重试\n\n原因：${msg}`);
+      alert(`${t('scanFailed')}\n\n${msg}`);
       setScanLoading(false);
       setDrawerOpen(false);
       if (progressIntervalRef.current) {
@@ -311,7 +315,7 @@ export const ImportFiles: React.FC = () => {
 
   const handleImportClick = async () => {
     if (selectedPaths.length === 0) {
-      alert("请先选择要导入的文件");
+      alert(t('selectFilesToImport'));
       return;
     }
     openGroupingWithPaths(selectedPaths);
@@ -324,7 +328,7 @@ export const ImportFiles: React.FC = () => {
 
   // 目录返回通过面包屑点击实现，无需单独函数
 
-  const goToDepth = async (idx: number) => {
+  const goToDepth = useCallback(async (idx: number) => {
     if (idx < 0 || idx >= browseStack.length) return;
     setBrowseLoading(true);
     try {
@@ -332,7 +336,7 @@ export const ImportFiles: React.FC = () => {
       if (idx === 0) {
         const roots = await fileSystemService.getRootDirectories();
         setBrowseStack([roots]);
-        setBrowseDirStack([{ name: "存储设备", path: "" }]);
+        setBrowseDirStack([{ name: t('storageDevices'), path: "" }]);
       } else {
         // 否则直接截取栈
         setBrowseStack((stack) => stack.slice(0, idx + 1));
@@ -343,7 +347,8 @@ export const ImportFiles: React.FC = () => {
     } finally {
       setBrowseLoading(false);
     }
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [browseStack.length]);
 
   // 监听 URL 参数变化，处理浏览器后退/手势返回/前进
   useEffect(() => {
@@ -392,6 +397,7 @@ export const ImportFiles: React.FC = () => {
         loadDir();
       }
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, browseDirStack, browseStack]);
 
   const Header: React.FC = () => {
@@ -434,8 +440,8 @@ export const ImportFiles: React.FC = () => {
 
         {activeTab === "browse" && (
           <button
-            aria-label="搜索"
-            title="搜索"
+            aria-label={tc('search')}
+            title={tc('search')}
             style={{
               background: "none",
               border: "none",
@@ -459,8 +465,8 @@ export const ImportFiles: React.FC = () => {
           </button>
         )}
         <button
-          aria-label="全选"
-          title="全选"
+          aria-label={tc('selectAll')}
+          title={tc('selectAll')}
           style={{
             background: "none",
             border: "none",
@@ -498,7 +504,7 @@ export const ImportFiles: React.FC = () => {
 
     return (
       <PageHeader
-        title={scanList.length > 0 ? `扫描结果(${scanList.length})` : "导入文件"}
+        title={scanList.length > 0 ? t('scanResult', { count: scanList.length }) : t('importFiles')}
         onBack={handleBack}
         rightContent={rightContent}
         style={{ padding: '0 12px' }}
@@ -530,7 +536,7 @@ export const ImportFiles: React.FC = () => {
               fontSize: 14,
             }}
           >
-            {key === "scan" ? "自动扫描" : "浏览全部"}
+            {key === "scan" ? t('autoScan') : t('browseAll')}
           </div>
           <div
             style={{
@@ -680,7 +686,7 @@ export const ImportFiles: React.FC = () => {
                 {entry.name}
               </div>
               <div style={{ color: "#888", fontSize: 12 }}>
-                {`${entry.children_count || 0}项`} · {fmtDate(entry.mtime)}
+                {tc('items', { count: entry.children_count || 0 })} · {fmtDate(entry.mtime)}
               </div>
             </div>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
@@ -734,7 +740,7 @@ export const ImportFiles: React.FC = () => {
             onChange={setBrowseSearch}
             onClose={closeSearch}
             onClear={() => setBrowseSearch("")}
-            placeholder="搜索设备内书籍文件…"
+            placeholder={t('searchDeviceBooks')}
             autoFocus
             autoFocusDelay={50}
           />
@@ -775,12 +781,12 @@ export const ImportFiles: React.FC = () => {
               color: "#999",
             }}
           >
-            加载中...
+            {tc('loading')}
           </div>
-        ) : (
-          <BrowseList />
-        )}
-      </div>
+          ) : (
+            <BrowseList />
+          )}
+        </div>
 
       {!(activeTab === "browse" && browseLoading && browseStack.length === 0) && (
         <ImportBottomBar
@@ -790,9 +796,9 @@ export const ImportFiles: React.FC = () => {
             globalSearch.trim() === "" &&
             !scanLoading
               ? scanLoading
-                ? "正在扫描…"
-                : "立即扫描"
-              : `导入(${selectedPaths.length})`
+                ? t('scanning')
+                : t('startScan')
+              : t('importCount', { count: selectedPaths.length })
           }
           disabled={scanLoading}
           onClick={() => {
@@ -841,7 +847,7 @@ export const ImportFiles: React.FC = () => {
             }}
           >
             <div style={{ textAlign: "center", color: "#333", fontSize: 15 }}>
-              已扫描 {scannedCount} 个文件
+              {t('scannedFiles', { count: scannedCount })}
             </div>
             <div
               style={{
@@ -851,7 +857,7 @@ export const ImportFiles: React.FC = () => {
                 marginTop: 6,
               }}
             >
-              找到：书籍({foundPdfCount})
+              {t('foundBooks', { count: foundPdfCount })}
             </div>
             <div style={{ marginTop: 18 }}>
               <button
@@ -869,7 +875,7 @@ export const ImportFiles: React.FC = () => {
                   margin: "0 auto",
                 }}
               >
-                停止扫描
+                {t('stopScan')}
               </button>
             </div>
           </div>

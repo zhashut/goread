@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from 'react-i18next';
 import { IGroup } from "../types";
 import GroupCoverGrid from "./GroupCoverGrid";
 import { getSafeAreaInsets } from "../utils/layout";
@@ -14,12 +15,15 @@ export interface ChooseExistingGroupDrawerProps {
 
 const ChooseExistingGroupDrawer: React.FC<ChooseExistingGroupDrawerProps> = ({
   open,
-  title = "现有分组",
+  title,
   groups,
   groupPreviews,
   onClose,
   onSelectGroup,
 }) => {
+  const { t } = useTranslation('import');
+  const displayTitle = title || t('existingGroups');
+  
   if (!open) return null;
 
   return (
@@ -58,7 +62,7 @@ const ChooseExistingGroupDrawer: React.FC<ChooseExistingGroupDrawerProps> = ({
         }}
       >
         <div style={{ color: "#333", fontSize: 16, fontWeight: 600, marginBottom: 12 }}>
-          {title}
+          {displayTitle}
         </div>
         <div
           style={{

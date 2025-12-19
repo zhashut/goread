@@ -1,0 +1,22 @@
+{
+  "back": "返回",
+  "cancel": "取消",
+  "confirm": "确定",
+  "delete": "删除",
+  "save": "保存",
+  "edit": "编辑",
+  "search": "搜索",
+  "more": "更多",
+  "loading": "加载中...",
+  "selectAll": "全选",
+  "selected": "已选中({{count}})",
+  "books": "共 {{count}} 本",
+  "items": "{{count}}项",
+  "noData": "暂无数据",
+  "retry": "重试",
+  "success": "成功",
+  "failed": "失败",
+  "tips": "提示",
+  "warning": "警告",
+  "error": "错误"
+}

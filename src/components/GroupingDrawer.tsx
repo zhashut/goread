@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from "react";
-
+import { useTranslation } from 'react-i18next';
 import { getSafeAreaInsets } from "../utils/layout";
 
 interface GroupingDrawerProps {
@@ -21,6 +21,7 @@ const GroupingDrawer: React.FC<GroupingDrawerProps> = ({
   onConfirmName,
   loading = false,
 }) => {
+  const { t } = useTranslation('import');
   // 本地输入状态，配合输入法合成事件，避免中文输入被打断
   const [localValue, setLocalValue] = useState<string>(newGroupName || "");
   const [isComposing, setIsComposing] = useState<boolean>(false);
@@ -118,7 +119,7 @@ const GroupingDrawer: React.FC<GroupingDrawerProps> = ({
             marginBottom: 30,
           }}
         >
-          如何分组？
+          {t('howToGroup')}
         </div>
         <input
           ref={inputRef}
@@ -136,7 +137,7 @@ const GroupingDrawer: React.FC<GroupingDrawerProps> = ({
             const val = (e.target as HTMLInputElement).value;
             onNewGroupNameChange(val);
           }}
-          placeholder="输入新的分组名"
+          placeholder={t('inputNewGroupName')}
           onFocus={() => setIsInputFocused(true)}
           onBlur={() => setIsInputFocused(false)}
           onKeyDown={(e) => {
@@ -185,7 +186,7 @@ const GroupingDrawer: React.FC<GroupingDrawerProps> = ({
                 padding: 0,
               }}
             >
-              导入到现有分组
+              {t('importToExistingGroup')}
             </button>
             <button
               onClick={onConfirmName}
@@ -199,7 +200,7 @@ const GroupingDrawer: React.FC<GroupingDrawerProps> = ({
                 padding: 0,
               }}
             >
-              确定命名
+              {t('confirmName')}
             </button>
           </div>
         )}

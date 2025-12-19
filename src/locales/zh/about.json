@@ -1,0 +1,33 @@
+{
+  "title": "关于",
+  "overview": "概览",
+  "checkUpdate": "检查更新",
+  "feedback": "反馈",
+  "donate": "捐赠",
+  "sourceCode": "源码",
+  "github": "GitHub",
+  "openSourceLibs": "开源库",
+  "supportAuthor": "支持作者",
+  "scanQrInWechat": "截图进入微信选择图片扫码~",
+  "version": "版本",
+  "libs": {
+    "yespdf": {
+      "description": "开源 Android PDF 阅读器，本应用的 UI 样式与交互逻辑均致敬并参考自该项目。"
+    },
+    "pdfiumRender": {
+      "description": "PDFium 的高级 Rust 绑定，用于 PDF 渲染"
+    },
+    "foliateJs": {
+      "description": "电子书阅读器核心库（EPUB/MOBI/FB2）"
+    },
+    "dndKit": {
+      "description": "现代、轻量、高性能的 React 拖拽工具包"
+    },
+    "mdEditorRt": {
+      "description": "React Markdown 编辑器，支持代码高亮、图表等"
+    },
+    "html2canvas": {
+      "description": "使用 JavaScript 实现网页截图"
+    }
+  }
+}

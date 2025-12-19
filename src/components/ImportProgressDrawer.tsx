@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from 'react-i18next';
 import { getSafeAreaInsets } from "../utils/layout";
 
 interface ImportProgressDrawerProps {
@@ -16,6 +17,7 @@ const ImportProgressDrawer: React.FC<ImportProgressDrawerProps> = ({
   total,
   onStop,
 }) => {
+  const { t } = useTranslation('import');
   const percent = total > 0 ? Math.min(100, Math.round((current / total) * 100)) : 0;
 
   return (
@@ -35,7 +37,7 @@ const ImportProgressDrawer: React.FC<ImportProgressDrawerProps> = ({
     >
       <div
         role="dialog"
-        aria-label="导入进度"
+        aria-label={t('importProgress')}
         style={{
           width: "100%",
           background: "#fff",
@@ -51,7 +53,7 @@ const ImportProgressDrawer: React.FC<ImportProgressDrawerProps> = ({
       >
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ color: "#333", fontSize: 15 }}>
-            正在导入「{(title || "").slice(0, 20)}{(title || "").length > 20 ? "…" : ""}」书籍
+            {t('importingBook', { title: (title || "").slice(0, 20) + ((title || "").length > 20 ? "…" : "") })}
           </div>
         </div>
         <div
@@ -99,7 +101,7 @@ const ImportProgressDrawer: React.FC<ImportProgressDrawerProps> = ({
               cursor: "pointer",
             }}
           >
-            停止导入
+            {t('stopImport')}
           </button>
         </div>
       </div>

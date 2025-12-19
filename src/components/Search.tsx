@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useTranslation } from 'react-i18next';
 import { useAppNav } from "../router/useAppNav";
 import { IBook } from "../types";
 import { COVER_ASPECT_RATIO_COMPACT, GRID_GAP_BOOK_CARDS, CARD_MIN_WIDTH } from "../constants/ui";
@@ -7,6 +8,7 @@ import { BookCard } from "./BookCard";
 import { SearchHeader } from "./SearchHeader";
 
 const EmptyState: React.FC = () => {
+  const { t } = useTranslation('search');
   return (
     <div
       style={{
@@ -55,12 +57,14 @@ const EmptyState: React.FC = () => {
           strokeWidth="2"
         />
       </svg>
-      <div>没有文件信息</div>
+      <div>{t('noFiles')}</div>
     </div>
   );
 };
 
 export const Search: React.FC = () => {
+  const { t } = useTranslation('search');
+  const { t: tc } = useTranslation('common');
   const nav = useAppNav();
 
   
@@ -106,7 +110,7 @@ export const Search: React.FC = () => {
         onChange={setQuery}
         onClose={() => nav.goBack()}
         onClear={() => setQuery("")}
-        placeholder="输入书名关键词..."
+        placeholder={t('placeholder')}
         autoFocus
       />
       {query.trim() !== "" && (
@@ -119,7 +123,7 @@ export const Search: React.FC = () => {
             flexShrink: 0,
           }}
         >
-          共 {results.length} 本
+          {t('totalBooks', { count: results.length })}
         </div>
       )}
 
@@ -138,7 +142,7 @@ export const Search: React.FC = () => {
               color: "#666",
             }}
           >
-            加载中…
+            {tc('loading')}
           </div>
         ) : !query ? (
           <EmptyState />

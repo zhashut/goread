@@ -1,0 +1,33 @@
+{
+  "title": "About",
+  "overview": "Overview",
+  "checkUpdate": "Check for Updates",
+  "feedback": "Feedback",
+  "donate": "Donate",
+  "sourceCode": "Source Code",
+  "github": "GitHub",
+  "openSourceLibs": "Open Source Libraries",
+  "supportAuthor": "Support the Author",
+  "scanQrInWechat": "Screenshot and scan in WeChat~",
+  "version": "Version",
+  "libs": {
+    "yespdf": {
+      "description": "Open source Android PDF reader. This app's UI style and interaction logic are inspired by this project."
+    },
+    "pdfiumRender": {
+      "description": "High-level Rust bindings for PDFium for PDF rendering"
+    },
+    "foliateJs": {
+      "description": "E-book reader core library (EPUB/MOBI/FB2)"
+    },
+    "dndKit": {
+      "description": "Modern, lightweight, and high-performance React drag and drop toolkit"
+    },
+    "mdEditorRt": {
+      "description": "React Markdown editor with code highlighting and charts support"
+    },
+    "html2canvas": {
+      "description": "Screenshots with JavaScript"
+    }
+  }
+}

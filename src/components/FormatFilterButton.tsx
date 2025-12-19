@@ -1,5 +1,6 @@
 import React from "react";
-import { FORMAT_DISPLAY_NAMES } from "../constants/fileTypes";
+import { useTranslation } from "react-i18next";
+import { FORMAT_DISPLAY_NAMES, getFormatDisplayName } from "../constants/fileTypes";
 import type { BookFormat } from "../services/formats/types";
 
 interface FormatFilterButtonProps {
@@ -17,6 +18,7 @@ export const FormatFilterButton: React.FC<FormatFilterButtonProps> = ({
   onSelect,
   canFilter = true,
 }) => {
+  const { t } = useTranslation("import");
   const handleToggleMenu: React.MouseEventHandler<HTMLButtonElement> = (e) => {
     e.stopPropagation();
     if (!canFilter) return;
@@ -36,8 +38,8 @@ export const FormatFilterButton: React.FC<FormatFilterButtonProps> = ({
   return (
     <div style={{ position: "relative" }}>
       <button
-        aria-label="筛选"
-        title="筛选格式"
+        aria-label={t("filterFormats")}
+        title={t("filterFormats")}
         disabled={!canFilter}
         style={{
           background: "none",
@@ -122,7 +124,7 @@ export const FormatFilterButton: React.FC<FormatFilterButtonProps> = ({
                 onMenuOpenChange(false);
               }}
             >
-              全部格式
+              {t("format.all")}
               {filterFormat === "ALL" && (
                 <span style={{ color: "#d43d3d", fontSize: 12 }}>✓</span>
               )}
@@ -147,7 +149,7 @@ export const FormatFilterButton: React.FC<FormatFilterButtonProps> = ({
                   onMenuOpenChange(false);
                 }}
               >
-                {FORMAT_DISPLAY_NAMES[fmt]}
+                {getFormatDisplayName(fmt)}
                 {filterFormat === fmt && (
                   <span style={{ color: "#d43d3d", fontSize: 12 }}>✓</span>
                 )}

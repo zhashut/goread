@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useAppNav } from '../router/useAppNav';
 import { statsService } from '../services';
 import { IStatsSummary, IDailyStats, IRangeStats, IBookReadingStats } from '../types';
@@ -22,12 +23,12 @@ type RangeType = 'day' | 'week' | 'month' | 'year';
 type HeatmapRange = 90 | 180 | 365;
 
 // 工具函数：格式化秒数为可读时间
-const formatDuration = (seconds: number): string => {
-  if (seconds < 60) return `${seconds}秒`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}分钟`;
+const formatDuration = (seconds: number, t: (key: any) => string): string => {
+  if (seconds < 60) return `${seconds}${t('seconds')}`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}${t('minutes')}`;
   const hours = seconds / 3600;
-  if (hours < 10) return `${hours.toFixed(1)}小时`;
-  return `${Math.floor(hours)}小时`;
+  if (hours < 10) return `${hours.toFixed(1)}${t('hours')}`;
+  return `${Math.floor(hours)}${t('hours')}`;
 };
 
 // 工具函数：格式化秒数为简短形式
@@ -40,9 +41,24 @@ const formatShortDuration = (seconds: number): string => {
 
 
 // 格式化日期显示
-const formatDateRange = (startDate: string, endDate: string, rangeType: RangeType): string => {
+const formatDateRange = (startDate: string, endDate: string, rangeType: RangeType, lng: string): string => {
   const start = new Date(startDate);
   const end = new Date(endDate);
+  
+  if (lng === 'en') {
+    switch (rangeType) {
+      case 'day':
+        return `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+      case 'week':
+        return `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+      case 'month':
+        return `${start.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}`;
+      case 'year':
+        return `${start.getFullYear()}`;
+      default:
+        return '';
+    }
+  }
   
   switch (rangeType) {
     case 'day':
@@ -59,12 +75,12 @@ const formatDateRange = (startDate: string, endDate: string, rangeType: RangeTyp
 };
 
 // 获取范围标题
-const getRangeTitle = (rangeType: RangeType): string => {
+const getRangeTitle = (rangeType: RangeType, t: (key: any) => string): string => {
   const titles: Record<RangeType, string> = {
-    day: '今日时长',
-    week: '本周时长',
-    month: '本月时长',
-    year: '年度时长'
+    day: t('todayDuration'),
+    week: t('weekDuration'),
+    month: t('monthDuration'),
+    year: t('yearDuration')
   };
   return titles[rangeType];
 };
@@ -96,7 +112,7 @@ const getCurrentBarIndex = (rangeType: RangeType): number => {
 
 // 格式化书籍的阅读时间显示（根据 rangeType）
 // last_read 是时间戳字符串（秒）
-const formatBookTime = (timestampStr: string, rangeType: RangeType): string => {
+const formatBookTime = (timestampStr: string, rangeType: RangeType, t: (key: any) => string, lng: string): string => {
   const timestamp = parseInt(timestampStr, 10);
   if (isNaN(timestamp) || timestamp === 0) return '-';
   
@@ -109,10 +125,13 @@ const formatBookTime = (timestampStr: string, rangeType: RangeType): string => {
       return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
     case 'week':
       // 周视图：显示周几
-      const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-      return weekdays[date.getDay()];
+      const weekdayKeys = ['weekdays.sun', 'weekdays.mon', 'weekdays.tue', 'weekdays.wed', 'weekdays.thu', 'weekdays.fri', 'weekdays.sat'];
+      return t(weekdayKeys[date.getDay()]);
     case 'month':
       // 月视图：显示几月几号
+      if (lng === 'en') {
+        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      }
       return `${date.getMonth() + 1}月${date.getDate()}日`;
     case 'year':
       // 年视图：显示完整日期
@@ -145,6 +164,7 @@ const COLORS = {
 };
 
 export const Statistics: React.FC = () => {
+  const { t, i18n } = useTranslation('statistics');
   const nav = useAppNav();
   
   // 状态
@@ -207,7 +227,7 @@ export const Statistics: React.FC = () => {
         
         // 构造 rangeStats 用于显示
         setRangeStats({
-          labels: ['0-6点', '6-12点', '12-18点', '18-24点'],
+          labels: [t('timeSlots.slot0_6'), t('timeSlots.slot6_12'), t('timeSlots.slot12_18'), t('timeSlots.slot18_24')],
           values: hourStats,
           start_date: dateStr,
           end_date: dateStr,
@@ -216,7 +236,34 @@ export const Statistics: React.FC = () => {
         });
       } else {
         const data = await statsService.getReadingStatsByRange(rangeType, rangeOffset);
-        setRangeStats(data);
+        
+        // 根据 rangeType 生成国际化标签，替换后端返回的中文标签
+        let localizedLabels: string[];
+        switch (rangeType) {
+          case 'week':
+            localizedLabels = [
+              t('weekLabels.mon'), t('weekLabels.tue'), t('weekLabels.wed'),
+              t('weekLabels.thu'), t('weekLabels.fri'), t('weekLabels.sat'), t('weekLabels.sun')
+            ];
+            break;
+          case 'month':
+            localizedLabels = [
+              t('monthWeeks.week1'), t('monthWeeks.week2'),
+              t('monthWeeks.week3'), t('monthWeeks.week4')
+            ];
+            break;
+          case 'year':
+            localizedLabels = [
+              t('months.jan'), t('months.feb'), t('months.mar'), t('months.apr'),
+              t('months.may'), t('months.jun'), t('months.jul'), t('months.aug'),
+              t('months.sep'), t('months.oct'), t('months.nov'), t('months.dec')
+            ];
+            break;
+          default:
+            localizedLabels = data.labels;
+        }
+        
+        setRangeStats({ ...data, labels: localizedLabels });
         
         // 加载该范围内的书籍
         const booksData = await statsService.getBooksByDateRange(data.start_date, data.end_date);
@@ -293,13 +340,15 @@ export const Statistics: React.FC = () => {
   // 热力图点击处理
   const handleHeatboxClick = useCallback((date: string, seconds: number) => {
     const d = new Date(date);
-    const dateStr = `${d.getMonth() + 1}月${d.getDate()}日`;
+    const dateStr = i18n.language === 'en' 
+      ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      : `${d.getMonth() + 1}月${d.getDate()}日`;
     if (seconds > 0) {
-      showToast(`${dateStr} 阅读了 ${formatDuration(seconds)}`);
+      showToast(t('readDuration', { date: dateStr, duration: formatDuration(seconds, t) }));
     } else {
-      showToast(`${dateStr} 无阅读记录`);
+      showToast(t('noRecordOnDay', { date: dateStr }));
     }
-  }, [showToast]);
+  }, [showToast, t, i18n.language]);
 
   // 计算环比
   const getTrendText = (): { text: string; isUp: boolean } => {
@@ -319,7 +368,7 @@ export const Statistics: React.FC = () => {
     if (!rangeStats) return '-';
     const count = rangeStats.labels.length;
     const avg = rangeStats.total_seconds / count;
-    return formatDuration(Math.round(avg));
+    return formatDuration(Math.round(avg), t);
   };
 
   const heatmapData = generateHeatmapData();
@@ -350,7 +399,7 @@ export const Statistics: React.FC = () => {
       >
       {/* 顶部导航栏 */}
       <PageHeader
-        title="阅读统计"
+        title={t('title')}
         onBack={() => nav.goBack()}
         sticky
         backgroundColor={COLORS.cardBg}
@@ -371,23 +420,23 @@ export const Statistics: React.FC = () => {
         <div style={{ flex: 1, textAlign: 'center' }}>
           <h3 style={{ fontSize: 26, color: COLORS.textMain, marginBottom: 4, fontWeight: 700 }}>
             {Math.floor(summary.total_time_seconds / 3600)}
-            <span style={{ fontSize: 12, fontWeight: 400, marginLeft: 2, color: COLORS.textSub }}>h</span>
+            <span style={{ fontSize: 12, fontWeight: 400, marginLeft: 2, color: COLORS.textSub }}>{t('hour')}</span>
           </h3>
-          <p style={{ fontSize: 12, color: COLORS.textSub }}>总时长</p>
+          <p style={{ fontSize: 12, color: COLORS.textSub }}>{t('totalDuration')}</p>
         </div>
         <div style={{ flex: 1, textAlign: 'center' }}>
           <h3 style={{ fontSize: 26, color: COLORS.textMain, marginBottom: 4, fontWeight: 700 }}>
             {summary.streak_days}
-            <span style={{ fontSize: 12, fontWeight: 400, marginLeft: 2, color: COLORS.textSub }}>天</span>
+            <span style={{ fontSize: 12, fontWeight: 400, marginLeft: 2, color: COLORS.textSub }}>{t('day')}</span>
           </h3>
-          <p style={{ fontSize: 12, color: COLORS.textSub }}>连续阅读</p>
+          <p style={{ fontSize: 12, color: COLORS.textSub }}>{t('consecutiveReading')}</p>
         </div>
         <div style={{ flex: 1, textAlign: 'center' }}>
           <h3 style={{ fontSize: 26, color: COLORS.textMain, marginBottom: 4, fontWeight: 700 }}>
             {summary.finished_books}
-            <span style={{ fontSize: 12, fontWeight: 400, marginLeft: 2, color: COLORS.textSub }}>本</span>
+            <span style={{ fontSize: 12, fontWeight: 400, marginLeft: 2, color: COLORS.textSub }}>{t('book')}</span>
           </h3>
-          <p style={{ fontSize: 12, color: COLORS.textSub }}>已读完</p>
+          <p style={{ fontSize: 12, color: COLORS.textSub }}>{t('finishedBooks')}</p>
         </div>
       </div>
 
@@ -418,7 +467,7 @@ export const Statistics: React.FC = () => {
               transform: rangeType === type ? 'scale(1.02)' : 'none'
             }}
           >
-            {{ day: '日', week: '周', month: '月', year: '年' }[type]}
+          {t(`${type}_tab` as any)}
           </div>
         ))}
       </div>
@@ -457,10 +506,10 @@ export const Statistics: React.FC = () => {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 20 }}>
           <div>
             <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.textMain, display: 'flex', alignItems: 'center' }}>
-              {getRangeTitle(rangeType)}
+              {getRangeTitle(rangeType, t)}
             </div>
             <div style={{ fontSize: 12, color: COLORS.textSub, marginTop: 4 }}>
-              {rangeStats ? formatDateRange(rangeStats.start_date, rangeStats.end_date, rangeType) : ''}
+              {rangeStats ? formatDateRange(rangeStats.start_date, rangeStats.end_date, rangeType, i18n.language) : ''}
             </div>
           </div>
         </div>
@@ -525,9 +574,9 @@ export const Statistics: React.FC = () => {
         <div style={{ display: 'flex', gap: 20, marginTop: 20, paddingTop: 15, borderTop: '1px solid #f9f9f9' }}>
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             <span style={{ fontSize: 15, fontWeight: 700, color: COLORS.textMain }}>
-              {formatDuration(rangeStats?.total_seconds || 0)}
+              {formatDuration(rangeStats?.total_seconds || 0, t)}
             </span>
-            <span style={{ fontSize: 10, color: COLORS.textSub, marginTop: 2 }}>总计</span>
+            <span style={{ fontSize: 10, color: COLORS.textSub, marginTop: 2 }}>{t('total')}</span>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             <span style={{ 
@@ -537,13 +586,13 @@ export const Statistics: React.FC = () => {
             }}>
               {trend.text}
             </span>
-            <span style={{ fontSize: 10, color: COLORS.textSub, marginTop: 2 }}>环比</span>
+            <span style={{ fontSize: 10, color: COLORS.textSub, marginTop: 2 }}>{t('comparison')}</span>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             <span style={{ fontSize: 15, fontWeight: 700, color: COLORS.textMain }}>
               {getAverage()}
             </span>
-            <span style={{ fontSize: 10, color: COLORS.textSub, marginTop: 2 }}>平均</span>
+            <span style={{ fontSize: 10, color: COLORS.textSub, marginTop: 2 }}>{t('average')}</span>
           </div>
         </div>
       </div>
@@ -558,7 +607,7 @@ export const Statistics: React.FC = () => {
         position: 'relative'
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.textMain }}>该时段阅读</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.textMain }}>{t('periodReading')}</div>
         </div>
         
         <div style={{
@@ -568,7 +617,7 @@ export const Statistics: React.FC = () => {
         }} className="hide-scrollbar">
           {books.length === 0 ? (
             <div style={{ textAlign: 'center', padding: 20, color: COLORS.textSub, fontSize: 12 }}>
-              暂无阅读记录
+              {t('noReadingRecord')}
             </div>
           ) : (
             books.map((book) => (
@@ -656,7 +705,7 @@ export const Statistics: React.FC = () => {
                     justifyContent: 'space-between', 
                     alignItems: 'center' 
                   }}>
-                    <span>已读 {book.progress} • {formatBookTime(book.last_read, rangeType)}</span>
+                    <span>{t('progress', { progress: book.progress })} • {formatBookTime(book.last_read, rangeType, t, i18n.language)}</span>
                     <span style={{
                       background: COLORS.primaryBg,
                       color: COLORS.primary,
@@ -665,7 +714,7 @@ export const Statistics: React.FC = () => {
                       fontSize: 10,
                       fontWeight: 600
                     }}>
-                      {formatDuration(book.total_duration)}
+                      {formatDuration(book.total_duration, t)}
                     </span>
                   </div>
                 </div>
@@ -685,9 +734,9 @@ export const Statistics: React.FC = () => {
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <div style={{ fontSize: 16, fontWeight: 700, color: COLORS.textMain, display: 'flex', alignItems: 'center' }}>
-            阅读热力图
+            {t('heatmap')}
             <span style={{ fontSize: 12, color: COLORS.textSub, marginLeft: 8, fontWeight: 400 }}>
-              ({heatmapRange === 90 ? '近3个月' : heatmapRange === 180 ? '近半年' : '近1年'})
+              ({heatmapRange === 90 ? t('recent3Months') : heatmapRange === 180 ? t('recent6Months') : t('recent1Year')})
             </span>
           </div>
           <div style={{ display: 'flex', gap: 2, background: '#f5f5f5', padding: 3, borderRadius: 8 }}>
@@ -707,7 +756,7 @@ export const Statistics: React.FC = () => {
                   boxShadow: heatmapRange === range ? '0 1px 3px rgba(0,0,0,0.08)' : 'none'
                 }}
               >
-                {{ 90: '3月', 180: '6月', 365: '1年' }[range]}
+                {{ 90: '3M', 180: '6M', 365: '1Y' }[range]}
               </div>
             ))}
           </div>
@@ -747,14 +796,14 @@ export const Statistics: React.FC = () => {
           color: '#999', 
           marginTop: 10 
         }}>
-          <span>少</span>
+          <span>{t('less')}</span>
           {COLORS.heatLevels.map((color, i) => (
             <span
               key={i}
               style={{ width: 8, height: 8, background: color, margin: '0 3px', borderRadius: 1 }}
             />
           ))}
-          <span>多</span>
+          <span>{t('much')}</span>
         </div>
       </div>
 

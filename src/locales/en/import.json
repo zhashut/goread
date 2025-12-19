@@ -1,0 +1,28 @@
+{
+  "scanResults": "Scan Results ({{count}})",
+  "search": "Search",
+  "selectAll": "Select All",
+  "searchPlaceholder": "Search files in scan results...",
+  "pleaseSelectFiles": "Please select files to import first",
+  "imported": "Imported",
+  "import": "Import ({{count}})",
+  "importProgress": "Import Progress",
+  "importingBook": "Importing \"{{title}}\"",
+  "stopImport": "Stop Import",
+  "howToGroup": "How to group?",
+  "inputNewGroupName": "Enter new group name",
+  "importToExistingGroup": "Import to existing group",
+  "confirmName": "Confirm",
+  "existingGroups": "Existing Groups",
+  "filterFormats": "Filter formats",
+  "format": {
+    "all": "All formats",
+    "pdf": "PDF",
+    "epub": "EPUB",
+    "markdown": "Markdown",
+    "mobi": "MOBI",
+    "azw3": "AZW3/Kindle",
+    "fb2": "FB2",
+    "html": "HTML"
+  }
+}

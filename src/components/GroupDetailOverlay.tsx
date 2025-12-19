@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import { useTranslation } from 'react-i18next';
 import { useAppNav } from "../router/useAppNav";
 import { IGroup } from "../types";
 import { IconDelete, IconMove } from "./Icons";
@@ -23,6 +24,7 @@ export const GroupDetailOverlay: React.FC<GroupDetailOverlayProps> = ({
   onClose,
   onGroupUpdate,
 }) => {
+  const { t } = useTranslation('group');
   const nav = useAppNav();
   const { dragActive } = useDragGuard();
 
@@ -71,7 +73,7 @@ export const GroupDetailOverlay: React.FC<GroupDetailOverlayProps> = ({
     // 前端查重（排除当前分组）
     const isDuplicate = groups.some(g => g.name === name && g.id !== groupId);
     if (isDuplicate) {
-      setToastMsg("分组名称已存在");
+      setToastMsg(t('groupNameExists'));
       setTimeout(() => editInputRef.current?.focus(), 0);
       return;
     }
@@ -85,7 +87,7 @@ export const GroupDetailOverlay: React.FC<GroupDetailOverlayProps> = ({
       setIsEditingGroupName(false);
     } catch (e: any) {
       console.error("Update group name failed", e);
-      setToastMsg(typeof e === 'string' ? e : (e.message || "修改失败"));
+      setToastMsg(typeof e === 'string' ? e : (e.message || t('updateFailed')));
       setTimeout(() => editInputRef.current?.focus(), 0);
     }
   };
@@ -140,8 +142,8 @@ export const GroupDetailOverlay: React.FC<GroupDetailOverlayProps> = ({
           selectionActions={
             <>
               <button
-                aria-label="更改分组"
-                title="更改分组"
+                aria-label={t('changeGroup')}
+                title={t('changeGroup')}
                 style={{
                   background: "none",
                   border: "none",
@@ -166,8 +168,8 @@ export const GroupDetailOverlay: React.FC<GroupDetailOverlayProps> = ({
                 <IconMove width={24} height={24} fill="#333" />
               </button>
               <button
-                aria-label="删除"
-                title="删除"
+                aria-label={t('delete')}
+                title={t('delete')}
                 style={{
                   background: "none",
                   border: "none",
@@ -192,8 +194,8 @@ export const GroupDetailOverlay: React.FC<GroupDetailOverlayProps> = ({
                 <IconDelete width={24} height={24} fill="#333" />
               </button>
               <button
-                aria-label="全选"
-                title="全选"
+                aria-label={t('selectAll')}
+                title={t('selectAll')}
                 style={{
                   background: "none",
                   border: "none",
@@ -371,7 +373,7 @@ export const GroupDetailOverlay: React.FC<GroupDetailOverlayProps> = ({
               textOverflow: "ellipsis"
             }}
           >
-            {groups.find((g) => g.id === groupId)?.name || "分组"}
+          {groups.find((g) => g.id === groupId)?.name || t('defaultGroupName')}
           </div>
         )}
         {/* 抽屉主体：宽度占满，高度85%，居中位置 */}

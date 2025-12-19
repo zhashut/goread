@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from 'react-i18next';
 import { BOTTOM_DRAWER_RADIUS } from "../../constants/ui";
 import { getSafeAreaInsets } from "../../utils/layout";
 
@@ -15,6 +16,8 @@ export const MoreDrawer: React.FC<MoreDrawerProps> = ({
   onCapture,
   onSettings,
 }) => {
+  const { t } = useTranslation('reader');
+  
   if (!visible) return null;
 
   return (
@@ -68,7 +71,7 @@ export const MoreDrawer: React.FC<MoreDrawerProps> = ({
           }}>
             📷
           </div>
-          <span style={{ fontSize: "16px" }}>导出图片</span>
+          <span style={{ fontSize: "16px" }}>{t('exportImage')}</span>
         </div>
 
         <div
@@ -91,7 +94,7 @@ export const MoreDrawer: React.FC<MoreDrawerProps> = ({
           }}>
             ⚙️
           </div>
-          <span style={{ fontSize: "16px" }}>设置</span>
+          <span style={{ fontSize: "16px" }}>{t('settings')}</span>
         </div>
       </div>
     </div>

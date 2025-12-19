@@ -1,0 +1,36 @@
+{
+  "title": "设置",
+  "volumeKeyTurnPage": "音量键翻页",
+  "clickTurnPage": "点击翻页",
+  "showStatusBar": "显示状态栏",
+  "pageTransition": "翻页动画",
+  "recentDisplayCount": "最近显示数量",
+  "renderQuality": "书籍渲染质量",
+  "language": "多语言 (Language)",
+  "dataManagement": "数据管理",
+  "export": "导出",
+  "import": "导入",
+  "scrollSpeed": "滚动速度",
+  "pageGap": "页面间隙",
+  "unlimited": "不限",
+  "quality": {
+    "thumbnail": "极速(Thumbnail)",
+    "standard": "标准(Standard)",
+    "high": "高清(High)",
+    "best": "超清(Best)"
+  },
+  "backup": {
+    "dialogNotSupportedSave": "当前环境不支持文件保存对话框",
+    "dialogNotSupportedOpen": "当前环境不支持文件打开对话框",
+    "fileFilterName": "GoRead 备份文件",
+    "exportSuccess": "导出成功",
+    "exportFailedWithReason": "导出失败，请重试\\n\\n原因：{{reason}}",
+    "importConfirm": "导入备份会覆盖当前应用内的所有数据（书架、分组、阅读记录、统计和阅读设置），此操作不可撤销。是否继续？",
+    "importSuccess": "导入成功，应用将关闭，请重新打开以应用最新数据",
+    "importFailedWithReason": "导入失败，请重试\\n\\n原因：{{reason}}",
+    "errorParseBackupFailed": "备份文件解析失败，请确认文件是否完整",
+    "errorUnsupportedVersion": "备份文件版本不被当前应用支持",
+    "errorNotGoreadBackup": "备份文件不是 GoRead 生成的备份",
+    "errorMissingData": "备份文件缺少必要的数据内容"
+  }
+}

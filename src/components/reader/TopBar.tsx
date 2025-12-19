@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from 'react-i18next';
 import { TOP_DRAWER_RADIUS } from "../../constants/ui";
 import { getSafeAreaInsets } from "../../utils/layout";
 
@@ -11,6 +12,8 @@ interface TopBarProps {
 }
 
 export const TopBar: React.FC<TopBarProps> = ({ visible, bookTitle, onBack, isFinished, onToggleFinish }) => {
+  const { t } = useTranslation('reader');
+  
   if (!visible) return null;
 
   return (
@@ -57,7 +60,7 @@ export const TopBar: React.FC<TopBarProps> = ({ visible, bookTitle, onBack, isFi
             display: "flex",
             alignItems: "center",
           }}
-          title="返回"
+          title={t('back')}
         >
           {"<"}
         </button>
@@ -97,7 +100,7 @@ export const TopBar: React.FC<TopBarProps> = ({ visible, bookTitle, onBack, isFi
         <svg viewBox="0 0 24 24" width="20" height="20" style={{ fill: isFinished ? "#ff5252" : "white", display: "block" }}>
           <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
         </svg>
-        <span>{isFinished ? "已完成" : "已读"}</span>
+        <span>{isFinished ? t('finished') : t('read')}</span>
       </div>
     </div>
   );

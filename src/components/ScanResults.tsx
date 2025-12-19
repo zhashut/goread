@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useEffect } from "react";
+import { useTranslation } from 'react-i18next';
 import { useAppNav } from "../router/useAppNav";
 import { FileRow } from "./FileRow";
 import { ScanResultItem } from "../types";
@@ -36,6 +37,7 @@ const Header: React.FC<{
   selectedPaths,
   setSelectedPaths,
 }) => {
+  const { t } = useTranslation('import');
   const candidates = filtered
     .filter((it) => !it.imported && it.type === "file")
     .map((it) => it.path);
@@ -61,8 +63,8 @@ const Header: React.FC<{
 
           {/* 搜索按钮 */}
           <button
-            aria-label="搜索"
-            title="搜索"
+            aria-label={t('search')}
+            title={t('search')}
             style={{
               background: "none",
               border: "none",
@@ -87,8 +89,8 @@ const Header: React.FC<{
 
           {/* 全选按钮 */}
           <button
-            aria-label="全选"
-            title="全选"
+            aria-label={t('selectAll')}
+            title={t('selectAll')}
             style={{
               background: "none",
               border: "none",
@@ -117,6 +119,7 @@ const Header: React.FC<{
 };
 
 export const ScanResults: React.FC = () => {
+  const { t } = useTranslation('import');
   const nav = useAppNav();
   const { state } = nav.location as { state?: { results?: ScanResultItem[]; fromTab?: "recent" | "all" } };
   const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
@@ -194,7 +197,7 @@ export const ScanResults: React.FC = () => {
 
   const handleImportClick = async () => {
     if (selectedPaths.length === 0) {
-      alert("请先选择要导入的文件");
+      alert(t('pleaseSelectFiles'));
       return;
     }
     openGroupingWithPaths(selectedPaths);
@@ -220,12 +223,12 @@ export const ScanResults: React.FC = () => {
           onChange={setGlobalSearch}
           onClose={closeSearch}
           onClear={() => setGlobalSearch("")}
-          placeholder="搜索扫描结果中的文件…"
+          placeholder={t('searchPlaceholder')}
           autoFocus
         />
       ) : (
         <Header
-          title={`扫描结果(${results.length})`}
+          title={t('scanResults', { count: results.length })}
           onBack={() => {
             // 先关闭筛选菜单，避免遮罩层阻挡导航
             setFilterMenuOpen(false);
@@ -288,7 +291,7 @@ export const ScanResults: React.FC = () => {
       />
 
       <ImportBottomBar
-        label={`导入(${selectedPaths.length})`}
+        label={t('import', { count: selectedPaths.length })}
         onClick={handleImportClick}
         useSafeAreaPadding
       />
