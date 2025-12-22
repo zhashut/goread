@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.provider.Settings
+import android.view.KeyEvent
 import android.webkit.WebView
 import androidx.documentfile.provider.DocumentFile
 import androidx.activity.SystemBarStyle
@@ -36,6 +37,9 @@ class MainActivity : TauriActivity() {
   // Status bar controller
   private var windowInsetsController: WindowInsetsControllerCompat? = null
   private var isStatusBarVisible = true  // Default to visible (only hide in Reader page)
+  
+  // Volume key page turn control
+  private var volumeKeyEnabled = false
   
   // SAF 目录选择回调
   private val openDocumentTreeLauncher = registerForActivityResult(
@@ -107,6 +111,9 @@ class MainActivity : TauriActivity() {
     // Expose status bar control functions to JavaScript
     webView.addJavascriptInterface(StatusBarBridge(), "StatusBarBridge")
     
+    // 音量键翻页控制接口
+    webView.addJavascriptInterface(VolumeKeyBridge(), "VolumeKeyBridge")
+    
     // 存储权限控制接口（供前端按需调用）
     webView.addJavascriptInterface(StoragePermissionBridge(), "StoragePermissionBridge")
     // SAF 文件访问接口（目录选择、扫描与复制）
@@ -141,6 +148,11 @@ class MainActivity : TauriActivity() {
       webView.postDelayed({
         notifyBridgeReady()
       }, 200)
+      
+      // Notify JavaScript that VolumeKeyBridge is ready
+      webView.postDelayed({
+        notifyVolumeKeyBridgeReady()
+      }, 200)
     }
   }
   
@@ -154,6 +166,63 @@ class MainActivity : TauriActivity() {
             window.dispatchEvent(new CustomEvent('statusBarBridgeReady'));
           }
           console.log('[StatusBar] Android bridge ready');
+        })();
+      """.trimIndent()
+      webViewRef?.evaluateJavascript(js, null)
+    }
+  }
+  
+  private fun notifyVolumeKeyBridgeReady() {
+    webViewRef?.post {
+      val js = """
+        (function() {
+          window.__VOLUME_KEY_BRIDGE_READY__ = true;
+          // Dispatch custom event to notify JavaScript
+          if (typeof CustomEvent !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('volumeKeyBridgeReady'));
+          }
+          console.log('[VolumeKey] Android bridge ready');
+        })();
+      """.trimIndent()
+      webViewRef?.evaluateJavascript(js, null)
+    }
+  }
+  
+  // 使用 dispatchKeyEvent 拦截音量键事件（比 onKeyDown 更可靠，特别是在 MIUI 系统上）
+  override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+    if (volumeKeyEnabled) {
+      // 只处理按下事件，避免重复触发
+      if (event.action == KeyEvent.ACTION_DOWN) {
+        when (event.keyCode) {
+          KeyEvent.KEYCODE_VOLUME_UP -> {
+            notifyVolumeKey("up")
+            return true  // 消费事件，阻止系统音量改变
+          }
+          KeyEvent.KEYCODE_VOLUME_DOWN -> {
+            notifyVolumeKey("down")
+            return true
+          }
+        }
+      } else if (event.action == KeyEvent.ACTION_UP) {
+        // 也拦截抬起事件，防止系统处理
+        when (event.keyCode) {
+          KeyEvent.KEYCODE_VOLUME_UP, KeyEvent.KEYCODE_VOLUME_DOWN -> {
+            return true
+          }
+        }
+      }
+    }
+    return super.dispatchKeyEvent(event)
+  }
+  
+  // 通知前端音量键事件
+  private fun notifyVolumeKey(direction: String) {
+    webViewRef?.post {
+      val js = """
+        (function() {
+          if (typeof window.__onVolumeKey__ === 'function') {
+            window.__onVolumeKey__('$direction');
+          }
         })();
       """.trimIndent()
       webViewRef?.evaluateJavascript(js, null)
@@ -263,6 +332,22 @@ class MainActivity : TauriActivity() {
     @android.webkit.JavascriptInterface
     fun isVisible(): Boolean {
       return isStatusBarVisible
+    }
+  }
+  
+  // 音量键翻页控制接口
+  inner class VolumeKeyBridge {
+    @android.webkit.JavascriptInterface
+    fun setEnabled(enabled: Boolean) {
+      runOnUiThread {
+        volumeKeyEnabled = enabled
+        println("[VolumeKey] Enabled: $enabled")
+      }
+    }
+    
+    @android.webkit.JavascriptInterface
+    fun isEnabled(): Boolean {
+      return volumeKeyEnabled
     }
   }
   

@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import { initSafeAreaInsets } from "./utils/layout";
 import { statusBarService } from "./services/statusBarService";
+import { volumeKeyService } from "./services/volumeKeyService";
 import i18n, { getSystemLanguage } from "./locales";
 import { getReaderSettings } from "./services";
 
@@ -36,6 +37,9 @@ const setupApp = async () => {
     
     // 初始化移动平台的状态栏服务
     await statusBarService.init();
+    
+    // 初始化音量键翻页服务
+    await volumeKeyService.init();
     try {
       const { logError } = await import('./services');
       window.addEventListener('error', async (e) => {

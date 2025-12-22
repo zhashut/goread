@@ -29,6 +29,7 @@ import {
 } from "../constants/config";
 import { log } from "../services/index";
 import { statusBarService } from "../services/statusBarService";
+import { volumeKeyService } from "../services/volumeKeyService";
 import { TopBar } from "./reader/TopBar";
 import { BottomBar } from "./reader/BottomBar";
 import { TocOverlay } from "./reader/TocOverlay";
@@ -1825,21 +1826,28 @@ export const Reader: React.FC = () => {
     settings.scrollSpeed,
   ]);
 
-  // 键盘：音量键翻页（部分平台支持），开启后生效
+  // 音量键翻页（通过原生桥接实现，支持 Android）
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (!settings.volumeKeyTurnPage) return;
-      const code = e.code || e.key;
-      if (code === "AudioVolumeUp" || code === "VolumeUp") {
-        e.preventDefault();
+    if (!settings.volumeKeyTurnPage) {
+      volumeKeyService.setEnabled(false);
+      return;
+    }
+
+    // 启用音量键翻页
+    volumeKeyService.setEnabled(true);
+    volumeKeyService.onVolumeKey((direction) => {
+      if (direction === 'up') {
         prevPage();
-      } else if (code === "AudioVolumeDown" || code === "VolumeDown") {
-        e.preventDefault();
+      } else {
         nextPage();
       }
+    });
+
+    // 清理：禁用音量键翻页并移除回调
+    return () => {
+      volumeKeyService.setEnabled(false);
+      volumeKeyService.onVolumeKey(null);
     };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
   }, [settings.volumeKeyTurnPage, currentPage]);
 
   // 通过 statusBarService 应用状态栏设置（支持 Tauri 移动端 + 浏览器降级）
