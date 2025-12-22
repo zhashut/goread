@@ -95,9 +95,8 @@ export const Bookshelf: React.FC = () => {
     const targetTab = sessionStorage.getItem('bookshelf_active_tab');
     if (targetTab && (targetTab === 'recent' || targetTab === 'all')) {
       sessionStorage.removeItem('bookshelf_active_tab');
-      // 只有当前不在目标 Tab 时才切换
       if (activeTab !== targetTab) {
-        nav.toBookshelf(targetTab as 'recent' | 'all', { replace: true });
+        nav.toBookshelf(targetTab as 'recent' | 'all', { replace: true, resetStack: false });
       }
     }
 
@@ -482,7 +481,7 @@ export const Bookshelf: React.FC = () => {
   // 长按进入选择模式（书籍）
   const onBookLongPress = (id: number) => {
     if (!selectionMode) {
-      nav.toBookshelf(activeTab, { state: { selectionMode: true }, replace: false });
+      nav.toBookshelf(activeTab, { state: { selectionMode: true }, replace: false, resetStack: false });
     }
     setSelectedBookIds((prev) => new Set(prev).add(id));
   };
@@ -490,7 +489,7 @@ export const Bookshelf: React.FC = () => {
   // 长按进入选择模式（分组）
   const onGroupLongPress = (id: number) => {
     if (!selectionMode) {
-      nav.toBookshelf(activeTab, { state: { selectionMode: true }, replace: false });
+      nav.toBookshelf(activeTab, { state: { selectionMode: true }, replace: false, resetStack: false });
     }
     setSelectedGroupIds((prev) => new Set(prev).add(id));
   };
@@ -1293,7 +1292,7 @@ export const Bookshelf: React.FC = () => {
           groupId={overlayGroupId}
           groups={groups}
           onClose={() => {
-            nav.toBookshelf("all", { replace: true });
+            nav.closeGroup();
             // 关闭抽屉时刷新分组与最近
             loadGroups();
             loadBooks();

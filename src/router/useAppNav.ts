@@ -10,32 +10,35 @@ export const useAppNav = () => {
     goBack: () => navigate(-1),
     
     // 业务跳转
-    toBookshelf: (tab: 'recent' | 'all' = 'recent', options?: { replace?: boolean, state?: any }) => {
-      // 策略：不论从何处进入书架（最近/全部），都清空历史栈（回退到起点）
-      // 这样用户在书架页面按返回键时，会直接退出应用，而不是回退到之前的页面
+    toBookshelf: (
+      tab: 'recent' | 'all' = 'recent',
+      options?: { replace?: boolean; state?: any; resetStack?: boolean }
+    ) => {
       const isAtRoot = location.pathname === '/';
+      const historyState = window.history.state as { idx?: number } | null | undefined;
+      const routerIdx = historyState?.idx;
+      const { replace, state, resetStack } = options || {};
 
-      // 如果已经在根路径，直接替换当前 entry (Tab 切换)
-      // 或者是为了进入选择模式（Push State），此时 options.replace 可能为 false
-      if (isAtRoot) {
-         // 默认 replace: true，但允许 options.replace 覆盖
-         navigate(`/?tab=${tab}`, { replace: true, ...options });
-         return;
+      if (resetStack) {
+        if (typeof routerIdx === 'number' && routerIdx > 0) {
+          sessionStorage.setItem('bookshelf_active_tab', tab);
+          navigate(-routerIdx);
+          return;
+        }
+        navigate(`/?tab=${tab}`, { replace: true, state });
+        return;
       }
 
-      // 尝试获取 React Router 维护的历史栈索引
-      const historyState = window.history.state;
-      const routerIdx = historyState?.idx;
+      if (isAtRoot) {
+        navigate(`/?tab=${tab}`, { replace: typeof replace === 'boolean' ? replace : true, state });
+        return;
+      }
 
-      // 如果能获取到索引且深度 > 0，则回退到起点 (idx 0)
       if (typeof routerIdx === 'number' && routerIdx > 0) {
-        // 通过 sessionStorage 传递目标 Tab，由 Bookshelf 组件处理
         sessionStorage.setItem('bookshelf_active_tab', tab);
         navigate(-routerIdx);
       } else {
-        // 兜底：无索引信息或已在起点，使用 replace
-        // 注意：不再使用 history.length，因为它包含 forward history，会导致计算错误
-        navigate(`/?tab=${tab}`, { replace: true, ...options });
+        navigate(`/?tab=${tab}`, { replace: typeof replace === 'boolean' ? replace : true, state });
       }
     },
     
