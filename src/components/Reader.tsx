@@ -27,6 +27,7 @@ import {
   TOAST_DURATION_ERROR_MS,
   LAZY_LOAD_ROOT_MARGIN,
 } from "../constants/config";
+import { READING_INACTIVITY_THRESHOLD_MS } from "../constants/interactions";
 import { log } from "../services/index";
 import { statusBarService } from "../services/statusBarService";
 import { volumeKeyService } from "../services/volumeKeyService";
@@ -175,6 +176,12 @@ export const Reader: React.FC = () => {
    const sessionStartRef = useRef<number>(0);
    const lastSaveTimeRef = useRef<number>(0);
    const readingSessionIntervalRef = useRef<number | null>(null);
+   const isSessionPausedRef = useRef<boolean>(false);
+   const lastActiveTimeRef = useRef<number>(0);
+
+   const markReadingActive = () => {
+     lastActiveTimeRef.current = Date.now();
+   };
 
   // 当书籍切换时重置恢复标志
   useEffect(() => {
@@ -202,17 +209,39 @@ export const Reader: React.FC = () => {
     const now = Date.now();
     sessionStartRef.current = now;
     lastSaveTimeRef.current = now;
+    lastActiveTimeRef.current = now;
+    isSessionPausedRef.current = false;
     
-    // 保存阅读会话到后端
+    const stopSessionTimer = () => {
+      if (readingSessionIntervalRef.current) {
+        clearInterval(readingSessionIntervalRef.current);
+        readingSessionIntervalRef.current = null;
+      }
+    };
+
     const saveSession = async () => {
       const currentTime = Date.now();
-      const duration = Math.floor((currentTime - lastSaveTimeRef.current) / 1000);
-      
-      // 至少5秒才记录，避免误操作
-      if (duration >= 5 && book?.id) {
+      const totalElapsed = currentTime - lastSaveTimeRef.current;
+      if (totalElapsed <= 0 || !book?.id) {
+        lastSaveTimeRef.current = currentTime;
+        return;
+      }
+
+      const idleElapsed = currentTime - lastActiveTimeRef.current;
+      const inactivityCutoff = lastActiveTimeRef.current + READING_INACTIVITY_THRESHOLD_MS;
+      const effectiveEndTime = idleElapsed >= READING_INACTIVITY_THRESHOLD_MS ? inactivityCutoff : currentTime;
+
+      if (effectiveEndTime <= lastSaveTimeRef.current) {
+        lastSaveTimeRef.current = currentTime;
+        return;
+      }
+
+      const duration = Math.floor((effectiveEndTime - lastSaveTimeRef.current) / 1000);
+
+      if (duration >= 5) {
         const today = new Date();
         const readDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-        
+
         try {
           await statsService.saveReadingSession(
             book.id,
@@ -221,32 +250,41 @@ export const Reader: React.FC = () => {
             readDate
           );
         } catch (e) {
-          // 记录失败不阻断阅读
           console.warn('Failed to save reading session:', e);
         }
-        
-        lastSaveTimeRef.current = currentTime;
       }
+
+      lastSaveTimeRef.current = currentTime;
     };
-    
-    // 每30秒自动保存一次
-    readingSessionIntervalRef.current = window.setInterval(saveSession, 30000);
-    
-    // 页面切到后台时保存
+
+    const startSessionTimer = () => {
+      if (readingSessionIntervalRef.current) {
+        return;
+      }
+      readingSessionIntervalRef.current = window.setInterval(saveSession, 30000);
+    };
+
+    startSessionTimer();
+
     const handleVisibilityChange = () => {
       if (document.hidden) {
         saveSession();
+        stopSessionTimer();
+        isSessionPausedRef.current = true;
+      } else {
+        const ts = Date.now();
+        sessionStartRef.current = ts;
+        lastSaveTimeRef.current = ts;
+        lastActiveTimeRef.current = ts;
+        isSessionPausedRef.current = false;
+        startSessionTimer();
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
     
     return () => {
-      // 离开阅读器时保存
       saveSession();
-      
-      if (readingSessionIntervalRef.current) {
-        clearInterval(readingSessionIntervalRef.current);
-      }
+      stopSessionTimer();
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [book?.id]);
@@ -942,6 +980,7 @@ export const Reader: React.FC = () => {
   const goToPage = async (pageNum: number) => {
     if (pageNum < 1 || pageNum > totalPages) return;
 
+    markReadingActive();
     setCurrentPage(pageNum);
     currentPageRef.current = pageNum;
     if (isDomRender) {
@@ -1649,6 +1688,7 @@ export const Reader: React.FC = () => {
             if (book) {
               bookService.updateBookProgress(book.id!, virtualCurrentPage).catch(() => {});
             }
+            markReadingActive();
           }
 
           // 计算 Markdown 目录高亮
@@ -1782,6 +1822,7 @@ export const Reader: React.FC = () => {
             return;
           }
           r.scrollBy(speed / 60);
+          markReadingActive();
           autoScrollRafRef.current = requestAnimationFrame(step);
         };
         autoScrollRafRef.current = requestAnimationFrame(step);
@@ -1808,6 +1849,7 @@ export const Reader: React.FC = () => {
             return;
           }
           el!.scrollTop = el!.scrollTop + speed / 60;
+          markReadingActive();
           autoScrollRafRef.current = requestAnimationFrame(step);
         };
         autoScrollRafRef.current = requestAnimationFrame(step);
