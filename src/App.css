@@ -299,3 +299,17 @@ button {
   -webkit-touch-callout: none;
   pointer-events: none;
 }
+
+.page-transition-fade {
+  animation-name: page-transition-fade-in;
+  animation-fill-mode: both;
+}
+
+@keyframes page-transition-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

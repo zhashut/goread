@@ -13,6 +13,11 @@ export const router = createHashRouter([
   {
     path: '/',
     element: <MainLayout />,
+    handle: {
+      transition: {
+        type: 'fade',
+      },
+    },
     children: [
       {
         path: '',
