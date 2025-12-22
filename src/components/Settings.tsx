@@ -142,19 +142,6 @@ export const Settings: React.FC = () => {
             />
           }
         />
-        <Row
-          label={t('pageTransition')}
-          right={
-            <input
-              className="settings-toggle"
-              type="checkbox"
-              checked={settings.pageTransition}
-              onChange={(e) =>
-                setSettings((s) => ({ ...s, pageTransition: e.target.checked }))
-              }
-            />
-          }
-        />
 
         <Row
           label={t('recentDisplayCount')}

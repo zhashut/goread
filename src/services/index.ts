@@ -240,7 +240,6 @@ export type ReaderSettings = {
   volumeKeyTurnPage: boolean;
   clickTurnPage: boolean;
   showStatusBar: boolean;
-  pageTransition: boolean;
   recentDisplayCount: number;
   scrollSpeed: number; // 像素/秒
   pageGap: number; // 像素

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { IGroup } from "../types";
 import { loadGroupsWithPreviews, assignToExistingGroupAndFinish } from "../utils/groupImport";
 import { waitNextFrame } from "../services/importUtils";
@@ -9,6 +10,7 @@ type UseImportGroupingOptions = {
 };
 
 export const useImportGrouping = (options: UseImportGroupingOptions) => {
+  const { t: tCommon } = useTranslation('common');
   const [groupingOpen, setGroupingOpen] = useState(false);
   const [chooseGroupOpen, setChooseGroupOpen] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
@@ -106,7 +108,7 @@ export const useImportGrouping = (options: UseImportGroupingOptions) => {
       setGroupingLoading(false);
     } catch (e) {
       setGroupingLoading(false);
-      alert("分组保存失败，请重试");
+      alert(tCommon('groupSaveFailed'));
       await logError("assignToGroupAndFinish failed", {
         error: String(e),
         pendingImportPaths,
@@ -128,7 +130,7 @@ export const useImportGrouping = (options: UseImportGroupingOptions) => {
       setGroupingLoading(false);
     } catch (e) {
       setGroupingLoading(false);
-      alert("创建分组失败，请重试");
+      alert(tCommon('groupCreateFailed'));
       await logError("createGroupAndFinish failed", {
         error: String(e),
         name: name.trim(),

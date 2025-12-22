@@ -18,5 +18,16 @@
   "failed": "Failed",
   "tips": "Tips",
   "warning": "Warning",
-  "error": "Error"
+  "error": "Error",
+  "operationFailed": "Operation failed",
+  "bookNotFound": "Book not found",
+  "loadBookFailed": "Failed to load book",
+  "unsupportedFormat": "Format {{format}} is not supported",
+  "addBookmarkFailed": "Failed to add bookmark",
+  "deleteBookmarkFailed": "Failed to delete bookmark",
+  "bookmarkAdded": "Bookmark added",
+  "saveSuccess": "Saved successfully",
+  "saveFailedWithReason": "Save failed: {{reason}}",
+  "groupSaveFailed": "Failed to save group, please try again",
+  "groupCreateFailed": "Failed to create group, please try again"
 }

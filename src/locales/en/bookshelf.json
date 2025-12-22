@@ -40,5 +40,10 @@
     "deleteLocalFile": "Delete local files",
     "cancel": "Cancel",
     "confirm": "Delete"
-  }
+  },
+  "deleteBookFailedWithReason": "Failed to delete book, please try again\n\nReason: {{reason}}",
+  "deleteFailed": "Delete failed, please try again",
+  "noBooks": "No books",
+  "noGroups": "No groups",
+  "importTip": "Add books via Import in the top right menu"
 }

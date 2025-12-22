@@ -18,5 +18,16 @@
   "failed": "失败",
   "tips": "提示",
   "warning": "警告",
-  "error": "错误"
+  "error": "错误",
+  "operationFailed": "操作失败",
+  "bookNotFound": "书籍不存在",
+  "loadBookFailed": "加载书籍失败",
+  "unsupportedFormat": "暂不支持 {{format}} 格式",
+  "addBookmarkFailed": "添加书签失败",
+  "deleteBookmarkFailed": "删除书签失败",
+  "bookmarkAdded": "书签已添加",
+  "saveSuccess": "保存成功",
+  "saveFailedWithReason": "保存失败: {{reason}}",
+  "groupSaveFailed": "分组保存失败，请重试",
+  "groupCreateFailed": "创建分组失败，请重试"
 }

@@ -36,7 +36,6 @@ export const DEFAULT_SETTINGS = {
   volumeKeyTurnPage: false,
   clickTurnPage: true,
   showStatusBar: false,
-  pageTransition: true,
   recentDisplayCount: 9,
   scrollSpeed: 120,
   pageGap: 2,

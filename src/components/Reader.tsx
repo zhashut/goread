@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { useAppNav } from "../router/useAppNav";
 import { IBook, IBookmark } from "../types";
 import {
@@ -93,6 +94,7 @@ const findActiveNodeSignature = (
 }
 
 export const Reader: React.FC = () => {
+  const { t: tCommon } = useTranslation('common');
   const { bookId } = useParams<{ bookId: string }>();
   const nav = useAppNav();
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -335,7 +337,7 @@ export const Reader: React.FC = () => {
       console.error("切换阅读状态失败", e);
       // 回滚
       setBook(prev => prev ? { ...prev, status: book.status } : null);
-      alert("操作失败");
+      alert(tCommon('operationFailed'));
     }
   };
 
@@ -646,7 +648,7 @@ export const Reader: React.FC = () => {
       const targetBook = books.find((b) => b.id === parseInt(bookId!));
 
       if (!targetBook) {
-        alert("书籍不存在");
+        alert(tCommon('bookNotFound'));
         nav.toBookshelf();
         return;
       }
@@ -707,7 +709,7 @@ export const Reader: React.FC = () => {
       // 检查文件格式是否支持
       if (!isFormatSupported(targetBook.file_path)) {
         const format = getBookFormat(targetBook.file_path);
-        alert(`暂不支持 ${format || '未知'} 格式`);
+        alert(tCommon('unsupportedFormat', { format: format || 'Unknown' }));
         nav.toBookshelf();
         return;
       }
@@ -775,7 +777,7 @@ export const Reader: React.FC = () => {
 
     } catch (error) {
       await logError('加载书籍失败 failed', { error: String(error) });
-      alert("加载书籍失败");
+      alert(tCommon('loadBookFailed'));
     }
   };
 
@@ -1029,13 +1031,13 @@ export const Reader: React.FC = () => {
         [...prev, created].sort((a, b) => a.page_number - b.page_number)
       );
       // 展示短暂气泡提示
-      setBookmarkToastText("书签已添加");
+      setBookmarkToastText(tCommon('bookmarkAdded'));
       setBookmarkToastVisible(true);
       setUiVisible(false);
       setTimeout(() => setBookmarkToastVisible(false), TOAST_DURATION_SHORT_MS);
     } catch (e) {
       console.error("添加书签失败", e);
-      alert("添加书签失败");
+      alert(tCommon('addBookmarkFailed'));
     }
   };
 
@@ -1045,7 +1047,7 @@ export const Reader: React.FC = () => {
       setBookmarks((prev) => prev.filter((b) => b.id !== id));
     } catch (e) {
       console.error("删除书签失败", e);
-      alert("删除书签失败");
+      alert(tCommon('deleteBookmarkFailed'));
     }
   };
 
@@ -1867,7 +1869,7 @@ export const Reader: React.FC = () => {
           color: "#666",
         }}
       >
-        加载中...
+        {tCommon('loading')}
       </div>
     );
   }
@@ -2194,14 +2196,14 @@ export const Reader: React.FC = () => {
           setUiVisible(false);
         }}
         onSaveSuccess={() => {
-          setBookmarkToastText("保存成功");
+          setBookmarkToastText(tCommon('saveSuccess'));
           setBookmarkToastVisible(true);
           setTimeout(() => setBookmarkToastVisible(false), TOAST_DURATION_LONG_MS);
         }}
         onSaveError={(msg) => {
           // 移除可能存在的 "Error: " 前缀，使提示更友好
           const cleanMsg = msg.replace(/^Error:\s*/i, '');
-          setBookmarkToastText(`保存失败: ${cleanMsg}`);
+          setBookmarkToastText(tCommon('saveFailedWithReason', { reason: cleanMsg }));
           setBookmarkToastVisible(true);
           setTimeout(() => setBookmarkToastVisible(false), TOAST_DURATION_ERROR_MS);
         }}

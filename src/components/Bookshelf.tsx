@@ -4,6 +4,7 @@ import React, {
   useMemo,
   useRef,
 } from "react";
+import { useTranslation } from "react-i18next";
 
 import { useAppNav } from "../router/useAppNav";
 import { IBook, IGroup } from "../types";
@@ -71,6 +72,8 @@ const applySortOrder = <T extends { id: number }>(items: T[], orderKey: string):
 // 使用通用 BookCard 组件
 
 export const Bookshelf: React.FC = () => {
+  const { t } = useTranslation('bookshelf');
+  const { t: tCommon } = useTranslation('common');
   const nav = useAppNav();
   const activeTab = (nav.currentTab === "all" ? "all" : "recent") as "recent" | "all";
 
@@ -472,7 +475,7 @@ export const Bookshelf: React.FC = () => {
       console.error("删除书籍失败:", error);
       const msg =
         typeof error?.message === "string" ? error.message : String(error);
-      alert(`删除书籍失败，请重试\n\n原因：${msg}`);
+      alert(t('deleteBookFailedWithReason', { reason: msg }));
     }
   };
 
@@ -542,7 +545,7 @@ export const Bookshelf: React.FC = () => {
       exitSelection();
     } catch (err) {
       console.error("批量删除失败", err);
-      alert("删除失败，请重试");
+      alert(t('deleteFailed'));
     }
   };
   // 分组封面：基于“全部”分组中的书籍封面（最多4张）
@@ -617,7 +620,7 @@ export const Bookshelf: React.FC = () => {
           color: "#666",
         }}
       >
-        加载中...
+        {tCommon('loading')}
       </div>
     );
   }
@@ -801,10 +804,10 @@ export const Bookshelf: React.FC = () => {
               }}
             >
               <div style={{ fontSize: "18px", marginBottom: "10px" }}>
-                暂无书籍
+                {t('noBooks')}
               </div>
               <div style={{ fontSize: "14px" }}>
-                通过右上角“更多”中的“导入”添加书籍
+                {t('importTip')}
               </div>
             </div>
           ) : (
@@ -896,10 +899,10 @@ export const Bookshelf: React.FC = () => {
             }}
           >
             <div style={{ fontSize: "18px", marginBottom: "10px" }}>
-              暂无分组
+              {t('noGroups')}
             </div>
             <div style={{ fontSize: "14px" }}>
-              通过右上角“更多”中的“导入”添加书籍
+              {t('importTip')}
             </div>
           </div>
         ) : (
