@@ -28,6 +28,10 @@ export const router = createHashRouter([
         element: <Reader />,
       },
       {
+        path: 'reader/external',
+        element: <Reader />,
+      },
+      {
         path: 'settings',
         element: <Settings />,
       },

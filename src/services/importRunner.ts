@@ -1,23 +1,7 @@
 import { bookService, groupService } from "./index";
 import { pathToTitle, waitNextFrame } from "./importUtils";
 import { getBookFormat, BookFormat } from "./formats";
-
-async function ensureLocalPath(filePath: string): Promise<string> {
-  if (filePath.startsWith("content://")) {
-    const bridge = (window as any).SafBridge;
-    if (bridge && typeof bridge.copyToAppDir === "function") {
-      try {
-        const dest = bridge.copyToAppDir(filePath);
-        if (typeof dest === "string" && dest) {
-          return dest;
-        }
-      } catch (e) {
-        console.error("复制 SAF 文件到应用目录失败:", e);
-      }
-    }
-  }
-  return filePath;
-}
+import { resolveLocalPathFromUri } from "./resolveLocalPath";
 
 // 格式特定的导入结果
 interface ImportResult {
@@ -193,7 +177,7 @@ export const importPathsToExistingGroup = async (
 
   for (let i = 0; i < paths.length; i++) {
     if (cancelled) break;
-    const filePath = await ensureLocalPath(paths[i]);
+    const filePath = await resolveLocalPathFromUri(paths[i]);
 
     // 在处理前同步当前书籍标题到抽屉，current 保持为 i
     {

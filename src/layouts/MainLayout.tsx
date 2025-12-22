@@ -2,10 +2,13 @@ import React, { useEffect } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { applyNonScalable } from '../utils/viewport';
 import { usePageTransition } from '../hooks/usePageTransition';
+import { useExternalFileOpen } from '../hooks';
 
 export const MainLayout: React.FC = () => {
   const location = useLocation();
   const { type, durationMs, timingFunction } = usePageTransition();
+  
+  useExternalFileOpen();
 
   useEffect(() => {
     applyNonScalable();

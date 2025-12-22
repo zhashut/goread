@@ -112,3 +112,12 @@ export interface ScanResultItem extends FileEntry {
   imported?: boolean;
   type: "file";
 }
+
+// 外部文件打开事件载荷（Android/iOS 统一接口）
+export interface ExternalFileOpenPayload {
+  uri: string;
+  mimeType?: string;
+  displayName?: string;
+  fromNewIntent?: boolean;
+  platform?: 'android' | 'ios' | 'unknown';
+}

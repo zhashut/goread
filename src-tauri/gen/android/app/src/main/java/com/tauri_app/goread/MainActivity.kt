@@ -41,6 +41,9 @@ class MainActivity : TauriActivity() {
   // Volume key page turn control
   private var volumeKeyEnabled = false
   
+  // 外部文件打开挂起数据（在 WebView 尚未就绪时暂存）
+  private var pendingOpenFilePayload: String? = null
+  
   // SAF 目录选择回调
   private val openDocumentTreeLauncher = registerForActivityResult(
     ActivityResultContracts.OpenDocumentTree()
@@ -97,6 +100,16 @@ class MainActivity : TauriActivity() {
     setupWindowInsetsListener()
     
     // 不再在启动时请求权限，改为按需请求（由前端通过 StoragePermissionBridge 触发）
+    
+    // 处理通过外部应用打开文件的场景（冷启动）
+    handleOpenFileIntent(intent, false)
+  }
+  
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+    // 处理通过外部应用打开文件的场景（热启动）
+    handleOpenFileIntent(intent, true)
   }
   
   // This callback is provided by WryActivity when WebView is created
@@ -153,6 +166,15 @@ class MainActivity : TauriActivity() {
       webView.postDelayed({
         notifyVolumeKeyBridgeReady()
       }, 200)
+      
+      // 如果存在挂起的外部文件打开请求，注入到前端
+      webView.postDelayed({
+        val payload = pendingOpenFilePayload
+        if (payload != null) {
+          pendingOpenFilePayload = null
+          notifyExternalFileOpen(payload)
+        }
+      }, 300)
     }
   }
   
@@ -185,6 +207,65 @@ class MainActivity : TauriActivity() {
         })();
       """.trimIndent()
       webViewRef?.evaluateJavascript(js, null)
+    }
+  }
+  
+  // 通知前端有外部文件需要临时阅读
+  private fun notifyExternalFileOpen(json: String) {
+    webViewRef?.post {
+      val safe = json.replace("\\", "\\\\").replace("'", "\\'")
+      val js = """
+        (function() {
+          try {
+            var payload = JSON.parse('$safe');
+            window.dispatchEvent(new CustomEvent('goread:external-file-open', { detail: payload }));
+            console.log('[ExternalOpen] Payload received from Android');
+          } catch (e) {
+            console.error('[ExternalOpen] Invalid payload', e);
+          }
+        })();
+      """.trimIndent()
+      webViewRef?.evaluateJavascript(js, null)
+    }
+  }
+  
+  // 解析外部文件 Intent，并构造传递给前端的 JSON 数据
+  private fun handleOpenFileIntent(intent: Intent?, fromNewIntent: Boolean) {
+    if (intent == null) return
+    
+    val action = intent.action
+    if (action != Intent.ACTION_VIEW && action != Intent.ACTION_SEND) {
+      return
+    }
+    
+    var uri: Uri? = null
+    var mimeType: String? = null
+    
+    if (action == Intent.ACTION_VIEW) {
+      uri = intent.data
+      mimeType = intent.type
+    } else if (action == Intent.ACTION_SEND) {
+      uri = intent.getParcelableExtra(Intent.EXTRA_STREAM)
+      mimeType = intent.type
+    }
+    
+    if (uri == null) return
+    
+    val displayName = queryDisplayName(uri) ?: (uri.lastPathSegment ?: "unknown")
+    
+    val obj = org.json.JSONObject()
+    obj.put("uri", uri.toString())
+    obj.put("mimeType", mimeType ?: "")
+    obj.put("displayName", displayName)
+    obj.put("fromNewIntent", fromNewIntent)
+    obj.put("platform", "android")
+    
+    val json = obj.toString()
+    
+    if (webViewRef == null) {
+      pendingOpenFilePayload = json
+    } else {
+      notifyExternalFileOpen(json)
     }
   }
   

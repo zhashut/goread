@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { useAppNav } from "../router/useAppNav";
-import { IBook, IBookmark } from "../types";
+import { IBook, IBookmark, ExternalFileOpenPayload } from "../types";
 import {
   bookService,
   bookmarkService,
@@ -44,6 +44,7 @@ import { EpubRenderer } from "../services/formats/epub/EpubRenderer";
 import { logError } from "../services";
 import html2canvas from "html2canvas";
 import { applyScalable, resetZoom, applyNonScalable } from "../utils/viewport";
+import { resolveLocalPathFromUri } from "../services/resolveLocalPath";
 
 const findActiveNodeSignature = (
   current: number,
@@ -95,12 +96,23 @@ const findActiveNodeSignature = (
   return null;
 }
 
+interface ExternalFileEventDetail extends ExternalFileOpenPayload {
+  path?: string;
+}
+
 export const Reader: React.FC = () => {
   const { t: tCommon } = useTranslation('common');
   const { bookId } = useParams<{ bookId: string }>();
+  const location = useLocation();
+  const state = (location.state || {}) as { externalFile?: ExternalFileEventDetail };
+  const externalFile = state.externalFile;
+  const isExternal = !!externalFile;
+  const externalKey = externalFile ? externalFile.uri || externalFile.path || "" : "";
   const nav = useAppNav();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [book, setBook] = useState<IBook | null>(null);
+  const [externalTitle, setExternalTitle] = useState<string>("");
+  const [externalPath, setExternalPath] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -177,22 +189,37 @@ export const Reader: React.FC = () => {
    const lastSaveTimeRef = useRef<number>(0);
    const readingSessionIntervalRef = useRef<number | null>(null);
    const isSessionPausedRef = useRef<boolean>(false);
-   const lastActiveTimeRef = useRef<number>(0);
+  const lastActiveTimeRef = useRef<number>(0);
 
-   const markReadingActive = () => {
-     lastActiveTimeRef.current = Date.now();
-   };
+  const markReadingActive = () => {
+    lastActiveTimeRef.current = Date.now();
+  };
 
   // 当书籍切换时重置恢复标志
   useEffect(() => {
     domRestoreDoneRef.current = false;
     epubRenderedRef.current = false;
     setContentReady(false);
-  }, [bookId]);
+  }, [bookId, externalKey]);
 
   useEffect(() => {
     savedPageAtOpenRef.current = (book?.current_page || 1);
   }, [book?.id]);
+
+  useEffect(() => {
+    if (!isExternal) return;
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        nav.toBookshelf("recent", { replace: true, resetStack: true });
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [isExternal, nav]);
 
   useEffect(() => {
     applyScalable();
@@ -204,6 +231,7 @@ export const Reader: React.FC = () => {
 
   // 阅读时长记录逻辑
   useEffect(() => {
+    if (isExternal) return;
     if (!book?.id) return;
     
     const now = Date.now();
@@ -293,7 +321,7 @@ export const Reader: React.FC = () => {
   const lastAutoMarkPageRef = useRef<number | null>(null);
   
   useEffect(() => {
-    if (!book || totalPages <= 0) return;
+    if (isExternal || !book || totalPages <= 0) return;
     
     // 离开最后一页时，重置自动标记记录
     if (currentPage < totalPages) {
@@ -360,6 +388,7 @@ export const Reader: React.FC = () => {
   }, [currentPage, totalPages, book, contentReady]);
 
   const toggleFinish = async () => {
+    if (isExternal) return;
     if (!book) return;
     const newStatus = book.status === 1 ? 0 : 1;
     
@@ -492,8 +521,9 @@ export const Reader: React.FC = () => {
   }, [settings.pageGap]);
 
   useEffect(() => {
+    const currentKey = isExternal ? (externalKey || undefined) : bookId;
     // 更新书籍 ID 引用，并递增版本号以使进行中的异步任务失效
-    bookIdRef.current = bookId;
+    bookIdRef.current = currentKey;
     modeVersionRef.current += 1;
     
     // 切换书籍时，清理所有状态和缓存
@@ -529,7 +559,19 @@ export const Reader: React.FC = () => {
     setCurrentPage(1);
     setTotalPages(1);
     
-    loadBook();
+    if (isExternal) {
+      if (externalFile && (externalFile.uri || externalFile.path)) {
+        loadExternalBook(externalFile);
+      } else {
+        setLoading(false);
+      }
+    } else {
+      if (bookId) {
+        loadBook();
+      } else {
+        setLoading(false);
+      }
+    }
     
     // 清理函数：组件卸载或切换书籍时清理缓存
     return () => {
@@ -547,7 +589,7 @@ export const Reader: React.FC = () => {
         clearTimeout(preloadTimerRef.current);
       }
     };
-  }, [bookId]);
+  }, [bookId, isExternal, externalKey]);
 
   useEffect(() => {
     currentPageRef.current = currentPage;
@@ -625,8 +667,9 @@ export const Reader: React.FC = () => {
         if (!renderer) {
           return Promise.reject(new Error('渲染器未初始化')) as unknown as ImageBitmap;
         }
-        if (!renderer.isReady && book?.file_path) {
-          try { await renderer.loadDocument(book.file_path); } catch {}
+        const filePath = isExternal ? externalPath : book?.file_path;
+        if (!renderer.isReady && filePath) {
+          try { await renderer.loadDocument(filePath); } catch {}
         }
         
         const viewW = canvasRef.current?.parentElement?.clientWidth || mainViewRef.current?.clientWidth || 800;
@@ -646,8 +689,8 @@ export const Reader: React.FC = () => {
           );
         } catch (err) {
           const msg = String(err || '');
-          if ((msg.includes('文档未加载') || msg.includes('PDF文档未加载')) && book?.file_path) {
-            try { await renderer.loadDocument(book.file_path); } catch {}
+          if ((msg.includes('文档未加载') || msg.includes('PDF文档未加载')) && filePath) {
+            try { await renderer.loadDocument(filePath); } catch {}
             bitmap = await renderer.loadPageBitmap!(
               pageNum,
               containerWidth,
@@ -721,28 +764,30 @@ export const Reader: React.FC = () => {
       }
       
       // 打开即记录最近阅读时间（不依赖进度变化）
-      try {
-        await bookService.markBookOpened(targetBook.id);
-        // 同时更新本地排序记录，确保该书排在最近列表首位
+      if (!isExternal) {
         try {
-          const orderKey = "recent_books_order";
-          const orderStr = localStorage.getItem(orderKey);
-          let order: number[] = [];
-          if (orderStr) {
-            try {
-              order = JSON.parse(orderStr);
-            } catch {}
+          await bookService.markBookOpened(targetBook.id);
+          // 同时更新本地排序记录，确保该书排在最近列表首位
+          try {
+            const orderKey = "recent_books_order";
+            const orderStr = localStorage.getItem(orderKey);
+            let order: number[] = [];
+            if (orderStr) {
+              try {
+                order = JSON.parse(orderStr);
+              } catch {}
+            }
+            // 移除旧位置
+            order = order.filter((id) => id !== targetBook.id);
+            // 插入到头部
+            order.unshift(targetBook.id);
+            localStorage.setItem(orderKey, JSON.stringify(order));
+          } catch (e) {
+            console.warn("更新最近阅读顺序失败", e);
           }
-          // 移除旧位置
-          order = order.filter((id) => id !== targetBook.id);
-          // 插入到头部
-          order.unshift(targetBook.id);
-          localStorage.setItem(orderKey, JSON.stringify(order));
         } catch (e) {
-          console.warn("更新最近阅读顺序失败", e);
+          console.warn("标记书籍已打开失败", e);
         }
-      } catch (e) {
-        console.warn("标记书籍已打开失败", e);
       }
 
       // 检查文件格式是否支持
@@ -820,10 +865,94 @@ export const Reader: React.FC = () => {
     }
   };
 
+  const loadExternalBook = async (file: ExternalFileEventDetail) => {
+    try {
+      setLoading(true);
+      setBook(null);
+      setBookmarks([]);
+      setExternalPath(null);
+      const rawPath = file.path || file.uri;
+      if (!rawPath) {
+        alert(tCommon('operationFailed'));
+        nav.toBookshelf();
+        return;
+      }
+
+      let filePath = rawPath;
+      try {
+        filePath = await resolveLocalPathFromUri(rawPath);
+      } catch (e) {
+        console.error("解析外部文件本地路径失败", e);
+        alert(tCommon('operationFailed'));
+        nav.toBookshelf();
+        return;
+      }
+
+      if (!isFormatSupported(filePath)) {
+        const format = getBookFormat(filePath);
+        alert(tCommon('unsupportedFormat', { format: format || 'Unknown' }));
+        nav.toBookshelf();
+        return;
+      }
+
+      const renderer = createRenderer(filePath);
+      rendererRef.current = renderer;
+
+      const useDomRender = renderer.capabilities.supportsDomRender && !renderer.capabilities.supportsBitmap;
+      setIsDomRender(useDomRender);
+
+      const bookInfo = await renderer.loadDocument(filePath);
+      const pageCount = Math.max(1, bookInfo.pageCount ?? 1);
+
+      setTotalPages(pageCount);
+      setCurrentPage(1);
+      setLoading(false);
+      setExternalPath(filePath);
+
+      const title =
+        file.displayName ||
+        bookInfo.title ||
+        (filePath.split(/[/\\]/).pop() || '');
+      setExternalTitle(title);
+
+      Promise.resolve().then(async () => {
+        try {
+          const tocItems = await renderer.getToc();
+          const toTocNode = (items: typeof tocItems): TocNode[] => {
+            return (items || []).map((item: any) => ({
+              title: String(item?.title || ''),
+              page: typeof item?.location === 'number' ? item.location : undefined,
+              anchor: typeof item?.location === 'string' ? item.location : undefined,
+              children: item?.children ? toTocNode(item.children) : [],
+              expanded: false,
+            }));
+          };
+          const parsed = toTocNode(tocItems);
+          if (parsed.length > 0) {
+            setToc(parsed);
+          } else {
+            if (pageCount > 0) {
+              setToc([{ title, page: 1, children: [], expanded: true }]);
+            } else {
+              setToc([]);
+            }
+          }
+        } catch (e) {
+          setToc([]);
+        }
+      });
+    } catch (error) {
+      try {
+        await logError('加载书籍失败 failed', { error: String(error) });
+      } catch {}
+      alert(tCommon('loadBookFailed'));
+    }
+  };
+
   
 
   const renderPage = async (pageNum: number, forceRender: boolean = false) => {
-    if (!book || !canvasRef.current) return;
+    if (!canvasRef.current) return;
 
     const canvas = canvasRef.current;
     const context = canvas.getContext("2d");
@@ -947,7 +1076,7 @@ export const Reader: React.FC = () => {
 
   // 预加载相邻页面（后台静默加载到缓存）
   const preloadAdjacentPages = async (currentPageNum: number) => {
-    if (!book) return;
+    if (!book && !isExternal) return;
     
     // 捕获当前书籍 ID，避免为错误的书籍预加载
     const capturedBookId = bookIdRef.current;
@@ -1010,8 +1139,8 @@ export const Reader: React.FC = () => {
       
     }
 
-    // 保存阅读进度
-    if (book) {
+    // 保存阅读进度（外部临时阅读不写入数据库）
+    if (!isExternal && book) {
       await bookService.updateBookProgress(book.id!, pageNum);
     }
   };
@@ -1059,6 +1188,7 @@ export const Reader: React.FC = () => {
   };
 
   const addBookmark = async () => {
+    if (isExternal) return;
     if (!book) return;
     try {
       const title = getBookmarkTitleForCurrent();
@@ -1082,6 +1212,7 @@ export const Reader: React.FC = () => {
   };
 
   const deleteBookmark = async (id: number) => {
+    if (isExternal) return;
     try {
       await bookmarkService.deleteBookmark(id);
       setBookmarks((prev) => prev.filter((b) => b.id !== id));
@@ -1099,7 +1230,7 @@ export const Reader: React.FC = () => {
     pageNum: number,
     canvasEl: HTMLCanvasElement | null
   ) => {
-    if (!book) return;
+    if (!book && !isExternal) return;
     const localModeVer = modeVersionRef.current;
     // 捕获当前书籍 ID，用于检测渲染期间书籍是否切换
     const capturedBookId = bookIdRef.current;
@@ -1242,7 +1373,7 @@ export const Reader: React.FC = () => {
 
   // 纵向模式懒加载：在进入可视区域时渲染页面（不在此处更新 currentPage）
   useEffect(() => {
-    if (readingMode !== "vertical" || !book || totalPages === 0 || !verticalLazyReady) return;
+    if (readingMode !== "vertical" || (!book && !isExternal) || totalPages === 0 || !verticalLazyReady) return;
     
     let observer: IntersectionObserver | null = null;
     
@@ -1285,7 +1416,7 @@ export const Reader: React.FC = () => {
 
   // 切换阅读模式时，清理渲染标记
   useEffect(() => {
-    if (!book || totalPages === 0) return;
+    if ((!book && !isExternal) || totalPages === 0) return;
     
     // 清理渲染标记，让统一的渲染 useEffect 重新渲染
     renderedPagesRef.current.clear();
@@ -1301,10 +1432,11 @@ export const Reader: React.FC = () => {
 
   // 首次加载完成后，立即渲染当前页（横向、纵向和 DOM 渲染模式）
   useEffect(() => {
-    if (loading || !book || totalPages === 0) return;
+    if (loading || totalPages === 0 || (!book && !isExternal)) return;
     
     // 对于 EPUB 格式，如果已经渲染过，跳过（模式切换由专门的 useEffect 处理）
-    const isEpub = book?.file_path && getBookFormat(book.file_path) === 'epub';
+    const filePathForEpub = isExternal ? externalPath : book?.file_path;
+    const isEpub = filePathForEpub && getBookFormat(filePathForEpub) === 'epub';
     if (isEpub && epubRenderedRef.current) {
       log(`[Reader] EPUB 已渲染，跳过重复渲染（模式切换由 setReadingMode 处理）`);
       return;
@@ -1375,7 +1507,7 @@ export const Reader: React.FC = () => {
           if (renderer instanceof EpubRenderer) {
             renderer.onPageChange = (p: number) => {
               setCurrentPage(p);
-              if (book) {
+              if (!isExternal && book) {
                 bookService.updateBookProgress(book.id!, p).catch(() => {});
               }
             };
@@ -1583,7 +1715,7 @@ export const Reader: React.FC = () => {
       if (bestPage !== currentPageRef.current) {
         log(`[updateFromScroll] 页码更新: ${currentPageRef.current} -> ${bestPage}`);
         setCurrentPage(bestPage);
-        if (book) {
+        if (!isExternal && book) {
           bookService.updateBookProgress(book.id!, bestPage).catch(() => {});
         }
       }
@@ -1633,7 +1765,7 @@ export const Reader: React.FC = () => {
 
   // DOM 渲染模式（Markdown）滚动监听：计算虚拟页码和进度
   useEffect(() => {
-    if (!isDomRender || loading || !book) return;
+    if (!isDomRender || loading || (!book && !isExternal)) return;
     
     const renderer = rendererRef.current;
     if (!renderer || !(renderer instanceof MarkdownRenderer)) return;
@@ -1673,7 +1805,7 @@ export const Reader: React.FC = () => {
           // 更新总页数（仅当页数大于1时更新，避免初始状态异常）
           if (virtualTotalPages !== totalPages && virtualTotalPages > 1) {
             setTotalPages(virtualTotalPages);
-            if (book && virtualTotalPages !== lastTotalPages) {
+            if (!isExternal && book && virtualTotalPages !== lastTotalPages) {
               lastTotalPages = virtualTotalPages;
               bookService.updateBookTotalPages(book.id!, virtualTotalPages).catch(() => {});
             }
@@ -1685,7 +1817,7 @@ export const Reader: React.FC = () => {
           if (canUpdatePage && virtualCurrentPage !== lastPage) {
             lastPage = virtualCurrentPage;
             setCurrentPage(virtualCurrentPage);
-            if (book) {
+            if (!isExternal && book) {
               bookService.updateBookProgress(book.id!, virtualCurrentPage).catch(() => {});
             }
             markReadingActive();
@@ -1755,7 +1887,7 @@ export const Reader: React.FC = () => {
   }, [isDomRender, book, loading, totalPages, readingMode]);
 
   useEffect(() => {
-    if (!isDomRender || !book || loading) return;
+    if (!isDomRender || (!book && !isExternal) || loading) return;
     const renderer = rendererRef.current;
     if (!renderer || !(renderer instanceof MarkdownRenderer)) return;
     let attempts = 0;
@@ -1768,7 +1900,9 @@ export const Reader: React.FC = () => {
       const vt = renderer.calculateVirtualPages(vh);
       if (vt > 1 && vt !== totalPages) {
         setTotalPages(vt);
-        bookService.updateBookTotalPages(book.id!, vt).catch(() => {});
+        if (!isExternal && book) {
+          bookService.updateBookTotalPages(book.id!, vt).catch(() => {});
+        }
       } else {
         schedule();
       }
@@ -1994,7 +2128,9 @@ export const Reader: React.FC = () => {
               className="no-scrollbar"
               style={{
                 // EPUB 使用绝对定位确保占满整个父容器（避免 flexbox alignItems:center 影响布局）
-                ...(book?.file_path && getBookFormat(book.file_path) === 'epub' ? {
+                ...(((isExternal && externalPath)
+                  ? getBookFormat(externalPath) === 'epub'
+                  : (book?.file_path && getBookFormat(book.file_path) === 'epub')) ? {
                   position: 'absolute' as const,
                   top: 0,
                   left: 0,
@@ -2005,9 +2141,17 @@ export const Reader: React.FC = () => {
                   height: "100%",
                 }),
                 // EPUB 由 foliate-view 内部管理，不需要外层滚动
-                overflowY: (book?.file_path && getBookFormat(book.file_path) === 'epub') ? 'hidden' : 'auto',
+                overflowY: (((isExternal && externalPath)
+                  ? getBookFormat(externalPath) === 'epub'
+                  : (book?.file_path && getBookFormat(book.file_path) === 'epub')))
+                  ? 'hidden'
+                  : 'auto',
                 // EPUB 使用白色背景，其他格式使用深色
-                backgroundColor: (book?.file_path && getBookFormat(book.file_path) === 'epub') ? '#ffffff' : '#1a1a1a',
+                backgroundColor: (((isExternal && externalPath)
+                  ? getBookFormat(externalPath) === 'epub'
+                  : (book?.file_path && getBookFormat(book.file_path) === 'epub')))
+                  ? '#ffffff'
+                  : '#1a1a1a',
                 pointerEvents: 'auto',
               }}
             />
@@ -2059,14 +2203,18 @@ export const Reader: React.FC = () => {
       </div>
       <TopBar
         visible={(uiVisible || isSeeking) && !moreDrawerOpen && !tocOverlayOpen && !modeOverlayOpen}
-        bookTitle={book?.title}
-        isFinished={book?.status === 1}
-        onToggleFinish={toggleFinish}
+        bookTitle={isExternal ? externalTitle : book?.title}
+        isFinished={isExternal ? undefined : book?.status === 1}
+        onToggleFinish={isExternal ? undefined : toggleFinish}
         onBack={() => {
-          if (window.history.length > 1) {
-            nav.goBack();
+          if (isExternal) {
+            nav.toBookshelf('recent', { replace: true, resetStack: true });
           } else {
-            nav.toBookshelf('recent', { replace: true });
+            if (window.history.length > 1) {
+              nav.goBack();
+            } else {
+              nav.toBookshelf('recent', { replace: true });
+            }
           }
         }}
       />
@@ -2111,7 +2259,7 @@ export const Reader: React.FC = () => {
       <TocOverlay
         visible={tocOverlayOpen}
         toc={toc}
-        bookmarks={bookmarks}
+        bookmarks={isExternal ? [] : bookmarks}
         activeSignature={activeNodeSignature}
         onClose={() => {
           setTocOverlayOpen(false);
@@ -2135,7 +2283,7 @@ export const Reader: React.FC = () => {
           setTocOverlayOpen(false);
           setUiVisible(false);
         }}
-        onDeleteBookmark={deleteBookmark}
+        onDeleteBookmark={isExternal ? () => {} : deleteBookmark}
         setToc={setToc}
       />
 
@@ -2222,7 +2370,7 @@ export const Reader: React.FC = () => {
             setAutoScroll(false);
           }
         }}
-        onAddBookmark={addBookmark}
+        onAddBookmark={isExternal ? () => {} : addBookmark}
         onOpenMore={() => setMoreDrawerOpen(true)}
       />
       <MoreDrawer
