@@ -73,12 +73,13 @@ export const GroupDetail: React.FC<{
 
   // 选择模式状态：由路由 state 驱动
   const selectionMode = !!nav.location.state?.selectionMode;
+  // 抽屉状态：由路由 state 驱动（确保返回手势能正确关闭抽屉）
+  const confirmOpen = !!nav.location.state?.confirmOpen;
+  const moveDrawerOpen = !!nav.location.state?.moveDrawerOpen;
 
   const [selectedBookIds, setSelectedBookIds] = useState<Set<number>>(new Set());
-  const [confirmOpen, setConfirmOpen] = useState(false);
 
-  // 移动分组相关状态
-  const [moveDrawerOpen, setMoveDrawerOpen] = useState(false);
+  // 移动分组相关状态（数据，非 open 状态）
   const [allGroups, setAllGroups] = useState<any[]>([]);
   const [groupPreviews, setGroupPreviews] = useState<Record<number, string[]>>({});
 
@@ -164,9 +165,16 @@ export const GroupDetail: React.FC<{
   useEffect(() => {
     if (!selectionMode) {
       setSelectedBookIds(new Set());
-      setConfirmOpen(false);
     }
   }, [selectionMode]);
+
+  // 监听抽屉状态变化以清理数据
+  useEffect(() => {
+    if (!moveDrawerOpen) {
+      // 清理移动抽屉数据
+      // 注意：不在这里清理，因为可能影响动画
+    }
+  }, [moveDrawerOpen]);
 
   const onBookLongPress = (id: number) => {
     if (!selectionMode) {
@@ -220,7 +228,12 @@ export const GroupDetail: React.FC<{
         await bookService.deleteBook(bid, !!actualDeleteLocal);
       }
       await reloadBooksAndGroups();
-      exitSelection();
+      // 关闭确认抽屉（通过返回导航）
+      nav.goBack();
+      // 退出选择模式
+      // 注意：confirmDelete 后 goBack 关闭抽屉，再次 goBack 退出选择模式
+      // 这里需要额外的 goBack 来退出选择模式
+      setTimeout(() => exitSelection(), 50);
     } catch {
       alert(t('deleteFailed'));
     }
@@ -235,15 +248,36 @@ export const GroupDetail: React.FC<{
     } catch { }
   }, [selectionMode, selectedBookIds]);
 
+  // 确保在事件监听中能访问到最新的函数闭包
+  const exitSelectionRef = useRef(exitSelection);
+  const openMoveDrawerRef = useRef<any>(null);
+  const selectAllRef = useRef(selectAll);
+
+  const openConfirmDrawer = () => {
+    navigate(`${nav.location.pathname}${nav.location.search}`,
+      { state: { ...nav.location.state, confirmOpen: true }, replace: false }
+    );
+  };
+  const openConfirmDrawerRef = useRef(openConfirmDrawer);
+
   useEffect(() => {
-    const onExit = () => exitSelection();
-    const onOpenConfirm = () => setConfirmOpen(true);
-    const onSelectAll = () => selectAll();
-    const onOpenMove = () => openMoveDrawer();
+    exitSelectionRef.current = exitSelection;
+    openMoveDrawerRef.current = openMoveDrawer;
+    selectAllRef.current = selectAll;
+    openConfirmDrawerRef.current = openConfirmDrawer;
+  });
+
+  useEffect(() => {
+    const onExit = () => exitSelectionRef.current();
+    const onOpenConfirm = () => openConfirmDrawerRef.current();
+    const onSelectAll = () => selectAllRef.current();
+    const onOpenMove = () => openMoveDrawerRef.current();
+
     window.addEventListener("goread:group-detail:exit-selection", onExit as any);
     window.addEventListener("goread:group-detail:open-confirm", onOpenConfirm as any);
     window.addEventListener("goread:group-detail:select-all", onSelectAll as any);
     window.addEventListener("goread:group-detail:open-move", onOpenMove as any);
+
     return () => {
       window.removeEventListener(
         "goread:group-detail:exit-selection",
@@ -273,7 +307,10 @@ export const GroupDetail: React.FC<{
 
       setAllGroups(validGroups);
       setGroupPreviews(previews);
-      setMoveDrawerOpen(true);
+      // 打开移动抽屉：推送新的历史记录条目
+      navigate(`${nav.location.pathname}${nav.location.search}`,
+        { state: { ...nav.location.state, moveDrawerOpen: true }, replace: false }
+      );
     } catch (e) {
       console.error("加载分组失败", e);
       alert(t('loadGroupsFailed'));
@@ -308,8 +345,10 @@ export const GroupDetail: React.FC<{
 
       // 3. 刷新与退出
       await reloadBooksAndGroups();
-      exitSelection();
-      setMoveDrawerOpen(false);
+      // 关闭移动抽屉（通过返回导航）
+      nav.goBack();
+      // 退出选择模式
+      setTimeout(() => exitSelection(), 50);
 
     } catch (e) {
       console.error("移动书籍失败", e);
@@ -452,14 +491,14 @@ export const GroupDetail: React.FC<{
         open={confirmOpen}
         context="group-detail"
         count={selectedBookIds.size}
-        onCancel={() => setConfirmOpen(false)}
+        onCancel={() => nav.goBack()}
         onConfirm={(deleteLocal) => confirmDelete(deleteLocal)}
       />
       <ChooseExistingGroupDrawer
         open={moveDrawerOpen}
         groups={allGroups}
         groupPreviews={groupPreviews}
-        onClose={() => setMoveDrawerOpen(false)}
+        onClose={() => nav.goBack()}
         onSelectGroup={handleMoveBooks}
         title={t('moveTo')}
       />
