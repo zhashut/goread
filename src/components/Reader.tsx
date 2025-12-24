@@ -13,6 +13,7 @@ import {
 } from "../services";
 import {
   PageCacheManager,
+  SmartPredictor,
 } from "../utils/pdfOptimization";
 import { getSafeAreaInsets } from "../utils/layout";
 import {
@@ -161,6 +162,7 @@ export const Reader: React.FC = () => {
   // 预加载任务队列（Promise 复用，防止重复请求）
   // 键格式: `${bookId}:${pageNum}`
   const preloadingTasksRef = useRef<Map<string, Promise<ImageBitmap>>>(new Map());
+  const smartPredictorRef = useRef<SmartPredictor | null>(null);
 
   // 生成缓存键，将书籍 ID 和页码组合，避免不同书籍的页面混淆
   const makeCacheKey = (bookId: string, pageNum: number) => `${bookId}:${pageNum}`;
@@ -187,12 +189,23 @@ export const Reader: React.FC = () => {
    // 阅读时长记录相关
    const sessionStartRef = useRef<number>(0);
    const lastSaveTimeRef = useRef<number>(0);
-   const readingSessionIntervalRef = useRef<number | null>(null);
-   const isSessionPausedRef = useRef<boolean>(false);
+  const readingSessionIntervalRef = useRef<number | null>(null);
+  const isSessionPausedRef = useRef<boolean>(false);
   const lastActiveTimeRef = useRef<number>(0);
 
   const markReadingActive = () => {
     lastActiveTimeRef.current = Date.now();
+  };
+
+  const getSmartPredictor = () => {
+    const renderer = rendererRef.current;
+    if (!renderer || renderer.format !== "pdf") {
+      return null;
+    }
+    if (!smartPredictorRef.current) {
+      smartPredictorRef.current = new SmartPredictor();
+    }
+    return smartPredictorRef.current;
   };
 
   // 当书籍切换时重置恢复标志
@@ -522,18 +535,16 @@ export const Reader: React.FC = () => {
 
   useEffect(() => {
     const currentKey = isExternal ? (externalKey || undefined) : bookId;
-    // 更新书籍 ID 引用，并递增版本号以使进行中的异步任务失效
     bookIdRef.current = currentKey;
     modeVersionRef.current += 1;
     
-    // 切换书籍时，清理所有状态和缓存
-    // 关闭旧渲染器
     if (rendererRef.current) {
       rendererRef.current.close();
       rendererRef.current = null;
     }
     epubRenderedRef.current = false;
     pageCacheRef.current.clear();
+    smartPredictorRef.current = null;
     // 清理预加载的 Bitmap 资源
     // 清理其他书籍的缓存（保留当前书籍的缓存以便复用）
     const currentPrefix = `${bookId}:`;
@@ -575,12 +586,12 @@ export const Reader: React.FC = () => {
     
     // 清理函数：组件卸载或切换书籍时清理缓存
     return () => {
-      // 关闭渲染器
       if (rendererRef.current) {
         rendererRef.current.close();
         rendererRef.current = null;
       }
       pageCacheRef.current.clear();
+      smartPredictorRef.current = null;
       preloadedBitmapsRef.current.forEach(bmp => bmp.close && bmp.close());
       preloadedBitmapsRef.current.clear();
       preloadingTasksRef.current.clear();
@@ -1077,30 +1088,45 @@ export const Reader: React.FC = () => {
   // 预加载相邻页面（后台静默加载到缓存）
   const preloadAdjacentPages = async (currentPageNum: number) => {
     if (!book && !isExternal) return;
-    
-    // 捕获当前书籍 ID，避免为错误的书籍预加载
+    const renderer = rendererRef.current;
     const capturedBookId = bookIdRef.current;
-    
-    // 预加载下两页，确保连续翻页流畅
-    const pagesToPreload = [currentPageNum + 1, currentPageNum + 2];
-    // 获取当前 Scale，确保检查缓存的 Key 与渲染时一致
+    const isPdf = renderer?.format === "pdf";
     const scale = getCurrentScale();
+    let pagesToPreload: number[] = [];
+
+    if (isPdf) {
+      const predictor = getSmartPredictor();
+      if (predictor) {
+        pagesToPreload = predictor.predictNextPages(
+          currentPageNum,
+          totalPages,
+          readingMode
+        );
+      }
+    }
+
+    if (pagesToPreload.length === 0) {
+      pagesToPreload = [currentPageNum + 1, currentPageNum + 2];
+    }
+
+    const seen = new Set<number>();
+    pagesToPreload = pagesToPreload.filter((p) => {
+      if (p <= 0 || p > totalPages) return false;
+      if (p === currentPageNum) return false;
+      if (seen.has(p)) return false;
+      seen.add(p);
+      return true;
+    });
     
     for (const nextPage of pagesToPreload) {
-      if (nextPage <= totalPages) {
-        // 预加载前检查书籍是否已切换
-        if (bookIdRef.current !== capturedBookId) {
-          log(`[preloadAdjacentPages] 书籍已切换，停止预加载`);
-          return;
-        }
-        
-        // 1. 检查是否已有 ImageData 缓存
-        if (pageCacheRef.current.has(nextPage, scale)) continue;
-        
-        // 2. 调用统一加载函数（内部会自动检查 preloadedBitmapsRef 和 preloadingTasksRef）
-        // 这样可以确保如果用户快速翻页，renderPage 可以直接复用这里发起的 Promise
-        loadPageBitmap(nextPage).catch(e => console.warn(`预加载页面 ${nextPage} 失败`, e));
+      if (bookIdRef.current !== capturedBookId) {
+        log(`[preloadAdjacentPages] 书籍已切换，停止预加载`);
+        return;
       }
+
+      if (pageCacheRef.current.has(nextPage, scale)) continue;
+
+      loadPageBitmap(nextPage).catch(e => console.warn(`预加载页面 ${nextPage} 失败`, e));
     }
   };
 
@@ -1137,6 +1163,11 @@ export const Reader: React.FC = () => {
         await renderPageToTarget(pageNum, target || null);
       }
       
+    }
+
+    const predictor = getSmartPredictor();
+    if (predictor) {
+      predictor.recordPageVisit(pageNum);
     }
 
     // 保存阅读进度（外部临时阅读不写入数据库）
@@ -1717,6 +1748,10 @@ export const Reader: React.FC = () => {
         setCurrentPage(bestPage);
         if (!isExternal && book) {
           bookService.updateBookProgress(book.id!, bestPage).catch(() => {});
+        }
+        const predictor = getSmartPredictor();
+        if (predictor) {
+          predictor.recordPageVisit(bestPage);
         }
       }
 

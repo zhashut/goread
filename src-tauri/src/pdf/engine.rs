@@ -1,11 +1,54 @@
 use pdfium_render::prelude::*;
-use std::sync::Arc;
-use tokio::sync::RwLock;
+use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::UNIX_EPOCH;
+use tokio::sync::RwLock;
 
 use crate::pdf::cache::CacheManager;
 use crate::pdf::renderer::PdfRenderer;
 use crate::pdf::types::*;
+
+fn compute_file_hash(path: &str) -> Result<String, PdfError> {
+    let metadata = std::fs::metadata(path)
+        .map_err(|e| PdfError::file_not_found(path.to_string(), e))?;
+
+    let mut hasher = DefaultHasher::new();
+    path.hash(&mut hasher);
+    metadata.len().hash(&mut hasher);
+
+    if let Ok(modified) = metadata.modified() {
+        if let Ok(duration) = modified.duration_since(UNIX_EPOCH) {
+            duration.as_secs().hash(&mut hasher);
+            duration.subsec_nanos().hash(&mut hasher);
+        }
+    }
+
+    Ok(format!("{:x}", hasher.finish()))
+}
+
+fn pdf_cache_root() -> PathBuf {
+    let mut dir = std::env::temp_dir();
+    dir.push("goread_cache");
+    dir.push("pdf");
+    dir
+}
+
+fn pdf_meta_cache_path(file_hash: &str) -> PathBuf {
+    let mut dir = pdf_cache_root();
+    dir.push("pdf_meta");
+    dir.push(format!("{}.json", file_hash));
+    dir
+}
+
+fn pdf_pages_cache_dir(file_hash: &str) -> PathBuf {
+    let mut dir = pdf_cache_root();
+    dir.push("pdf_pages");
+    dir.push(file_hash);
+    dir
+}
 
 /// PDF 引擎，负责文档加载和管理
 pub struct PdfEngine {
@@ -112,11 +155,23 @@ impl PdfEngine {
 
     /// 加载 PDF 文档
     pub async fn load_document(&mut self, path: &str) -> Result<PdfDocumentInfo, PdfError> {
-        // 如果切换到不同的文档，清理旧文档的缓存
         if !self.file_path.is_empty() && self.file_path != path {
             self.cache.clear().await;
         }
-        
+
+        let file_hash = compute_file_hash(path)?;
+        let meta_path = pdf_meta_cache_path(&file_hash);
+
+        if meta_path.exists() {
+            if let Ok(file) = std::fs::File::open(&meta_path) {
+                if let Ok(info) = serde_json::from_reader::<_, PdfDocumentInfo>(file) {
+                    self.file_path = path.to_string();
+                    self.document_info = Some(info.clone());
+                    return Ok(info);
+                }
+            }
+        }
+
         let pdfium = Self::create_pdfium()?;
         let document = pdfium
             .load_pdf_from_file(path, None)
@@ -129,6 +184,13 @@ impl PdfEngine {
 
         self.file_path = path.to_string();
         self.document_info = Some(document_info.clone());
+
+        if let Some(parent) = meta_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if let Ok(json) = serde_json::to_vec(&document_info) {
+            let _ = std::fs::write(&meta_path, json);
+        }
 
         Ok(document_info)
     }
@@ -292,26 +354,46 @@ impl PdfEngine {
         let quality_str = match options.quality { RenderQuality::Thumbnail => "thumb", RenderQuality::Standard => "std", RenderQuality::High => "high", RenderQuality::Best => "best" };
         let cache_key = CacheKey::new(self.file_path.clone(), page_number, options.quality.clone(), target_width, target_height);
 
-        // 命中缓存：用缓存的格式命名文件
-        if let Some(cached) = self.cache.get(&cache_key).await {
-            let ext = cached.format.extension();
-            let quality_str = match options.quality { RenderQuality::Thumbnail => "thumb", RenderQuality::Standard => "std", RenderQuality::High => "high", RenderQuality::Best => "best" };
-            let temp_dir = std::env::temp_dir();
-            let path = temp_dir.join(format!("goread_{}_{}_{}x{}.{}", page_number, quality_str, target_width, target_height, ext));
-            if std::path::Path::new(&path).exists() {
-                return Ok(path.to_string_lossy().to_string());
-            }
-            std::fs::write(&path, &cached.image_data).map_err(|e| PdfError::io_error(Some(path.to_string_lossy().to_string()), e))?;
-            return Ok(path.to_string_lossy().to_string());
+        let file_hash = compute_file_hash(&self.file_path)?;
+        let pages_dir = pdf_pages_cache_dir(&file_hash);
+        let ext_from_quality = |quality: &RenderQuality| match quality {
+            RenderQuality::Thumbnail => "png",
+            RenderQuality::Best => "png",
+            _ => "webp",
+        };
+        let disk_path = pages_dir.join(format!(
+            "p_{}_{}_{}x{}.{}",
+            page_number,
+            quality_str,
+            target_width,
+            target_height,
+            ext_from_quality(&options.quality)
+        ));
+
+        if std::path::Path::new(&disk_path).exists() {
+            return Ok(disk_path.to_string_lossy().to_string());
         }
 
-        // 未命中缓存：先渲染，再按输出格式命名文件
+        if let Some(cached) = self.cache.get(&cache_key).await {
+            if let Some(parent) = disk_path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            std::fs::write(&disk_path, &cached.image_data).map_err(|e| {
+                PdfError::io_error(Some(disk_path.to_string_lossy().to_string()), e)
+            })?;
+            return Ok(disk_path.to_string_lossy().to_string());
+        }
+
         let result = self.render_page(page_number, options).await?;
-        let ext = result.format.extension();
-        let temp_dir = std::env::temp_dir();
-        let path = temp_dir.join(format!("goread_{}_{}_{}x{}.{}", page_number, quality_str, target_width, target_height, ext));
-        std::fs::write(&path, &result.image_data).map_err(|e| PdfError::io_error(Some(path.to_string_lossy().to_string()), e))?;
-        Ok(path.to_string_lossy().to_string())
+        let _ = self.cache.put(cache_key, result.clone()).await;
+
+        if let Some(parent) = disk_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        std::fs::write(&disk_path, &result.image_data).map_err(|e| {
+            PdfError::io_error(Some(disk_path.to_string_lossy().to_string()), e)
+        })?;
+        Ok(disk_path.to_string_lossy().to_string())
     }
 
     /// 渲染页面分块
