@@ -1,7 +1,7 @@
 import React from "react";
 import { useTranslation } from 'react-i18next';
 import { IGroup } from "../types";
-import GroupCoverGrid from "./GroupCoverGrid";
+import GroupCoverGrid from "./bookshelf/GroupCoverGrid";
 import { getSafeAreaInsets } from "../utils/layout";
 
 export interface ChooseExistingGroupDrawerProps {
@@ -23,7 +23,7 @@ const ChooseExistingGroupDrawer: React.FC<ChooseExistingGroupDrawerProps> = ({
 }) => {
   const { t } = useTranslation('import');
   const displayTitle = title || t('existingGroups');
-  
+
   if (!open) return null;
 
   return (

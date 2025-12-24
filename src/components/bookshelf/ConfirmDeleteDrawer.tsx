@@ -1,6 +1,6 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { getSafeAreaInsets } from "../utils/layout";
+import { getSafeAreaInsets } from "../../utils/layout";
 
 export type DeleteContext = "recent" | "all-groups" | "group-detail";
 
@@ -26,8 +26,8 @@ const ConfirmDeleteDrawer: React.FC<ConfirmDeleteDrawerProps> = ({
     context === "recent"
       ? t("deleteDrawer.descRecent", { count })
       : context === "all-groups"
-      ? t("deleteDrawer.descAllGroups", { count })
-      : t("deleteDrawer.descGroupDetail", { count });
+        ? t("deleteDrawer.descAllGroups", { count })
+        : t("deleteDrawer.descGroupDetail", { count });
 
   const [deleteLocal, setDeleteLocal] = React.useState(false);
 

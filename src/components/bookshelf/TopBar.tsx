@@ -11,9 +11,9 @@ import {
   TOP_BAR_MARGIN_BOTTOM,
   TOP_BAR_TAB_PADDING_BOTTOM,
   TOP_BAR_ICON_GAP,
-} from "../constants/ui";
+} from "../../constants/ui";
 
-interface BookshelfTopBarProps
+interface TopBarProps
   extends Omit<React.HTMLAttributes<HTMLDivElement>, "mode"> {
   /** Current mode: "default" (Tabs) or "selection" (Selection Mode) */
   mode: "default" | "selection";
@@ -34,7 +34,7 @@ interface BookshelfTopBarProps
   selectionActions?: React.ReactNode;
 }
 
-export const BookshelfTopBar: React.FC<BookshelfTopBarProps> = (props) => {
+export const TopBar: React.FC<TopBarProps> = (props) => {
   const { t } = useTranslation('bookshelf');
   const { t: tc } = useTranslation('common');
   const {
@@ -83,8 +83,8 @@ export const BookshelfTopBar: React.FC<BookshelfTopBarProps> = (props) => {
   // Ensure underline position is correct on mount
   useLayoutEffect(() => {
     if (mode === "default") {
-        updateUnderline();
-        requestAnimationFrame(updateUnderline);
+      updateUnderline();
+      requestAnimationFrame(updateUnderline);
     }
   }, [mode]);
 

@@ -1,6 +1,6 @@
 import React from "react";
 import { useTranslation } from 'react-i18next';
-import { getSafeAreaInsets } from "../utils/layout";
+import { getSafeAreaInsets } from "../../utils/layout";
 
 interface ImportProgressDrawerProps {
   open: boolean;

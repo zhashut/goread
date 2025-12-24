@@ -8,8 +8,8 @@ import { IBook } from "../types";
 import { CARD_MIN_WIDTH, GRID_GAP_GROUP_DETAIL } from "../constants/ui";
 import { groupService, bookService } from "../services";
 import { ensurePermissionForDeleteLocal } from "../utils/storagePermission";
-import { SortableBookItem } from "./SortableBookItem";
-import ConfirmDeleteDrawer from "./ConfirmDeleteDrawer";
+import { SortableBookItem } from "./bookshelf/SortableBookItem";
+import ConfirmDeleteDrawer from "./bookshelf/ConfirmDeleteDrawer";
 import ChooseExistingGroupDrawer from "./ChooseExistingGroupDrawer";
 import { loadGroupsWithPreviews } from "../utils/groupImport";
 import { useDndSensors, useDragGuard, isTouchDevice } from "../utils/gesture";
@@ -70,13 +70,13 @@ export const GroupDetail: React.FC<{
     if (el) sessionStorage.setItem(KEY, String(el.scrollTop));
     nav.toReader(b.id, { fromGroupId: id });
   };
-  
+
   // 选择模式状态：由路由 state 驱动
   const selectionMode = !!nav.location.state?.selectionMode;
 
   const [selectedBookIds, setSelectedBookIds] = useState<Set<number>>(new Set());
   const [confirmOpen, setConfirmOpen] = useState(false);
-  
+
   // 移动分组相关状态
   const [moveDrawerOpen, setMoveDrawerOpen] = useState(false);
   const [allGroups, setAllGroups] = useState<any[]>([]);
@@ -123,7 +123,7 @@ export const GroupDetail: React.FC<{
     try {
       window.dispatchEvent(new CustomEvent("goread:groups:changed"));
       window.dispatchEvent(new CustomEvent("goread:books:changed"));
-    } catch {}
+    } catch { }
     const allGroups = await groupService.getAllGroups();
     const g = (allGroups || []).find((x) => x.id === id) || null;
     if (!g || (list || []).length === 0) {
@@ -139,7 +139,7 @@ export const GroupDetail: React.FC<{
         const oldIndex = items.findIndex((b) => b.id === active.id);
         const newIndex = items.findIndex((b) => b.id === over.id);
         const newItems = arrayMove(items, oldIndex, newIndex);
-        
+
         // 异步保存顺序
         groupService.reorderGroupBooks(id, newItems.map((b) => b.id))
           .then(() => {
@@ -147,7 +147,7 @@ export const GroupDetail: React.FC<{
             window.dispatchEvent(new CustomEvent("goread:groups:changed"));
           })
           .catch(console.warn);
-        
+
         return newItems;
       });
     }
@@ -214,7 +214,7 @@ export const GroupDetail: React.FC<{
           actualDeleteLocal = false; // 降级为不删除本地文件
         }
       }
-      
+
       const ids = Array.from(selectedBookIds);
       for (const bid of ids) {
         await bookService.deleteBook(bid, !!actualDeleteLocal);
@@ -232,7 +232,7 @@ export const GroupDetail: React.FC<{
         detail: { active: selectionMode, count: selectedBookIds.size },
       });
       window.dispatchEvent(evt);
-    } catch {}
+    } catch { }
   }, [selectionMode, selectedBookIds]);
 
   useEffect(() => {
@@ -270,14 +270,14 @@ export const GroupDetail: React.FC<{
       const { groups: loadedGroups, previews } = await loadGroupsWithPreviews();
       // 过滤掉当前分组
       const validGroups = loadedGroups.filter(g => g.id !== id);
-      
+
       setAllGroups(validGroups);
       setGroupPreviews(previews);
       setMoveDrawerOpen(true);
-      } catch (e) {
-        console.error("加载分组失败", e);
-        alert(t('loadGroupsFailed'));
-      }
+    } catch (e) {
+      console.error("加载分组失败", e);
+      alert(t('loadGroupsFailed'));
+    }
   };
 
   const handleMoveBooks = async (targetGroupId: number) => {
@@ -292,25 +292,25 @@ export const GroupDetail: React.FC<{
       // 获取目标分组当前书籍
       const targetBooks = await groupService.getBooksByGroup(targetGroupId);
       const targetBookIds = targetBooks.map((b) => b.id);
-      
+
       // 保持源分组中的相对顺序
       const currentBooks = booksRef.current || [];
       const movedIdsOrdered = currentBooks
         .filter((b) => selectedBookIds.has(b.id))
         .map((b) => b.id);
-        
+
       // 过滤出目标分组中原有的书籍（不包含这次移动的）
       const restIds = targetBookIds.filter((bid) => !selectedBookIds.has(bid));
-      
+
       const newOrder = [...movedIdsOrdered, ...restIds];
-      
+
       await groupService.reorderGroupBooks(targetGroupId, newOrder);
 
       // 3. 刷新与退出
       await reloadBooksAndGroups();
       exitSelection();
       setMoveDrawerOpen(false);
-      
+
     } catch (e) {
       console.error("移动书籍失败", e);
       alert(t('moveFailed'));
@@ -372,79 +372,79 @@ export const GroupDetail: React.FC<{
           {t('noBooks')}
         </div>
       ) : (
+        <div
+          ref={scrollRef}
+          className="no-scrollbar"
+          style={{
+            flex: 1,
+            overflowY: "auto",
+            padding: "16px 8px 16px 16px",
+          }}
+        >
           <div
-            ref={scrollRef}
-            className="no-scrollbar"
             style={{
-              flex: 1,
-              overflowY: "auto",
-              padding: "16px 8px 16px 16px",
-            }}
-          >
-            <div
-              style={{
-                display: "grid",
-                // 响应式列宽
+              display: "grid",
+              // 响应式列宽
               gridTemplateColumns: `repeat(auto-fill, minmax(${CARD_MIN_WIDTH}px, 1fr))`,
               gap: GRID_GAP_GROUP_DETAIL + "px",
               alignContent: "start",
               gridAutoRows: "min-content",
             }}
           >
-          <DndContext
-            sensors={sensors}
-            collisionDetection={closestCenter}
-            onDragStart={onDragStart}
-            onDragEnd={(e) => {
-              onDragEndGuard();
-              handleDragEnd(e);
-            }}
-            onDragCancel={onDragCancel}
-          >
-            <SortableContext
-              items={books.map((b) => b.id)}
-              strategy={rectSortingStrategy}
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragStart={onDragStart}
+              onDragEnd={(e) => {
+                onDragEndGuard();
+                handleDragEnd(e);
+              }}
+              onDragCancel={onDragCancel}
             >
-              {books.map((b) => (
-                <SortableBookItem
-                  width="100%"
-                  key={b.id}
-                  id={b.id}
-                  book={b}
-                  onClick={() => {
-                    if (selectionMode) {
-                      toggleSelectBook(b.id);
-                      return;
-                    }
-                    try {
-                      const orderStr = localStorage.getItem("recent_books_order");
-                      let order: number[] = [];
-                      if (orderStr) {
-                        try {
-                          const parsed = JSON.parse(orderStr);
-                          if (Array.isArray(parsed)) order = parsed;
-                        } catch {}
+              <SortableContext
+                items={books.map((b) => b.id)}
+                strategy={rectSortingStrategy}
+              >
+                {books.map((b) => (
+                  <SortableBookItem
+                    width="100%"
+                    key={b.id}
+                    id={b.id}
+                    book={b}
+                    onClick={() => {
+                      if (selectionMode) {
+                        toggleSelectBook(b.id);
+                        return;
                       }
-                      order = order.filter((oid) => oid !== b.id);
-                      order.unshift(b.id);
-                      localStorage.setItem("recent_books_order", JSON.stringify(order));
-                    } catch (e) {
-                      console.error("更新最近阅读顺序失败", e);
-                    }
-                    goToReader(b);
-                  }}
-                  onLongPress={() => onBookLongPress(b.id)}
-                  selectable={selectionMode}
-                  selected={selectedBookIds.has(b.id)}
-                  onToggleSelect={() => toggleSelectBook(b.id)}
-                  onDelete={() => {
-                    if (dragActive) return;
-                    handleDeleteInGroup(b);
-                  }}
-                />
-              ))}
-            </SortableContext>
-          </DndContext>
+                      try {
+                        const orderStr = localStorage.getItem("recent_books_order");
+                        let order: number[] = [];
+                        if (orderStr) {
+                          try {
+                            const parsed = JSON.parse(orderStr);
+                            if (Array.isArray(parsed)) order = parsed;
+                          } catch { }
+                        }
+                        order = order.filter((oid) => oid !== b.id);
+                        order.unshift(b.id);
+                        localStorage.setItem("recent_books_order", JSON.stringify(order));
+                      } catch (e) {
+                        console.error("更新最近阅读顺序失败", e);
+                      }
+                      goToReader(b);
+                    }}
+                    onLongPress={() => onBookLongPress(b.id)}
+                    selectable={selectionMode}
+                    selected={selectedBookIds.has(b.id)}
+                    onToggleSelect={() => toggleSelectBook(b.id)}
+                    onDelete={() => {
+                      if (dragActive) return;
+                      handleDeleteInGroup(b);
+                    }}
+                  />
+                ))}
+              </SortableContext>
+            </DndContext>
           </div>
         </div>
       )}

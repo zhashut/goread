@@ -1,8 +1,8 @@
 import React from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { BookCard } from "./BookCard";
-import { IBook } from "../types";
+import { BookCard } from "../BookCard";
+import { IBook } from "../../types";
 
 interface SortableBookItemProps {
   id: number | string;

@@ -1,15 +1,15 @@
 import React, { useState, useRef, useEffect } from "react";
 import { useTranslation } from 'react-i18next';
-import { useAppNav } from "../router/useAppNav";
-import { IGroup } from "../types";
-import { IconDelete, IconMove } from "./Icons";
-import { TOP_BAR_MARGIN_BOTTOM } from "../constants/ui";
-import { BookshelfTopBar } from "./BookshelfTopBar";
-import { Toast } from "./Toast";
-import { groupService } from "../services";
-import { GroupDetail } from "./GroupDetail";
-import { getSafeAreaInsets } from "../utils/layout";
-import { useDragGuard } from "../utils/gesture";
+import { useAppNav } from "../../router/useAppNav";
+import { IGroup } from "../../types";
+import { IconDelete, IconMove } from "../Icons";
+import { TOP_BAR_MARGIN_BOTTOM } from "../../constants/ui";
+import { TopBar } from "./TopBar";
+import { Toast } from "../Toast";
+import { groupService } from "../../services";
+import { GroupDetail } from "../GroupDetail";
+import { getSafeAreaInsets } from "../../utils/layout";
+import { useDragGuard } from "../../utils/gesture";
 
 interface GroupDetailOverlayProps {
   groupId: number;
@@ -61,7 +61,7 @@ export const GroupDetailOverlay: React.FC<GroupDetailOverlayProps> = ({
       setIsEditingGroupName(false);
       return;
     }
-    
+
     const currentGroup = groups.find(g => g.id === groupId);
     if (currentGroup && name === currentGroup.name) {
       justFinishedEditingRef.current = true;
@@ -124,7 +124,7 @@ export const GroupDetailOverlay: React.FC<GroupDetailOverlayProps> = ({
       }}
     >
       {groupDetailSelectionActive && (
-        <BookshelfTopBar
+        <TopBar
           mode="selection"
           selectedCount={groupDetailSelectedCount}
           onExitSelection={() => nav.goBack()}
@@ -373,7 +373,7 @@ export const GroupDetailOverlay: React.FC<GroupDetailOverlayProps> = ({
               textOverflow: "ellipsis"
             }}
           >
-          {groups.find((g) => g.id === groupId)?.name || t('defaultGroupName')}
+            {groups.find((g) => g.id === groupId)?.name || t('defaultGroupName')}
           </div>
         )}
         {/* 抽屉主体：宽度占满，高度85%，居中位置 */}
