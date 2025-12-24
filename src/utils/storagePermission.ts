@@ -52,14 +52,26 @@ class AndroidStoragePermissionHandler implements StoragePermissionHandler {
             return this.permissionCache;
         }
         try {
-            let systemGranted = false;
-            if (typeof (window as any).StoragePermissionBridge !== 'undefined') {
-                const bridge = (window as any).StoragePermissionBridge;
-                systemGranted = !!bridge.hasPermission();
-            }
-            const readable = await fileSystemService.checkStoragePermission();
             const hasBridge = typeof (window as any).StoragePermissionBridge !== 'undefined';
-            this.permissionCache = hasBridge ? (systemGranted && readable) : readable;
+            
+            // 以系统权限判定为准
+            // 只有当系统明确授予权限时才返回 true
+            if (hasBridge) {
+                try {
+                    const bridge = (window as any).StoragePermissionBridge;
+                    const systemGranted = !!bridge.hasPermission();
+                    console.log('[Android] hasPermission:', systemGranted);
+                    this.permissionCache = systemGranted;
+                } catch (e) {
+                    console.warn('[Android] hasPermission 调用失败，视为无权限', e);
+                    this.permissionCache = false;
+                }
+            } else {
+                // 没有 bridge 时（非 Android 环境），退化为检查目录可读性
+                const readable = await fileSystemService.checkStoragePermission();
+                this.permissionCache = readable;
+            }
+            
             if (this.cacheExpireTimer) clearTimeout(this.cacheExpireTimer);
             this.cacheExpireTimer = setTimeout(() => { this.permissionCache = null; }, this.CACHE_EXPIRE_MS);
             return this.permissionCache ?? false;
@@ -71,39 +83,41 @@ class AndroidStoragePermissionHandler implements StoragePermissionHandler {
 
     async requestPermission(): Promise<boolean> {
         try {
-            // 优先使用 Native Bridge
             if (typeof (window as any).StoragePermissionBridge !== 'undefined') {
                 const bridge = (window as any).StoragePermissionBridge;
-                
-                // 创建 Promise 监听权限结果回调
+
                 const resultPromise = new Promise<boolean>((resolve) => {
-                    // 设置回调函数供原生代码调用
-                    (window as any).__onPermissionResult__ = (granted: boolean) => {
+                    (window as any).__onPermissionResult__ = async (_granted: boolean) => {
                         this.clearCache();
-                        resolve(granted);
-                        delete (window as any).__onPermissionResult__;
-                    };
-                    
-                    // 设置超时（用户可能长时间不操作）
-                    setTimeout(() => {
-                        if ((window as any).__onPermissionResult__) {
-                            this.clearCache();
-                            // 超时后重新检查权限状态
-                            resolve(bridge.hasPermission());
+                        try {
+                            const finalGranted = await this.checkPermission();
+                            resolve(finalGranted);
+                        } finally {
                             delete (window as any).__onPermissionResult__;
                         }
-                    }, 60000); // 60秒超时
+                    };
+
+                    setTimeout(async () => {
+                        if ((window as any).__onPermissionResult__) {
+                            this.clearCache();
+                            try {
+                                const finalGranted = await this.checkPermission();
+                                resolve(finalGranted);
+                            } finally {
+                                delete (window as any).__onPermissionResult__;
+                            }
+                        }
+                    }, 60000);
                 });
-                
-                // 触发原生权限请求
+
                 bridge.requestPermission();
-                
+
                 return await resultPromise;
             }
             const result = await fileSystemService.requestStoragePermission();
             this.clearCache();
-            const readable = await fileSystemService.checkStoragePermission();
-            return result && readable;
+            const finalGranted = await this.checkPermission();
+            return result && finalGranted;
         } catch (error) {
             console.error('[Android] 请求存储权限失败:', error);
             return false;

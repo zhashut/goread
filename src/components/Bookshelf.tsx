@@ -8,7 +8,7 @@ import { useTranslation } from "react-i18next";
 
 import { useAppNav } from "../router/useAppNav";
 import { IBook, IGroup } from "../types";
-import { ensurePermissionForDeleteLocal, requestStoragePermission, checkStoragePermission } from "../utils/storagePermission";
+import { ensurePermissionForDeleteLocal, ensurePermissionForImport } from "../utils/storagePermission";
 import { IconDelete } from "./Icons";
   import {
   GRID_GAP_BOOK_CARDS,
@@ -642,10 +642,13 @@ export const Bookshelf: React.FC = () => {
         onSearch={() => nav.toSearch()}
         onMenuAction={async (action) => {
           if (action === "import") {
-            const ok = await checkStoragePermission();
-            if (ok) { nav.toImport({ fromTab: activeTab, initialTab: "scan" }); return; }
-            const granted = await requestStoragePermission();
-            if (granted) { nav.toImport({ fromTab: activeTab, initialTab: "scan" }); }
+            const ok = await ensurePermissionForImport();
+            if (ok) {
+              nav.toImport({ fromTab: activeTab, initialTab: "scan" });
+            } else {
+              // 权限被拒绝，停留在书架页并提示
+              setToastMsg(t('importNeedPermission'));
+            }
           }
           else if (action === "settings") nav.toSettings({ fromTab: activeTab });
           else if (action === "statistics") nav.toStatistics({ fromTab: activeTab });

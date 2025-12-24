@@ -46,5 +46,6 @@
   "deleteFailed": "删除失败，请重试",
   "noBooks": "暂无书籍",
   "noGroups": "暂无分组",
-  "importTip": "通过右上角“更多”中的“导入”添加书籍"
+  "importTip": "通过右上角“更多”中的“导入”添加书籍",
+  "importNeedPermission": "导入文件需要存储权限"
 }

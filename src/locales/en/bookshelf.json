@@ -43,7 +43,8 @@
   },
   "deleteBookFailedWithReason": "Failed to delete book, please try again\n\nReason: {{reason}}",
   "deleteFailed": "Delete failed, please try again",
-  "noBooks": "No books",
+"noBooks": "No books",
   "noGroups": "No groups",
-  "importTip": "Add books via Import in the top right menu"
+  "importTip": "Add books via Import in the top right menu",
+  "importNeedPermission": "Storage permission is required to import files"
 }

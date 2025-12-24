@@ -65,24 +65,19 @@ class MainActivity : TauriActivity() {
   private val requestPermissionLauncher = registerForActivityResult(
     ActivityResultContracts.RequestMultiplePermissions()
   ) { permissions ->
-    // 检查是否所有权限都已授予
     val allGranted = permissions.values.all { it }
     println("[Permission] Results: $permissions, allGranted: $allGranted")
-    
-    // 回调通知前端权限结果
-    notifyPermissionResult(allGranted)
+
+    val finalGranted = checkStoragePermissionInternal()
+    println("[Permission] checkStoragePermissionInternal after request: $finalGranted")
+    notifyPermissionResult(finalGranted)
   }
   
   // 用于处理 MANAGE_EXTERNAL_STORAGE 权限返回（Android 11+）
   private val manageStorageLauncher = registerForActivityResult(
     ActivityResultContracts.StartActivityForResult()
   ) { _ ->
-    // 从设置页面返回后检查权限状态
-    val granted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-      Environment.isExternalStorageManager()
-    } else {
-      true
-    }
+    val granted = checkStoragePermissionInternal()
     println("[Permission] MANAGE_EXTERNAL_STORAGE result: $granted")
     notifyPermissionResult(granted)
   }
@@ -501,18 +496,25 @@ class MainActivity : TauriActivity() {
   }
   
   // 内部权限检查方法
+  // 电子书阅读器需要访问文档文件（PDF/EPUB/TXT），不同 Android 版本的权限机制不同
   private fun checkStoragePermissionInternal(): Boolean {
     return when {
       Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> {
-        // Android 11+ 必须使用 MANAGE_EXTERNAL_STORAGE 才能访问文档类文件
-        Environment.isExternalStorageManager()
+        // Android 11+：只有 MANAGE_EXTERNAL_STORAGE 才能访问任意目录的文档文件
+        // 细化媒体权限（READ_MEDIA_*）只能访问媒体文件，无法访问文档
+        val hasManageAll = Environment.isExternalStorageManager()
+        println("[Permission] Android 11+: MANAGE_EXTERNAL_STORAGE=$hasManageAll")
+        hasManageAll
       }
       else -> {
-        // Android 10 及以下使用 READ_EXTERNAL_STORAGE
-        ContextCompat.checkSelfPermission(
+        // Android 6-10：READ_EXTERNAL_STORAGE 即可访问所有外部存储文件
+        @Suppress("DEPRECATION")
+        val granted = ContextCompat.checkSelfPermission(
           this,
           Manifest.permission.READ_EXTERNAL_STORAGE
         ) == PackageManager.PERMISSION_GRANTED
+        println("[Permission] Android 6-10: READ_EXTERNAL_STORAGE=$granted")
+        granted
       }
     }
   }
@@ -671,27 +673,38 @@ class MainActivity : TauriActivity() {
     
     when {
       Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> {
-        // Android 11+ 必须使用 MANAGE_EXTERNAL_STORAGE 才能访问文档类文件（PDF/EPUB等）
-        // 此权限需要跳转设置页面手动开启
-        println("[Permission] Requesting MANAGE_EXTERNAL_STORAGE via settings")
+        // Android 11+：必须跳转设置页请求 MANAGE_EXTERNAL_STORAGE 权限
+        // 细化媒体权限无法访问文档文件，必须使用全盘访问权限
         try {
+          println("[Permission] Android 11+: Opening MANAGE_EXTERNAL_STORAGE settings")
           val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
           intent.data = Uri.parse("package:$packageName")
           manageStorageLauncher.launch(intent)
         } catch (e: Exception) {
-          val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
-          manageStorageLauncher.launch(intent)
+          // 部分系统可能不支持直接打开应用权限页，尝试通用设置页
+          println("[Permission] Fallback to general MANAGE_ALL_FILES_ACCESS_PERMISSION")
+          try {
+            val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
+            manageStorageLauncher.launch(intent)
+          } catch (e2: Exception) {
+            println("[Permission] Failed to open settings: $e2")
+            notifyPermissionResult(false)
+          }
         }
       }
       else -> {
-        // Android 6-10 使用 READ_EXTERNAL_STORAGE（会触发系统原生弹窗）
-        if (ContextCompat.checkSelfPermission(
-            this,
-            Manifest.permission.READ_EXTERNAL_STORAGE
-          ) != PackageManager.PERMISSION_GRANTED
-        ) {
-          println("[Permission] Requesting Android 6-10 READ_EXTERNAL_STORAGE")
-          requestPermissionLauncher.launch(arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE))
+        // Android 6-10：使用运行时权限请求 READ_EXTERNAL_STORAGE
+        @Suppress("DEPRECATION")
+        val hasRead = ContextCompat.checkSelfPermission(
+          this,
+          Manifest.permission.READ_EXTERNAL_STORAGE
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!hasRead) {
+          println("[Permission] Android 6-10: Requesting READ_EXTERNAL_STORAGE")
+          @Suppress("DEPRECATION")
+          requestPermissionLauncher.launch(
+            arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+          )
         } else {
           notifyPermissionResult(true)
         }

@@ -2,13 +2,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
     
-    <!-- 存储权限：用于读取本地电子书文件（PDF、EPUB、TXT等） -->
-    <!-- Android 10及以下使用 READ_EXTERNAL_STORAGE -->
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" 
-        android:maxSdkVersion="29" />
-    <!-- Android 11+ 必须使用 MANAGE_EXTERNAL_STORAGE 才能访问文档类文件 -->
-    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" 
-        android:minSdkVersion="30" />
+    <!-- 存储权限：用于读取本地电子书文件（PDF/EPUB/TXT 等） -->
+    <!-- Android 6-10：READ_EXTERNAL_STORAGE 可访问全部文件 -->
+    <!-- Android 11-12：READ_EXTERNAL_STORAGE 会弹出「照片、媒体内容和文件」弹窗 -->
+    <!-- Android 13+：细化媒体权限无法访问文档类文件，必须使用 MANAGE_EXTERNAL_STORAGE -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <!-- Android 11+ 全盘访问权限（电子书阅读器必需，用于扫描任意目录的文档文件） -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
 
     <!-- AndroidTV support -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
