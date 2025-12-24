@@ -2,6 +2,7 @@ import React from "react";
 import { useTranslation } from 'react-i18next';
 import { IGroup } from "../types";
 import GroupCoverGrid from "./bookshelf/GroupCoverGrid";
+import { GROUP_GRID_COLUMNS, GROUP_GRID_GAP } from "../constants/ui";
 import { getSafeAreaInsets } from "../utils/layout";
 
 export interface ChooseExistingGroupDrawerProps {
@@ -67,8 +68,8 @@ const ChooseExistingGroupDrawer: React.FC<ChooseExistingGroupDrawerProps> = ({
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "repeat(3, 1fr)",
-            gap: 12,
+            gridTemplateColumns: `repeat(${GROUP_GRID_COLUMNS}, 1fr)`,
+            gap: GROUP_GRID_GAP,
           }}
         >
           {groups.map((g) => (

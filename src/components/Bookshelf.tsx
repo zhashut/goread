@@ -8,19 +8,19 @@ import { IBook } from "../types";
 import { ensurePermissionForDeleteLocal, ensurePermissionForImport } from "../utils/storagePermission";
 import { IconDelete } from "./Icons";
 import {
-  GRID_GAP_BOOK_CARDS,
   GROUP_NAME_FONT_SIZE,
   GROUP_META_FONT_SIZE,
   GROUP_NAME_FONT_WEIGHT,
   CARD_INFO_MARGIN_TOP,
   GROUP_NAME_MARGIN_TOP,
   GROUP_META_MARGIN_TOP,
-  CARD_MIN_WIDTH,
   SELECTION_ICON_SIZE,
   SELECTION_ICON_OFFSET_TOP,
   SELECTION_ICON_OFFSET_RIGHT,
   GROUP_COVER_PADDING,
   TOP_BAR_ICON_SIZE,
+  GROUP_GRID_COLUMNS,
+  GROUP_GRID_GAP,
 } from "../constants/ui";
 import { Toast } from "./Toast";
 import { bookService, groupService } from "../services";
@@ -451,8 +451,8 @@ export const Bookshelf: React.FC = () => {
                   <div
                     style={{
                       display: "grid",
-                      gridTemplateColumns: `repeat(auto-fill, minmax(${CARD_MIN_WIDTH}px, 1fr))`,
-                      gap: GRID_GAP_BOOK_CARDS + "px",
+                      gridTemplateColumns: `repeat(${GROUP_GRID_COLUMNS}, minmax(0, 1fr))`,
+                      gap: GROUP_GRID_GAP + "px",
                       alignContent: "start",
                       gridAutoRows: "min-content",
                     }}
@@ -482,8 +482,8 @@ export const Bookshelf: React.FC = () => {
                 <div
                   style={{
                     display: "grid",
-                    gridTemplateColumns: `repeat(auto-fill, minmax(${CARD_MIN_WIDTH}px, 1fr))`,
-                    gap: GRID_GAP_BOOK_CARDS + "px",
+                    gridTemplateColumns: `repeat(${GROUP_GRID_COLUMNS}, minmax(0, 1fr))`,
+                    gap: GROUP_GRID_GAP + "px",
                     alignContent: "start",
                     gridAutoRows: "min-content",
                   }}
@@ -536,8 +536,8 @@ export const Bookshelf: React.FC = () => {
                 <div
                   style={{
                     display: "grid",
-                    gridTemplateColumns: `repeat(auto-fill, minmax(${CARD_MIN_WIDTH}px, 1fr))`,
-                    gap: GRID_GAP_BOOK_CARDS + "px",
+                    gridTemplateColumns: `repeat(${GROUP_GRID_COLUMNS}, minmax(0, 1fr))`,
+                    gap: GROUP_GRID_GAP + "px",
                     alignContent: "start",
                     gridAutoRows: "min-content",
                   }}
@@ -719,8 +719,8 @@ export const Bookshelf: React.FC = () => {
               <div
                 style={{
                   display: "grid",
-                  gridTemplateColumns: `repeat(auto-fill, minmax(${CARD_MIN_WIDTH}px, 1fr))`,
-                  gap: GRID_GAP_BOOK_CARDS + "px",
+                  gridTemplateColumns: `repeat(${GROUP_GRID_COLUMNS}, minmax(0, 1fr))`,
+                  gap: GROUP_GRID_GAP + "px",
                   alignContent: "start",
                   gridAutoRows: "min-content",
                 }}

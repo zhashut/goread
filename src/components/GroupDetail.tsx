@@ -5,7 +5,7 @@ import { useAppNav } from "../router/useAppNav";
 import { DndContext, closestCenter, DragEndEvent } from "@dnd-kit/core";
 import { arrayMove, SortableContext, rectSortingStrategy } from "@dnd-kit/sortable";
 import { IBook } from "../types";
-import { CARD_MIN_WIDTH, GRID_GAP_GROUP_DETAIL } from "../constants/ui";
+import { GRID_GAP_GROUP_DETAIL, GROUP_GRID_COLUMNS } from "../constants/ui";
 import { groupService, bookService } from "../services";
 import { ensurePermissionForDeleteLocal } from "../utils/storagePermission";
 import { SortableBookItem } from "./bookshelf/SortableBookItem";
@@ -424,7 +424,7 @@ export const GroupDetail: React.FC<{
             style={{
               display: "grid",
               // 响应式列宽
-              gridTemplateColumns: `repeat(auto-fill, minmax(${CARD_MIN_WIDTH}px, 1fr))`,
+              gridTemplateColumns: `repeat(${GROUP_GRID_COLUMNS}, minmax(0, 1fr))`,
               gap: GRID_GAP_GROUP_DETAIL + "px",
               alignContent: "start",
               gridAutoRows: "min-content",

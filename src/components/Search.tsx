@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useTranslation } from 'react-i18next';
 import { useAppNav } from "../router/useAppNav";
 import { IBook } from "../types";
-import { COVER_ASPECT_RATIO_COMPACT, GRID_GAP_BOOK_CARDS, CARD_MIN_WIDTH } from "../constants/ui";
+import { COVER_ASPECT_RATIO_COMPACT, GROUP_GRID_COLUMNS, GROUP_GRID_GAP } from "../constants/ui";
 import { bookService } from "../services";
 import { BookCard } from "./BookCard";
 import { SearchHeader } from "./SearchHeader";
@@ -153,8 +153,8 @@ export const Search: React.FC = () => {
             style={{
               padding: "16px 8px 16px 16px",
               display: "grid",
-              gridTemplateColumns: `repeat(auto-fill, minmax(${CARD_MIN_WIDTH}px, 1fr))`,
-              gap: GRID_GAP_BOOK_CARDS + "px",
+              gridTemplateColumns: `repeat(${GROUP_GRID_COLUMNS}, minmax(0, 1fr))`,
+              gap: GROUP_GRID_GAP + "px",
             }}
           >
             {results.map((b) => (

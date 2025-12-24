@@ -20,6 +20,10 @@ export const GRID_GAP_GROUP_DETAIL = 19; // 分组详情书籍卡片
 export const GRID_GAP_GROUP_ROW = GRID_GAP_BOOK_CARDS; // 全部栏目分组卡片行间距对齐最近书籍卡片
 export const GRID_GAP_GROUP_COLUMN = GRID_GAP_BOOK_CARDS; // 分组列间距与书籍完全一致，确保三列布局
 
+// 分组卡片栅格配置
+export const GROUP_GRID_COLUMNS = 3;
+export const GROUP_GRID_GAP = 12;
+
 // 选择单选图标统一配置
 export const SELECTION_ICON_SIZE = 24; // 选择单选圆标尺寸（px）
 export const SELECTION_ICON_OFFSET_TOP = 0.5; // 相对容器顶部的偏移（px）
