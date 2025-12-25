@@ -6,15 +6,27 @@ use sqlx::SqlitePool;
 use std::path::Path;
 use tauri::{AppHandle, Manager};
 
-async fn load_tables(pool: &SqlitePool) -> Result<(Vec<Book>, Vec<Group>, Vec<Bookmark>, Vec<ReadingSession>), String> {
-    let books: Vec<Book> =
-        sqlx::query_as::<_, Book>("SELECT * FROM books ORDER BY id").fetch_all(pool).await.map_err(|e| e.to_string())?;
-    let groups: Vec<Group> =
-        sqlx::query_as::<_, Group>("SELECT * FROM groups ORDER BY id").fetch_all(pool).await.map_err(|e| e.to_string())?;
+async fn load_tables(
+    pool: &SqlitePool,
+) -> Result<(Vec<Book>, Vec<Group>, Vec<Bookmark>, Vec<ReadingSession>), String> {
+    let books: Vec<Book> = sqlx::query_as::<_, Book>("SELECT * FROM books ORDER BY id")
+        .fetch_all(pool)
+        .await
+        .map_err(|e| e.to_string())?;
+    let groups: Vec<Group> = sqlx::query_as::<_, Group>("SELECT * FROM groups ORDER BY id")
+        .fetch_all(pool)
+        .await
+        .map_err(|e| e.to_string())?;
     let bookmarks: Vec<Bookmark> =
-        sqlx::query_as::<_, Bookmark>("SELECT * FROM bookmarks ORDER BY id").fetch_all(pool).await.map_err(|e| e.to_string())?;
+        sqlx::query_as::<_, Bookmark>("SELECT * FROM bookmarks ORDER BY id")
+            .fetch_all(pool)
+            .await
+            .map_err(|e| e.to_string())?;
     let sessions: Vec<ReadingSession> =
-        sqlx::query_as::<_, ReadingSession>("SELECT * FROM reading_sessions ORDER BY id").fetch_all(pool).await.map_err(|e| e.to_string())?;
+        sqlx::query_as::<_, ReadingSession>("SELECT * FROM reading_sessions ORDER BY id")
+            .fetch_all(pool)
+            .await
+            .map_err(|e| e.to_string())?;
 
     Ok((books, groups, bookmarks, sessions))
 }
@@ -75,10 +87,7 @@ async fn write_backup_file(path: &str, content: &Value) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn export_app_data(
-    reader_settings: Value,
-    db: DbState<'_>,
-) -> Result<String, String> {
+pub async fn export_app_data(reader_settings: Value, db: DbState<'_>) -> Result<String, String> {
     let pool_guard = db.lock().await;
     let pool = &*pool_guard;
 
@@ -102,7 +111,10 @@ async fn auto_backup_before_import(
         .map_err(|e| format!("创建自动备份目录失败: {}", e))?;
 
     let timestamp = Local::now().format("%Y%m%d-%H%M%S").to_string();
-    let file_name = format!("goread-autobackup-before-import-{}.goread-backup", timestamp);
+    let file_name = format!(
+        "goread-autobackup-before-import-{}.goread-backup",
+        timestamp
+    );
     let backup_path = base_dir.join(file_name);
 
     let (books, groups, bookmarks, sessions) = load_tables(pool).await?;
@@ -128,8 +140,8 @@ pub async fn import_app_data(
 
     auto_backup_before_import(&app_handle, pool).await.ok();
 
-    let root: Value = serde_json::from_str(&backup_content)
-        .map_err(|e| format!("解析备份文件失败: {}", e))?;
+    let root: Value =
+        serde_json::from_str(&backup_content).map_err(|e| format!("解析备份文件失败: {}", e))?;
 
     let version = root
         .get("version")
@@ -157,18 +169,27 @@ pub async fn import_app_data(
         .and_then(|d| d.get("tables"))
         .ok_or_else(|| "备份文件缺少数据表信息".to_string())?;
 
-    let books_val = db_tables.get("books").cloned().unwrap_or_else(|| Value::Array(vec![]));
-    let groups_val = db_tables.get("groups").cloned().unwrap_or_else(|| Value::Array(vec![]));
-    let bookmarks_val = db_tables.get("bookmarks").cloned().unwrap_or_else(|| Value::Array(vec![]));
+    let books_val = db_tables
+        .get("books")
+        .cloned()
+        .unwrap_or_else(|| Value::Array(vec![]));
+    let groups_val = db_tables
+        .get("groups")
+        .cloned()
+        .unwrap_or_else(|| Value::Array(vec![]));
+    let bookmarks_val = db_tables
+        .get("bookmarks")
+        .cloned()
+        .unwrap_or_else(|| Value::Array(vec![]));
     let sessions_val = db_tables
         .get("reading_sessions")
         .cloned()
         .unwrap_or_else(|| Value::Array(vec![]));
 
-    let books: Vec<Book> = serde_json::from_value(books_val)
-        .map_err(|e| format!("解析 books 表失败: {}", e))?;
-    let groups: Vec<Group> = serde_json::from_value(groups_val)
-        .map_err(|e| format!("解析 groups 表失败: {}", e))?;
+    let books: Vec<Book> =
+        serde_json::from_value(books_val).map_err(|e| format!("解析 books 表失败: {}", e))?;
+    let groups: Vec<Group> =
+        serde_json::from_value(groups_val).map_err(|e| format!("解析 groups 表失败: {}", e))?;
     let bookmarks: Vec<Bookmark> = serde_json::from_value(bookmarks_val)
         .map_err(|e| format!("解析 bookmarks 表失败: {}", e))?;
     let sessions: Vec<ReadingSession> = serde_json::from_value(sessions_val)
@@ -222,7 +243,7 @@ pub async fn import_app_data(
     for book in books {
         if let Some(id) = book.id {
             sqlx::query(
-                "INSERT INTO books (id, title, file_path, cover_image, current_page, total_pages, last_read_time, group_id, position_in_group, created_at, status, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO books (id, title, file_path, cover_image, current_page, total_pages, last_read_time, group_id, position_in_group, created_at, status, finished_at, recent_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(id)
             .bind(book.title)
@@ -236,12 +257,13 @@ pub async fn import_app_data(
             .bind(book.created_at)
             .bind(book.status.unwrap_or(0))
             .bind(book.finished_at)
+            .bind(book.recent_order)
             .execute(&mut *tx)
             .await
             .map_err(|e| format!("恢复 books 表失败: {}", e))?;
         } else {
             sqlx::query(
-                "INSERT INTO books (title, file_path, cover_image, current_page, total_pages, last_read_time, group_id, position_in_group, created_at, status, finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO books (title, file_path, cover_image, current_page, total_pages, last_read_time, group_id, position_in_group, created_at, status, finished_at, recent_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(book.title)
             .bind(book.file_path)
@@ -254,6 +276,7 @@ pub async fn import_app_data(
             .bind(book.created_at)
             .bind(book.status.unwrap_or(0))
             .bind(book.finished_at)
+            .bind(book.recent_order)
             .execute(&mut *tx)
             .await
             .map_err(|e| format!("恢复 books 表失败: {}", e))?;

@@ -17,14 +17,14 @@ const loadTauriAPI = async () => {
     if (apiMod && typeof (apiMod as any).invoke === 'function') {
       return (apiMod as any).invoke as (cmd: string, args?: any) => Promise<any>;
     }
-  } catch {}
+  } catch { }
 
   try {
     const coreMod = await import('@tauri-apps/api/core').catch(() => null as any);
     if (coreMod && typeof (coreMod as any).invoke === 'function') {
       return (coreMod as any).invoke as (cmd: string, args?: any) => Promise<any>;
     }
-  } catch {}
+  } catch { }
 
   // 3) 浏览器预览环境：返回 mock，避免页面因未找到 invoke 而报错
   console.warn('Tauri invoke not available, using mock for browser preview');
@@ -52,7 +52,7 @@ export const log = async (message: string, level: 'info' | 'warn' | 'error' = 'i
     level,
     message,
     context: context ? JSON.stringify(context) : undefined
-  }).catch(() => {}); // 忽略日志错误
+  }).catch(() => { }); // 忽略日志错误
 };
 
 import { IBook, IGroup, IBookmark, IStatsSummary, IDailyStats, IRangeStats, IBookReadingStats } from '../types';
@@ -70,6 +70,7 @@ export interface IBookService {
   deleteBook(id: number, deleteLocal?: boolean): Promise<void>;
   clearRecent(bookId: number): Promise<void>;
   updateBooksLastReadTime(updates: [number, number][]): Promise<void>;
+  reorderRecentBooks(orderedIds: number[]): Promise<void>;
 }
 
 // 分组服务接口
@@ -151,6 +152,11 @@ export class TauriBookService implements IBookService {
     const invoke = await getInvoke();
     await invoke('update_books_last_read_time', { updates });
   }
+
+  async reorderRecentBooks(orderedIds: number[]): Promise<void> {
+    const invoke = await getInvoke();
+    await invoke('reorder_recent_books', { orderedIds });
+  }
 }
 
 export class TauriGroupService implements IGroupService {
@@ -166,7 +172,7 @@ export class TauriGroupService implements IGroupService {
           message: 'addGroup failed',
           context: JSON.stringify({ name, error: String(e) })
         });
-      } catch {}
+      } catch { }
       throw e;
     }
   }
@@ -232,7 +238,7 @@ export const logError = async (message: string, context?: any) => {
       message,
       context: context ? JSON.stringify(context) : null,
     });
-  } catch {}
+  } catch { }
 };
 
 // --------------- 阅读器设置持久化 ---------------

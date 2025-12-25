@@ -64,68 +64,15 @@ export const useDragSort = (params: {
             const newIndex = books.findIndex((b) => b.id === over.id);
             const newItems = arrayMove(books, oldIndex, newIndex);
 
+            // 立即更新UI
             setBooks(newItems);
-            localStorage.setItem(
-                "recent_books_order",
-                JSON.stringify(newItems.map((b) => b.id))
-            );
 
-            // 同步更新数据库 last_read_time，确保 Limit 限制后顺序依然正确
+            // 调用后端API持久化排序
             try {
-                const updates: [number, number][] = [];
-                // 确定起始时间约束
-                // 如果是第一项，使用当前时间（秒）
-                // 如果不是第一项，使用前一项的时间 - 1
-                let constraintTime = Math.floor(Date.now() / 1000);
-
-                if (newIndex > 0) {
-                    const prevBook = newItems[newIndex - 1];
-                    constraintTime = (prevBook.last_read_time || 0) - 1;
-                } else {
-                    // 如果是第一项，确保比第二项大（如果有第二项）
-                    if (newItems.length > 1) {
-                        const secondBook = newItems[1];
-                        const secondTime = secondBook.last_read_time || 0;
-                        if (constraintTime <= secondTime) {
-                            constraintTime = secondTime + 1;
-                        }
-                    }
-                }
-
-                // 从被移动的项开始，向后检查并更新时间
-                // 必须保证严格降序：time[i] < time[i-1]
-                let currentMax = constraintTime;
-
-                for (let i = newIndex; i < newItems.length; i++) {
-                    const book = newItems[i];
-                    const bookTime = book.last_read_time || 0;
-
-                    // 如果当前书的时间违反约束（比允许的最大值大），或者它是被移动的书（必须更新以反映新位置）
-                    if (bookTime > currentMax || i === newIndex) {
-                        updates.push([book.id, currentMax]);
-                        // 更新本地状态中的时间，以便后续计算正确（虽然不直接影响 React 渲染，因为已经 setBooks）
-                        book.last_read_time = currentMax;
-                        currentMax--;
-                    } else {
-                        // 如果当前书的时间满足约束（<= currentMax），则不需要更新它
-                        // 但下一本书的约束变为当前书的时间 - 1
-                        currentMax = bookTime - 1;
-                    }
-                }
-
-                if (updates.length > 0) {
-                    await bookService.updateBooksLastReadTime(updates);
-                    // 更新本地状态中的时间，防止刷新后跳变
-                    setBooks(prev => prev.map(b => {
-                        const up = updates.find(u => u[0] === b.id);
-                        if (up) return { ...b, last_read_time: up[1] };
-                        return b;
-                    }));
-                }
+                await bookService.reorderRecentBooks(newItems.map((b) => b.id));
             } catch (e) {
-                console.error("Failed to sync drag order to DB", e);
+                console.error("Failed to reorder recent books", e);
             }
-
         } else {
             setGroups((items) => {
                 const oldIndex = items.findIndex((g) => g.id === active.id);

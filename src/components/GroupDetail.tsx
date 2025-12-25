@@ -455,21 +455,7 @@ export const GroupDetail: React.FC<{
                         toggleSelectBook(b.id);
                         return;
                       }
-                      try {
-                        const orderStr = localStorage.getItem("recent_books_order");
-                        let order: number[] = [];
-                        if (orderStr) {
-                          try {
-                            const parsed = JSON.parse(orderStr);
-                            if (Array.isArray(parsed)) order = parsed;
-                          } catch { }
-                        }
-                        order = order.filter((oid) => oid !== b.id);
-                        order.unshift(b.id);
-                        localStorage.setItem("recent_books_order", JSON.stringify(order));
-                      } catch (e) {
-                        console.error("更新最近阅读顺序失败", e);
-                      }
+                      // 后端 mark_book_opened 会自动更新 recent_order
                       goToReader(b);
                     }}
                     onLongPress={() => onBookLongPress(b.id)}

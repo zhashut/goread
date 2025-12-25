@@ -63,15 +63,26 @@ export const BookCard: React.FC<CommonBookCardProps> = ({
   if (onLongPress) {
     useLongPress(cardRef as any, () => onLongPress(), { delay: SELECTION_LONGPRESS_DELAY_MS });
   }
-  // 如果没有阅读时间，视为未读（避免刚导入显示0.1%）
-  const isUnread = !book.last_read_time;
+  // 判断文件格式
+  const format = getBookFormat(book.file_path);
+  const isVirtualPageFormat = format === "markdown" || format === "html";
+
+  // 判断是否未读：
+  // - 对于虚拟页格式(md/html)：使用 last_read_time 判断，因为 total_pages 始终为 1
+  // - 对于其他格式：current_page <= 1 且不是单页书籍
+  const isUnread = isVirtualPageFormat
+    ? !book.last_read_time
+    : book.current_page <= 1 && book.total_pages > 1;
+
+  // 计算进度：
+  // - 虚拟页格式未读时显示 0%，已读显示 100%（因为 current_page/total_pages = 1/1）
+  // - 其他格式正常计算百分比
   const progress =
-    !isUnread && book.total_pages > 0
-      ? Math.min(
-          100,
-          Math.round((book.current_page / book.total_pages) * 1000) / 10
-        )
-      : 0;
+    isUnread
+      ? 0
+      : book.total_pages > 0
+        ? Math.min(100, Math.round((book.current_page / book.total_pages) * 1000) / 10)
+        : 0;
 
   // 计算 padding-bottom 比例
   let pb = "133.33%";
@@ -108,7 +119,7 @@ export const BookCard: React.FC<CommonBookCardProps> = ({
         if (typeof outerRef === "function") {
           outerRef(node as any);
         } else if (outerRef && (outerRef as any)) {
-          try { (outerRef as any).current = node; } catch {}
+          try { (outerRef as any).current = node; } catch { }
         }
       }}
       {...(outerProps || {})}
@@ -240,7 +251,7 @@ export const BookCard: React.FC<CommonBookCardProps> = ({
             userSelect: "none",
           }}
         >
-          已读 {progress}%
+          {isUnread ? "未读" : `已读 ${progress}%`}
         </div>
       </div>
     </div>

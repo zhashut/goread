@@ -1,44 +1,77 @@
 mod commands;
 mod formats;
+mod html_commands;
 mod markdown_commands;
 mod models;
 mod pdf;
 mod pdf_commands;
-mod html_commands;
 
 // 导入所有命令
 use commands::{
-    // book commands
-    init_database, add_book, get_all_books, get_recent_books,
-    update_book_progress, update_book_total_pages, mark_book_opened, clear_recent_read_record, delete_book, update_books_last_read_time,
-    // group commands
-    add_group, get_all_groups, delete_group, get_books_by_group, update_group,
-    move_book_to_group, reorder_group_books,
+    add_book,
     // bookmark commands
-    add_bookmark, get_bookmarks, delete_bookmark,
-    // filesystem commands
-    scan_pdf_files, scan_book_files, cancel_scan, list_directory, list_directory_supported, get_root_directories,
-    check_storage_permission, request_storage_permission, read_file_bytes,
-    save_image_to_gallery,
+    add_bookmark,
+    // group commands
+    add_group,
+    batch_get_pdf_info,
+    batch_import_books,
     // import commands
-    batch_read_files, batch_import_books, batch_get_pdf_info, frontend_log,
-    // stats commands
-    save_reading_session, get_stats_summary, get_daily_stats, get_reading_stats_by_range,
-    get_day_stats_by_hour, get_books_by_date_range, mark_book_finished, unmark_book_finished,
-    has_reading_sessions,
+    batch_read_files,
+    cancel_scan,
+    check_storage_permission,
+    clear_recent_read_record,
+    delete_book,
+    delete_bookmark,
+    delete_group,
     // backup commands
-    export_app_data, import_app_data,
+    export_app_data,
+    frontend_log,
+    get_all_books,
+    get_all_groups,
+    get_bookmarks,
+    get_books_by_date_range,
+    get_books_by_group,
+    get_daily_stats,
+    get_day_stats_by_hour,
+    get_reading_stats_by_range,
+    get_recent_books,
+    get_root_directories,
+    get_stats_summary,
+    has_reading_sessions,
+    import_app_data,
+    // book commands
+    init_database,
+    list_directory,
+    list_directory_supported,
+    mark_book_finished,
+    mark_book_opened,
+    move_book_to_group,
+    read_file_bytes,
+    reorder_group_books,
+    reorder_recent_books,
+    request_storage_permission,
+    save_image_to_gallery,
+    // stats commands
+    save_reading_session,
+    scan_book_files,
+    // filesystem commands
+    scan_pdf_files,
+    unmark_book_finished,
+    update_book_progress,
+    update_book_total_pages,
+    update_books_last_read_time,
+    update_group,
 };
+use html_commands::*;
 use markdown_commands::*;
 use pdf_commands::*;
-use html_commands::*;
-use sqlx::SqlitePool;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
+use sqlx::SqlitePool;
 use std::str::FromStr;
-use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
-use tokio::sync::Mutex;
+use std::sync::Arc;
 use tauri::Manager;
+use tokio::sync::Mutex;
 
 #[tauri::command]
 fn exit_app() {
@@ -63,7 +96,7 @@ async fn hide_status_bar() -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-.plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
@@ -80,19 +113,24 @@ pub fn run() {
                     .journal_mode(SqliteJournalMode::Wal)
                     .create_if_missing(true);
                 let pool = SqlitePool::connect_with(opts).await.unwrap();
-                
+
                 app.manage(Arc::new(Mutex::new(pool)));
                 app.manage(Arc::new(AtomicBool::new(false)));
-                
+
                 // 初始化PDF管理器
                 app.manage(init_pdf_manager());
-                
+
                 if let Ok(res_dir) = app.path().resource_dir() {
-                    #[cfg(target_os = "windows")] let sub = "pdfium/windows";
-                    #[cfg(target_os = "linux")] let sub = "pdfium/linux";
-                    #[cfg(target_os = "macos")] let sub = "pdfium/macos";
-                    #[cfg(target_os = "android")] let sub = "pdfium/android";
-                    #[cfg(target_os = "ios")] let sub = "pdfium/ios";
+                    #[cfg(target_os = "windows")]
+                    let sub = "pdfium/windows";
+                    #[cfg(target_os = "linux")]
+                    let sub = "pdfium/linux";
+                    #[cfg(target_os = "macos")]
+                    let sub = "pdfium/macos";
+                    #[cfg(target_os = "android")]
+                    let sub = "pdfium/android";
+                    #[cfg(target_os = "ios")]
+                    let sub = "pdfium/ios";
                     let full = res_dir.join(sub);
                     let p = full.to_string_lossy().replace('\\', "/");
                     unsafe {
@@ -100,7 +138,7 @@ pub fn run() {
                     }
                 }
             });
-            
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -114,6 +152,7 @@ pub fn run() {
             clear_recent_read_record,
             delete_book,
             update_books_last_read_time,
+            reorder_recent_books,
             add_group,
             get_all_groups,
             update_group,
@@ -181,8 +220,7 @@ pub fn run() {
             get_books_by_date_range,
             mark_book_finished,
             unmark_book_finished,
-            has_reading_sessions
-            ,
+            has_reading_sessions,
             // Backup commands
             export_app_data,
             import_app_data

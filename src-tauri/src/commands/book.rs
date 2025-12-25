@@ -126,6 +126,32 @@ pub async fn init_database(db: DbState<'_>) -> Result<(), Error> {
         .execute(&*pool)
         .await;
 
+    // 最近阅读排序字段迁移
+    let _ = sqlx::query("ALTER TABLE books ADD COLUMN recent_order INTEGER")
+        .execute(&*pool)
+        .await;
+
+    // 首次升级时迁移：按 last_read_time 初始化 recent_order
+    let needs_migration: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM books WHERE recent_order IS NOT NULL")
+            .fetch_one(&*pool)
+            .await?;
+
+    if needs_migration == 0 {
+        // 按 last_read_time 倒序，给每本有阅读记录的书分配 recent_order
+        sqlx::query(
+            "UPDATE books SET recent_order = (
+                SELECT COUNT(*) FROM books b2 
+                WHERE b2.last_read_time IS NOT NULL 
+                AND (b2.last_read_time < books.last_read_time 
+                     OR (b2.last_read_time = books.last_read_time AND b2.id < books.id))
+            ) + 1
+            WHERE last_read_time IS NOT NULL",
+        )
+        .execute(&*pool)
+        .await?;
+    }
+
     // Indexes
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_books_last_read_time ON books(last_read_time)")
         .execute(&*pool)
@@ -138,7 +164,10 @@ pub async fn init_database(db: DbState<'_>) -> Result<(), Error> {
     )
     .execute(&*pool)
     .await?;
-    
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_books_recent_order ON books(recent_order)")
+        .execute(&*pool)
+        .await?;
+
     // 阅读统计索引
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_sessions_read_date ON reading_sessions(read_date)")
         .execute(&*pool)
@@ -146,9 +175,11 @@ pub async fn init_database(db: DbState<'_>) -> Result<(), Error> {
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_sessions_book_id ON reading_sessions(book_id)")
         .execute(&*pool)
         .await?;
-    sqlx::query("CREATE INDEX IF NOT EXISTS idx_sessions_start_time ON reading_sessions(start_time)")
-        .execute(&*pool)
-        .await?;
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_sessions_start_time ON reading_sessions(start_time)",
+    )
+    .execute(&*pool)
+    .await?;
 
     // Create default group
     sqlx::query("INSERT OR IGNORE INTO groups (id, name, book_count) VALUES (1, '默认分组', 0)")
@@ -210,8 +241,10 @@ pub async fn get_all_books(db: DbState<'_>) -> Result<Vec<Book>, Error> {
 pub async fn get_recent_books(limit: u32, db: DbState<'_>) -> Result<Vec<Book>, Error> {
     let pool = db.lock().await;
 
+    // 按 recent_order 排序，recent_order 为空的排在最后，再按 last_read_time 倒序
     let books = sqlx::query_as::<_, Book>(
-        "SELECT * FROM books WHERE last_read_time IS NOT NULL ORDER BY last_read_time DESC LIMIT ?"
+        "SELECT * FROM books WHERE last_read_time IS NOT NULL 
+         ORDER BY recent_order IS NULL, recent_order DESC, last_read_time DESC LIMIT ?",
     )
     .bind(limit as i64)
     .fetch_all(&*pool)
@@ -228,10 +261,19 @@ pub async fn update_book_progress(
 ) -> Result<(), Error> {
     let pool = db.lock().await;
 
+    // 获取当前最大 recent_order
+    let max_order: Option<i64> =
+        sqlx::query_scalar("SELECT MAX(recent_order) FROM books WHERE last_read_time IS NOT NULL")
+            .fetch_one(&*pool)
+            .await?;
+    let next_order = max_order.unwrap_or(0) + 1;
+
+    // 同时更新进度、阅读时间和排序
     sqlx::query(
-        "UPDATE books SET current_page = ?, last_read_time = strftime('%s', 'now') WHERE id = ?",
+        "UPDATE books SET current_page = ?, last_read_time = strftime('%s', 'now'), recent_order = ? WHERE id = ?",
     )
     .bind(current_page as i64)
+    .bind(next_order)
     .bind(id)
     .execute(&*pool)
     .await?;
@@ -247,13 +289,11 @@ pub async fn update_book_total_pages(
 ) -> Result<(), Error> {
     let pool = db.lock().await;
 
-    sqlx::query(
-        "UPDATE books SET total_pages = ? WHERE id = ?",
-    )
-    .bind(total_pages as i64)
-    .bind(id)
-    .execute(&*pool)
-    .await?;
+    sqlx::query("UPDATE books SET total_pages = ? WHERE id = ?")
+        .bind(total_pages as i64)
+        .bind(id)
+        .execute(&*pool)
+        .await?;
 
     Ok(())
 }
@@ -261,24 +301,37 @@ pub async fn update_book_total_pages(
 #[tauri::command]
 pub async fn mark_book_opened(id: i64, db: DbState<'_>) -> Result<(), Error> {
     let pool = db.lock().await;
-    sqlx::query("UPDATE books SET last_read_time = strftime('%s', 'now') WHERE id = ?")
-        .bind(id)
-        .execute(&*pool)
-        .await?;
+
+    // 获取当前最大 recent_order
+    let max_order: Option<i64> =
+        sqlx::query_scalar("SELECT MAX(recent_order) FROM books WHERE last_read_time IS NOT NULL")
+            .fetch_one(&*pool)
+            .await?;
+    let next_order = max_order.unwrap_or(0) + 1;
+
+    // 同时更新阅读时间和排序，使该书移到最前
+    sqlx::query(
+        "UPDATE books SET last_read_time = strftime('%s', 'now'), recent_order = ? WHERE id = ?",
+    )
+    .bind(next_order)
+    .bind(id)
+    .execute(&*pool)
+    .await?;
     Ok(())
 }
 
 #[tauri::command]
 pub async fn delete_book(id: i64, delete_local: bool, db: DbState<'_>) -> Result<(), Error> {
     let pool = db.lock().await;
-    
+
     // If delete_local is true, delete the local file first
     if delete_local {
-        let file_path: Option<String> = sqlx::query_scalar("SELECT file_path FROM books WHERE id = ?")
-            .bind(id)
-            .fetch_optional(&*pool)
-            .await?;
-        
+        let file_path: Option<String> =
+            sqlx::query_scalar("SELECT file_path FROM books WHERE id = ?")
+                .bind(id)
+                .fetch_optional(&*pool)
+                .await?;
+
         if let Some(path) = file_path {
             match tokio::fs::remove_file(&path).await {
                 Ok(_) => {
@@ -290,7 +343,7 @@ pub async fn delete_book(id: i64, delete_local: bool, db: DbState<'_>) -> Result
             }
         }
     }
-    
+
     let old_group: Option<i64> = sqlx::query_scalar("SELECT group_id FROM books WHERE id = ?")
         .bind(id)
         .fetch_one(&*pool)
@@ -319,7 +372,7 @@ pub async fn delete_book(id: i64, delete_local: bool, db: DbState<'_>) -> Result
 #[tauri::command]
 pub async fn clear_recent_read_record(id: i64, db: DbState<'_>) -> Result<(), Error> {
     let pool = db.lock().await;
-    sqlx::query("UPDATE books SET last_read_time = NULL WHERE id = ?")
+    sqlx::query("UPDATE books SET last_read_time = NULL, recent_order = NULL WHERE id = ?")
         .bind(id)
         .execute(&*pool)
         .await?;
@@ -338,6 +391,38 @@ pub async fn update_books_last_read_time(
         sqlx::query("UPDATE books SET last_read_time = ? WHERE id = ?")
             .bind(time)
             .bind(id)
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    tx.commit().await?;
+    Ok(())
+}
+
+/// 重排最近阅读书籍顺序
+#[tauri::command]
+pub async fn reorder_recent_books(ordered_ids: Vec<i64>, db: DbState<'_>) -> Result<(), Error> {
+    let pool = db.lock().await;
+
+    // 获取当前全局最大 recent_order 作为基准
+    // 这确保拖拽后的可见书籍的 order 值都高于不可见的书籍
+    let max_order: Option<i64> =
+        sqlx::query_scalar("SELECT MAX(recent_order) FROM books WHERE last_read_time IS NOT NULL")
+            .fetch_one(&*pool)
+            .await?;
+
+    let base = max_order.unwrap_or(0);
+    let total = ordered_ids.len() as i64;
+
+    let mut tx = (&*pool).begin().await?;
+
+    for (idx, bid) in ordered_ids.iter().enumerate() {
+        // 第一本书获得最高值 (base + total)，最后一本获得 (base + 1)
+        // 这样可见书籍的顺序总是在不可见书籍之前
+        let order_val = base + total - (idx as i64);
+        sqlx::query("UPDATE books SET recent_order = ? WHERE id = ?")
+            .bind(order_val)
+            .bind(bid)
             .execute(&mut *tx)
             .await?;
     }

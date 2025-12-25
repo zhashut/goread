@@ -13,8 +13,9 @@ pub struct Book {
     pub group_id: Option<i64>,
     pub position_in_group: Option<i64>,
     pub created_at: Option<i64>,
-    pub status: Option<i64>,         // 阅读状态：0=阅读中，1=已读完
-    pub finished_at: Option<i64>,    // 完成时间戳
+    pub status: Option<i64>,       // 阅读状态：0=阅读中，1=已读完
+    pub finished_at: Option<i64>,  // 完成时间戳
+    pub recent_order: Option<i64>, // 最近阅读排序值，值越大越靠前
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -56,7 +57,7 @@ pub struct TocItem {
 #[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReaderSettings {
-    pub theme: String, // "light" or "dark"
+    pub theme: String,          // "light" or "dark"
     pub render_quality: String, // "low", "medium", "high"
     pub keep_screen_on: bool,
     pub auto_save_progress: bool,
@@ -69,9 +70,9 @@ pub struct ReaderSettings {
 pub struct ReadingSession {
     pub id: Option<i64>,
     pub book_id: i64,
-    pub start_time: i64,      // 开始时间戳（秒）
-    pub duration: i64,        // 持续时长（秒）
-    pub read_date: String,    // 日期 'YYYY-MM-DD'
+    pub start_time: i64,   // 开始时间戳（秒）
+    pub duration: i64,     // 持续时长（秒）
+    pub read_date: String, // 日期 'YYYY-MM-DD'
     pub pages_read_count: Option<i64>,
     pub created_at: Option<i64>,
 }
@@ -90,8 +91,8 @@ pub struct BookReadingStats {
     pub title: String,
     pub cover_image: Option<String>,
     pub total_duration: i64,
-    pub progress: String,     // "xx%"
-    pub last_read: String,    // 格式化的时间描述
+    pub progress: String,  // "xx%"
+    pub last_read: String, // 格式化的时间描述
 }
 
 /// 统计概览数据
@@ -105,10 +106,10 @@ pub struct StatsSummary {
 /// 时间范围统计数据（用于柱状图）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RangeStats {
-    pub labels: Vec<String>,           // 标签（如 周一, 周二...）
-    pub values: Vec<i64>,              // 对应的秒数
-    pub start_date: String,            // 范围开始日期
-    pub end_date: String,              // 范围结束日期
-    pub total_seconds: i64,            // 总秒数
-    pub previous_total_seconds: i64,   // 上一周期总秒数（用于计算环比）
+    pub labels: Vec<String>,         // 标签（如 周一, 周二...）
+    pub values: Vec<i64>,            // 对应的秒数
+    pub start_date: String,          // 范围开始日期
+    pub end_date: String,            // 范围结束日期
+    pub total_seconds: i64,          // 总秒数
+    pub previous_total_seconds: i64, // 上一周期总秒数（用于计算环比）
 }

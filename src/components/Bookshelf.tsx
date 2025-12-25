@@ -144,24 +144,7 @@ export const Bookshelf: React.FC = () => {
       toggleBookSelection(book.id);
       return;
     }
-    // 更新排序：将本书移至顶部
-    try {
-      const orderStr = localStorage.getItem("recent_books_order");
-      let order: number[] = [];
-      if (orderStr) {
-        try {
-          const parsed = JSON.parse(orderStr);
-          if (Array.isArray(parsed)) order = parsed;
-        } catch { }
-      }
-      // 如果存在则移除
-      order = order.filter((id) => id !== book.id);
-      // 添加到最前
-      order.unshift(book.id);
-      localStorage.setItem("recent_books_order", JSON.stringify(order));
-    } catch (e) {
-      console.error("Failed to update recent order", e);
-    }
+    // 后端 mark_book_opened 会自动更新 recent_order，使该书移到最前
     nav.toReader(book.id, { fromTab: activeTab });
   };
 

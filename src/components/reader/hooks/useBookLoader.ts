@@ -120,18 +120,8 @@ export const useBookLoader = (
 
                 if (!params.isExternal) {
                     try {
+                        // 后端 mark_book_opened 会自动更新 last_read_time 和 recent_order
                         await bookService.markBookOpened(targetBook.id);
-                        try {
-                            const orderKey = "recent_books_order";
-                            const orderStr = localStorage.getItem(orderKey);
-                            let order: number[] = [];
-                            if (orderStr) {
-                                order = JSON.parse(orderStr);
-                            }
-                            order = order.filter((id) => id !== targetBook.id);
-                            order.unshift(targetBook.id);
-                            localStorage.setItem(orderKey, JSON.stringify(order));
-                        } catch { }
                     } catch (e) {
                         console.warn("标记书籍已打开失败", e);
                     }
