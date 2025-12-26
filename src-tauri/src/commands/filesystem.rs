@@ -807,7 +807,6 @@ pub async fn save_image_to_gallery(
     filename: String,
     path: Option<String>,
 ) -> Result<String, String> {
-    println!("save_image_to_gallery called. Filename: {}, Path: {:?}", filename, path);
     let file_path = if let Some(p) = path {
         PathBuf::from(p)
     } else {
@@ -843,12 +842,10 @@ pub async fn save_image_to_gallery(
 
     match tokio::fs::write(&file_path, data).await {
         Ok(_) => {
-            println!("Save successful");
             Ok(file_path.to_string_lossy().to_string())
         }
         Err(e) => {
-            println!("Save failed: {}", e);
-            Err(format!("保存失败: {}", e))
+            Err(format!("{}", e))
         }
     }
 }

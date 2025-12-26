@@ -507,14 +507,20 @@ class MainActivity : TauriActivity() {
         hasManageAll
       }
       else -> {
-        // Android 6-10：READ_EXTERNAL_STORAGE 即可访问所有外部存储文件
+        // Android 6-10：需要同时拥有 READ 和 WRITE 权限
+        // 某些设备（如 HarmonyOS）需要显式的 WRITE 权限才能写入公共目录
         @Suppress("DEPRECATION")
-        val granted = ContextCompat.checkSelfPermission(
+        val hasRead = ContextCompat.checkSelfPermission(
           this,
           Manifest.permission.READ_EXTERNAL_STORAGE
         ) == PackageManager.PERMISSION_GRANTED
-        println("[Permission] Android 6-10: READ_EXTERNAL_STORAGE=$granted")
-        granted
+        @Suppress("DEPRECATION")
+        val hasWrite = ContextCompat.checkSelfPermission(
+          this,
+          Manifest.permission.WRITE_EXTERNAL_STORAGE
+        ) == PackageManager.PERMISSION_GRANTED
+        println("[Permission] Android 6-10: READ=$hasRead, WRITE=$hasWrite")
+        hasRead && hasWrite
       }
     }
   }
@@ -693,18 +699,24 @@ class MainActivity : TauriActivity() {
         }
       }
       else -> {
-        // Android 6-10：使用运行时权限请求 READ_EXTERNAL_STORAGE
+        // Android 6-10：使用运行时权限请求 READ 和 WRITE EXTERNAL_STORAGE
+        // 某些设备（如 HarmonyOS）可能需要显式的 WRITE 权限才能写入公共目录
         @Suppress("DEPRECATION")
-        val hasRead = ContextCompat.checkSelfPermission(
-          this,
-          Manifest.permission.READ_EXTERNAL_STORAGE
-        ) == PackageManager.PERMISSION_GRANTED
-        if (!hasRead) {
-          println("[Permission] Android 6-10: Requesting READ_EXTERNAL_STORAGE")
-          @Suppress("DEPRECATION")
-          requestPermissionLauncher.launch(
-            arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
-          )
+        val permissionsToRequest = mutableListOf<String>()
+        
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE) 
+            != PackageManager.PERMISSION_GRANTED) {
+          permissionsToRequest.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+        }
+        
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) 
+            != PackageManager.PERMISSION_GRANTED) {
+          permissionsToRequest.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        }
+        
+        if (permissionsToRequest.isNotEmpty()) {
+          println("[Permission] Android 6-10: Requesting ${permissionsToRequest.joinToString()}")
+          requestPermissionLauncher.launch(permissionsToRequest.toTypedArray())
         } else {
           notifyPermissionResult(true)
         }
