@@ -277,7 +277,7 @@ export const Reader: React.FC = () => {
     data: { readingMode, settings: settingsWithTheme },
     actions: {
       setUiVisible,
-      setMoreDrawerOpen
+      setMoreDrawerOpen,
     }
   });
 
@@ -636,9 +636,7 @@ export const Reader: React.FC = () => {
         visible={capture.cropMode}
         capturedImage={capture.capturedImage}
         onClose={() => {
-          capture.setCropMode(false);
-          capture.setCapturedImage(null);
-          setUiVisible(false);
+          capture.closeCrop();
         }}
         onSaveSuccess={() => {
           bookmarkData.showToast(tCommon('saveSuccess'), TOAST_DURATION_LONG_MS);

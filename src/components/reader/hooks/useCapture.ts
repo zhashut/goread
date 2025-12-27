@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import html2canvas from "html2canvas";
 import {
     QUALITY_SCALE_MAP,
@@ -47,6 +48,7 @@ export const useCapture = ({
         refs.dataset;
     const { readingMode, settings } = data;
     const { setUiVisible, setMoreDrawerOpen } = actions;
+    const [searchParams, setSearchParams] = useSearchParams();
 
     const getCurrentScale = () => {
         const dpr = Math.max(1, Math.min(3, (window as any).devicePixelRatio || 1));
@@ -157,12 +159,37 @@ export const useCapture = ({
             }
             if (dataUrl) {
                 setCapturedImage(dataUrl);
-                setCropMode(true);
                 setMoreDrawerOpen(false);
                 setUiVisible(false);
+                const next = new URLSearchParams(searchParams);
+                next.set("crop", "1");
+                setSearchParams(next, { replace: false });
             }
         } catch (e) {
             console.error("Capture failed", e);
+        }
+    };
+
+    useEffect(() => {
+        const cropFlag = searchParams.get("crop") === "1";
+        if (cropFlag && !cropMode) {
+            setCropMode(true);
+        } else if (!cropFlag && cropMode) {
+            setCropMode(false);
+            setCapturedImage(null);
+            setUiVisible(false);
+        }
+    }, [searchParams, cropMode, setUiVisible]);
+
+    const closeCrop = () => {
+        setCropMode(false);
+        setCapturedImage(null);
+        setUiVisible(false);
+        const currentCrop = searchParams.get("crop");
+        if (currentCrop === "1") {
+            const next = new URLSearchParams(searchParams);
+            next.delete("crop");
+            setSearchParams(next, { replace: true });
         }
     };
 
@@ -172,5 +199,6 @@ export const useCapture = ({
         capturedImage,
         setCapturedImage,
         handleCapture,
+        closeCrop,
     };
 };
