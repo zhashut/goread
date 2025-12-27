@@ -12,6 +12,7 @@ import {
   SearchResult,
   PageContent,
   RendererCapabilities,
+    ReaderTheme,
 } from '../types';
 import { registerRenderer } from '../registry';
 
@@ -87,6 +88,7 @@ export class EpubRenderer implements IBookRenderer {
   private _sectionCount = 0;
   private _currentTocHref: string | null = null;
   private _readingMode: 'horizontal' | 'vertical' = 'horizontal';
+  private _currentTheme: ReaderTheme = 'light';
   private _resizeObserver: ResizeObserver | null = null;
   private _lastRenderContainer: HTMLElement | null = null;
   
@@ -230,12 +232,17 @@ export class EpubRenderer implements IBookRenderer {
       throw new Error('Document not loaded');
     }
 
+    const theme = options?.theme || this._currentTheme || 'light';
+    this._currentTheme = theme as ReaderTheme;
+
     this._currentContainer = container;
     this._readingMode = options?.readingMode || 'horizontal';
 
-    // 纵向模式使用连续滚动渲染
     if (this._readingMode === 'vertical') {
-      return this.renderVerticalContinuous(container, options);
+      return this.renderVerticalContinuous(container, {
+        ...options,
+        theme,
+      });
     }
 
     // 检查是否可以复用现有视图（同一容器且 view 仍然有效）
@@ -275,8 +282,10 @@ export class EpubRenderer implements IBookRenderer {
 
     this._readingMode = options?.readingMode || 'horizontal';
 
-    // 应用主题样式
-    this._applyTheme(view, options);
+    this._applyTheme(view, {
+      ...options,
+      theme,
+    });
 
     container.appendChild(view);
     this._view = view;
@@ -398,7 +407,10 @@ export class EpubRenderer implements IBookRenderer {
         height: 100%;
         display: block;
       `;
-      this._applyTheme(view2, options);
+      this._applyTheme(view2, {
+        ...options,
+        theme,
+      });
       container.appendChild(view2);
       this._view = view2;
       view2.addEventListener('relocate', (e: any) => this._handleRelocate(e.detail));
@@ -609,6 +621,9 @@ export class EpubRenderer implements IBookRenderer {
     this._renderedSections.clear();
     this._dividerElements = [];
     
+    const theme = options?.theme || this._currentTheme || 'light';
+    this._currentTheme = theme as ReaderTheme;
+    
     const pageGap = options?.pageGap ?? 4;
     this._currentPageGap = pageGap;
     const dividerBandHeight = pageGap * 2 + 1;
@@ -617,7 +632,7 @@ export class EpubRenderer implements IBookRenderer {
       if (i > 0) {
         const divider = document.createElement('div');
         divider.className = 'epub-section-divider';
-        const isDark = options?.theme === 'dark';
+        const isDark = theme === 'dark';
         const dividerColor = isDark ? '#ffffff' : '#000000';
         divider.style.cssText = `
           height: ${dividerBandHeight}px;
@@ -1572,9 +1587,6 @@ export class EpubRenderer implements IBookRenderer {
     return this._currentTocHref;
   }
 
-  /**
-   * 更新页面间隙（仅在纵向连续模式下生效）
-   */
   updatePageGap(pageGap: number): void {
     if (!this._verticalContinuousMode) return;
     
@@ -1582,9 +1594,9 @@ export class EpubRenderer implements IBookRenderer {
     
     this._currentPageGap = pageGap;
     
-    // 更新所有分割线的间距
     this._dividerElements.forEach((divider) => {
-      divider.style.margin = `${pageGap}px auto`;
+      const bandHeight = pageGap * 2 + 1;
+      divider.style.height = `${bandHeight}px`;
     });
   }
 
@@ -1598,30 +1610,30 @@ export class EpubRenderer implements IBookRenderer {
     // 保存当前位置信息
     const savedPage = this._currentPage;
     
-    // 如果从纵向连续模式切换到其他模式，需要重新渲染
     if (this._verticalContinuousMode && mode === 'horizontal') {
       this._readingMode = mode;
       this._verticalContinuousMode = false;
       
-      // 需要重新调用 renderPage 以使用 foliate-view
       if (this._currentContainer) {
         await this.renderPage(savedPage, this._currentContainer, {
           initialVirtualPage: savedPage,
           readingMode: mode,
+          theme: this._currentTheme,
+          pageGap: this._currentPageGap,
         });
       }
       return;
     }
     
-    // 如果从横向模式切换到纵向模式，需要重新渲染
     if (!this._verticalContinuousMode && mode === 'vertical') {
       this._readingMode = mode;
       
-      // 需要重新调用 renderPage 以使用纵向连续模式
       if (this._currentContainer) {
         await this.renderPage(savedPage, this._currentContainer, {
           initialVirtualPage: savedPage,
           readingMode: mode,
+          theme: this._currentTheme,
+          pageGap: this._currentPageGap,
         });
       }
       return;
