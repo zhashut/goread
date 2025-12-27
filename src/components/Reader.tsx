@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useRef, useState, useMemo } from "react";
 import { useParams, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { TopBar } from "./reader/TopBar";
@@ -40,6 +40,7 @@ import {
   useViewport,
   useExternalVisibility,
   usePageSync,
+  useReaderTheme,
 } from "./reader/hooks";
 
 
@@ -60,6 +61,7 @@ export const Reader: React.FC = () => {
   const readerState = useReaderState({ bookId, initialIsExternal });
   const {
     book,
+    setBook,
     loading,
     currentPage,
     totalPages,
@@ -81,6 +83,26 @@ export const Reader: React.FC = () => {
   // 2. 设置与会话 (传递 rendererRef 以支持 EPUB 同步)
   const { settings, updateSettings } = useReaderSettings(rendererRef);
   const readingMode = settings.readingMode || "horizontal";
+
+  const {
+    effectiveTheme,
+    settingsWithTheme,
+    isThemeSupported,
+    bookThemeForUi,
+    handleChangeBookTheme,
+  } = useReaderTheme({
+    book,
+    isExternal,
+    externalPath,
+    settings,
+    setBook,
+  });
+
+  const isEpubDom = useMemo(() => {
+    const path = isExternal ? externalPath : book?.file_path || null;
+    if (!path) return false;
+    return getBookFormat(path) === "epub";
+  }, [isExternal, externalPath, book?.file_path]);
 
   useReadingSession(book, isExternal);
 
@@ -115,7 +137,7 @@ export const Reader: React.FC = () => {
     isExternal,
     externalPath,
     book,
-    settings,
+    settings: settingsWithTheme,
     readingMode,
     totalPages,
   });
@@ -173,7 +195,7 @@ export const Reader: React.FC = () => {
       setActiveNodeSignature: tocData.setActiveNodeSignature,
       setToc: tocData.setToc
     },
-    data: { readingMode, settings, toc: tocData.toc }
+    data: { readingMode, settings: settingsWithTheme, toc: tocData.toc }
   });
 
   // 模式切换缓存清理
@@ -230,13 +252,13 @@ export const Reader: React.FC = () => {
       readingMode,
       tocOverlayOpen,
       modeOverlayOpen,
-      scrollSpeed: settings.scrollSpeed,
+      scrollSpeed: settingsWithTheme.scrollSpeed,
       markReadingActive: () => { }
     }
   });
 
   // 音量键翻页
-  useVolumeNavigation(!!settings.volumeKeyTurnPage, {
+  useVolumeNavigation(!!settingsWithTheme.volumeKeyTurnPage, {
     nextPage: navigation.nextPage,
     prevPage: navigation.prevPage
   });
@@ -252,7 +274,7 @@ export const Reader: React.FC = () => {
         verticalCanvasRefs
       }
     },
-    data: { readingMode, settings },
+    data: { readingMode, settings: settingsWithTheme },
     actions: {
       setUiVisible,
       setMoreDrawerOpen
@@ -294,8 +316,8 @@ export const Reader: React.FC = () => {
       style={{
         display: "flex",
         flexDirection: "column",
-        backgroundColor: "#2c2c2c",
-        paddingTop: settings.showStatusBar ? getSafeAreaInsets().top : 0,
+        backgroundColor: effectiveTheme === 'dark' ? "#000000" : "#2c2c2c",
+        paddingTop: settingsWithTheme.showStatusBar ? getSafeAreaInsets().top : 0,
       }}
     >
       {/* 主体区域 */}
@@ -366,30 +388,29 @@ export const Reader: React.FC = () => {
               ref={domRenderer.domContainerRef}
               className="no-scrollbar"
               style={{
-                // EPUB 使用绝对定位确保占满整个父容器
-                ...(((isExternal && externalPath)
-                  ? getBookFormat(externalPath) === 'epub'
-                  : (book?.file_path && getBookFormat(book.file_path) === 'epub')) ? {
-                  position: 'absolute' as const,
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                } : {
-                  width: "100%",
-                  height: "100%",
-                }),
-                overflowY: (((isExternal && externalPath)
-                  ? getBookFormat(externalPath) === 'epub'
-                  : (book?.file_path && getBookFormat(book.file_path) === 'epub')))
-                  ? 'hidden'
-                  : 'auto',
-                backgroundColor: (((isExternal && externalPath)
-                  ? getBookFormat(externalPath) === 'epub'
-                  : (book?.file_path && getBookFormat(book.file_path) === 'epub')))
-                  ? '#ffffff'
-                  : '#1a1a1a',
-                pointerEvents: 'auto',
+                ...(
+                  isEpubDom
+                    ? {
+                        position: "absolute" as const,
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                      }
+                    : {
+                        width: "100%",
+                        height: "100%",
+                      }
+                ),
+                overflowY: isEpubDom ? "hidden" : "auto",
+                backgroundColor: isEpubDom
+                  ? effectiveTheme === "dark"
+                    ? "#000000"
+                    : "#ffffff"
+                  : effectiveTheme === "dark"
+                  ? "#000000"
+                  : "#1a1a1a",
+                pointerEvents: "auto",
               }}
             />
           ) : readingMode === "horizontal" ? (
@@ -401,7 +422,7 @@ export const Reader: React.FC = () => {
                 width: "100%",
                 height: "auto",
                 boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
-                backgroundColor: loading ? "#2a2a2a" : "transparent",
+                backgroundColor: loading ? (effectiveTheme === 'dark' ? "#000000" : "#2a2a2a") : "transparent",
               }}
             />
           ) : (
@@ -410,28 +431,42 @@ export const Reader: React.FC = () => {
               className="no-scrollbar"
               ref={verticalScrollRef}
             >
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
-                <canvas
-                  key={`${bookId}-${p}`}
-                  data-page={p}
-                  ref={(el) => {
-                    if (el) {
-                      verticalCanvasRefs.current.set(p, el);
-                      if (el.height === 0) {
-                        el.height = 800;
-                      }
-                    }
-                  }}
-                  style={{
-                    width: "100%",
-                    minHeight: "600px",
-                    display: "block",
-                    margin: `0 auto ${settings.pageGap}px`,
-                    boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
-                    backgroundColor: "#2a2a2a",
-                  }}
-                />
-              ))}
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => {
+                const pageGap = settingsWithTheme.pageGap ?? 4;
+                const dividerBandHeight = pageGap * 2 + 1;
+                return (
+                  <React.Fragment key={`${bookId}-${p}`}>
+                    {p > 1 && (
+                      <div
+                        style={{
+                          height: `${dividerBandHeight}px`,
+                          backgroundColor: effectiveTheme === "dark" ? "#ffffff" : "#000000",
+                          width: "100%",
+                        }}
+                      />
+                    )}
+                    <canvas
+                      data-page={p}
+                      ref={(el) => {
+                        if (el) {
+                          verticalCanvasRefs.current.set(p, el);
+                          if (el.height === 0) {
+                            el.height = 800;
+                          }
+                        }
+                      }}
+                      style={{
+                        width: "100%",
+                        minHeight: "600px",
+                        display: "block",
+                        margin: "0 auto",
+                        boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+                        backgroundColor: effectiveTheme === 'dark' ? "#000000" : "#2a2a2a",
+                      }}
+                    />
+                  </React.Fragment>
+                );
+              })}
             </div>
           )}
         </div>
@@ -544,6 +579,13 @@ export const Reader: React.FC = () => {
         tocOverlayOpen={tocOverlayOpen}
         modeOverlayOpen={modeOverlayOpen}
         moreDrawerOpen={moreDrawerOpen}
+        theme={effectiveTheme}
+        themeSupported={!isExternal && typeof bookThemeForUi !== "undefined" && isThemeSupported}
+        onToggleTheme={() => {
+          if (isExternal) return;
+          const nextTheme: "light" | "dark" = effectiveTheme === "dark" ? "light" : "dark";
+          handleChangeBookTheme(nextTheme);
+        }}
         onSeekStart={() => {
           setIsSeeking(true);
           verticalScroll.lastSeekTsRef.current = Date.now();

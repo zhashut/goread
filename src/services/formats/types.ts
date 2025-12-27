@@ -134,7 +134,7 @@ export interface IBookRenderer {
   getPageContent?(page: number, options?: RenderOptions): Promise<PageContent>;
 
   /** 加载页面为 ImageBitmap（PDF 等位图格式使用） */
-  loadPageBitmap?(page: number, width: number, quality?: string): Promise<ImageBitmap>;
+  loadPageBitmap?(page: number, width: number, quality?: string, theme?: ReaderTheme): Promise<ImageBitmap>;
 
   /** 关闭并释放资源 */
   close(): Promise<void>;

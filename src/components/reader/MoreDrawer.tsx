@@ -15,9 +15,9 @@ export const MoreDrawer: React.FC<MoreDrawerProps> = ({
   onClose,
   onCapture,
   onSettings,
-}) => {
+}: MoreDrawerProps) => {
   const { t } = useTranslation('reader');
-  
+
   if (!visible) return null;
 
   return (
@@ -60,15 +60,17 @@ export const MoreDrawer: React.FC<MoreDrawerProps> = ({
             cursor: "pointer",
             color: "#fff",
           }}
-          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = "#2a2a2a"}
-          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = "transparent"}
+          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "#2a2a2a")}
+          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
         >
-          <div style={{ 
-            fontSize: "20px", 
-            marginRight: "16px",
-            width: "24px",
-            textAlign: "center"
-          }}>
+          <div
+            style={{
+              fontSize: "20px",
+              marginRight: "16px",
+              width: "24px",
+              textAlign: "center",
+            }}
+          >
             📷
           </div>
           <span style={{ fontSize: "16px" }}>{t('exportImage')}</span>
@@ -83,15 +85,17 @@ export const MoreDrawer: React.FC<MoreDrawerProps> = ({
             cursor: "pointer",
             color: "#fff",
           }}
-          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = "#2a2a2a"}
-          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = "transparent"}
+          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "#2a2a2a")}
+          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
         >
-          <div style={{ 
-            fontSize: "20px", 
-            marginRight: "16px",
-            width: "24px",
-            textAlign: "center"
-          }}>
+          <div
+            style={{
+              fontSize: "20px",
+              marginRight: "16px",
+              width: "24px",
+              textAlign: "center",
+            }}
+          >
             ⚙️
           </div>
           <span style={{ fontSize: "16px" }}>{t('settings')}</span>

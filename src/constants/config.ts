@@ -41,6 +41,7 @@ export const DEFAULT_SETTINGS = {
   pageGap: 2,
   readingMode: 'vertical' as const,
   renderQuality: DEFAULT_RENDER_QUALITY,
+  theme: 'light' as const,
 };
 
 // 阅读器自动翻页/滚动配置

@@ -62,6 +62,7 @@ pub struct RenderOptions {
     pub background_color: Option<[u8; 4]>,
     pub fit_to_width: bool,
     pub fit_to_height: bool,
+    pub theme: Option<String>,
 }
 
 impl Default for RenderOptions {
@@ -73,6 +74,7 @@ impl Default for RenderOptions {
             background_color: Some([255, 255, 255, 255]),
             fit_to_width: false,
             fit_to_height: false,
+            theme: None,
         }
     }
 }
@@ -159,16 +161,18 @@ pub struct CacheKey {
     pub quality: RenderQuality,
     pub width: u32,
     pub height: u32,
+    pub theme: String,
 }
 
 impl CacheKey {
-    pub fn new(file_path: String, page_number: u32, quality: RenderQuality, width: u32, height: u32) -> Self {
+    pub fn new(file_path: String, page_number: u32, quality: RenderQuality, width: u32, height: u32, theme: String) -> Self {
         Self {
             file_path,
             page_number,
             quality,
             width,
             height,
+            theme,
         }
     }
 }

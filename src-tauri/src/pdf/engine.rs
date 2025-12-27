@@ -277,13 +277,17 @@ impl PdfEngine {
             } else {
                 (base_width as u32, base_height as u32)
             };
-            
+            let theme_key = options
+                .theme
+                .clone()
+                .unwrap_or_else(|| "light".to_string());
             let cache_key = CacheKey::new(
                 self.file_path.clone(),
                 page_number,
                 options.quality.clone(),
                 target_width,
                 target_height,
+                theme_key,
             );
             
             // 检查缓存
@@ -351,8 +355,24 @@ impl PdfEngine {
             (options.width.unwrap_or(800), options.height.unwrap_or(1000))
         };
 
-        let quality_str = match options.quality { RenderQuality::Thumbnail => "thumb", RenderQuality::Standard => "std", RenderQuality::High => "high", RenderQuality::Best => "best" };
-        let cache_key = CacheKey::new(self.file_path.clone(), page_number, options.quality.clone(), target_width, target_height);
+        let quality_str = match options.quality {
+            RenderQuality::Thumbnail => "thumb",
+            RenderQuality::Standard => "std",
+            RenderQuality::High => "high",
+            RenderQuality::Best => "best",
+        };
+        let theme_key = options
+            .theme
+            .clone()
+            .unwrap_or_else(|| "light".to_string());
+        let cache_key = CacheKey::new(
+            self.file_path.clone(),
+            page_number,
+            options.quality.clone(),
+            target_width,
+            target_height,
+            theme_key.clone(),
+        );
 
         let file_hash = compute_file_hash(&self.file_path)?;
         let pages_dir = pdf_pages_cache_dir(&file_hash);
@@ -362,11 +382,12 @@ impl PdfEngine {
             _ => "webp",
         };
         let disk_path = pages_dir.join(format!(
-            "p_{}_{}_{}x{}.{}",
+            "p_{}_{}_{}x{}_{}.{}",
             page_number,
             quality_str,
             target_width,
             target_height,
+            theme_key,
             ext_from_quality(&options.quality)
         ));
 

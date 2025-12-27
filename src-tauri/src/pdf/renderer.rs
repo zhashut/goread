@@ -76,17 +76,20 @@ impl PdfRenderer {
         let base_width = page.width().value;
         let base_height = page.height().value;
 
-        // 计算目标尺寸
         let (target_width, target_height) =
             self.calculate_dimensions(base_width, base_height, &options);
 
-        // 同步检查缓存（使用 blocking 方式）
+        let theme_key = options
+            .theme
+            .clone()
+            .unwrap_or_else(|| "light".to_string());
         let cache_key = CacheKey::new(
             self.file_path.clone(),
             page_number,
             options.quality.clone(),
             target_width,
             target_height,
+            theme_key,
         );
 
         // 使用 tokio 的 block_in_place 来同步访问缓存
@@ -163,17 +166,20 @@ impl PdfRenderer {
         let base_width = page.width().value;
         let base_height = page.height().value;
 
-        // 计算目标尺寸
         let (target_width, target_height) =
             self.calculate_dimensions(base_width, base_height, &options);
 
-        // 检查缓存
+        let theme_key = options
+            .theme
+            .clone()
+            .unwrap_or_else(|| "light".to_string());
         let cache_key = CacheKey::new(
             self.file_path.clone(),
             page_number,
             options.quality.clone(),
             target_width,
             target_height,
+            theme_key,
         );
 
         let use_thumb_cache = matches!(options.quality, RenderQuality::Thumbnail);
@@ -313,7 +319,7 @@ impl PdfRenderer {
         page_number: u32,
         width: u32,
         height: u32,
-        _options: &RenderOptions,
+        options: &RenderOptions,
     ) -> Result<RgbaImage, PdfError> {
         let buffer = bitmap.as_bytes();
         
@@ -412,7 +418,23 @@ impl PdfRenderer {
             rgba_data.resize(target_size, 0);
         }
 
-        // 创建 ImageBuffer
+        if let Some(theme) = options.theme.as_deref() {
+            if theme == "dark" {
+                let mut i = 0usize;
+                while i + 3 < rgba_data.len() {
+                    let r = rgba_data[i];
+                    let g = rgba_data[i + 1];
+                    let b = rgba_data[i + 2];
+                    let a = rgba_data[i + 3];
+                    rgba_data[i] = 255u8.saturating_sub(r);
+                    rgba_data[i + 1] = 255u8.saturating_sub(g);
+                    rgba_data[i + 2] = 255u8.saturating_sub(b);
+                    rgba_data[i + 3] = a;
+                    i += 4;
+                }
+            }
+        }
+
         RgbaImage::from_vec(width, height, rgba_data).ok_or_else(|| {
             PdfError::render_error(
                 page_number,
@@ -432,7 +454,7 @@ impl PdfRenderer {
         y: u32,
         w: u32,
         h: u32,
-        _options: &RenderOptions,
+        options: &RenderOptions,
     ) -> Result<RgbaImage, PdfError> {
         let buffer = bitmap.as_bytes();
         let format = bitmap.format().map_err(|e| PdfError::render_error(
@@ -497,6 +519,23 @@ impl PdfRenderer {
             }
             _ => {
                 return Err(PdfError::render_error(0, "位图格式转换", format!("不支持的位图格式: {:?}", format)));
+            }
+        }
+
+        if let Some(theme) = options.theme.as_deref() {
+            if theme == "dark" {
+                let mut i = 0usize;
+                while i + 3 < rgba_data.len() {
+                    let r = rgba_data[i];
+                    let g = rgba_data[i + 1];
+                    let b = rgba_data[i + 2];
+                    let a = rgba_data[i + 3];
+                    rgba_data[i] = 255u8.saturating_sub(r);
+                    rgba_data[i + 1] = 255u8.saturating_sub(g);
+                    rgba_data[i + 2] = 255u8.saturating_sub(b);
+                    rgba_data[i + 3] = a;
+                    i += 4;
+                }
             }
         }
 

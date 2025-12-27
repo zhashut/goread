@@ -1,6 +1,9 @@
 import React from "react";
 import { useTranslation } from 'react-i18next';
-import { BOTTOM_DRAWER_RADIUS } from "../../constants/ui";
+import { BOTTOM_DRAWER_RADIUS, READER_THEME_ICON_SIZE, READER_THEME_BUTTON_SIZE } from "../../constants/ui";
+import type { ReaderTheme } from "../../services/formats/types";
+import { ThemeSunIcon } from "../covers/ThemeSunIcon";
+import { ThemeMoonIcon } from "../covers/ThemeMoonIcon";
 
 interface BottomBarProps {
   visible: boolean;
@@ -13,6 +16,9 @@ interface BottomBarProps {
   tocOverlayOpen: boolean;
   modeOverlayOpen: boolean;
   moreDrawerOpen: boolean;
+  theme: ReaderTheme;
+  themeSupported: boolean;
+  onToggleTheme?: () => void;
   
   onSeekStart: () => void;
   onSeekChange: (val: number) => void;
@@ -37,6 +43,9 @@ export const BottomBar: React.FC<BottomBarProps> = ({
   tocOverlayOpen,
   modeOverlayOpen,
   moreDrawerOpen,
+  theme,
+  themeSupported,
+  onToggleTheme,
   onSeekStart,
   onSeekChange,
   onSeekEnd,
@@ -84,6 +93,37 @@ export const BottomBar: React.FC<BottomBarProps> = ({
         zIndex: 10,
       }}
     >
+      {themeSupported && onToggleTheme && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleTheme();
+          }}
+          style={{
+            position: "absolute",
+            right: 25,
+            top: -68,
+            width: READER_THEME_BUTTON_SIZE,
+            height: READER_THEME_BUTTON_SIZE,
+            borderRadius: `${READER_THEME_BUTTON_SIZE / 2}px`,
+            border: "none",
+            outline: "none",
+            backgroundColor: "#1f1f1f",
+            boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "#ffffff",
+            cursor: "pointer",
+          }}
+        >
+          {theme === "dark" ? (
+            <ThemeSunIcon size={READER_THEME_ICON_SIZE} />
+          ) : (
+            <ThemeMoonIcon size={READER_THEME_ICON_SIZE} />
+          )}
+        </button>
+      )}
       {/* 上方进度滑条 + 两端上一章/下一章文案 */}
       <div
         style={{

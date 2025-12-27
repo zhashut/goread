@@ -13,6 +13,7 @@ export interface IBook {
   status?: number;        // 阅读状态：0=阅读中，1=已读完
   finished_at?: number | null;   // 完成时间戳
   recent_order?: number;  // 最近阅读排序值，值越大越靠前
+  theme?: 'light' | 'dark' | null;
 }
 
 export interface IGroup {

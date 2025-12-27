@@ -28,9 +28,10 @@ export class PageCacheManager {
     /**
      * 生成缓存键
      */
-    private getCacheKey(pageNumber: number, scale?: number): string {
+    private getCacheKey(pageNumber: number, scale?: number, theme?: string): string {
         const s = typeof scale === 'number' ? scale : 1.0;
-        return `${pageNumber}_${s.toFixed(2)}`;
+        const themeKey = theme || 'light';
+        return `${pageNumber}_${s.toFixed(2)}_${themeKey}`;
     }
 
     /**
@@ -44,8 +45,8 @@ export class PageCacheManager {
     /**
      * 获取缓存的页面
      */
-    get(pageNumber: number, scale?: number): CachedPage | null {
-        const key = this.getCacheKey(pageNumber, scale);
+    get(pageNumber: number, scale?: number, theme?: string): CachedPage | null {
+        const key = this.getCacheKey(pageNumber, scale, theme);
         const cached = this.cache.get(key);
 
         if (cached) {
@@ -63,8 +64,8 @@ export class PageCacheManager {
     /**
      * 添加页面到缓存
      */
-    set(pageNumber: number, imageData: ImageData, width: number, height: number, scale?: number): void {
-        const key = this.getCacheKey(pageNumber, scale);
+    set(pageNumber: number, imageData: ImageData, width: number, height: number, scale?: number, theme?: string): void {
+        const key = this.getCacheKey(pageNumber, scale, theme);
         const memoryMB = this.calculateMemoryMB(imageData);
 
         // 如果已存在，先删除旧的
@@ -116,16 +117,16 @@ export class PageCacheManager {
     /**
      * 清除指定页面的缓存
      */
-    remove(pageNumber: number, scale?: number): void {
-        if (scale !== undefined) {
-            const key = this.getCacheKey(pageNumber, scale);
+    remove(pageNumber: number, scale?: number, theme?: string): void {
+        if (scale !== undefined && theme !== undefined) {
+            const key = this.getCacheKey(pageNumber, scale, theme);
             const cached = this.cache.get(key);
             if (cached) {
                 this.currentMemoryMB -= this.calculateMemoryMB(cached.imageData);
                 this.cache.delete(key);
             }
         } else {
-            // 删除该页面所有scale的缓存
+            // 删除该页面所有scale/theme的缓存
             const keysToDelete: string[] = [];
             this.cache.forEach((cached, key) => {
                 if (cached.pageNumber === pageNumber) {
@@ -169,8 +170,8 @@ export class PageCacheManager {
     /**
      * 检查是否有缓存
      */
-    has(pageNumber: number, scale?: number): boolean {
-        const key = this.getCacheKey(pageNumber, scale);
+    has(pageNumber: number, scale?: number, theme?: string): boolean {
+        const key = this.getCacheKey(pageNumber, scale, theme);
         return this.cache.has(key);
     }
 

@@ -179,9 +179,9 @@ export class PdfRenderer implements IBookRenderer {
 
     const width = options?.width || container.clientWidth || 800;
     const quality = options?.quality || 'standard';
+    const theme = options?.theme;
 
-    // 加载页面为 ImageBitmap
-    const bitmap = await this.loadPageBitmap(page, width, quality);
+    const bitmap = await this.loadPageBitmap(page, width, quality, theme);
 
     // 创建或获取 canvas 元素
     let canvas = container.querySelector('canvas') as HTMLCanvasElement | null;
@@ -217,7 +217,8 @@ export class PdfRenderer implements IBookRenderer {
   async renderPageToFile(
     page: number,
     width: number,
-    quality: string = 'standard'
+    quality: string = 'standard',
+    theme?: string
   ): Promise<string> {
     if (!this._isReady || !this._filePath) {
       throw new Error('文档未加载');
@@ -230,6 +231,7 @@ export class PdfRenderer implements IBookRenderer {
       quality,
       width,
       height: null,
+      theme: theme || null,
     });
     
     return filePath;
@@ -241,7 +243,8 @@ export class PdfRenderer implements IBookRenderer {
   async renderPageBase64(
     page: number,
     width: number,
-    quality: string = 'standard'
+    quality: string = 'standard',
+    theme?: string
   ): Promise<string> {
     if (!this._isReady || !this._filePath) {
       throw new Error('文档未加载');
@@ -254,6 +257,7 @@ export class PdfRenderer implements IBookRenderer {
       quality,
       width,
       height: null,
+      theme: theme || null,
     });
     
     return dataUrl;
@@ -265,11 +269,12 @@ export class PdfRenderer implements IBookRenderer {
   async loadPageBitmap(
     page: number,
     width: number,
-    quality: string = 'standard'
+    quality: string = 'standard',
+    theme?: string
   ): Promise<ImageBitmap> {
     // 尝试文件方式
     try {
-      const filePath = await this.renderPageToFile(page, width, quality);
+      const filePath = await this.renderPageToFile(page, width, quality, theme);
       const imageUrl = convertFileSrc(filePath);
       const response = await fetch(imageUrl);
       const blob = await response.blob();
@@ -277,13 +282,13 @@ export class PdfRenderer implements IBookRenderer {
     } catch (eFile) {
       // 降级到 Base64 方式
       try {
-        const dataUrl = await this.renderPageBase64(page, width, quality);
+        const dataUrl = await this.renderPageBase64(page, width, quality, theme);
         const response = await fetch(dataUrl);
         const blob = await response.blob();
         return await createImageBitmap(blob);
       } catch (eBase64) {
         // 最后尝试 Image 元素方式
-        const filePath = await this.renderPageToFile(page, width, quality);
+        const filePath = await this.renderPageToFile(page, width, quality, theme);
         const imageUrl = convertFileSrc(filePath);
         const img = await new Promise<HTMLImageElement>((resolve, reject) => {
           const im = new Image();
@@ -302,8 +307,9 @@ export class PdfRenderer implements IBookRenderer {
   async getPageContent(page: number, options?: RenderOptions): Promise<PageContent> {
     const width = options?.width || 800;
     const quality = options?.quality || 'standard';
+    const theme = options?.theme;
     
-    const dataUrl = await this.renderPageBase64(page, width, quality);
+    const dataUrl = await this.renderPageBase64(page, width, quality, theme);
     
     return {
       type: 'image',

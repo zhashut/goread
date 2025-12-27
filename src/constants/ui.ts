@@ -43,6 +43,10 @@ export const TOP_BAR_MARGIN_BOTTOM = 16; // 顶部栏下方间距
 export const TOP_BAR_ICON_GAP = 12; // 图标之间的间距
 export const BOTTOM_DRAWER_RADIUS = 16;
 
+// 阅读器底部工具栏配置
+export const READER_THEME_ICON_SIZE = 34; // 主题切换图标大小（px）
+export const READER_THEME_BUTTON_SIZE = 55; // 主题切换按钮大小（px）
+
 // Markdown 默认封面配置
 export const MARKDOWN_COVER_PLACEHOLDER = "__MARKDOWN__";
 export const MARKDOWN_COVER_SCALE = 1.6;
@@ -57,3 +61,9 @@ export const PAGE_HEADER_TITLE_FONT_SIZE = 18; // 标题字号
 export const PAGE_HEADER_TITLE_FONT_WEIGHT = 500; // 标题字重
 export const PAGE_HEADER_TITLE_MARGIN_LEFT = 20;  // 标题与返回图标间距
 export const PAGE_HEADER_PADDING_HORIZONTAL = 16; // 水平内边距
+
+// 设置页按钮配置（统一重置、导入、导出按钮样式）
+export const SETTINGS_BUTTON_PADDING = "6px 16px";
+export const SETTINGS_BUTTON_FONT_SIZE = 13;
+export const SETTINGS_BUTTON_RADIUS = 20;
+export const SETTINGS_BUTTON_FONT_WEIGHT = 500;

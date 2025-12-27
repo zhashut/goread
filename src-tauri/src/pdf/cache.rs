@@ -147,7 +147,14 @@ mod tests {
     async fn test_cache_basic_operations() {
         let cache = CacheManager::with_limits(1024 * 1024, 10);
         
-        let key = CacheKey::new("test.pdf".to_string(), 1, RenderQuality::Standard, 800, 600);
+        let key = CacheKey::new(
+            "test.pdf".to_string(),
+            1,
+            RenderQuality::Standard,
+            800,
+            600,
+            "light".to_string(),
+        );
         let data = RenderResult {
             image_data: vec![0u8; 1000],
             width: 800,
@@ -177,7 +184,14 @@ mod tests {
         
         // 插入3个条目
         for i in 1..=3 {
-            let key = CacheKey::new("test.pdf".to_string(), i, RenderQuality::Standard, 800, 600);
+            let key = CacheKey::new(
+                "test.pdf".to_string(),
+                i,
+                RenderQuality::Standard,
+                800,
+                600,
+                "light".to_string(),
+            );
             let data = RenderResult {
                 image_data: vec![0u8; 1000],
                 width: 800,
@@ -188,11 +202,25 @@ mod tests {
         }
 
         // 访问第1个条目，增加其访问计数
-        let key1 = CacheKey::new("test.pdf".to_string(), 1, RenderQuality::Standard, 800, 600);
+        let key1 = CacheKey::new(
+            "test.pdf".to_string(),
+            1,
+            RenderQuality::Standard,
+            800,
+            600,
+            "light".to_string(),
+        );
         cache.get(&key1).await;
 
         // 插入第4个条目，应该触发淘汰
-        let key4 = CacheKey::new("test.pdf".to_string(), 4, RenderQuality::Standard, 800, 600);
+        let key4 = CacheKey::new(
+            "test.pdf".to_string(),
+            4,
+            RenderQuality::Standard,
+            800,
+            600,
+            "light".to_string(),
+        );
         let data4 = RenderResult {
             image_data: vec![0u8; 1000],
             width: 800,

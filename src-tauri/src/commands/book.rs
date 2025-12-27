@@ -77,6 +77,7 @@ pub async fn init_database(db: DbState<'_>) -> Result<(), Error> {
             last_read_time INTEGER,
             group_id INTEGER,
             position_in_group INTEGER,
+            theme TEXT,
             created_at INTEGER DEFAULT (strftime('%s', 'now')),
             FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE SET NULL
         )",
@@ -128,6 +129,10 @@ pub async fn init_database(db: DbState<'_>) -> Result<(), Error> {
 
     // 最近阅读排序字段迁移
     let _ = sqlx::query("ALTER TABLE books ADD COLUMN recent_order INTEGER")
+        .execute(&*pool)
+        .await;
+
+    let _ = sqlx::query("ALTER TABLE books ADD COLUMN theme TEXT")
         .execute(&*pool)
         .await;
 
@@ -295,6 +300,34 @@ pub async fn update_book_total_pages(
         .execute(&*pool)
         .await?;
 
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn update_book_theme(id: i64, theme: Option<String>, db: DbState<'_>) -> Result<(), Error> {
+    let pool = db.lock().await;
+
+    if let Some(t) = theme.as_deref() {
+        if t != "light" && t != "dark" {
+            return Err(Error::Message("Invalid theme".to_string()));
+        }
+    }
+
+    sqlx::query("UPDATE books SET theme = ? WHERE id = ?")
+        .bind(theme.as_deref())
+        .bind(id)
+        .execute(&*pool)
+        .await?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn reset_all_book_themes(db: DbState<'_>) -> Result<(), Error> {
+    let pool = db.lock().await;
+    sqlx::query("UPDATE books SET theme = NULL")
+        .execute(&*pool)
+        .await?;
     Ok(())
 }
 

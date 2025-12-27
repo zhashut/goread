@@ -12,6 +12,13 @@
   "scrollSpeed": "Scroll Speed",
   "pageGap": "Page Gap",
   "unlimited": "Unlimited",
+  "theme": {
+    "label": "Reading Theme",
+    "light": "Light",
+    "dark": "Dark",
+    "reset": "Reset",
+    "resetSuccess": "Reset Successful"
+  },
   "quality": {
     "thumbnail": "Thumbnail",
     "standard": "Standard",

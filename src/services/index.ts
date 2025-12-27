@@ -57,6 +57,8 @@ export const log = async (message: string, level: 'info' | 'warn' | 'error' = 'i
 
 import { IBook, IGroup, IBookmark, IStatsSummary, IDailyStats, IRangeStats, IBookReadingStats } from '../types';
 import { DEFAULT_SETTINGS } from '../constants/config';
+import type { ReaderTheme } from './formats/types';
+export type { ReaderTheme } from './formats/types';
 
 // 书籍服务接口
 export interface IBookService {
@@ -71,6 +73,8 @@ export interface IBookService {
   clearRecent(bookId: number): Promise<void>;
   updateBooksLastReadTime(updates: [number, number][]): Promise<void>;
   reorderRecentBooks(orderedIds: number[]): Promise<void>;
+  updateBookTheme(id: number, theme: ReaderTheme | null): Promise<void>;
+  resetAllBookThemes(): Promise<void>;
 }
 
 // 分组服务接口
@@ -156,6 +160,16 @@ export class TauriBookService implements IBookService {
   async reorderRecentBooks(orderedIds: number[]): Promise<void> {
     const invoke = await getInvoke();
     await invoke('reorder_recent_books', { orderedIds });
+  }
+
+  async updateBookTheme(id: number, theme: ReaderTheme | null): Promise<void> {
+    const invoke = await getInvoke();
+    await invoke('update_book_theme', { id, theme });
+  }
+
+  async resetAllBookThemes(): Promise<void> {
+    const invoke = await getInvoke();
+    await invoke('reset_all_book_themes');
   }
 }
 
@@ -247,11 +261,12 @@ export type ReaderSettings = {
   clickTurnPage: boolean;
   showStatusBar: boolean;
   recentDisplayCount: number;
-  scrollSpeed: number; // 像素/秒
-  pageGap: number; // 像素
-  readingMode?: 'horizontal' | 'vertical'; // 阅读方式（可选，向后兼容）
-  renderQuality?: string; // 书籍渲染质量
-  language?: 'zh' | 'en'; // 语言设置
+  scrollSpeed: number;
+  pageGap: number;
+  readingMode?: 'horizontal' | 'vertical';
+  renderQuality?: string;
+  language?: 'zh' | 'en';
+  theme?: ReaderTheme;
 };
 
 const SETTINGS_KEY = 'reader_settings_v1';

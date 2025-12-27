@@ -20,5 +20,9 @@
   "verticalReadingDesc": "Scroll down, continuous reading",
   "exportImage": "Export Image",
   "settings": "Settings",
-  "crop": "Crop"
+  "crop": "Crop",
+  "theme": "Reading Theme",
+  "themeLight": "Light",
+  "themeDark": "Dark",
+  "themeFollowGlobal": "Follow global (current: {{theme}})"
 }

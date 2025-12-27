@@ -12,6 +12,13 @@
   "scrollSpeed": "滚动速度",
   "pageGap": "页面间隙",
   "unlimited": "不限",
+  "theme": {
+    "label": "阅读主题",
+    "light": "亮色",
+    "dark": "暗色",
+    "reset": "重置",
+    "resetSuccess": "重置成功"
+  },
   "quality": {
     "thumbnail": "极速(Thumbnail)",
     "standard": "标准(Standard)",

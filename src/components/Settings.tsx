@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { getReaderSettings, saveReaderSettings, ReaderSettings } from "../services";
+import { getReaderSettings, saveReaderSettings, ReaderSettings, bookService } from "../services";
+import type { ReaderTheme } from "../services";
 import { useAppNav } from "../router/useAppNav";
 import { supportedLanguages, changeLanguage } from "../locales";
 // 注意：此处特意不导入 statusBarService
@@ -16,14 +17,22 @@ import {
   PAGE_GAP_STEP,
   SETTINGS_SAVE_DEBOUNCE_MS,
 } from "../constants/config";
+import {
+  SETTINGS_BUTTON_PADDING,
+  SETTINGS_BUTTON_FONT_SIZE,
+  SETTINGS_BUTTON_RADIUS,
+  SETTINGS_BUTTON_FONT_WEIGHT,
+} from "../constants/ui";
 import { getSafeAreaInsets } from "../utils/layout";
 import { CustomSelect } from "./CustomSelect";
 import { PageHeader } from "./PageHeader";
 import { exportAppData, importAppData } from "../services/dataBackupService";
+import { Toast } from "./Toast";
 
 export const Settings: React.FC = () => {
   const { t, i18n } = useTranslation('settings');
   const [settings, setSettings] = useState<ReaderSettings>(getReaderSettings());
+  const [toastMessage, setToastMessage] = useState("");
 
   const nav = useAppNav();
 
@@ -182,6 +191,52 @@ export const Settings: React.FC = () => {
         />
 
         <Row
+          label={t('theme.label')}
+          right={
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <CustomSelect
+                value={settings.theme || "light"}
+                options={[
+                  { value: "light", label: t('theme.light') },
+                  { value: "dark", label: t('theme.dark') },
+                ]}
+                onChange={(val) => {
+                  const theme = String(val) as ReaderTheme;
+                  setSettings((s) => ({
+                    ...s,
+                    theme,
+                  }));
+                  bookService.resetAllBookThemes().catch(() => { });
+                }}
+                style={{ minWidth: 120 }}
+              />
+              <button
+                style={{
+                  padding: SETTINGS_BUTTON_PADDING,
+                  fontSize: SETTINGS_BUTTON_FONT_SIZE,
+                  borderRadius: SETTINGS_BUTTON_RADIUS,
+                  fontWeight: SETTINGS_BUTTON_FONT_WEIGHT,
+                  border: "1px solid #d15158",
+                  background: "#fff",
+                  color: "#d15158",
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                }}
+                onClick={async () => {
+                  try {
+                    await bookService.resetAllBookThemes();
+                    setToastMessage(t('theme.resetSuccess'));
+                  } catch {
+                  }
+                }}
+              >
+                {t('theme.reset')}
+              </button>
+            </div>
+          }
+        />
+
+        <Row
           label={t('language')}
           right={
             <CustomSelect
@@ -202,14 +257,14 @@ export const Settings: React.FC = () => {
             <div style={{ display: "flex", gap: 10 }}>
               <button
                 style={{
-                  padding: "6px 16px",
-                  fontSize: 13,
-                  borderRadius: 20,
+                  padding: SETTINGS_BUTTON_PADDING,
+                  fontSize: SETTINGS_BUTTON_FONT_SIZE,
+                  borderRadius: SETTINGS_BUTTON_RADIUS,
+                  fontWeight: SETTINGS_BUTTON_FONT_WEIGHT,
                   border: "1px solid #d15158",
                   background: "#fff",
                   color: "#d15158",
                   cursor: "pointer",
-                  fontWeight: 500,
                 }}
                 onClick={() => {
                   exportAppData();
@@ -219,14 +274,14 @@ export const Settings: React.FC = () => {
               </button>
               <button
                 style={{
-                  padding: "6px 16px",
-                  fontSize: 13,
-                  borderRadius: 20,
+                  padding: SETTINGS_BUTTON_PADDING,
+                  fontSize: SETTINGS_BUTTON_FONT_SIZE,
+                  borderRadius: SETTINGS_BUTTON_RADIUS,
+                  fontWeight: SETTINGS_BUTTON_FONT_WEIGHT,
                   border: "1px solid #d15158",
                   background: "#fff",
                   color: "#d15158",
                   cursor: "pointer",
-                  fontWeight: 500,
                 }}
                 onClick={() => {
                   importAppData();
@@ -324,6 +379,12 @@ export const Settings: React.FC = () => {
           })()}
         </div>
       </div>
+      {toastMessage && (
+        <Toast
+          message={toastMessage}
+          onClose={() => setToastMessage("")}
+        />
+      )}
     </div>
   );
 };

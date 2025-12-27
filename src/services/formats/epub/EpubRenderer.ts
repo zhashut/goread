@@ -609,22 +609,21 @@ export class EpubRenderer implements IBookRenderer {
     this._renderedSections.clear();
     this._dividerElements = [];
     
-    // 获取页面间隙配置，默认为 4px
     const pageGap = options?.pageGap ?? 4;
     this._currentPageGap = pageGap;
+    const dividerBandHeight = pageGap * 2 + 1;
     
-    // 为每个章节创建容器
     for (let i = 0; i < this._sectionCount; i++) {
-      // 添加分割线（非首章节）
       if (i > 0) {
         const divider = document.createElement('div');
         divider.className = 'epub-section-divider';
+        const isDark = options?.theme === 'dark';
+        const dividerColor = isDark ? '#ffffff' : '#000000';
         divider.style.cssText = `
-          height: 1px;
-          background: linear-gradient(to right, transparent, #666, transparent);
-          margin: ${pageGap}px auto;
-          width: 80%;
-          opacity: 0.3;
+          height: ${dividerBandHeight}px;
+          background-color: ${dividerColor};
+          margin: 0;
+          width: 100%;
         `;
         container.appendChild(divider);
         this._dividerElements.push(divider);

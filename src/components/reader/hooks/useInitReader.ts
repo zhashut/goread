@@ -1,5 +1,5 @@
 import { useRef, useEffect } from "react";
-import { log, bookService } from "../../../services";
+import { log, bookService, ReaderSettings } from "../../../services";
 import { MarkdownRenderer } from "../../../services/formats/markdown/MarkdownRenderer";
 import { EpubRenderer } from "../../../services/formats/epub/EpubRenderer";
 import { IBookRenderer, getBookFormat } from "../../../services/formats";
@@ -28,7 +28,7 @@ type InitReaderProps = {
     };
     data: {
         readingMode: "horizontal" | "vertical";
-        settings: { pageGap: number };
+        settings: ReaderSettings;
         toc: TocNode[];
     };
 };
@@ -75,6 +75,7 @@ export const useInitReader = ({
 
     // Add logic to track initialization to prevent unwanted scrolls
     const hasInitializedRef = useRef(false);
+    const lastThemeRef = useRef<string | undefined>();
 
     // Reset initialization flag when book or mode changes
     useEffect(() => {
@@ -84,9 +85,14 @@ export const useInitReader = ({
     useEffect(() => {
         if (loading || totalPages === 0 || (!book && !isExternal)) return;
 
+        const currentTheme = settings.theme || "light";
+        const prevTheme = lastThemeRef.current;
+        const themeChanged = typeof prevTheme !== "undefined" && prevTheme !== currentTheme;
+        lastThemeRef.current = currentTheme;
+
         const filePathForEpub = isExternal ? externalPath : book?.file_path;
         const isEpub = filePathForEpub && getBookFormat(filePathForEpub) === "epub";
-        if (isEpub && epubRenderedRef.current) {
+        if (isEpub && epubRenderedRef.current && !themeChanged) {
             log(
                 `[Reader] EPUB 已渲染，跳过重复渲染（模式切换由 setReadingMode 处理）`
             );
@@ -125,7 +131,7 @@ export const useInitReader = ({
                     await renderer.renderPage(1, domContainerRef.current!, {
                         initialVirtualPage: pageToRender || 1,
                         readingMode: readingMode,
-                        theme: "light",
+                        theme: currentTheme,
                         pageGap: settings.pageGap,
                     });
                     log("[Reader] DOM 渲染完成");
@@ -295,5 +301,6 @@ export const useInitReader = ({
         isDomRender,
         isExternal,
         externalPath,
+        settings.theme,
     ]);
 };

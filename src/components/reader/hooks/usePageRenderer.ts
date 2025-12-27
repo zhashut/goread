@@ -1,4 +1,4 @@
-import { useRef, useCallback } from "react";
+import { useRef, useCallback, useEffect } from "react";
 import { IBookRenderer } from "../../../services/formats";
 import {
     PageCacheManager,
@@ -118,6 +118,10 @@ export const usePageRenderer = ({
         renderQueueRef.current.clear();
     }, []);
 
+    useEffect(() => {
+        forceClearCache();
+    }, [settings.theme, forceClearCache]);
+
     // 核心加载函数
     const loadPageBitmap = async (pageNum: number): Promise<ImageBitmap> => {
         const capturedBookId = bookIdRef.current;
@@ -164,7 +168,8 @@ export const usePageRenderer = ({
                     bitmap = await renderer.loadPageBitmap!(
                         pageNum,
                         containerWidth,
-                        settings.renderQuality || "standard"
+                        settings.renderQuality || "standard",
+                        settings.theme
                     );
                 } catch (err) {
                     const msg = String(err || "");
@@ -178,7 +183,8 @@ export const usePageRenderer = ({
                         bitmap = await renderer.loadPageBitmap!(
                             pageNum,
                             containerWidth,
-                            settings.renderQuality || "standard"
+                            settings.renderQuality || "standard",
+                            settings.theme
                         );
                     } else {
                         throw err;
@@ -215,6 +221,7 @@ export const usePageRenderer = ({
         const renderer = rendererRef.current;
         const isPdf = renderer.format === "pdf";
         const scale = getCurrentScale();
+        const themeKey = settings.theme || "light";
         let pagesToPreload: number[] = [];
 
         if (isPdf) {
@@ -243,7 +250,7 @@ export const usePageRenderer = ({
 
         for (const nextPage of pagesToPreload) {
             if (bookIdRef.current !== capturedBookId) return;
-            if (pageCacheRef.current.has(nextPage, scale)) continue;
+            if (pageCacheRef.current.has(nextPage, scale, themeKey)) continue;
             loadPageBitmap(nextPage).catch((e) =>
                 console.warn(`预加载页面 ${nextPage} 失败`, e)
             );
@@ -271,10 +278,11 @@ export const usePageRenderer = ({
         const renderPromise = (async () => {
             try {
                 const scale = getCurrentScale();
+                const themeKey = settings.theme || "light";
                 const pageCache = pageCacheRef.current;
 
                 if (!forceRender) {
-                    const cached = pageCache.get(pageNum, scale);
+                    const cached = pageCache.get(pageNum, scale, themeKey);
                     if (cached) {
                         log(`[renderPage] 页面 ${pageNum} 从前端缓存加载`);
                         canvas.width = cached.width;
@@ -344,7 +352,7 @@ export const usePageRenderer = ({
                         canvas.width,
                         canvas.height
                     );
-                    pageCache.set(pageNum, imageData, canvas.width, canvas.height, scale);
+                    pageCache.set(pageNum, imageData, canvas.width, canvas.height, scale, themeKey);
                 } catch (e) {
                     console.warn("Failed to cache page:", e);
                 }
@@ -382,10 +390,11 @@ export const usePageRenderer = ({
                 // Updated to not use containerWidth
                 // const viewW = mainViewRef.current?.clientWidth || 800;
                 const scale = getCurrentScale();
+                const themeKey = settings.theme || "light";
                 // const dpr = scale;
                 const pageCache = pageCacheRef.current;
 
-                const cached = pageCache.get(pageNum, scale);
+                const cached = pageCache.get(pageNum, scale, themeKey);
                 if (cached) {
                     canvas.width = cached.width;
                     canvas.height = cached.height;
@@ -448,7 +457,7 @@ export const usePageRenderer = ({
 
                 try {
                     const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-                    pageCache.set(pageNum, imageData, canvas.width, canvas.height, scale);
+                    pageCache.set(pageNum, imageData, canvas.width, canvas.height, scale, themeKey);
                 } catch (e) { console.warn("Failed cache vert", e); }
 
                 img.close && img.close();

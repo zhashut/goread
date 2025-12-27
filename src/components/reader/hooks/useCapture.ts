@@ -4,6 +4,7 @@ import {
     QUALITY_SCALE_MAP,
 } from "../../../constants/config";
 import { useReaderState } from "./useReaderState";
+import { ReaderSettings } from "../../../services";
 
 type CaptureProps = {
     readerState: ReturnType<typeof useReaderState>;
@@ -17,7 +18,7 @@ type CaptureProps = {
     };
     data: {
         readingMode: "horizontal" | "vertical";
-        settings: { renderQuality?: string };
+        settings: ReaderSettings;
     };
     actions: {
         setUiVisible: (visible: boolean) => void;
@@ -58,14 +59,21 @@ export const useCapture = ({
         let dataUrl = "";
         try {
             const dpr = getCurrentScale();
+            const theme = data.settings.theme || "light";
+            let domBgColor = "#ffffff";
+            if (theme === "dark") {
+                domBgColor = "#000000";
+            } else if (theme === "sepia") {
+                domBgColor = "#f4ecd8";
+            }
 
-            // DOM 渲染模式（Markdown 等格式）：使用 html2canvas 截图
+            // DOM 渲染模式：使用 html2canvas 截图
             if (isDomRender) {
                 if (domContainerRef.current) {
                     const canvas = await html2canvas(domContainerRef.current, {
                         scale: dpr,
                         useCORS: true,
-                        backgroundColor: "#ffffff",
+                        backgroundColor: domBgColor,
                     });
                     dataUrl = canvas.toDataURL("image/png");
                 }
@@ -84,22 +92,63 @@ export const useCapture = ({
                     canvas.height = height * dpr;
                     const ctx = canvas.getContext("2d");
                     if (ctx) {
-                        ctx.fillStyle = "#2a2a2a";
+                        const isDark = theme === "dark";
+                        const bgColor = isDark ? "#000000" : "#ffffff";
+                        const dividerColor = isDark ? "#ffffff" : "#000000";
+                        ctx.fillStyle = bgColor;
                         ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                        const containerRect = container.getBoundingClientRect();
+                        const items: {
+                            canvas: HTMLCanvasElement;
+                            top: number;
+                            left: number;
+                            width: number;
+                            height: number;
+                        }[] = [];
+
                         verticalCanvasRefs.current.forEach((vCanvas) => {
                             const rect = vCanvas.getBoundingClientRect();
-                            const containerRect = container.getBoundingClientRect();
                             const relativeTop = rect.top - containerRect.top;
                             const relativeLeft = rect.left - containerRect.left;
                             if (relativeTop < height && relativeTop + rect.height > 0) {
-                                // 绘制时考虑 DPR 缩放
-                                ctx.drawImage(
-                                    vCanvas,
-                                    relativeLeft * dpr,
-                                    relativeTop * dpr,
-                                    rect.width * dpr,
-                                    rect.height * dpr
-                                );
+                                items.push({
+                                    canvas: vCanvas,
+                                    top: relativeTop,
+                                    left: relativeLeft,
+                                    width: rect.width,
+                                    height: rect.height,
+                                });
+                            }
+                        });
+
+                        items.sort((a, b) => a.top - b.top);
+
+                        items.forEach((item, index) => {
+                            ctx.drawImage(
+                                item.canvas,
+                                item.left * dpr,
+                                item.top * dpr,
+                                item.width * dpr,
+                                item.height * dpr
+                            );
+
+                            if (index < items.length - 1) {
+                                const next = items[index + 1];
+                                const currentBottom = item.top + item.height;
+                                const gapTop = currentBottom;
+                                const gapBottom = next.top;
+                                const gapHeight = gapBottom - gapTop;
+                                if (gapHeight > 0) {
+                                    ctx.fillStyle = dividerColor;
+                                    ctx.fillRect(
+                                        0,
+                                        gapTop * dpr,
+                                        canvas.width,
+                                        gapHeight * dpr
+                                    );
+                                    ctx.fillStyle = bgColor;
+                                }
                             }
                         });
                         dataUrl = canvas.toDataURL("image/png");

@@ -16,6 +16,7 @@ pub struct Book {
     pub status: Option<i64>,       // 阅读状态：0=阅读中，1=已读完
     pub finished_at: Option<i64>,  // 完成时间戳
     pub recent_order: Option<i64>, // 最近阅读排序值，值越大越靠前
+    pub theme: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]

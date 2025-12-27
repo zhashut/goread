@@ -72,6 +72,7 @@ pub async fn pdf_render_page(
     quality: String,
     width: Option<u32>,
     height: Option<u32>,
+    theme: Option<String>,
     manager: State<'_, PdfManagerState>,
 ) -> Result<RenderPageResponse, String> {
     let engine_arc = {
@@ -107,6 +108,7 @@ pub async fn pdf_render_page(
         background_color: Some([255, 255, 255, 255]),
         fit_to_width: width.is_some(),
         fit_to_height: height.is_some(),
+        theme,
     };
     
     match engine.render_page(page_number, options).await {
@@ -134,6 +136,7 @@ pub async fn pdf_render_page_to_file(
     quality: String,
     width: Option<u32>,
     height: Option<u32>,
+     theme: Option<String>,
     manager: State<'_, PdfManagerState>,
 ) -> Result<String, String> {
     let engine_arc = {
@@ -163,6 +166,7 @@ pub async fn pdf_render_page_to_file(
         background_color: Some([255, 255, 255, 255]),
         fit_to_width: width.is_some(),
         fit_to_height: height.is_some(),
+        theme,
     };
 
     engine
@@ -178,9 +182,10 @@ pub async fn pdf_render_page_base64(
     quality: String,
     width: Option<u32>,
     height: Option<u32>,
+    theme: Option<String>,
     manager: State<'_, PdfManagerState>,
 ) -> Result<String, String> {
-    let response = pdf_render_page(file_path, page_number, quality.clone(), width, height, manager).await?;
+    let response = pdf_render_page(file_path, page_number, quality.clone(), width, height, theme, manager).await?;
     
     if response.success {
         if let Some(image_data) = response.image_data {
@@ -476,6 +481,7 @@ pub async fn pdf_render_pages_parallel(
     quality: String,
     width: Option<u32>,
     height: Option<u32>,
+    theme: Option<String>,
     manager: State<'_, PdfManagerState>,
 ) -> Result<Vec<RenderPageResponse>, String> {
     let engine_arc = {
@@ -505,6 +511,7 @@ pub async fn pdf_render_pages_parallel(
         background_color: Some([255, 255, 255, 255]),
         fit_to_width: width.is_some(),
         fit_to_height: height.is_some(),
+        theme,
     };
     
     // 调用并行渲染
@@ -543,10 +550,11 @@ pub async fn pdf_render_page_range_parallel(
     quality: String,
     width: Option<u32>,
     height: Option<u32>,
+    theme: Option<String>,
     manager: State<'_, PdfManagerState>,
 ) -> Result<Vec<RenderPageResponse>, String> {
     let page_numbers: Vec<u32> = (start_page..=end_page).collect();
-    pdf_render_pages_parallel(file_path, page_numbers, quality, width, height, manager).await
+    pdf_render_pages_parallel(file_path, page_numbers, quality, width, height, theme, manager).await
 }
 
 /// 使用自定义线程数并行渲染
@@ -558,6 +566,7 @@ pub async fn pdf_render_pages_with_threads(
     num_threads: usize,
     width: Option<u32>,
     height: Option<u32>,
+    theme: Option<String>,
     manager: State<'_, PdfManagerState>,
 ) -> Result<Vec<RenderPageResponse>, String> {
     let engine_arc = {
@@ -587,6 +596,7 @@ pub async fn pdf_render_pages_with_threads(
         background_color: Some([255, 255, 255, 255]),
         fit_to_width: width.is_some(),
         fit_to_height: height.is_some(),
+        theme,
     };
     
     // 调用自定义线程池渲染
@@ -640,6 +650,7 @@ pub async fn pdf_render_page_tile(
     region: RenderTileRequestRegion,
     width: Option<u32>,
     height: Option<u32>,
+    theme: Option<String>,
     manager: State<'_, PdfManagerState>,
 ) -> Result<RenderPageResponse, String> {
     let engine_arc = {
@@ -675,6 +686,7 @@ pub async fn pdf_render_page_tile(
         background_color: Some([255, 255, 255, 255]),
         fit_to_width: width.is_some(),
         fit_to_height: height.is_some(),
+        theme,
     };
 
     let rr = RenderRegion { x: region.x, y: region.y, width: region.width, height: region.height };
