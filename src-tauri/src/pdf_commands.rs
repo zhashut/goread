@@ -3,8 +3,9 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use serde::{Deserialize, Serialize};
 
-use crate::pdf::{PdfEngineManager};
+use crate::pdf::PdfEngineManager;
 use crate::pdf::types::*;
+use crate::formats::BookRenderCache;
 
 // 全局PDF引擎管理器
 pub type PdfManagerState = Arc<Mutex<PdfEngineManager>>;
@@ -312,7 +313,7 @@ pub async fn pdf_clear_cache(
             engine.clear_cache().await;
         }
     } else {
-        manager.get_cache_manager().clear().await;
+        BookRenderCache::cache_clear_all(manager.get_cache_manager()).await;
     }
     
     Ok(true)
@@ -333,7 +334,7 @@ pub async fn pdf_get_cache_stats(
     manager: State<'_, PdfManagerState>,
 ) -> Result<serde_json::Value, String> {
     let manager = manager.lock().await;
-    let stats = manager.get_cache_manager().get_stats().await;
+    let stats = BookRenderCache::cache_stats(manager.get_cache_manager()).await;
     
     Ok(serde_json::json!({
         "item_count": stats.item_count,
@@ -429,7 +430,7 @@ pub async fn pdf_get_performance_metrics(
     
     // 这里需要从renderer获取性能监控器
     // 由于架构限制，我们返回缓存统计作为性能指标的一部分
-    let cache_stats = manager.get_cache_manager().get_stats().await;
+    let cache_stats = BookRenderCache::cache_stats(manager.get_cache_manager()).await;
     
     Ok(serde_json::json!({
         "cache_hit_rate": cache_stats.hit_rate,
@@ -445,7 +446,7 @@ pub async fn pdf_get_performance_report(
     manager: State<'_, PdfManagerState>,
 ) -> Result<serde_json::Value, String> {
     let manager = manager.lock().await;
-    let cache_stats = manager.get_cache_manager().get_stats().await;
+    let cache_stats = BookRenderCache::cache_stats(manager.get_cache_manager()).await;
     
     let mut recommendations = Vec::new();
     

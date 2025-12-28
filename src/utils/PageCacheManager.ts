@@ -38,7 +38,6 @@ export class PageCacheManager {
      * 计算ImageData的内存占用（MB）
      */
     private calculateMemoryMB(imageData: ImageData): number {
-        // ImageData.data 是 Uint8ClampedArray，每个像素4字节（RGBA）
         return (imageData.data.length / (1024 * 1024));
     }
 
@@ -68,7 +67,6 @@ export class PageCacheManager {
         const key = this.getCacheKey(pageNumber, scale, theme);
         const memoryMB = this.calculateMemoryMB(imageData);
 
-        // 如果已存在，先删除旧的
         if (this.cache.has(key)) {
             const old = this.cache.get(key)!;
             this.currentMemoryMB -= this.calculateMemoryMB(old.imageData);
@@ -190,5 +188,49 @@ export class PageCacheManager {
         }
 
         return pages;
+    }
+}
+
+import type { IBookPageCache, BookPageCacheStats } from "../services/formats/types";
+
+/**
+ * PDF 页面缓存适配器，封装 PageCacheManager 为统一缓存接口
+ */
+export class PdfPageCache implements IBookPageCache {
+    private readonly inner: PageCacheManager;
+
+    constructor(inner: PageCacheManager) {
+        this.inner = inner;
+    }
+
+    get(pageNumber: number, scale?: number, theme?: string): CachedPage | null {
+        return this.inner.get(pageNumber, scale, theme);
+    }
+
+    set(
+        pageNumber: number,
+        imageData: ImageData,
+        width: number,
+        height: number,
+        scale?: number,
+        theme?: string
+    ): void {
+        this.inner.set(pageNumber, imageData, width, height, scale, theme);
+    }
+
+    has(pageNumber: number, scale?: number, theme?: string): boolean {
+        return this.inner.has(pageNumber, scale, theme);
+    }
+
+    remove(pageNumber: number, scale?: number, theme?: string): void {
+        this.inner.remove(pageNumber, scale, theme);
+    }
+
+    clear(): void {
+        this.inner.clear();
+    }
+
+    getStats(): BookPageCacheStats {
+        return this.inner.getStats();
     }
 }

@@ -1,18 +1,43 @@
-//! 书籍格式引擎模块
-//! 定义各格式统一的 trait 和类型
-
 use serde::{Deserialize, Serialize};
+use std::future::Future;
+use std::pin::Pin;
 
 pub mod common;
 pub mod markdown;
 pub mod html;
 
-// 各格式模块将在实现时添加
-// pub mod pdf;
-// pub mod epub;
-// pub mod txt;
+/// 通用异步返回类型，统一封装书籍渲染相关的异步接口
+pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
-/// 支持的书籍格式
+/// 书籍渲染结果缓存通用接口，不关心具体书籍格式
+pub trait BookRenderCache {
+    /// 缓存键类型，一般包含文件路径、页码及渲染参数
+    type Key: Send + Sync + 'static;
+    /// 缓存值类型，如页面渲染结果
+    type Value: Send + Sync + 'static;
+    /// 缓存统计信息类型
+    type Stats: Send + Sync + 'static;
+    /// 缓存相关错误类型
+    type Error: std::error::Error + Send + Sync + 'static;
+
+    /// 按键读取缓存，不存在时返回 None
+    fn cache_get<'a>(&'a self, key: &'a Self::Key) -> BoxFuture<'a, Option<Self::Value>>;
+    /// 写入缓存，保持与具体实现的行为一致
+    fn cache_put<'a>(
+        &'a self,
+        key: Self::Key,
+        value: Self::Value,
+    ) -> BoxFuture<'a, Result<(), Self::Error>>;
+    /// 删除指定键的缓存，并返回旧值
+    fn cache_remove<'a>(&'a self, key: &'a Self::Key) -> BoxFuture<'a, Option<Self::Value>>;
+    /// 清空所有缓存数据
+    fn cache_clear_all<'a>(&'a self) -> BoxFuture<'a, ()>;
+    /// 清除指定文件某一页的缓存
+    fn cache_clear_page<'a>(&'a self, file_path: &'a str, page_number: u32) -> BoxFuture<'a, ()>;
+    /// 获取当前缓存统计信息
+    fn cache_stats<'a>(&'a self) -> BoxFuture<'a, Self::Stats>;
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum BookFormat {

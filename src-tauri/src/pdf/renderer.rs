@@ -3,6 +3,7 @@ use image::{RgbaImage, Rgba};
 use std::sync::Arc;
 use webp::Encoder;
 
+use crate::formats::BookRenderCache;
 use crate::pdf::types::{
     CacheKey, ImageFormat, PdfError, RenderOptions, RenderQuality, RenderResult,
 };
@@ -92,13 +93,12 @@ impl PdfRenderer {
             theme_key,
         );
 
-        // 使用 tokio 的 block_in_place 来同步访问缓存
         let cached = tokio::task::block_in_place(|| {
             tokio::runtime::Handle::current().block_on(async {
                 if matches!(options.quality, RenderQuality::Thumbnail) {
-                    self.thumb_cache.get(&cache_key).await
+                    BookRenderCache::cache_get(&self.thumb_cache, &cache_key).await
                 } else {
-                    self.cache.get(&cache_key).await
+                    BookRenderCache::cache_get(&self.cache, &cache_key).await
                 }
             })
         });
@@ -136,7 +136,7 @@ impl PdfRenderer {
         };
         
         tokio::task::spawn(async move {
-            let _ = cache.put(cache_key_clone, result_clone).await;
+            let _ = BookRenderCache::cache_put(&cache, cache_key_clone, result_clone).await;
         });
 
         Ok(result)
@@ -184,13 +184,13 @@ impl PdfRenderer {
 
         let use_thumb_cache = matches!(options.quality, RenderQuality::Thumbnail);
         if use_thumb_cache {
-            if let Some(cached) = self.thumb_cache.get(&cache_key).await {
+            if let Some(cached) = BookRenderCache::cache_get(&self.thumb_cache, &cache_key).await {
                 if let Some(monitor) = &self.performance_monitor {
                     monitor.record_cache_hit().await;
                 }
                 return Ok(cached);
             }
-        } else if let Some(cached) = self.cache.get(&cache_key).await {
+        } else if let Some(cached) = BookRenderCache::cache_get(&self.cache, &cache_key).await {
             if let Some(monitor) = &self.performance_monitor {
                 monitor.record_cache_hit().await;
             }
@@ -220,11 +220,10 @@ impl PdfRenderer {
             format: out_format,
         };
 
-        // 缓存结果
         if use_thumb_cache {
-            self.thumb_cache.put(cache_key, result.clone()).await?;
+            BookRenderCache::cache_put(&self.thumb_cache, cache_key, result.clone()).await?;
         } else {
-            self.cache.put(cache_key, result.clone()).await?;
+            BookRenderCache::cache_put(&self.cache, cache_key, result.clone()).await?;
         }
 
         timer.finish().await;
@@ -723,12 +722,12 @@ impl PdfRenderer {
 
     /// 清除所有缓存
     pub async fn clear_cache(&self) {
-        self.cache.clear().await;
+        BookRenderCache::cache_clear_all(&self.cache).await;
     }
 
     /// 清除指定页面的缓存
     pub async fn clear_page_cache(&self, page_number: u32) {
-        self.cache.clear_page(&self.file_path, page_number).await;
+        BookRenderCache::cache_clear_page(&self.cache, &self.file_path, page_number).await;
     }
 }
 

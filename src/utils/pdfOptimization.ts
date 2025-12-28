@@ -2,7 +2,7 @@
  * PDF优化工具集
  */
 
-export { PageCacheManager } from './PageCacheManager';
+export { PageCacheManager, PdfPageCache } from './PageCacheManager';
 export type { CachedPage } from './PageCacheManager';
 
 export { ProgressiveRenderer } from './ProgressiveRenderer';

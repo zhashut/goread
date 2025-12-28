@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use moka::future::Cache as MokaCache;
+use crate::formats::{BookRenderCache, BoxFuture};
 use crate::pdf::types::{CacheKey, RenderResult, PdfError};
 
 const DEFAULT_MAX_CACHE_SIZE: usize = 100 * 1024 * 1024; // 100MB（按权重表示字节数）
@@ -136,6 +137,42 @@ pub struct CacheStats {
     pub max_size: usize,
     pub max_items: usize,
     pub hit_rate: f64,
+}
+
+/// PDF 渲染缓存管理器的统一接口实现，直接复用现有缓存逻辑
+impl BookRenderCache for CacheManager {
+    type Key = CacheKey;
+    type Value = RenderResult;
+    type Stats = CacheStats;
+    type Error = PdfError;
+
+    fn cache_get<'a>(&'a self, key: &'a Self::Key) -> BoxFuture<'a, Option<Self::Value>> {
+        Box::pin(CacheManager::get(self, key))
+    }
+
+    fn cache_put<'a>(
+        &'a self,
+        key: Self::Key,
+        value: Self::Value,
+    ) -> BoxFuture<'a, Result<(), Self::Error>> {
+        Box::pin(CacheManager::put(self, key, value))
+    }
+
+    fn cache_remove<'a>(&'a self, key: &'a Self::Key) -> BoxFuture<'a, Option<Self::Value>> {
+        Box::pin(CacheManager::remove(self, key))
+    }
+
+    fn cache_clear_all<'a>(&'a self) -> BoxFuture<'a, ()> {
+        Box::pin(CacheManager::clear(self))
+    }
+
+    fn cache_clear_page<'a>(&'a self, file_path: &'a str, page_number: u32) -> BoxFuture<'a, ()> {
+        Box::pin(CacheManager::clear_page(self, file_path, page_number))
+    }
+
+    fn cache_stats<'a>(&'a self) -> BoxFuture<'a, Self::Stats> {
+        Box::pin(CacheManager::get_stats(self))
+    }
 }
 
 #[cfg(test)]

@@ -1,8 +1,10 @@
 import { useRef, useCallback, useEffect } from "react";
 import { IBookRenderer } from "../../../services/formats";
+import type { IBookPageCache } from "../../../services/formats/types";
 import {
     PageCacheManager,
     SmartPredictor,
+    PdfPageCache,
 } from "../../../utils/pdfOptimization";
 import {
     QUALITY_SCALE_MAP,
@@ -48,9 +50,11 @@ export const usePageRenderer = ({
     readingMode,
     totalPages,
 }: RenderStateProps) => {
-    // 缓存与队列管理
-    const pageCacheRef = useRef<PageCacheManager>(
-        new PageCacheManager(PAGE_CACHE_SIZE, PAGE_CACHE_MEMORY_LIMIT_MB)
+    // 缓存与队列管理，统一通过 IBookPageCache 接口访问
+    const pageCacheRef = useRef<IBookPageCache>(
+        new PdfPageCache(
+            new PageCacheManager(PAGE_CACHE_SIZE, PAGE_CACHE_MEMORY_LIMIT_MB)
+        )
     );
     // 预加载图片资源缓存（显式管理 ImageBitmap）
     const preloadedBitmapsRef = useRef<Map<string, ImageBitmap>>(new Map());

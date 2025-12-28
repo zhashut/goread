@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::time::UNIX_EPOCH;
 use tokio::sync::RwLock;
 
+use crate::formats::BookRenderCache;
 use crate::pdf::cache::CacheManager;
 use crate::pdf::renderer::PdfRenderer;
 use crate::pdf::types::*;
@@ -290,8 +291,7 @@ impl PdfEngine {
                 theme_key,
             );
             
-            // 检查缓存
-            if let Some(cached) = self.cache.get(&cache_key).await {
+            if let Some(cached) = BookRenderCache::cache_get(&self.cache, &cache_key).await {
                 println!("[backend] 页面 {} 从缓存加载（跳过文档加载）", page_number);
                 return Ok(cached);
             }
@@ -395,7 +395,7 @@ impl PdfEngine {
             return Ok(disk_path.to_string_lossy().to_string());
         }
 
-        if let Some(cached) = self.cache.get(&cache_key).await {
+        if let Some(cached) = BookRenderCache::cache_get(&self.cache, &cache_key).await {
             if let Some(parent) = disk_path.parent() {
                 let _ = std::fs::create_dir_all(parent);
             }
@@ -406,7 +406,7 @@ impl PdfEngine {
         }
 
         let result = self.render_page(page_number, options).await?;
-        let _ = self.cache.put(cache_key, result.clone()).await;
+        let _ = BookRenderCache::cache_put(&self.cache, cache_key, result.clone()).await;
 
         if let Some(parent) = disk_path.parent() {
             let _ = std::fs::create_dir_all(parent);
@@ -751,12 +751,12 @@ impl PdfEngine {
 
     /// 清除缓存
     pub async fn clear_cache(&self) {
-        self.cache.clear().await;
+        BookRenderCache::cache_clear_all(&self.cache).await;
     }
 
     /// 清除指定页面的缓存
     pub async fn clear_page_cache(&self, page_number: u32) {
-        self.cache.clear_page(&self.file_path, page_number).await;
+        BookRenderCache::cache_clear_page(&self.cache, &self.file_path, page_number).await;
     }
 
     /// 关闭文档

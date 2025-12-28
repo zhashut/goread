@@ -80,6 +80,29 @@ export type PageContent =
   | { type: 'html'; content: string; resources?: Record<string, string> }
   | { type: 'text'; content: string; encoding?: string };
 
+export type BookPageCacheStats = {
+  size: number;
+  maxSize: number;
+  memoryMB: number;
+  maxMemoryMB: number;
+};
+
+export interface IBookPageCache {
+  get(pageNumber: number, scale?: number, theme?: string): any | null;
+  set(
+    pageNumber: number,
+    imageData: ImageData,
+    width: number,
+    height: number,
+    scale?: number,
+    theme?: string
+  ): void;
+  has(pageNumber: number, scale?: number, theme?: string): boolean;
+  remove(pageNumber: number, scale?: number, theme?: string): void;
+  clear(): void;
+  getStats(): BookPageCacheStats;
+}
+
 /** 渲染器能力标识 */
 export interface RendererCapabilities {
   /** 是否支持位图渲染（Canvas + ImageBitmap，用于 PDF 等固定布局格式） */
@@ -94,7 +117,6 @@ export interface RendererCapabilities {
 
 /**
  * 书籍渲染器统一接口
- * 所有格式的渲染器都需实现此接口
  */
 export interface IBookRenderer {
   /** 格式标识 */
