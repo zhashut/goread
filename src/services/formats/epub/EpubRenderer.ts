@@ -15,6 +15,8 @@ import {
     ReaderTheme,
 } from '../types';
 import { registerRenderer } from '../registry';
+import { logError } from '../../index';
+
 
 /** 获取 Tauri invoke 函数 */
 async function getInvoke() {
@@ -185,7 +187,7 @@ export class EpubRenderer implements IBookRenderer {
         });
       }
     } catch (e) {
-      console.warn('[EpubRenderer] 获取封面失败:', e);
+      logError('[EpubRenderer] 获取封面失败:', e).catch(() => {});
     }
     return undefined;
   }
@@ -589,7 +591,7 @@ export class EpubRenderer implements IBookRenderer {
    * 将所有章节渲染到一个可滚动容器中，章节之间有分割线
    */
   async renderVerticalContinuous(container: HTMLElement, options?: RenderOptions): Promise<void> {
-    console.log('[EpubRenderer] 开始纵向连续渲染模式');
+    logError('[EpubRenderer] 开始纵向连续渲染模式').catch(() => {});
     
     // 清理之前的资源
     this._clearBlobUrls();
@@ -658,9 +660,6 @@ export class EpubRenderer implements IBookRenderer {
       this._sectionContainers.set(i, wrapper);
     }
     
-    // 设置 IntersectionObserver 进行懒加载
-    this._setupSectionObserver(container, options);
-    
     // 设置滚动监听，用于更新目录高亮和进度
     this._setupScrollListener(container);
     
@@ -668,11 +667,12 @@ export class EpubRenderer implements IBookRenderer {
     const initialPage = options?.initialVirtualPage || 1;
     this._currentPage = initialPage;
     
+    const currentIndex = initialPage - 1;
     const sectionsToRender = [
-      initialPage - 1,
-      Math.max(0, initialPage - 2),
-      Math.min(this._sectionCount - 1, initialPage),
-    ].filter(i => i >= 0 && i < this._sectionCount);
+      currentIndex,
+      Math.max(0, currentIndex - 1),
+      Math.min(this._sectionCount - 1, currentIndex + 1),
+    ].filter((v, i, arr) => arr.indexOf(v) === i && v >= 0 && v < this._sectionCount);
     
     for (const index of sectionsToRender) {
       await this._renderSection(index, options);
@@ -680,16 +680,25 @@ export class EpubRenderer implements IBookRenderer {
     
     // 滚动到当前章节
     if (initialPage > 1) {
-      const targetWrapper = this._sectionContainers.get(initialPage - 1);
+      const targetWrapper = this._sectionContainers.get(currentIndex);
       if (targetWrapper) {
-        // 延迟滚动，确保内容已渲染
-        setTimeout(() => {
-          targetWrapper.scrollIntoView({ behavior: 'auto', block: 'start' });
-        }, 100);
+        // 等待滚动完成，确保 DOM 更新
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => {
+            targetWrapper.scrollIntoView({ behavior: 'auto', block: 'start' });
+            // 等待滚动生效
+            requestAnimationFrame(() => {
+              resolve();
+            });
+          });
+        });
       }
     }
     
-    console.log('[EpubRenderer] 纵向连续渲染模式初始化完成');
+    // 滚动完成后再设置 IntersectionObserver 进行懒加载，避免初始位置触发首页渲染
+    this._setupSectionObserver(container, options);
+    
+    logError('[EpubRenderer] 纵向连续渲染模式初始化完成').catch(() => {});
   }
   
   /**
@@ -754,12 +763,12 @@ export class EpubRenderer implements IBookRenderer {
       return;
     }
     
-    console.log(`[EpubRenderer] 开始渲染章节 ${index + 1}`);
+    logError(`[EpubRenderer] 开始渲染章节 ${index + 1}`).catch(() => {});
     
     try {
       const section = this._book.sections[index];
       if (!section || !section.createDocument) {
-        console.warn(`[EpubRenderer] 章节 ${index + 1} 无效`);
+        logError(`[EpubRenderer] 章节 ${index + 1} 无效`).catch(() => {});
         return;
       }
       
@@ -801,9 +810,9 @@ export class EpubRenderer implements IBookRenderer {
       this._renderedSections.add(index);
       wrapper.dataset.rendered = 'true';
       
-      console.log(`[EpubRenderer] 章节 ${index + 1} 渲染完成`);
+      logError(`[EpubRenderer] 章节 ${index + 1} 渲染完成`).catch(() => {});
     } catch (e) {
-      console.error(`[EpubRenderer] 渲染章节 ${index + 1} 失败:`, e);
+      logError(`[EpubRenderer] 渲染章节 ${index + 1} 失败:`, e).catch(() => {});
     }
   }
   
@@ -920,7 +929,7 @@ export class EpubRenderer implements IBookRenderer {
         }
       }
     } catch (e) {
-      console.warn(`[EpubRenderer] 加载资源失败: ${url}`, e);
+      logError(`[EpubRenderer] 加载资源失败: ${url}`, e).catch(() => {});
     }
     
     return null;
@@ -955,7 +964,7 @@ export class EpubRenderer implements IBookRenderer {
           }
         }
       } catch (e) {
-        console.warn(`[EpubRenderer] 加载外部 CSS 失败: ${href}`, e);
+        logError(`[EpubRenderer] 加载外部 CSS 失败: ${href}`, e).catch(() => {});
       }
     }
 
@@ -1326,7 +1335,7 @@ export class EpubRenderer implements IBookRenderer {
       }, 300);
     } catch (e) {
       this._isNavigating = false;
-      console.warn('[EpubRenderer] 跳转失败:', e);
+      logError('[EpubRenderer] 跳转失败:', e).catch(() => {});
     }
   }
 
@@ -1358,7 +1367,7 @@ export class EpubRenderer implements IBookRenderer {
       if (sectionIndex >= 0) {
         await this.goToPage(sectionIndex + 1);
       } else {
-        console.warn(`[EpubRenderer] 未找到匹配的章节: ${href}`);
+        logError(`[EpubRenderer] 未找到匹配的章节: ${href}`).catch(() => {});
       }
       return;
     }
@@ -1368,7 +1377,7 @@ export class EpubRenderer implements IBookRenderer {
     try {
       await this._view.goTo(href);
     } catch (e) {
-      console.warn('[EpubRenderer] 跳转到 href 失败:', e);
+      logError('[EpubRenderer] 跳转到 href 失败:', e).catch(() => {});
     }
   }
 
@@ -1436,7 +1445,7 @@ export class EpubRenderer implements IBookRenderer {
         }
       }
     } catch (e) {
-      console.warn('[EpubRenderer] 搜索失败:', e);
+      logError('[EpubRenderer] 搜索失败:', e).catch(() => {});
     }
 
     return results;
@@ -1458,7 +1467,7 @@ export class EpubRenderer implements IBookRenderer {
         return doc.body?.textContent || '';
       }
     } catch (e) {
-      console.warn('[EpubRenderer] 提取文本失败:', e);
+      logError('[EpubRenderer] 提取文本失败:', e).catch(() => {});
     }
 
     return '';
@@ -1481,7 +1490,7 @@ export class EpubRenderer implements IBookRenderer {
   scrollToAnchor(anchor: string): void {
     if (!this._view) return;
     this.goToHref(anchor).catch((e) => {
-      console.warn('[EpubRenderer] 滚动到锚点失败:', e);
+      logError('[EpubRenderer] 滚动到锚点失败:', e).catch(() => {});
     });
   }
 
@@ -1690,7 +1699,7 @@ export class EpubRenderer implements IBookRenderer {
       // 保留默认指针事件，避免滚动与滚轮被屏蔽
       // foliate-js 的触摸翻页由内部处理，我们通过外层控件进行点击翻页即可
     } catch (e) {
-      console.warn('[EpubRenderer] 禁用触摸事件失败:', e);
+      logError('[EpubRenderer] 禁用触摸事件失败:', e).catch(() => {});
     }
   }
 
