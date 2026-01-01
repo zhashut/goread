@@ -145,8 +145,12 @@ export const useInitReader = ({
 
                     if (renderer instanceof EpubRenderer) {
                         renderer.onPageChange = (p: number) => {
-                            setCurrentPage(p);
+                            // p 可能是浮点数（整数部分为页码，小数部分为章节内偏移比例）
+                            const pageInt = Math.floor(p);
+                            // UI 显示整数页码
+                            setCurrentPage(pageInt);
                             if (!isExternal && book) {
+                                // 保存完整浮点数进度到数据库
                                 bookService.updateBookProgress(book.id, p).catch(() => { });
                             }
                         };

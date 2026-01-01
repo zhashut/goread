@@ -99,7 +99,9 @@ export const useBookLoader = (
                 }
 
                 setBook(targetBook);
-                setCurrentPage(targetBook.current_page);
+                // 使用 precise_progress（浮点数）恢复精确位置，若不存在则回退到 current_page
+                const initialProgress = targetBook.precise_progress ?? targetBook.current_page;
+                setCurrentPage(initialProgress);
                 setTotalPages(targetBook.total_pages);
 
                 if (targetBook.status === 1) {

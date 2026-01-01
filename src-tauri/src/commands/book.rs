@@ -77,6 +77,7 @@ pub async fn init_database(db: DbState<'_>) -> Result<(), Error> {
             last_read_time INTEGER,
             group_id INTEGER,
             position_in_group INTEGER,
+            precise_progress REAL,
             theme TEXT,
             created_at INTEGER DEFAULT (strftime('%s', 'now')),
             FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE SET NULL
@@ -133,6 +134,20 @@ pub async fn init_database(db: DbState<'_>) -> Result<(), Error> {
         .await;
 
     let _ = sqlx::query("ALTER TABLE books ADD COLUMN theme TEXT")
+        .execute(&*pool)
+        .await;
+
+    let _ = sqlx::query("ALTER TABLE books ADD COLUMN precise_progress REAL")
+        .execute(&*pool)
+        .await;
+
+    let _ = sqlx::query(
+        "UPDATE books SET precise_progress = current_page WHERE precise_progress IS NULL",
+    )
+    .execute(&*pool)
+    .await;
+
+    let _ = sqlx::query("UPDATE books SET current_page = CAST(current_page AS INTEGER)")
         .execute(&*pool)
         .await;
 
@@ -261,10 +276,12 @@ pub async fn get_recent_books(limit: u32, db: DbState<'_>) -> Result<Vec<Book>, 
 #[tauri::command]
 pub async fn update_book_progress(
     id: i64,
-    current_page: u32,
+    current_page: f64,
     db: DbState<'_>,
 ) -> Result<(), Error> {
     let pool = db.lock().await;
+
+    let page_int = current_page.floor() as i64;
 
     // 获取当前最大 recent_order
     let max_order: Option<i64> =
@@ -275,9 +292,10 @@ pub async fn update_book_progress(
 
     // 同时更新进度、阅读时间和排序
     sqlx::query(
-        "UPDATE books SET current_page = ?, last_read_time = strftime('%s', 'now'), recent_order = ? WHERE id = ?",
+        "UPDATE books SET current_page = ?, precise_progress = ?, last_read_time = strftime('%s', 'now'), recent_order = ? WHERE id = ?",
     )
-    .bind(current_page as i64)
+    .bind(page_int)
+    .bind(current_page)
     .bind(next_order)
     .bind(id)
     .execute(&*pool)

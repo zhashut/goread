@@ -7,7 +7,7 @@ pub struct Book {
     pub title: String,
     pub file_path: String,
     pub cover_image: Option<String>, // Base64 encoded image
-    pub current_page: u32,
+    pub current_page: i64,
     pub total_pages: u32,
     pub last_read_time: Option<i64>, // Unix timestamp
     pub group_id: Option<i64>,
@@ -17,6 +17,7 @@ pub struct Book {
     pub finished_at: Option<i64>,  // 完成时间戳
     pub recent_order: Option<i64>, // 最近阅读排序值，值越大越靠前
     pub theme: Option<String>,
+    pub precise_progress: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]

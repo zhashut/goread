@@ -105,6 +105,7 @@ export class EpubRenderer implements IBookRenderer {
   private _currentPageGap: number = 4;
   private _isNavigating: boolean = false;
   private _blobUrls: Set<string> = new Set();
+  private _currentPreciseProgress: number = 1;
 
   get isReady(): boolean {
     return this._isReady;
@@ -257,9 +258,14 @@ export class EpubRenderer implements IBookRenderer {
       this._applyFlowSafely();
       
       // 跳转到指定位置
-      const targetPage = options?.initialVirtualPage || page;
-      if (targetPage !== this._currentPage && targetPage >= 1 && targetPage <= this._sectionCount) {
-        await this.goToPage(targetPage);
+      const initialProgress = options?.initialVirtualPage;
+      const targetPage = initialProgress && initialProgress > 0
+        ? Math.floor(initialProgress)
+        : page;
+      const clampedTarget = Math.min(this._sectionCount, Math.max(1, targetPage));
+
+      if (clampedTarget !== this._currentPage) {
+        await this.goToPage(clampedTarget);
       }
       return;
     }
@@ -334,17 +340,24 @@ export class EpubRenderer implements IBookRenderer {
     } catch {}
 
     this._applyFlowSafely();
-
+    
     // 初始化到指定位置
-    const initialPage = options?.initialVirtualPage || page;
-    if (initialPage > 1 && initialPage <= this._sectionCount) {
-      // 跳转到指定章节
-      await view.init({ lastLocation: initialPage - 1 });
-      this._currentPage = initialPage;
+    const initialProgress = options?.initialVirtualPage;
+    const initialPage = initialProgress && initialProgress > 0
+      ? Math.floor(initialProgress)
+      : page;
+    const clampedInitialPage = Math.min(this._sectionCount, Math.max(1, initialPage));
+
+    if (clampedInitialPage > 1) {
+      await view.init({ lastLocation: clampedInitialPage - 1 });
+      this._currentPage = clampedInitialPage;
     } else {
       await view.init({ showTextStart: true });
       this._currentPage = 1;
     }
+    this._currentPreciseProgress = initialProgress && initialProgress > 0
+      ? initialProgress
+      : this._currentPage;
 
     // 等待下一帧渲染完成，确保 foliate-js 内部布局计算正确
     await new Promise<void>((resolve) => {
@@ -568,6 +581,7 @@ export class EpubRenderer implements IBookRenderer {
 
     if (typeof pageIndex === 'number') {
       this._currentPage = pageIndex + 1;
+      this._currentPreciseProgress = this._currentPage;
     }
 
     // 更新当前目录项 href（用于高亮）
@@ -664,30 +678,58 @@ export class EpubRenderer implements IBookRenderer {
     this._setupScrollListener(container);
     
     // 初始渲染当前章节及前后各1章
-    const initialPage = options?.initialVirtualPage || 1;
-    this._currentPage = initialPage;
+    // 解析浮点数进度：整数部分为页码，小数部分为章节内偏移比例
+    const rawProgress =
+      typeof options?.initialVirtualPage === 'number' && isFinite(options.initialVirtualPage)
+        ? options.initialVirtualPage
+        : 1;
+    let initialPageInt = Math.floor(rawProgress);
+    if (initialPageInt < 1) initialPageInt = 1;
+    if (this._sectionCount > 0 && initialPageInt > this._sectionCount) {
+      initialPageInt = this._sectionCount;
+    }
+    let initialOffset = rawProgress - Math.floor(rawProgress);
+    if (!isFinite(initialOffset) || initialOffset < 0) initialOffset = 0;
+    if (initialOffset > 1) initialOffset = 1;
+    if (this._sectionCount > 0 && initialPageInt === this._sectionCount) {
+      initialOffset = 0;
+    }
+    this._currentPage = initialPageInt;
+    this._currentPreciseProgress = initialPageInt + initialOffset;
     
-    const currentIndex = initialPage - 1;
-    const sectionsToRender = [
+    const currentIndex = initialPageInt - 1;
+    let sectionsToRender = [
       currentIndex,
       Math.max(0, currentIndex - 1),
       Math.min(this._sectionCount - 1, currentIndex + 1),
     ].filter((v, i, arr) => arr.indexOf(v) === i && v >= 0 && v < this._sectionCount);
     
+    if (sectionsToRender.length === 0 && this._sectionCount > 0) {
+      sectionsToRender = [0];
+      this._currentPage = 1;
+      this._currentPreciseProgress = 1;
+    }
+    
     for (const index of sectionsToRender) {
       await this._renderSection(index, options);
     }
     
-    // 滚动到当前章节
-    if (initialPage > 1) {
+    // 滚动到当前章节并恢复精确偏移位置
+    if (initialPageInt > 1 || initialOffset > 0) {
       const targetWrapper = this._sectionContainers.get(currentIndex);
       if (targetWrapper) {
         // 等待滚动完成，确保 DOM 更新
         await new Promise<void>((resolve) => {
           requestAnimationFrame(() => {
+            // 先滚动到章节开头
             targetWrapper.scrollIntoView({ behavior: 'auto', block: 'start' });
-            // 等待滚动生效
+            // 等待滚动生效后应用章节内偏移
             requestAnimationFrame(() => {
+              // 应用章节内偏移：根据偏移比例计算具体像素值
+              if (initialOffset > 0 && targetWrapper.scrollHeight > 0) {
+                const offsetPx = targetWrapper.scrollHeight * initialOffset;
+                container.scrollTop += offsetPx;
+              }
               resolve();
             });
           });
@@ -838,6 +880,33 @@ export class EpubRenderer implements IBookRenderer {
   }
   
   /**
+   * 计算当前章节内的滚动偏移比例
+   * @returns 0.0~1.0 的比例值，表示在当前章节中的相对位置
+   */
+  private _calculateScrollOffset(): number {
+    if (!this._scrollContainer || !this._verticalContinuousMode) return 0;
+
+    const container = this._scrollContainer;
+    const scrollTop = container.scrollTop;
+    const currentIndex = this._currentPage - 1;
+    const wrapper = this._sectionContainers.get(currentIndex);
+
+    if (!wrapper) return 0;
+
+    const wrapperRect = wrapper.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+    // 计算 wrapper 相对于滚动容器的顶部位置
+    const wrapperTop = wrapperRect.top - containerRect.top + scrollTop;
+    // 计算滚动位置在章节内的偏移
+    const offsetInSection = scrollTop - wrapperTop;
+    const sectionHeight = wrapper.scrollHeight;
+
+    if (sectionHeight <= 0) return 0;
+    // 返回 0~1 之间的比例
+    return Math.max(0, Math.min(1, offsetInSection / sectionHeight));
+  }
+
+  /**
    * 更新滚动进度和目录高亮
    */
   private _updateScrollProgress(): void {
@@ -872,9 +941,14 @@ export class EpubRenderer implements IBookRenderer {
       // 更新当前页码
       if (newPage !== this._currentPage) {
         this._currentPage = newPage;
-        if (this.onPageChange) {
-          this.onPageChange(newPage);
-        }
+      }
+      
+      const offset = this._calculateScrollOffset();
+      const preciseProgress = newPage + offset;
+      this._currentPreciseProgress = preciseProgress;
+      
+      if (this.onPageChange) {
+        this.onPageChange(preciseProgress);
       }
       
       // 更新目录高亮（通过 href）
@@ -1303,13 +1377,12 @@ export class EpubRenderer implements IBookRenderer {
       
       const targetWrapper = this._sectionContainers.get(page - 1);
       if (targetWrapper) {
-        // 标记正在跳转，避免滚动监听器干扰
         this._isNavigating = true;
         
         targetWrapper.scrollIntoView({ behavior: 'smooth', block: 'start' });
         this._currentPage = page;
+        this._currentPreciseProgress = page;
         
-        // 延迟触发回调，等待滚动完成
         setTimeout(() => {
           this._isNavigating = false;
           if (this.onPageChange) {
@@ -1330,6 +1403,7 @@ export class EpubRenderer implements IBookRenderer {
     try {
       await this._view.goTo(sectionIndex);
       this._currentPage = page;
+      this._currentPreciseProgress = page;
       
       // 延迟触发回调，确保跳转完成
       setTimeout(() => {
@@ -1624,8 +1698,8 @@ export class EpubRenderer implements IBookRenderer {
   async setReadingMode(mode: 'horizontal' | 'vertical'): Promise<void> {
     if (this._readingMode === mode) return;
     
-    // 保存当前位置信息
-    const savedPage = this._currentPage;
+    const savedProgress = this._currentPreciseProgress > 0 ? this._currentPreciseProgress : this._currentPage;
+    const savedPage = Math.max(1, Math.floor(savedProgress) || this._currentPage || 1);
     
     if (this._verticalContinuousMode && mode === 'horizontal') {
       this._readingMode = mode;
@@ -1647,7 +1721,7 @@ export class EpubRenderer implements IBookRenderer {
       
       if (this._currentContainer) {
         await this.renderPage(savedPage, this._currentContainer, {
-          initialVirtualPage: savedPage,
+          initialVirtualPage: savedProgress,
           readingMode: mode,
           theme: this._currentTheme,
           pageGap: this._currentPageGap,

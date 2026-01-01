@@ -14,6 +14,7 @@ export interface IBook {
   finished_at?: number | null;   // 完成时间戳
   recent_order?: number;  // 最近阅读排序值，值越大越靠前
   theme?: 'light' | 'dark' | null;
+  precise_progress?: number;
 }
 
 export interface IGroup {
