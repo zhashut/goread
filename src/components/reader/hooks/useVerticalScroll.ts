@@ -6,6 +6,8 @@ import { useReaderState } from "./useReaderState";
 import { bookService } from "../../../services";
 import { SmartPredictor } from "../../../utils/pdfOptimization";
 
+const VERTICAL_SCROLL_ACTIVE_INTERVAL = 10000;
+
 type VerticalScrollProps = {
     readerState: ReturnType<typeof useReaderState>;
     refs: {
@@ -61,6 +63,7 @@ export const useVerticalScroll = ({
     const [verticalLazyReady, setVerticalLazyReady] = useState(false);
     const verticalScrollRafRef = useRef<number | null>(null);
     const lastSeekTsRef = useRef<number>(0);
+    const lastScrollActiveMarkRef = useRef<number>(0);
 
     // 1. 懒加载观察器
     useEffect(() => {
@@ -121,6 +124,11 @@ export const useVerticalScroll = ({
 
         const updateFromScroll = () => {
             verticalScrollRafRef.current = null;
+            const nowTs = Date.now();
+            if (nowTs - lastScrollActiveMarkRef.current >= VERTICAL_SCROLL_ACTIVE_INTERVAL) {
+                lastScrollActiveMarkRef.current = nowTs;
+                actions.markReadingActive();
+            }
             if (isSeeking) {
                 const now = Date.now();
                 if (now - lastSeekTsRef.current <= 400) {

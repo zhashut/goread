@@ -104,7 +104,7 @@ export const Reader: React.FC = () => {
     return getBookFormat(path) === "epub";
   }, [isExternal, externalPath, book?.file_path]);
 
-  useReadingSession(book, isExternal);
+  const { markReadingActive } = useReadingSession(book, isExternal);
 
   // 视口缩放
   useViewport();
@@ -157,7 +157,7 @@ export const Reader: React.FC = () => {
     readerState,
     refs: { rendererRef },
     actions: {
-      markReadingActive: () => { },
+      markReadingActive,
       setActiveNodeSignature: tocData.setActiveNodeSignature
     },
     data: { readingMode, toc: tocData.toc, activeNodeSignature: tocData.activeNodeSignature, isExternal }
@@ -170,7 +170,7 @@ export const Reader: React.FC = () => {
       renderPageToTarget: pageRenderer.renderPageToTarget,
       setActiveNodeSignature: tocData.setActiveNodeSignature,
       getSmartPredictor: pageRenderer.getSmartPredictor,
-      markReadingActive: () => { }
+      markReadingActive
     },
     data: { readingMode, toc: tocData.toc, isSeeking, setSeekPage, setIsSeeking }
   });
@@ -193,7 +193,8 @@ export const Reader: React.FC = () => {
       renderPageToTarget: pageRenderer.renderPageToTarget,
       setVerticalLazyReady: verticalScroll.setVerticalLazyReady,
       setActiveNodeSignature: tocData.setActiveNodeSignature,
-      setToc: tocData.setToc
+      setToc: tocData.setToc,
+      markReadingActive
     },
     data: { readingMode, settings: settingsWithTheme, toc: tocData.toc }
   });
@@ -235,7 +236,7 @@ export const Reader: React.FC = () => {
     pageRenderer,
     tocData,
     refs: { verticalCanvasRefs, rendererRef },
-    data: { readingMode, isExternal, markReadingActive: () => { } }
+    data: { readingMode, isExternal, markReadingActive }
   });
 
   // 自动滚动
@@ -253,7 +254,7 @@ export const Reader: React.FC = () => {
       tocOverlayOpen,
       modeOverlayOpen,
       scrollSpeed: settingsWithTheme.scrollSpeed,
-      markReadingActive: () => { }
+      markReadingActive
     }
   });
 

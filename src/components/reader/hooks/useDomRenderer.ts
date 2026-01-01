@@ -5,6 +5,8 @@ import { bookService } from "../../../services";
 import { TocNode } from "../../reader/types";
 import { useReaderState } from "./useReaderState";
 
+const DOM_SCROLL_ACTIVE_INTERVAL = 10000;
+
 type DomRendererProps = {
     readerState: ReturnType<typeof useReaderState>;
     refs: {
@@ -39,6 +41,7 @@ export const useDomRenderer = ({
     const domContainerRef = useRef<HTMLDivElement>(null);
     // domRestoreDoneRef exposed via hook
     const domRestoreDoneRef = readerState.domRestoreDoneRef;
+    const lastScrollActiveMarkRef = useRef<number>(0);
 
     const {
         isDomRender,
@@ -106,6 +109,11 @@ export const useDomRenderer = ({
                 if (rafId !== null) return;
                 rafId = requestAnimationFrame(() => {
                     rafId = null;
+                    const nowTs = Date.now();
+                    if (nowTs - lastScrollActiveMarkRef.current >= DOM_SCROLL_ACTIVE_INTERVAL) {
+                        lastScrollActiveMarkRef.current = nowTs;
+                        markReadingActive();
+                    }
                     const viewportHeight = scrollContainer.clientHeight;
                     if (viewportHeight <= 0) return;
 

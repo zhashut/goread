@@ -25,6 +25,7 @@ type InitReaderProps = {
         setVerticalLazyReady: (ready: boolean) => void;
         setActiveNodeSignature: (sig: string | undefined) => void;
         setToc: (nodes: TocNode[]) => void;
+        markReadingActive: () => void;
     };
     data: {
         readingMode: "horizontal" | "vertical";
@@ -70,6 +71,7 @@ export const useInitReader = ({
         setVerticalLazyReady,
         setActiveNodeSignature,
         setToc,
+        markReadingActive,
     } = actions;
     const { readingMode, settings } = data;
 
@@ -148,6 +150,8 @@ export const useInitReader = ({
                                 bookService.updateBookProgress(book.id, p).catch(() => { });
                             }
                         };
+                        // 设置滚动活跃回调，用于更新阅读时长统计
+                        renderer.onScrollActivity = markReadingActive;
                     }
 
                     if (isEpub) {

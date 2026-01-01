@@ -826,6 +826,11 @@ export class EpubRenderer implements IBookRenderer {
       this._scrollRafId = requestAnimationFrame(() => {
         this._scrollRafId = null;
         this._updateScrollProgress();
+        
+        // 通知滚动活跃
+        if (this.onScrollActivity) {
+          this.onScrollActivity();
+        }
       });
     };
     
@@ -1588,6 +1593,9 @@ export class EpubRenderer implements IBookRenderer {
 
   /** 目录变化回调（返回当前 href） */
   onTocChange?: (href: string) => void;
+
+  /** 滚动活跃回调（用于更新阅读时长统计的活跃时间） */
+  onScrollActivity?: () => void;
 
   /**
    * 获取当前目录项 href

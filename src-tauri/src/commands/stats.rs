@@ -294,11 +294,11 @@ pub async fn get_day_stats_by_hour(
     .await
     .map_err(|e| e.to_string())?;
 
-    // 按时段分组（0-6, 6-12, 12-18, 18-24），使用本地时区
     let mut values = vec![0i64; 4];
     for session in sessions {
+        let base_ts = session.created_at.unwrap_or(session.start_time);
         let hour = Local
-            .timestamp_opt(session.start_time, 0)
+            .timestamp_opt(base_ts, 0)
             .single()
             .map(|dt| dt.hour())
             .unwrap_or(0);
@@ -320,7 +320,6 @@ pub async fn get_books_by_date_range(
 ) -> Result<Vec<BookReadingStats>, String> {
     let pool = db.lock().await;
 
-    // last_read 返回最后一次阅读的时间戳（秒），方便前端格式化显示
     let books: Vec<BookReadingStats> = sqlx::query_as(
         "SELECT 
             b.id as book_id, 
@@ -331,7 +330,7 @@ pub async fn get_books_by_date_range(
                 WHEN b.total_pages > 0 THEN CAST(ROUND(b.current_page * 100.0 / b.total_pages) AS TEXT) || '%'
                 ELSE '0%'
             END as progress,
-            CAST(COALESCE(MAX(rs.start_time), 0) AS TEXT) as last_read
+            CAST(COALESCE(MAX(COALESCE(rs.created_at, rs.start_time)), 0) AS TEXT) as last_read
          FROM reading_sessions rs
          JOIN books b ON rs.book_id = b.id
          WHERE rs.read_date BETWEEN ? AND ?
