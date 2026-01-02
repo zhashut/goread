@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::RwLock;
 use moka::future::Cache as MokaCache;
 use crate::formats::{BookRenderCache, BoxFuture};
@@ -7,6 +8,7 @@ use crate::pdf::types::{CacheKey, RenderResult, PdfError};
 
 const DEFAULT_MAX_CACHE_SIZE: usize = 100 * 1024 * 1024; // 100MB（按权重表示字节数）
 const DEFAULT_MAX_CACHE_ITEMS: usize = 50; // 仅用于统计展示
+const DEFAULT_CACHE_TIME_TO_IDLE_SECS: u64 = 24 * 60 * 60; // 一天内完全没有访问的页面会逐步被 Moka 清理
 
 pub struct CacheManager {
     cache: MokaCache<CacheKey, RenderResult>,
@@ -21,10 +23,11 @@ impl CacheManager {
     }
 
     pub fn with_limits(max_size: usize, max_items: usize) -> Self {
-        let builder = MokaCache::builder()
+        let cache = MokaCache::builder()
             .weigher(|_k: &CacheKey, v: &RenderResult| v.image_data.len() as u32)
-            .max_capacity(max_size as u64);
-        let cache = builder.build();
+            .max_capacity(max_size as u64)
+            .time_to_idle(Duration::from_secs(DEFAULT_CACHE_TIME_TO_IDLE_SECS))
+            .build();
         Self {
             cache,
             sizes: Arc::new(RwLock::new(HashMap::new())),
@@ -102,6 +105,7 @@ impl CacheManager {
         let new = MokaCache::builder()
             .weigher(|_k: &CacheKey, v: &RenderResult| v.image_data.len() as u32)
             .max_capacity(max_size as u64)
+            .time_to_idle(Duration::from_secs(DEFAULT_CACHE_TIME_TO_IDLE_SECS))
             .build();
         // 将旧缓存中可见的键值迁移（通过 sizes 表）
         let sizes = futures::executor::block_on(self.sizes.read());
