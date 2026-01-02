@@ -1,0 +1,665 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 55;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0AC3E95E5D261332E6D229A9 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5D35201E11B4D604E9856647 /* UIKit.framework */; };
+		127694DD3324191F7972C655 /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B8B89C72F75E08ABC95143DA /* CoreGraphics.framework */; };
+		1A2FF89A26F32980FF17E73E /* libapp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = AB9D77B73B9B66CD854E66AC /* libapp.a */; };
+		32D3A3FD5F0DDFF6DD0475B7 /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5C9008B1C67F37631E8738B9 /* MetalKit.framework */; };
+		46B2194344DDAA5F8C9DCAE5 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2483598746A50CA1A49277A2 /* QuartzCore.framework */; };
+		497F5D1D0E429E829F817C18 /* libpdfium.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = F425EEC4FAEEC3CAF7C3E868 /* libpdfium.dylib */; };
+		5A6EABE5A7F407A1AEF381CA /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DEC7A1C8CE0933D4FF79C6E3 /* WebKit.framework */; };
+		60082AE7FFBD8C6C19619E79 /* StatusBarBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4A7A6BC58F544A41C446FA18 /* StatusBarBridge.swift */; };
+		6DEEC71FC65D62F544CB665B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FB999D4DA443BDE8EE338DAE /* Assets.xcassets */; };
+		78720F7AE492F83AE5CC2ABF /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 507175D2D30CD8CB6371CB44 /* Security.framework */; };
+		8FA4E6A8F4F970E47A239AD9 /* StoragePermissionBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5AED1ABB37EC692FF0DB76E /* StoragePermissionBridge.swift */; };
+		96E8C2B0BFC8C7240CB18E91 /* VolumeKeyBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F2EC2E19C28C8EEF15780C0 /* VolumeKeyBridge.swift */; };
+		BAC50972CA56250199F97EC6 /* assets in Resources */ = {isa = PBXBuildFile; fileRef = E1D40CD5680A7250BC6D3673 /* assets */; };
+		C3FA37AA6087979EC60971F1 /* SafeAreaBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 137DCAFCD0F21C90E3BA579B /* SafeAreaBridge.swift */; };
+		CB81EF585627F7639A8345E5 /* ExternalFileOpenBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7CD422E7000AB5F3C8CA3DA7 /* ExternalFileOpenBridge.swift */; };
+		CCB53BA88853E0171698D305 /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = 59D8AAC39E31C2F90EDB470A /* main.mm */; };
+		CECEF425230AF00AE046417A /* libpdfium.dylib in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = F425EEC4FAEEC3CAF7C3E868 /* libpdfium.dylib */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		DA4FD195EBE995139283424E /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = E85637998479D36F206CC072 /* LaunchScreen.storyboard */; };
+		E786AEF76FA0B83A8648B162 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CCACB566ED09FE76CE015B34 /* Metal.framework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		B6DBD3F1E698B4A05AE74687 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				CECEF425230AF00AE046417A /* libpdfium.dylib in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		011512C27DD46A202FBA3622 /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
+		0B47268A6A3207562D03EFA9 /* GoRead_iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = GoRead_iOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		0F393F4A2D634C208480D017 /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
+		137DCAFCD0F21C90E3BA579B /* SafeAreaBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafeAreaBridge.swift; sourceTree = "<group>"; };
+		1587ED619303D99091E437D0 /* engine.rs */ = {isa = PBXFileReference; path = engine.rs; sourceTree = "<group>"; };
+		19788734E42B035A9D07F2B7 /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
+		202D55BAA86057EB4E56002C /* GoRead_iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = GoRead_iOS.entitlements; sourceTree = "<group>"; };
+		2483598746A50CA1A49277A2 /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
+		2BB589EC8266BAB693805133 /* log.rs */ = {isa = PBXFileReference; path = log.rs; sourceTree = "<group>"; };
+		2D59EC90C4E0F8A2FF24805F /* libpdfium.so */ = {isa = PBXFileReference; path = libpdfium.so; sourceTree = "<group>"; };
+		403FE612B47176BAC06A995C /* types.rs */ = {isa = PBXFileReference; path = types.rs; sourceTree = "<group>"; };
+		4569BAD02FCBDD7EA03573AB /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
+		4A7A6BC58F544A41C446FA18 /* StatusBarBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusBarBridge.swift; sourceTree = "<group>"; };
+		4DC04CC7CD57CC635399A45E /* cache.rs */ = {isa = PBXFileReference; path = cache.rs; sourceTree = "<group>"; };
+		506B7015FEC7ED27ED64933B /* pdfium.dll */ = {isa = PBXFileReference; path = pdfium.dll; sourceTree = "<group>"; };
+		507175D2D30CD8CB6371CB44 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
+		507860901B12D69599C75CA5 /* book.rs */ = {isa = PBXFileReference; path = book.rs; sourceTree = "<group>"; };
+		59D8AAC39E31C2F90EDB470A /* main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
+		5BA3D473EE751FC56AC604A5 /* filesystem.rs */ = {isa = PBXFileReference; path = filesystem.rs; sourceTree = "<group>"; };
+		5C9008B1C67F37631E8738B9 /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
+		5D35201E11B4D604E9856647 /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
+		6079EC96F73492C0327FCEBE /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
+		69E57D16713B32DB96FF7150 /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
+		6ADEAF6D3B8E58272A930AF6 /* pdf_commands.rs */ = {isa = PBXFileReference; path = pdf_commands.rs; sourceTree = "<group>"; };
+		70281D929CC85705656F98EB /* renderer.rs */ = {isa = PBXFileReference; path = renderer.rs; sourceTree = "<group>"; };
+		7CD422E7000AB5F3C8CA3DA7 /* ExternalFileOpenBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalFileOpenBridge.swift; sourceTree = "<group>"; };
+		83A98B8296152EC19ABB2EA9 /* lib.rs */ = {isa = PBXFileReference; path = lib.rs; sourceTree = "<group>"; };
+		8BD3EA8799CE31C3A8BBCF97 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		9F2EC2E19C28C8EEF15780C0 /* VolumeKeyBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VolumeKeyBridge.swift; sourceTree = "<group>"; };
+		A328459A9054C66CF6A7917B /* bindings.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bindings.h; sourceTree = "<group>"; };
+		AB1F1435F0F51F236E7C5697 /* backup.rs */ = {isa = PBXFileReference; path = backup.rs; sourceTree = "<group>"; };
+		AB9D77B73B9B66CD854E66AC /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
+		AE359B725846D6267DCCABE6 /* libpdfium.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; path = libpdfium.dylib; sourceTree = "<group>"; };
+		B8B89C72F75E08ABC95143DA /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
+		BF46AFDF35D2CFE28AD0D522 /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
+		C780955D611D6A3DA57B67BF /* group.rs */ = {isa = PBXFileReference; path = group.rs; sourceTree = "<group>"; };
+		C7FF5B1158D8234F336330DF /* preload_predictor.rs */ = {isa = PBXFileReference; path = preload_predictor.rs; sourceTree = "<group>"; };
+		CCACB566ED09FE76CE015B34 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
+		D354E688C746D71C0DC7F22D /* html_commands.rs */ = {isa = PBXFileReference; path = html_commands.rs; sourceTree = "<group>"; };
+		D3CF297950360BB045DE9AED /* main.rs */ = {isa = PBXFileReference; path = main.rs; sourceTree = "<group>"; };
+		DD012D20C69A7D2DF634079E /* performance.rs */ = {isa = PBXFileReference; path = performance.rs; sourceTree = "<group>"; };
+		DEC7A1C8CE0933D4FF79C6E3 /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
+		E1D40CD5680A7250BC6D3673 /* assets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = assets; sourceTree = SOURCE_ROOT; };
+		E3C2AB40DAAFB0B62DC8010F /* import.rs */ = {isa = PBXFileReference; path = import.rs; sourceTree = "<group>"; };
+		E4D0CC2155D68CE0BEADD437 /* models.rs */ = {isa = PBXFileReference; path = models.rs; sourceTree = "<group>"; };
+		E85637998479D36F206CC072 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
+		F3BAE60C247AEA3CB5A5CE3E /* bookmark.rs */ = {isa = PBXFileReference; path = bookmark.rs; sourceTree = "<group>"; };
+		F425EEC4FAEEC3CAF7C3E868 /* libpdfium.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libpdfium.dylib; path = ../../src/pdfium/ios/libpdfium.dylib; sourceTree = "<group>"; };
+		F5AED1ABB37EC692FF0DB76E /* StoragePermissionBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoragePermissionBridge.swift; sourceTree = "<group>"; };
+		FA1661B061700420FC810415 /* markdown_commands.rs */ = {isa = PBXFileReference; path = markdown_commands.rs; sourceTree = "<group>"; };
+		FB999D4DA443BDE8EE338DAE /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		FCAC464DBF2C58F8EEED3CD1 /* stats.rs */ = {isa = PBXFileReference; path = stats.rs; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		6C2A48F85F4450B679401C8E /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1A2FF89A26F32980FF17E73E /* libapp.a in Frameworks */,
+				497F5D1D0E429E829F817C18 /* libpdfium.dylib in Frameworks */,
+				127694DD3324191F7972C655 /* CoreGraphics.framework in Frameworks */,
+				E786AEF76FA0B83A8648B162 /* Metal.framework in Frameworks */,
+				32D3A3FD5F0DDFF6DD0475B7 /* MetalKit.framework in Frameworks */,
+				46B2194344DDAA5F8C9DCAE5 /* QuartzCore.framework in Frameworks */,
+				78720F7AE492F83AE5CC2ABF /* Security.framework in Frameworks */,
+				0AC3E95E5D261332E6D229A9 /* UIKit.framework in Frameworks */,
+				5A6EABE5A7F407A1AEF381CA /* WebKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		0400E34D6851411690B046EF /* pdfium */ = {
+			isa = PBXGroup;
+			children = (
+				5D4041C57CBE2A78ECED6017 /* android */,
+				A5A9275347EDCD083E91EF6A /* ios */,
+				E24BDB334071D32A7002AB6E /* windows */,
+			);
+			path = pdfium;
+			sourceTree = "<group>";
+		};
+		2B065828152218CF2CCAB298 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				B8B89C72F75E08ABC95143DA /* CoreGraphics.framework */,
+				AB9D77B73B9B66CD854E66AC /* libapp.a */,
+				F425EEC4FAEEC3CAF7C3E868 /* libpdfium.dylib */,
+				CCACB566ED09FE76CE015B34 /* Metal.framework */,
+				5C9008B1C67F37631E8738B9 /* MetalKit.framework */,
+				2483598746A50CA1A49277A2 /* QuartzCore.framework */,
+				507175D2D30CD8CB6371CB44 /* Security.framework */,
+				5D35201E11B4D604E9856647 /* UIKit.framework */,
+				DEC7A1C8CE0933D4FF79C6E3 /* WebKit.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		466FFAC8C868284160E46C59 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				0B47268A6A3207562D03EFA9 /* GoRead_iOS.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		55EB3C8CBA32073E81CD161D /* GoRead_iOS */ = {
+			isa = PBXGroup;
+			children = (
+				202D55BAA86057EB4E56002C /* GoRead_iOS.entitlements */,
+				8BD3EA8799CE31C3A8BBCF97 /* Info.plist */,
+			);
+			path = GoRead_iOS;
+			sourceTree = "<group>";
+		};
+		56FAB7F45C7793E46662C7DD /* common */ = {
+			isa = PBXGroup;
+			children = (
+				011512C27DD46A202FBA3622 /* mod.rs */,
+			);
+			path = common;
+			sourceTree = "<group>";
+		};
+		5D4041C57CBE2A78ECED6017 /* android */ = {
+			isa = PBXGroup;
+			children = (
+				2D59EC90C4E0F8A2FF24805F /* libpdfium.so */,
+			);
+			path = android;
+			sourceTree = "<group>";
+		};
+		775996A9FCB2D04771D66963 = {
+			isa = PBXGroup;
+			children = (
+				E1D40CD5680A7250BC6D3673 /* assets */,
+				FB999D4DA443BDE8EE338DAE /* Assets.xcassets */,
+				E85637998479D36F206CC072 /* LaunchScreen.storyboard */,
+				C32D6FD67B93510E23AE7CB1 /* Externals */,
+				55EB3C8CBA32073E81CD161D /* GoRead_iOS */,
+				8C044D786AEF9210DE408A59 /* ios-bridge */,
+				7C4C8AA3D2914A27648710F4 /* Sources */,
+				90277AD95732D058BBC0A949 /* src */,
+				2B065828152218CF2CCAB298 /* Frameworks */,
+				466FFAC8C868284160E46C59 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		7C4C8AA3D2914A27648710F4 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				9C6365738C468A57289E3DA4 /* GoRead */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		8C044D786AEF9210DE408A59 /* ios-bridge */ = {
+			isa = PBXGroup;
+			children = (
+				7CD422E7000AB5F3C8CA3DA7 /* ExternalFileOpenBridge.swift */,
+				137DCAFCD0F21C90E3BA579B /* SafeAreaBridge.swift */,
+				4A7A6BC58F544A41C446FA18 /* StatusBarBridge.swift */,
+				F5AED1ABB37EC692FF0DB76E /* StoragePermissionBridge.swift */,
+				9F2EC2E19C28C8EEF15780C0 /* VolumeKeyBridge.swift */,
+			);
+			name = "ios-bridge";
+			path = "../../ios-bridge";
+			sourceTree = "<group>";
+		};
+		90277AD95732D058BBC0A949 /* src */ = {
+			isa = PBXGroup;
+			children = (
+				D354E688C746D71C0DC7F22D /* html_commands.rs */,
+				83A98B8296152EC19ABB2EA9 /* lib.rs */,
+				D3CF297950360BB045DE9AED /* main.rs */,
+				FA1661B061700420FC810415 /* markdown_commands.rs */,
+				E4D0CC2155D68CE0BEADD437 /* models.rs */,
+				6ADEAF6D3B8E58272A930AF6 /* pdf_commands.rs */,
+				C3E0A7C7EE529BD6CF023082 /* commands */,
+				B7F205B05269DEDAC34248B1 /* formats */,
+				CE7652D84D9D4F8C09B98DEB /* pdf */,
+				0400E34D6851411690B046EF /* pdfium */,
+			);
+			name = src;
+			path = ../../src;
+			sourceTree = "<group>";
+		};
+		9C6365738C468A57289E3DA4 /* GoRead */ = {
+			isa = PBXGroup;
+			children = (
+				59D8AAC39E31C2F90EDB470A /* main.mm */,
+				FBFCCA7C58AB032C401B93B8 /* bindings */,
+			);
+			path = GoRead;
+			sourceTree = "<group>";
+		};
+		A5A9275347EDCD083E91EF6A /* ios */ = {
+			isa = PBXGroup;
+			children = (
+				AE359B725846D6267DCCABE6 /* libpdfium.dylib */,
+			);
+			path = ios;
+			sourceTree = "<group>";
+		};
+		B7F205B05269DEDAC34248B1 /* formats */ = {
+			isa = PBXGroup;
+			children = (
+				6079EC96F73492C0327FCEBE /* mod.rs */,
+				56FAB7F45C7793E46662C7DD /* common */,
+				D81EBA2690C48BE98819479B /* epub */,
+				D3FF9B3B10F0E06170E251B7 /* html */,
+				E51157FF71AA02D65D3EF9A9 /* markdown */,
+			);
+			path = formats;
+			sourceTree = "<group>";
+		};
+		C32D6FD67B93510E23AE7CB1 /* Externals */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = Externals;
+			sourceTree = "<group>";
+		};
+		C3E0A7C7EE529BD6CF023082 /* commands */ = {
+			isa = PBXGroup;
+			children = (
+				AB1F1435F0F51F236E7C5697 /* backup.rs */,
+				507860901B12D69599C75CA5 /* book.rs */,
+				F3BAE60C247AEA3CB5A5CE3E /* bookmark.rs */,
+				5BA3D473EE751FC56AC604A5 /* filesystem.rs */,
+				C780955D611D6A3DA57B67BF /* group.rs */,
+				E3C2AB40DAAFB0B62DC8010F /* import.rs */,
+				2BB589EC8266BAB693805133 /* log.rs */,
+				69E57D16713B32DB96FF7150 /* mod.rs */,
+				FCAC464DBF2C58F8EEED3CD1 /* stats.rs */,
+			);
+			path = commands;
+			sourceTree = "<group>";
+		};
+		CE7652D84D9D4F8C09B98DEB /* pdf */ = {
+			isa = PBXGroup;
+			children = (
+				4DC04CC7CD57CC635399A45E /* cache.rs */,
+				1587ED619303D99091E437D0 /* engine.rs */,
+				19788734E42B035A9D07F2B7 /* mod.rs */,
+				DD012D20C69A7D2DF634079E /* performance.rs */,
+				C7FF5B1158D8234F336330DF /* preload_predictor.rs */,
+				70281D929CC85705656F98EB /* renderer.rs */,
+				403FE612B47176BAC06A995C /* types.rs */,
+			);
+			path = pdf;
+			sourceTree = "<group>";
+		};
+		D3FF9B3B10F0E06170E251B7 /* html */ = {
+			isa = PBXGroup;
+			children = (
+				0F393F4A2D634C208480D017 /* mod.rs */,
+			);
+			path = html;
+			sourceTree = "<group>";
+		};
+		D81EBA2690C48BE98819479B /* epub */ = {
+			isa = PBXGroup;
+			children = (
+				BF46AFDF35D2CFE28AD0D522 /* mod.rs */,
+			);
+			path = epub;
+			sourceTree = "<group>";
+		};
+		E24BDB334071D32A7002AB6E /* windows */ = {
+			isa = PBXGroup;
+			children = (
+				506B7015FEC7ED27ED64933B /* pdfium.dll */,
+			);
+			path = windows;
+			sourceTree = "<group>";
+		};
+		E51157FF71AA02D65D3EF9A9 /* markdown */ = {
+			isa = PBXGroup;
+			children = (
+				4569BAD02FCBDD7EA03573AB /* mod.rs */,
+			);
+			path = markdown;
+			sourceTree = "<group>";
+		};
+		FBFCCA7C58AB032C401B93B8 /* bindings */ = {
+			isa = PBXGroup;
+			children = (
+				A328459A9054C66CF6A7917B /* bindings.h */,
+			);
+			path = bindings;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		46E17782B4AA484EB8953B0B /* GoRead_iOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C51D88E07C2F73E6212767E0 /* Build configuration list for PBXNativeTarget "GoRead_iOS" */;
+			buildPhases = (
+				B98FC53D18C5C8150C41E6F7 /* Build Rust Code */,
+				BF460A145DE12CDB180AFB38 /* Sources */,
+				C296310AB97552A5BEDEF051 /* Resources */,
+				6C2A48F85F4450B679401C8E /* Frameworks */,
+				B6DBD3F1E698B4A05AE74687 /* Embed Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = GoRead_iOS;
+			packageProductDependencies = (
+			);
+			productName = GoRead_iOS;
+			productReference = 0B47268A6A3207562D03EFA9 /* GoRead_iOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		6F20EE0E706204332AE86C6C /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					46E17782B4AA484EB8953B0B = {
+						DevelopmentTeam = YOUR_TEAM_ID_HERE;
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = C31B421090681D6E0FB93CA2 /* Build configuration list for PBXProject "GoRead" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 775996A9FCB2D04771D66963;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 55;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				46E17782B4AA484EB8953B0B /* GoRead_iOS */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		C296310AB97552A5BEDEF051 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6DEEC71FC65D62F544CB665B /* Assets.xcassets in Resources */,
+				DA4FD195EBE995139283424E /* LaunchScreen.storyboard in Resources */,
+				BAC50972CA56250199F97EC6 /* assets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		B98FC53D18C5C8150C41E6F7 /* Build Rust Code */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build Rust Code";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(SRCROOT)/Externals/x86_64/${CONFIGURATION}/libapp.a",
+				"$(SRCROOT)/Externals/arm64/${CONFIGURATION}/libapp.a",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "export PATH=\"$HOME/.nvm/versions/node/v24.12.0/bin:$PATH\"; npm run -- tauri ios xcode-script -v --platform ${PLATFORM_DISPLAY_NAME:?} --sdk-root ${SDKROOT:?} --framework-search-paths \"${FRAMEWORK_SEARCH_PATHS:?}\" --header-search-paths \"${HEADER_SEARCH_PATHS:?}\" --gcc-preprocessor-definitions \"${GCC_PREPROCESSOR_DEFINITIONS:-}\" --configuration ${CONFIGURATION:?} ${FORCE_COLOR} ${ARCHS:?}";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		BF460A145DE12CDB180AFB38 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				CB81EF585627F7639A8345E5 /* ExternalFileOpenBridge.swift in Sources */,
+				C3FA37AA6087979EC60971F1 /* SafeAreaBridge.swift in Sources */,
+				60082AE7FFBD8C6C19619E79 /* StatusBarBridge.swift in Sources */,
+				8FA4E6A8F4F970E47A239AD9 /* StoragePermissionBridge.swift in Sources */,
+				96E8C2B0BFC8C7240CB18E91 /* VolumeKeyBridge.swift in Sources */,
+				CCB53BA88853E0171698D305 /* main.mm in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		19F1FD75093A2B77092375A8 /* release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				ARCHS = (
+					arm64,
+				);
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = GoRead_iOS/GoRead_iOS.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = YOUR_TEAM_ID_HERE;
+				ENABLE_BITCODE = NO;
+				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\".\"",
+					"\"../../src/pdfium/ios\"",
+				);
+				INFOPLIST_FILE = GoRead_iOS/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME) $(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME) $(SRCROOT)/../../src/pdfium/ios";
+				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME) $(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME) $(SRCROOT)/../../src/pdfium/ios";
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-L$(SRCROOT)/../../src/pdfium/ios",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "com.tauri-app.goread";
+				PRODUCT_NAME = GoRead;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALID_ARCHS = arm64;
+			};
+			name = release;
+		};
+		53860DD64ACA287C5F6ABD27 /* release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = release;
+		};
+		5A39CA4087ED41B7C70E1BA2 /* debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
+				ARCHS = (
+					arm64,
+				);
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = GoRead_iOS/GoRead_iOS.entitlements;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = YOUR_TEAM_ID_HERE;
+				ENABLE_BITCODE = NO;
+				"EXCLUDED_ARCHS[sdk=iphoneos*]" = x86_64;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\".\"",
+					"\"../../src/pdfium/ios\"",
+				);
+				INFOPLIST_FILE = GoRead_iOS/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME) $(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME) $(SRCROOT)/../../src/pdfium/ios";
+				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME) $(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME) $(SRCROOT)/../../src/pdfium/ios";
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-L$(SRCROOT)/../../src/pdfium/ios",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "com.tauri-app.goread";
+				PRODUCT_NAME = GoRead;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALID_ARCHS = arm64;
+			};
+			name = debug;
+		};
+		ED48F0F866C26B5E51E6D722 /* debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		C31B421090681D6E0FB93CA2 /* Build configuration list for PBXProject "GoRead" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				ED48F0F866C26B5E51E6D722 /* debug */,
+				53860DD64ACA287C5F6ABD27 /* release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = debug;
+		};
+		C51D88E07C2F73E6212767E0 /* Build configuration list for PBXNativeTarget "GoRead_iOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5A39CA4087ED41B7C70E1BA2 /* debug */,
+				19F1FD75093A2B77092375A8 /* release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 6F20EE0E706204332AE86C6C /* Project object */;
+}
