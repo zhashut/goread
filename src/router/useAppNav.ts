@@ -69,21 +69,28 @@ export const useAppNav = () => {
     toImportResults: (state: any, options?: { replace?: boolean }) => navigate('/import/results', { state, ...options }),
     
     /**
-     * 结束导入流程并返回书架
-     * 统一使用 toBookshelf 处理返回逻辑（包含清栈）
-     * 导入结束通常去"全部"栏目
+     * 结束导入流程并返回书架「全部」栏目
+     * 策略：先回退到历史栈底部清理导入流程页面，再替换为正确的 URL
      */
     finishImportFlow: () => {
-      const tab = 'all';
-      
-      const historyState = window.history.state;
+      const historyState = window.history.state as { idx?: number } | null | undefined;
       const routerIdx = historyState?.idx;
       
       if (typeof routerIdx === 'number' && routerIdx > 0) {
-        sessionStorage.setItem('bookshelf_active_tab', tab);
-        navigate(-routerIdx);
+        // 监听 popstate 事件，在回退完成后替换 URL 确保正确定位
+        const handlePopState = () => {
+          window.removeEventListener('popstate', handlePopState);
+          // 使用 setTimeout 确保在 React Router 处理完 popstate 后执行替换
+          setTimeout(() => {
+            navigate(`/?tab=all`, { replace: true });
+          }, 0);
+        };
+        window.addEventListener('popstate', handlePopState);
+        // 回退到历史栈底部
+        window.history.go(-routerIdx);
       } else {
-        navigate(`/?tab=${tab}`, { replace: true });
+        // 无历史记录可回退，直接替换
+        navigate(`/?tab=all`, { replace: true });
       }
     },
 

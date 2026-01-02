@@ -3,10 +3,14 @@ import { Outlet, useLocation } from 'react-router-dom';
 import { applyNonScalable } from '../utils/viewport';
 import { usePageTransition } from '../hooks/usePageTransition';
 import { useExternalFileOpen } from '../hooks';
+import ImportProgressDrawer from '../components/bookshelf/ImportProgressDrawer';
+import { useImportProgress } from '../components/bookshelf/hooks';
 
 export const MainLayout: React.FC = () => {
   const location = useLocation();
   const { type, durationMs, timingFunction } = usePageTransition();
+  const importProgress = useImportProgress(() => {});
+  const { importOpen, importTotal, importCurrent, importTitle, stopImport } = importProgress;
   
   useExternalFileOpen();
 
@@ -35,7 +39,7 @@ export const MainLayout: React.FC = () => {
         width: '100vw',
         height: '100vh',
         overflow: 'hidden',
-        backgroundColor: '#f6f6f6', // 默认背景色
+        backgroundColor: '#f6f6f6',
         color: '#0f0f0f',
       }}
     >
@@ -46,6 +50,13 @@ export const MainLayout: React.FC = () => {
       >
         <Outlet />
       </div>
+      <ImportProgressDrawer
+        open={importOpen}
+        title={importTitle}
+        current={importCurrent}
+        total={importTotal}
+        onStop={stopImport}
+      />
     </div>
   );
 };

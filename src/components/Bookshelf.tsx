@@ -1,6 +1,5 @@
 import React, {
   useEffect,
-  useCallback,
 } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -35,7 +34,6 @@ import { TopBar as BookshelfTopBar } from "./bookshelf/TopBar";
 import { GroupDetailOverlay } from "./bookshelf/GroupDetailOverlay";
 import GroupCoverGrid from "./bookshelf/GroupCoverGrid";
 import ConfirmDeleteDrawer from "./bookshelf/ConfirmDeleteDrawer";
-import ImportProgressDrawer from "./bookshelf/ImportProgressDrawer";
 import { SortableItem } from "./bookshelf/SortableItem";
 import { SortableBookItem } from "./bookshelf/SortableBookItem";
 
@@ -46,7 +44,6 @@ import {
   useBooksData,
   useGroupsData,
   useGroupOverlay,
-  useImportProgress,
   useSelectionMode,
   useDragSort,
 } from "./bookshelf/hooks";
@@ -70,14 +67,7 @@ export const Bookshelf: React.FC = () => {
   const groupOverlay = useGroupOverlay(activeTab);
   const { groupOverlayOpen, overlayGroupId, lastGroupCloseTimeRef } = groupOverlay;
 
-  // 4. 导入进度
-  const importProgress = useImportProgress(useCallback(() => {
-    loadGroups();
-    loadBooks();
-  }, [loadGroups, loadBooks]));
-  const { importOpen, importTotal, importCurrent, importTitle, stopImport } = importProgress;
-
-  // 5. 选择模式
+  // 4. 选择模式
   const selection = useSelectionMode({
     activeTab,
     activeGroupId: nav.activeGroupId,
@@ -100,7 +90,7 @@ export const Bookshelf: React.FC = () => {
     toggleGroupSelection,
   } = selection;
 
-  // 6. 拖拽排序
+  // 5. 拖拽排序
   const dragSort = useDragSort({
     activeTab,
     books,
@@ -110,7 +100,7 @@ export const Bookshelf: React.FC = () => {
     selectionMode,
     groupOverlayOpen,
     menuOpen,
-    importOpen,
+    importOpen: false,
     lastGroupCloseTimeRef,
   });
   const {
@@ -889,14 +879,6 @@ export const Bookshelf: React.FC = () => {
         />
       )}
 
-      {/* 导入进度抽屉：覆盖在页面底部并加深背景 */}
-      <ImportProgressDrawer
-        open={importOpen}
-        title={importTitle}
-        current={importCurrent}
-        total={importTotal}
-        onStop={stopImport}
-      />
       <Toast message={toastMsg} onClose={() => setToastMsg("")} />
       <ConfirmDeleteDrawer
         open={confirmOpen}

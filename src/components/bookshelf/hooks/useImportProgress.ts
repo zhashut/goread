@@ -21,8 +21,7 @@ export const useImportProgress = (onDone: () => void) => {
             setImportCurrent(0);
             setImportTitle(detail.title || "");
             setImportOpen(true);
-            // 保持在"全部"标签
-            nav.toBookshelf("all");
+            nav.finishImportFlow();
         };
         const onProgress = (e: any) => {
             const detail = e?.detail || {};

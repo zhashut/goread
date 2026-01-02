@@ -160,13 +160,39 @@ class IOSStoragePermissionHandler implements StoragePermissionHandler {
 }
 
 // ============================================================================
+// Desktop 平台实现
+// ============================================================================
+
+/**
+ * Desktop 存储权限处理器
+ * 桌面端应用通常由操作系统管理文件访问权限，或者受限于 Tauri 的 fs scope。
+ * 一般不需要像移动端那样进行运行时权限请求。
+ */
+class DesktopStoragePermissionHandler implements StoragePermissionHandler {
+    clearCache(): void {
+        // 无需缓存
+    }
+
+    async checkPermission(): Promise<boolean> {
+        // 桌面端默认允许尝试访问
+        // 实际的文件访问错误（如无权限）应在文件操作时捕获
+        return true;
+    }
+
+    async requestPermission(): Promise<boolean> {
+        // 桌面端无需请求
+        return true;
+    }
+}
+
+// ============================================================================
 // 平台检测与处理器选择
 // ============================================================================
 
 /**
  * 检测当前运行平台
  */
-function detectPlatform(): 'android' | 'ios' | 'unknown' {
+function detectPlatform(): 'android' | 'ios' | 'desktop' | 'unknown' {
     const userAgent = navigator.userAgent.toLowerCase();
     
     // 检测 iOS（iPhone, iPad, iPod）
@@ -189,9 +215,12 @@ function detectPlatform(): 'android' | 'ios' | 'unknown' {
         if (typeof (window as any).IOSStoragePermissionBridge !== 'undefined') {
             return 'ios';
         }
+        // 如果是 Tauri 环境但没有移动端 Bridge，视为桌面端
+        return 'desktop';
     }
     
-    return 'unknown';
+    // 浏览器开发环境或其他未知环境，默认为 desktop 以方便调试
+    return 'desktop';
 }
 
 /**
@@ -205,10 +234,11 @@ function getPermissionHandler(): StoragePermissionHandler {
             return new IOSStoragePermissionHandler();
         case 'android':
             return new AndroidStoragePermissionHandler();
+        case 'desktop':
+            return new DesktopStoragePermissionHandler();
         default:
-            // 未知平台默认使用 Android 实现（保守策略）
-            console.warn('[Permission] 未知平台，使用 Android 权限处理器');
-            return new AndroidStoragePermissionHandler();
+            console.warn('[Permission] 未知平台，使用 Desktop 权限处理器');
+            return new DesktopStoragePermissionHandler();
     }
 }
 
@@ -277,7 +307,14 @@ export async function ensureStoragePermission(options?: EnsurePermissionOptions)
  * 专用：导入文件前检查权限
  */
 export async function ensurePermissionForImport(): Promise<boolean> {
-    return ensureStoragePermission();
+    const ok = await ensureStoragePermission();
+    try {
+        const { logError } = await import("../services");
+        logError("[importPermission][ensurePermissionForImport]", {
+            ok,
+        }).catch(() => {});
+    } catch { }
+    return ok;
 }
 
 /**

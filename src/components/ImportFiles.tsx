@@ -83,7 +83,7 @@ export const ImportFiles: React.FC = () => {
       if (searchOpen) {
         closeSearch();
       }
-      nav.toBookshelf("all", { replace: true });
+      nav.finishImportFlow();
     },
   });
 

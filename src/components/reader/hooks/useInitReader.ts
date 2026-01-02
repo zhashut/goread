@@ -117,6 +117,21 @@ export const useInitReader = ({
                     return;
                 }
 
+                // 等待渲染器加载文档完成，避免 Document not loaded 错误
+                // 最多等待 5 秒，每 100ms 检查一次
+                const MAX_WAIT_MS = 5000;
+                const CHECK_INTERVAL_MS = 100;
+                let waited = 0;
+                while (!renderer.isReady && waited < MAX_WAIT_MS) {
+                    await new Promise(r => setTimeout(r, CHECK_INTERVAL_MS));
+                    waited += CHECK_INTERVAL_MS;
+                }
+
+                if (!renderer.isReady) {
+                    log("[Reader] DOM渲染模式: 等待超时，文档仍未加载完成", "error");
+                    return;
+                }
+
                 // EPUB 主题切换时，优先从渲染器获取精确进度（含章节内偏移）
                 if (themeChanged && renderer instanceof EpubRenderer) {
                     const preciseProgress = renderer.getPreciseProgress();
@@ -225,6 +240,8 @@ export const useInitReader = ({
                     } catch { }
                 } catch (e) {
                     console.error("[Reader] DOM 渲染失败:", e);
+                    // 上报到后端日志，用于排查 Windows 白屏问题
+                    log("[Reader] DOM 渲染失败", "error", { error: String(e), stack: (e as Error)?.stack });
                 }
                 return;
             }
