@@ -102,7 +102,7 @@ export const useInitReader = ({
         }
 
         // 使用 currentPageRef 而不是 currentPage state，避免依赖循环
-        const pageToRender = readerState.currentPageRef.current;
+        let pageToRender: number = readerState.currentPageRef.current;
 
         log(
             `[Reader] 开始首次渲染，模式: ${readingMode}, DOM渲染: ${isDomRender}, 当前页: ${pageToRender}`
@@ -115,6 +115,14 @@ export const useInitReader = ({
                 if (!renderer) {
                     log("[Reader] DOM渲染模式: 渲染器未初始化");
                     return;
+                }
+
+                // EPUB 主题切换时，优先从渲染器获取精确进度（含章节内偏移）
+                if (themeChanged && renderer instanceof EpubRenderer) {
+                    const preciseProgress = renderer.getPreciseProgress();
+                    if (preciseProgress > 0) {
+                        pageToRender = preciseProgress;
+                    }
                 }
 
                 await waitForContainer();

@@ -224,6 +224,14 @@ export class EpubRenderer implements IBookRenderer {
   }
 
   /**
+   * 获取当前精确阅读进度
+   * 返回浮点数：整数部分为章节序号（1-based），小数部分为章节内偏移比例
+   */
+  getPreciseProgress(): number {
+    return this._currentPreciseProgress;
+  }
+
+  /**
    * 渲染 EPUB 到容器
    */
   async renderPage(
