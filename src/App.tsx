@@ -3,6 +3,7 @@ import { router } from './router';
 import ErrorBoundary from './components/ErrorBoundary';
 import { PageTransitionProvider } from './router/PageTransitionProvider';
 import './App.css';
+import './utils/polyfills';
 
 function App() {
   return (

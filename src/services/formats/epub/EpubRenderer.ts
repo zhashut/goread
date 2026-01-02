@@ -12,7 +12,7 @@ import {
   SearchResult,
   PageContent,
   RendererCapabilities,
-    ReaderTheme,
+  ReaderTheme,
 } from '../types';
 import { registerRenderer } from '../registry';
 import { logError } from '../../index';
@@ -126,10 +126,7 @@ export class EpubRenderer implements IBookRenderer {
       type: 'application/epub+zip',
     });
 
-    // 动态导入 foliate-js 的 makeBook 函数
-    // @ts-ignore - foliate-js
-    const { makeBook } = await import('../../../lib/foliate-js/view.js');
-    this._book = await makeBook(file) as EpubBook;
+    this._book = await this._createBookFromFile(file);
 
     // 提取元数据
     const book = this._book!;
@@ -157,6 +154,42 @@ export class EpubRenderer implements IBookRenderer {
       format: 'epub',
       coverImage: await this._getCoverImage(),
     };
+  }
+
+  private async _createBookFromFile(file: File): Promise<EpubBook> {
+    // @ts-ignore - foliate-js
+    const zipModule: any = await import('../../../lib/foliate-js/vendor/zip.js');
+    // @ts-ignore - foliate-js
+    const epubModule: any = await import('../../../lib/foliate-js/epub.js');
+
+    const {
+      configure: configureZip,
+      ZipReader,
+      BlobReader,
+      TextWriter,
+      BlobWriter,
+    } = zipModule;
+    const { EPUB } = epubModule;
+
+    configureZip({ useWebWorkers: false });
+    const reader = new ZipReader(new BlobReader(file));
+    const entries: any[] = await reader.getEntries();
+    const map = new Map(entries.map((entry: any) => [entry.filename, entry]));
+    const load = (f: any) => (name: string, ...args: any[]) => {
+      const entry = map.get(name);
+      return entry ? f(entry, ...args) : null;
+    };
+    const loadText = load((entry: any) => entry.getData(new TextWriter()));
+    const loadBlob = load((entry: any, type: string) => entry.getData(new BlobWriter(type)));
+    const getSize = (name: string) => {
+      const entry: any = map.get(name);
+      return entry && typeof entry.uncompressedSize === 'number'
+        ? entry.uncompressedSize
+        : 0;
+    };
+    const loader: any = { entries, loadText, loadBlob, getSize };
+    const book = await new (EPUB as any)(loader).init();
+    return book as EpubBook;
   }
 
   /**
