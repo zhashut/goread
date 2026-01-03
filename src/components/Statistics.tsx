@@ -7,6 +7,7 @@ import { HtmlCover } from './covers/HtmlCover';
 import { MarkdownCover } from './covers/MarkdownCover';
 import { getSafeAreaInsets } from '../utils/layout';
 import { PageHeader } from './PageHeader';
+import { SUPPORTED_FILE_EXTENSIONS } from '../constants/fileTypes';
 
 // 根据书名判断书籍格式
 const getBookFormat = (title: string): 'html' | 'markdown' | 'other' => {
@@ -14,6 +15,17 @@ const getBookFormat = (title: string): 'html' | 'markdown' | 'other' => {
   if (lowerTitle.endsWith('.html') || lowerTitle.endsWith('.htm')) return 'html';
   if (lowerTitle.endsWith('.md') || lowerTitle.endsWith('.markdown')) return 'markdown';
   return 'other';
+};
+
+// 获取不带格式后缀的书名
+const getDisplayTitle = (title: string): string => {
+  const trimmed = title.trim();
+  const lower = trimmed.toLowerCase();
+  const matchedExt = SUPPORTED_FILE_EXTENSIONS.find((ext) =>
+    lower.endsWith(ext),
+  );
+  if (!matchedExt) return trimmed;
+  return trimmed.slice(0, trimmed.length - matchedExt.length);
 };
 
 // 时间维度类型
@@ -620,106 +632,110 @@ export const Statistics: React.FC = () => {
               {t('noReadingRecord')}
             </div>
           ) : (
-            books.map((book) => (
-              <div
-                key={book.book_id}
-                style={{
-                  display: 'flex',
-                  padding: '16px 0',
-                  borderBottom: `1px solid ${COLORS.borderColor}`
-                }}
-              >
-                <div style={{
-                  width: 44,
-                  height: 62,
-                  backgroundColor: '#eee',
-                  borderRadius: 4,
-                  marginRight: 14,
-                  overflow: 'hidden',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: 10,
-                  color: '#999',
-                  flexShrink: 0,
-                  border: '1px solid #e0e0e0'
-                }}>
-                  {(() => {
-                    const format = getBookFormat(book.title);
-                    // HTML 格式使用 HtmlCover
-                    if (format === 'html') {
-                      return <HtmlCover style={{ width: '100%', height: '100%' }} />;
-                    }
-                    // Markdown 格式使用 MarkdownCover
-                    if (format === 'markdown') {
-                      return <MarkdownCover style={{ width: '100%', height: '100%' }} />;
-                    }
-                    // 有封面图片的书籍
-                    if (book.cover_image && book.cover_image.trim() !== '') {
-                      return (
-                        <img 
-                          src={book.cover_image.startsWith('data:') ? book.cover_image : `data:image/jpeg;base64,${book.cover_image}`} 
-                          alt={book.title} 
-                          style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
-                          onError={(e) => {
-                            const target = e.target as HTMLImageElement;
-                            target.style.display = 'none';
-                            const parent = target.parentElement;
-                            if (parent) {
-                              parent.style.background = '#666';
-                              parent.style.color = '#fff';
-                              parent.innerText = book.title.substring(0, 2);
-                            }
-                          }}
-                        />
-                      );
-                    }
-                    // 无封面时显示书名缩写
-                    return (
-                      <span style={{ 
-                        width: '100%',
-                        height: '100%',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: 12, 
-                        fontWeight: 600, 
-                        color: '#fff',
-                        background: '#666',
-                        textAlign: 'center',
-                        padding: 4
-                      }}>
-                        {book.title.substring(0, 2)}
-                      </span>
-                    );
-                  })()}
-                </div>
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                  <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 6, color: COLORS.textMain }}>
-                    {book.title}
-                  </div>
-                  <div style={{ 
-                    fontSize: 12, 
-                    color: COLORS.textSub, 
-                    display: 'flex', 
-                    justifyContent: 'space-between', 
-                    alignItems: 'center' 
+            books.map((book) => {
+              const displayTitle = getDisplayTitle(book.title);
+
+              return (
+                <div
+                  key={book.book_id}
+                  style={{
+                    display: 'flex',
+                    padding: '16px 0',
+                    borderBottom: `1px solid ${COLORS.borderColor}`
+                  }}
+                >
+                  <div style={{
+                    width: 44,
+                    height: 62,
+                    backgroundColor: '#eee',
+                    borderRadius: 4,
+                    marginRight: 14,
+                    overflow: 'hidden',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 10,
+                    color: '#999',
+                    flexShrink: 0,
+                    border: '1px solid #e0e0e0'
                   }}>
-                    <span>{t('progress', { progress: book.progress })} • {formatBookTime(book.last_read, rangeType, t, i18n.language)}</span>
-                    <span style={{
-                      background: COLORS.primaryBg,
-                      color: COLORS.primary,
-                      padding: '3px 8px',
-                      borderRadius: 6,
-                      fontSize: 10,
-                      fontWeight: 600
+                    {(() => {
+                      const format = getBookFormat(book.title);
+                      // HTML 格式使用 HtmlCover
+                      if (format === 'html') {
+                        return <HtmlCover style={{ width: '100%', height: '100%' }} />;
+                      }
+                      // Markdown 格式使用 MarkdownCover
+                      if (format === 'markdown') {
+                        return <MarkdownCover style={{ width: '100%', height: '100%' }} />;
+                      }
+                      // 有封面图片的书籍
+                      if (book.cover_image && book.cover_image.trim() !== '') {
+                        return (
+                          <img 
+                            src={book.cover_image.startsWith('data:') ? book.cover_image : `data:image/jpeg;base64,${book.cover_image}`} 
+                            alt={displayTitle} 
+                            style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement;
+                              target.style.display = 'none';
+                              const parent = target.parentElement;
+                              if (parent) {
+                                parent.style.background = '#666';
+                                parent.style.color = '#fff';
+                                parent.innerText = displayTitle.substring(0, 2);
+                              }
+                            }}
+                          />
+                        );
+                      }
+                      // 无封面时显示书名缩写
+                      return (
+                        <span style={{ 
+                          width: '100%',
+                          height: '100%',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: 12, 
+                          fontWeight: 600, 
+                          color: '#fff',
+                          background: '#666',
+                          textAlign: 'center',
+                          padding: 4
+                        }}>
+                          {displayTitle.substring(0, 2)}
+                        </span>
+                      );
+                    })()}
+                  </div>
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                    <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 6, color: COLORS.textMain }}>
+                      {displayTitle}
+                    </div>
+                    <div style={{ 
+                      fontSize: 12, 
+                      color: COLORS.textSub, 
+                      display: 'flex', 
+                      justifyContent: 'space-between', 
+                      alignItems: 'center' 
                     }}>
-                      {formatDuration(book.total_duration, t)}
-                    </span>
+                      <span>{t('progress', { progress: book.progress })} • {formatBookTime(book.last_read, rangeType, t, i18n.language)}</span>
+                      <span style={{
+                        background: COLORS.primaryBg,
+                        color: COLORS.primary,
+                        padding: '3px 8px',
+                        borderRadius: 6,
+                        fontSize: 10,
+                        fontWeight: 600
+                      }}>
+                        {formatDuration(book.total_duration, t)}
+                      </span>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       </div>
