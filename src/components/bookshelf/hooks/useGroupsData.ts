@@ -8,32 +8,6 @@ import {
 } from "../../../constants/ui";
 
 /**
- * 对列表按本地存储的排序顺序排序
- */
-const applySortOrder = <T extends { id: number }>(items: T[], orderKey: string): T[] => {
-    try {
-        const orderStr = localStorage.getItem(orderKey);
-        if (!orderStr) return items;
-        const order = JSON.parse(orderStr) as number[];
-        if (!Array.isArray(order)) return items;
-        const itemMap = new Map(items.map((i) => [i.id, i]));
-        const sorted: T[] = [];
-        order.forEach((id) => {
-            const item = itemMap.get(id);
-            if (item) {
-                sorted.push(item);
-                itemMap.delete(id);
-            }
-        });
-        const remaining: T[] = [];
-        itemMap.forEach((item) => remaining.push(item));
-        return [...remaining, ...sorted];
-    } catch {
-        return items;
-    }
-};
-
-/**
  * 管理分组数据的 Hook
  * 负责分组列表加载、封面获取、过滤
  */
@@ -44,7 +18,8 @@ export const useGroupsData = (query: string) => {
     const loadGroups = useCallback(async () => {
         try {
             const allGroups = await groupService.getAllGroups();
-            setGroups(applySortOrder(allGroups || [], "groups_order"));
+            // 后端已按 sort_order 排序，直接使用
+            setGroups(allGroups || []);
         } catch (error) {
             console.error("Failed to load groups:", error);
             setGroups([]);

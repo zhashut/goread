@@ -172,6 +172,31 @@ pub async fn init_database(db: DbState<'_>) -> Result<(), Error> {
         .await?;
     }
 
+    // groups 表 sort_order 字段迁移
+    let _ = sqlx::query("ALTER TABLE groups ADD COLUMN sort_order INTEGER")
+        .execute(&*pool)
+        .await;
+
+    // 为老数据初始化 sort_order（按 created_at 倒序）
+    let needs_group_order: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM groups WHERE sort_order IS NOT NULL")
+            .fetch_one(&*pool)
+            .await?;
+
+    if needs_group_order == 0 {
+        sqlx::query(
+            "UPDATE groups SET sort_order = (
+                SELECT COUNT(*) FROM groups g2 
+                WHERE g2.book_count > 0 
+                AND (g2.created_at > groups.created_at 
+                     OR (g2.created_at = groups.created_at AND g2.id > groups.id))
+            ) + 1
+            WHERE book_count > 0",
+        )
+        .execute(&*pool)
+        .await?;
+    }
+
     // Indexes
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_books_last_read_time ON books(last_read_time)")
         .execute(&*pool)
@@ -185,6 +210,11 @@ pub async fn init_database(db: DbState<'_>) -> Result<(), Error> {
     .execute(&*pool)
     .await?;
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_books_recent_order ON books(recent_order)")
+        .execute(&*pool)
+        .await?;
+
+    // 分组排序索引
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_groups_sort_order ON groups(sort_order)")
         .execute(&*pool)
         .await?;
 

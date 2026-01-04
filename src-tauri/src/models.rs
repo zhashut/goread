@@ -26,6 +26,7 @@ pub struct Group {
     pub name: String,
     pub book_count: u32,
     pub created_at: Option<i64>,
+    pub sort_order: Option<i64>,
 }
 
 #[allow(dead_code)]

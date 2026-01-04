@@ -2,7 +2,7 @@ import { useCallback, Dispatch, SetStateAction, MutableRefObject } from "react";
 import { DragEndEvent } from "@dnd-kit/core";
 import { arrayMove } from "@dnd-kit/sortable";
 import { IBook, IGroup } from "../../../types";
-import { bookService } from "../../../services";
+import { bookService, groupService } from "../../../services";
 import { useDndSensors, useDragGuard, useTabSwipe, isTouchDevice } from "../../../utils/gesture";
 import { useAppNav } from "../../../router/useAppNav";
 
@@ -26,6 +26,7 @@ export const useDragSort = (params: {
         activeTab,
         books,
         setBooks,
+        groups,
         setGroups,
         selectionMode,
         groupOverlayOpen,
@@ -74,18 +75,21 @@ export const useDragSort = (params: {
                 console.error("Failed to reorder recent books", e);
             }
         } else {
-            setGroups((items) => {
-                const oldIndex = items.findIndex((g) => g.id === active.id);
-                const newIndex = items.findIndex((g) => g.id === over.id);
-                const newItems = arrayMove(items, oldIndex, newIndex);
-                localStorage.setItem(
-                    "groups_order",
-                    JSON.stringify(newItems.map((g) => g.id))
-                );
-                return newItems;
-            });
+            const oldIndex = groups.findIndex((g) => g.id === active.id);
+            const newIndex = groups.findIndex((g) => g.id === over.id);
+            const newItems = arrayMove(groups, oldIndex, newIndex);
+
+            // 立即更新UI
+            setGroups(newItems);
+
+            // 调用后端API持久化排序
+            try {
+                await groupService.reorderGroups(newItems.map((g) => g.id));
+            } catch (e) {
+                console.error("Failed to reorder groups", e);
+            }
         }
-    }, [activeTab, books, setBooks, setGroups]);
+    }, [activeTab, books, groups, setBooks, setGroups]);
 
     return {
         dragActive,

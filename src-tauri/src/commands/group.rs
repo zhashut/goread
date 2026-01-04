@@ -6,8 +6,16 @@ use sqlx::SqlitePool;
 pub async fn add_group(name: String, db: DbState<'_>) -> Result<Group, Error> {
     let pool = db.lock().await;
 
-    let result = sqlx::query("INSERT INTO groups (name) VALUES (?)")
+    // 获取当前最大 sort_order
+    let max_order: Option<i64> =
+        sqlx::query_scalar("SELECT MAX(sort_order) FROM groups WHERE book_count > 0")
+            .fetch_one(&*pool)
+            .await?;
+    let next_order = max_order.unwrap_or(0) + 1;
+
+    let result = sqlx::query("INSERT INTO groups (name, sort_order) VALUES (?, ?)")
         .bind(&name)
+        .bind(next_order)
         .execute(&*pool)
         .await?;
 
@@ -26,7 +34,7 @@ pub async fn get_all_groups(db: DbState<'_>) -> Result<Vec<Group>, Error> {
     let pool = db.lock().await;
 
     let groups = sqlx::query_as::<_, Group>(
-        "SELECT * FROM groups WHERE book_count > 0 ORDER BY created_at desc",
+        "SELECT * FROM groups WHERE book_count > 0 ORDER BY sort_order DESC, created_at DESC",
     )
     .fetch_all(&*pool)
     .await?;
@@ -180,6 +188,38 @@ pub async fn reorder_group_books(
             .bind(pos_desc)
             .bind(bid)
             .bind(group_id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
+/// 重排分组顺序
+#[tauri::command]
+pub async fn reorder_groups(
+    ordered_ids: Vec<i64>,
+    db: DbState<'_>,
+) -> Result<(), Error> {
+    let pool = db.lock().await;
+
+    // 获取当前全局最大 sort_order 作为基准
+    // 确保拖拽后的分组顺序值都高于未参与拖拽的分组
+    let max_order: Option<i64> =
+        sqlx::query_scalar("SELECT MAX(sort_order) FROM groups WHERE book_count > 0")
+            .fetch_one(&*pool)
+            .await?;
+
+    let base = max_order.unwrap_or(0);
+    let total = ordered_ids.len() as i64;
+
+    let mut tx = (&*pool).begin().await?;
+    for (idx, gid) in ordered_ids.iter().enumerate() {
+        // 第一个分组获得最高值 (base + total)，最后一个获得 (base + 1)
+        let order_val = base + total - (idx as i64);
+        sqlx::query("UPDATE groups SET sort_order = ? WHERE id = ?")
+            .bind(order_val)
+            .bind(gid)
             .execute(&mut *tx)
             .await?;
     }
