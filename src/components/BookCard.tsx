@@ -5,6 +5,7 @@ import { IBook } from "../types";
 import { getBookFormat } from "../constants/fileTypes";
 import MarkdownCover from "./covers/MarkdownCover";
 import HtmlCover from "./covers/HtmlCover";
+import { getDisplayTitle } from "../utils/bookTitle";
 import {
   CARD_WIDTH_COMPACT,
   COVER_ASPECT_RATIO_COMPACT,
@@ -97,6 +98,8 @@ export const BookCard: React.FC<CommonBookCardProps> = ({
     }
   }
 
+  const displayTitle = getDisplayTitle(book.title);
+
   return (
     <div
       className="book-card"
@@ -155,7 +158,7 @@ export const BookCard: React.FC<CommonBookCardProps> = ({
           {book.cover_image ? (
             <img
               src={`data:image/jpeg;base64,${book.cover_image}`}
-              alt={book.title}
+              alt={displayTitle}
               style={{ width: "100%", height: "100%", objectFit: "cover" }}
             />
           ) : getBookFormat(book.file_path) === "markdown" ? (
@@ -240,7 +243,7 @@ export const BookCard: React.FC<CommonBookCardProps> = ({
             userSelect: "none",
           }}
         >
-          {book.title}
+          {displayTitle}
         </div>
         <div
           style={{

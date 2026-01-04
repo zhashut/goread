@@ -7,7 +7,7 @@ import { HtmlCover } from './covers/HtmlCover';
 import { MarkdownCover } from './covers/MarkdownCover';
 import { getSafeAreaInsets } from '../utils/layout';
 import { PageHeader } from './PageHeader';
-import { SUPPORTED_FILE_EXTENSIONS } from '../constants/fileTypes';
+import { getDisplayTitle } from '../utils/bookTitle';
 
 // 根据书名判断书籍格式
 const getBookFormat = (title: string): 'html' | 'markdown' | 'other' => {
@@ -15,17 +15,6 @@ const getBookFormat = (title: string): 'html' | 'markdown' | 'other' => {
   if (lowerTitle.endsWith('.html') || lowerTitle.endsWith('.htm')) return 'html';
   if (lowerTitle.endsWith('.md') || lowerTitle.endsWith('.markdown')) return 'markdown';
   return 'other';
-};
-
-// 获取不带格式后缀的书名
-const getDisplayTitle = (title: string): string => {
-  const trimmed = title.trim();
-  const lower = trimmed.toLowerCase();
-  const matchedExt = SUPPORTED_FILE_EXTENSIONS.find((ext) =>
-    lower.endsWith(ext),
-  );
-  if (!matchedExt) return trimmed;
-  return trimmed.slice(0, trimmed.length - matchedExt.length);
 };
 
 // 时间维度类型
