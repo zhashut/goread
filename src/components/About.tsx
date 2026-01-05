@@ -90,7 +90,6 @@ export const About: React.FC = () => {
     try {
       await openUrl(url);
     } catch (error) {
-      console.error('Failed to open link with opener:', error);
       // 降级处理：尝试使用 window.open
       try {
         const w = window.open(url, '_blank');

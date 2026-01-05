@@ -3,6 +3,8 @@
  * 用于收集和分析PDF阅读器的性能指标
  */
 
+import { log } from '../services/index';
+
 export interface PerformanceMetrics {
     renderTime: number; // 渲染时间（ms）
     cacheHit: boolean; // 是否命中缓存
@@ -77,20 +79,19 @@ export class PDFPerformanceMonitor {
     /**
      * 打印性能报告
      */
-    printReport(): void {
+    async printReport(): Promise<void> {
         const stats = this.getStats();
 
-        console.group('📊 PDF Performance Report');
-        console.log(`Total Renders: ${stats.totalRenders}`);
-        console.log(`Cache Hit Rate: ${stats.cacheHitRate.toFixed(2)}%`);
-        console.log(`Avg Render Time: ${stats.avgRenderTime.toFixed(2)}ms`);
-        console.log(`Avg Cache Hit Time: ${stats.avgCacheHitTime.toFixed(2)}ms`);
-        console.log(`Avg Cache Miss Time: ${stats.avgCacheMissTime.toFixed(2)}ms`);
-        console.log(`Performance Improvement: ${stats.avgCacheMissTime > 0
+        await log('📊 PDF Performance Report', 'info');
+        await log(`Total Renders: ${stats.totalRenders}`, 'info');
+        await log(`Cache Hit Rate: ${stats.cacheHitRate.toFixed(2)}%`, 'info');
+        await log(`Avg Render Time: ${stats.avgRenderTime.toFixed(2)}ms`, 'info');
+        await log(`Avg Cache Hit Time: ${stats.avgCacheHitTime.toFixed(2)}ms`, 'info');
+        await log(`Avg Cache Miss Time: ${stats.avgCacheMissTime.toFixed(2)}ms`, 'info');
+        await log(`Performance Improvement: ${stats.avgCacheMissTime > 0
                 ? ((1 - stats.avgCacheHitTime / stats.avgCacheMissTime) * 100).toFixed(2) + '%'
                 : 'N/A'
-            }`);
-        console.groupEnd();
+            }`, 'info');
     }
 
     /**

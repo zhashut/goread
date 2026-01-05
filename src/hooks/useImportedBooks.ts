@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { IBook } from "../types";
-import { bookService } from "../services";
+import { bookService, logError } from "../services";
 
 export const useImportedBooks = () => {
   const [allImportedBooks, setAllImportedBooks] = useState<IBook[]>([]);
@@ -12,7 +12,7 @@ export const useImportedBooks = () => {
         const books = await bookService.getAllBooks();
         setAllImportedBooks(books);
       } catch (error) {
-        console.error("加载已导入书籍失败:", error);
+        await logError('加载已导入书籍失败', { error: String(error) });
       }
     };
     loadImportedBooks();

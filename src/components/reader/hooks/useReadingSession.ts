@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback } from "react";
 import { IBook } from "../../../types";
-import { statsService, appLifecycleService } from "../../../services";
+import { statsService, appLifecycleService, logError } from "../../../services";
 import { READING_INACTIVITY_THRESHOLD_MS } from "../../../constants/interactions";
 
 // 单次会话最大时长（30分钟），超过后强制结束
@@ -78,7 +78,7 @@ export const useReadingSession = (book: IBook | null, isExternal: boolean) => {
                     readDate
                 );
             } catch (e) {
-                console.warn("Failed to save reading session:", e);
+                await logError('保存阅读会话失败', { error: String(e), bookId: currentBookId, duration });
             }
         }
 

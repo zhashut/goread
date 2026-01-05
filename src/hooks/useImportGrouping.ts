@@ -91,7 +91,7 @@ export const useImportGrouping = (options: UseImportGroupingOptions) => {
       setGroupPreviews(previews);
       setChooseGroupOpen(true);
     } catch (e) {
-      console.error("Load groups failed", e);
+      await logError('加载分组失败', { error: String(e) });
       setAllGroups([]);
       setChooseGroupOpen(true);
     }

@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { bookService, statsService } from "../../../services";
+import { bookService, statsService, logError } from "../../../services";
 import { MarkdownRenderer } from "../../../services/formats/markdown/MarkdownRenderer";
 import { EpubRenderer } from "../../../services/formats/epub/EpubRenderer";
 import { useReaderState } from "./useReaderState";
@@ -91,7 +91,7 @@ export const useNavigation = ({
                     bookService.updateBookProgress(book.id, pageNum).catch(() => { });
                 }
             } catch (e) {
-                console.warn("Goto page failed", e);
+                await logError('页面跳转失败', { error: String(e), pageNum });
             }
         },
         [
@@ -124,7 +124,6 @@ export const useNavigation = ({
                 await statsService.unmarkBookFinished(book.id);
             }
         } catch (e) {
-            console.error("切换阅读状态失败", e);
             setBook((prev) => (prev ? { ...prev, status: book.status } : null));
             alert(tCommon("operationFailed"));
         }

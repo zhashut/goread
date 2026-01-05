@@ -11,7 +11,7 @@ import {
     PAGE_CACHE_SIZE,
     PAGE_CACHE_MEMORY_LIMIT_MB,
 } from "../../../constants/config";
-import { log } from "../../../services";
+import { log, logError } from "../../../services";
 import { ReaderSettings } from "../../../services";
 import { IBook } from "../../../types";
 
@@ -256,7 +256,7 @@ export const usePageRenderer = ({
             if (bookIdRef.current !== capturedBookId) return;
             if (pageCacheRef.current.has(nextPage, scale, themeKey)) continue;
             loadPageBitmap(nextPage).catch((e) =>
-                console.warn(`预加载页面 ${nextPage} 失败`, e)
+                logError('预加载页面失败', { error: String(e), pageNum: nextPage })
             );
         }
     };
@@ -358,7 +358,7 @@ export const usePageRenderer = ({
                     );
                     pageCache.set(pageNum, imageData, canvas.width, canvas.height, scale, themeKey);
                 } catch (e) {
-                    console.warn("Failed to cache page:", e);
+                    await logError('缓存页面失败', { error: String(e), pageNum });
                 }
                 standardImg.close && standardImg.close();
 
@@ -462,7 +462,7 @@ export const usePageRenderer = ({
                 try {
                     const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
                     pageCache.set(pageNum, imageData, canvas.width, canvas.height, scale, themeKey);
-                } catch (e) { console.warn("Failed cache vert", e); }
+                } catch (e) { await logError('缓存纵向页面失败', { error: String(e), pageNum }); }
 
                 img.close && img.close();
 

@@ -312,7 +312,6 @@ export const GroupDetail: React.FC<{
         { state: { ...nav.location.state, moveDrawerOpen: true }, replace: false }
       );
     } catch (e) {
-      console.error("加载分组失败", e);
       alert(t('loadGroupsFailed'));
     }
   };
@@ -351,7 +350,6 @@ export const GroupDetail: React.FC<{
       setTimeout(() => exitSelection(), 50);
 
     } catch (e) {
-      console.error("移动书籍失败", e);
       alert(t('moveFailed'));
     }
   };
@@ -369,7 +367,6 @@ export const GroupDetail: React.FC<{
       await bookService.deleteBook(book.id);
       await reloadBooksAndGroups();
     } catch (err) {
-      console.error("删除失败", err);
       alert(t('deleteFailed'));
     }
   };

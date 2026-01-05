@@ -33,7 +33,6 @@ const setupApp = async () => {
 
     // 动态导入Tauri API
     await import('@tauri-apps/api/core');
-    console.log('Tauri API loaded successfully');
     
     // 初始化移动平台的状态栏服务
     await statusBarService.init();
@@ -56,7 +55,6 @@ const setupApp = async () => {
       </React.StrictMode>,
     );
   } catch (error) {
-    console.error('Failed to load Tauri API:', error);
     // 即使Tauri API加载失败，也要渲染应用
     ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
       <React.StrictMode>

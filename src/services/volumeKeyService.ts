@@ -4,6 +4,8 @@
  * 采用策略模式，支持 Android/iOS 等多平台扩展
  */
 
+import { logError } from './index';
+
 // ==================== 类型定义 ====================
 
 export type VolumeKeyDirection = 'up' | 'down';
@@ -94,8 +96,6 @@ class AndroidVolumeKeyBridge implements IVolumeKeyBridge {
   async init(): Promise<void> {
     if (this.initialized) return;
     
-    console.log('[VolumeKey:Android] Initializing...');
-    
     // 注册全局回调（供原生层调用）
     this.registerGlobalCallback();
     
@@ -109,7 +109,6 @@ class AndroidVolumeKeyBridge implements IVolumeKeyBridge {
   /** 注册供原生层调用的全局回调 */
   private registerGlobalCallback(): void {
     (window as any).__onVolumeKey__ = (direction: string) => {
-      console.log('[VolumeKey:Android] Key event:', direction);
       if (this.callback && (direction === 'up' || direction === 'down')) {
         this.callback(direction as VolumeKeyDirection);
       }
@@ -118,8 +117,6 @@ class AndroidVolumeKeyBridge implements IVolumeKeyBridge {
   
   /** 内部等待桥接就绪 */
   private waitForBridgeInternal(): void {
-    console.log('[VolumeKey:Android] Waiting for bridge...');
-    
     // 监听原生层发出的就绪事件
     const handler = () => {
       window.removeEventListener('volumeKeyBridgeReady', handler);
@@ -139,7 +136,6 @@ class AndroidVolumeKeyBridge implements IVolumeKeyBridge {
       } else if (attempts >= maxAttempts) {
         clearInterval(pollInterval);
         window.removeEventListener('volumeKeyBridgeReady', handler);
-        console.warn('[VolumeKey:Android] Bridge not available after timeout');
         this.initialized = true;
         this.bridgeReadyResolve?.();
       }
@@ -150,7 +146,6 @@ class AndroidVolumeKeyBridge implements IVolumeKeyBridge {
   private onBridgeReady(): void {
     if (this.initialized) return;
     
-    console.log('[VolumeKey:Android] Bridge ready');
     this.initialized = true;
     this.bridgeReadyResolve?.();
   }
@@ -166,9 +161,8 @@ class AndroidVolumeKeyBridge implements IVolumeKeyBridge {
     if (PlatformDetector.hasAndroidBridge()) {
       try {
         (window as any).VolumeKeyBridge.setEnabled(enabled);
-        console.log('[VolumeKey:Android] Enabled:', enabled);
       } catch (error) {
-        console.error('[VolumeKey:Android] setEnabled failed:', error);
+        logError('[VolumeKey:Android] setEnabled failed', { error: String(error), enabled }).catch(() => {});
       }
     }
   }
@@ -178,7 +172,7 @@ class AndroidVolumeKeyBridge implements IVolumeKeyBridge {
       try {
         return (window as any).VolumeKeyBridge.isEnabled();
       } catch (error) {
-        console.error('[VolumeKey:Android] isEnabled failed:', error);
+        logError('[VolumeKey:Android] isEnabled failed', { error: String(error) }).catch(() => {});
       }
     }
     return this.enabled;
@@ -224,8 +218,6 @@ class IOSVolumeKeyBridge implements IVolumeKeyBridge {
   async init(): Promise<void> {
     if (this.initialized) return;
     
-    console.log('[VolumeKey:iOS] Initializing...');
-    
     // 注册全局回调（供原生层调用）
     this.registerGlobalCallback();
     
@@ -249,7 +241,6 @@ class IOSVolumeKeyBridge implements IVolumeKeyBridge {
   /** 注册供原生层调用的全局回调 */
   private registerGlobalCallback(): void {
     (window as any).__onVolumeKey__ = (direction: string) => {
-      console.log('[VolumeKey:iOS] Key event:', direction);
       if (this.callback && (direction === 'up' || direction === 'down')) {
         this.callback(direction as VolumeKeyDirection);
       }
@@ -258,8 +249,6 @@ class IOSVolumeKeyBridge implements IVolumeKeyBridge {
   
   /** 内部等待桥接就绪 */
   private waitForBridgeInternal(): void {
-    console.log('[VolumeKey:iOS] Waiting for bridge...');
-    
     // 监听原生层发出的就绪事件
     const handler = () => {
       window.removeEventListener('volumeKeyBridgeReady', handler);
@@ -279,7 +268,6 @@ class IOSVolumeKeyBridge implements IVolumeKeyBridge {
       } else if (attempts >= maxAttempts) {
         clearInterval(pollInterval);
         window.removeEventListener('volumeKeyBridgeReady', handler);
-        console.warn('[VolumeKey:iOS] Bridge not available after timeout');
         this.initialized = true;
         this.bridgeReadyResolve?.();
       }
@@ -290,7 +278,6 @@ class IOSVolumeKeyBridge implements IVolumeKeyBridge {
   private onBridgeReady(): void {
     if (this.initialized) return;
     
-    console.log('[VolumeKey:iOS] Bridge ready');
     this.initialized = true;
     this.bridgeReadyResolve?.();
   }
@@ -306,9 +293,8 @@ class IOSVolumeKeyBridge implements IVolumeKeyBridge {
     if (this.hasIOSBridge()) {
       try {
         (window as any).VolumeKeyBridge.setEnabled(enabled);
-        console.log('[VolumeKey:iOS] Enabled:', enabled);
       } catch (error) {
-        console.error('[VolumeKey:iOS] setEnabled failed:', error);
+        logError('[VolumeKey:iOS] setEnabled failed', { error: String(error), enabled }).catch(() => {});
       }
     }
   }
@@ -318,7 +304,7 @@ class IOSVolumeKeyBridge implements IVolumeKeyBridge {
       try {
         return (window as any).VolumeKeyBridge.isEnabled();
       } catch (error) {
-        console.error('[VolumeKey:iOS] isEnabled failed:', error);
+        logError('[VolumeKey:iOS] isEnabled failed', { error: String(error) }).catch(() => {});
       }
     }
     return this.enabled;
@@ -343,9 +329,7 @@ class IOSVolumeKeyBridge implements IVolumeKeyBridge {
 class NoopVolumeKeyBridge implements IVolumeKeyBridge {
   readonly platform = 'noop';
   
-  async init(): Promise<void> {
-    console.log('[VolumeKey:Noop] Non-mobile platform, volume key disabled');
-  }
+  async init(): Promise<void> {}
   
   async waitForReady(): Promise<void> {}
   
@@ -406,10 +390,8 @@ class VolumeKeyService {
   async init(): Promise<void> {
     if (this.initialized) return;
     
-    console.log('[VolumeKey] Initializing service...');
     await this.bridge.init();
     this.initialized = true;
-    console.log(`[VolumeKey] Service initialized (platform: ${this.bridge.platform})`);
   }
   
   /**

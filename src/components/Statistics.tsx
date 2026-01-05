@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppNav } from '../router/useAppNav';
-import { statsService } from '../services';
+import { statsService, logError } from '../services';
 import { IStatsSummary, IDailyStats, IRangeStats, IBookReadingStats } from '../types';
 import { HtmlCover } from './covers/HtmlCover';
 import { MarkdownCover } from './covers/MarkdownCover';
@@ -200,7 +200,7 @@ export const Statistics: React.FC = () => {
       const data = await statsService.getStatsSummary();
       setSummary(data);
     } catch (e) {
-      console.error('Failed to load stats summary:', e);
+      await logError('加载统计概览失败', { error: String(e) });
     }
   }, []);
 
@@ -271,7 +271,7 @@ export const Statistics: React.FC = () => {
         setBooks(booksData);
       }
     } catch (e) {
-      console.error('Failed to load range stats:', e);
+      await logError('加载范围统计失败', { error: String(e) });
     }
   }, [rangeType, rangeOffset]);
 
@@ -281,7 +281,7 @@ export const Statistics: React.FC = () => {
       const data = await statsService.getDailyStats(heatmapRange);
       setDailyStats(data);
     } catch (e) {
-      console.error('Failed to load heatmap data:', e);
+      await logError('加载热力图数据失败', { error: String(e) });
     }
   }, [heatmapRange]);
 

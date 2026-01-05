@@ -116,7 +116,7 @@ export const useBookLoader = (
                             setBook({ ...targetBook });
                         }
                     } catch (e) {
-                        console.error(e);
+                        await logError('检查阅读记录失败', { error: String(e), bookId: targetBook.id });
                     }
                 }
 
@@ -125,7 +125,7 @@ export const useBookLoader = (
                         // 后端 mark_book_opened 会自动更新 last_read_time 和 recent_order
                         await bookService.markBookOpened(targetBook.id);
                     } catch (e) {
-                        console.warn("标记书籍已打开失败", e);
+                        await logError('标记书籍已打开失败', { error: String(e), bookId: targetBook.id });
                     }
                 }
 
@@ -166,7 +166,6 @@ export const useBookLoader = (
                         const list = await bookmarkService.getBookmarks(targetBook.id);
                         bookmarkActions.setBookmarks(Array.isArray(list) ? list : []);
                     } catch (e) {
-                        console.warn("获取书签失败", e);
                         bookmarkActions.setBookmarks([]);
                     }
                 });
@@ -194,7 +193,6 @@ export const useBookLoader = (
                 try {
                     filePath = await resolveLocalPathFromUri(rawPath);
                 } catch (e) {
-                    console.error("解析外部文件本地路径失败", e);
                     alert(tCommon("operationFailed"));
                     nav.toBookshelf();
                     return;

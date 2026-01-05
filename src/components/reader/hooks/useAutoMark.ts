@@ -1,6 +1,6 @@
 import { useRef, useEffect } from "react";
 import { IBook } from "../../../types";
-import { statsService, log } from "../../../services";
+import { statsService, log, logError } from "../../../services";
 import { IBookRenderer } from "../../../services/formats";
 
 type AutoMarkProps = {
@@ -76,7 +76,7 @@ export const useAutoMark = ({
                     setBook(prev => prev ? { ...prev, status: 1 } : null);
                     await statsService.markBookFinished(book.id);
                 } catch (e) {
-                    console.error("自动标记已读失败", e);
+                    await logError('自动标记已读失败', { error: String(e), bookId: book.id });
                 }
             };
             autoMark();

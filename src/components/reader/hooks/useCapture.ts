@@ -5,7 +5,7 @@ import {
     QUALITY_SCALE_MAP,
 } from "../../../constants/config";
 import { useReaderState } from "./useReaderState";
-import { ReaderSettings } from "../../../services";
+import { ReaderSettings, logError } from "../../../services";
 
 type CaptureProps = {
     readerState: ReturnType<typeof useReaderState>;
@@ -166,7 +166,7 @@ export const useCapture = ({
                 setSearchParams(next, { replace: false });
             }
         } catch (e) {
-            console.error("Capture failed", e);
+            await logError('截图失败', { error: String(e) });
         }
     };
 

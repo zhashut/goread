@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { IGroup } from "../../../types";
-import { groupService } from "../../../services";
+import { groupService, logError } from "../../../services";
 import { getBookFormat } from "../../../constants/fileTypes";
 import {
     MARKDOWN_COVER_PLACEHOLDER,
@@ -21,7 +21,7 @@ export const useGroupsData = (query: string) => {
             // 后端已按 sort_order 排序，直接使用
             setGroups(allGroups || []);
         } catch (error) {
-            console.error("Failed to load groups:", error);
+            await logError('加载分组列表失败', { error: String(error) });
             setGroups([]);
         }
     }, []);

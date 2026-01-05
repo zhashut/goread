@@ -1,4 +1,5 @@
 import React from "react";
+import { logError } from '../services/index';
 
 type ErrorBoundaryState = { hasError: boolean; error?: Error };
 
@@ -13,8 +14,8 @@ export class ErrorBoundary extends React.Component<React.PropsWithChildren<{}>, 
   }
 
   componentDidCatch(error: Error, errorInfo: any) {
-    // 可在此处上报错误到日志系统
-    console.error("App crashed:", error, errorInfo);
+    // 上报错误到日志系统
+    logError('应用崩溃', { error: String(error), errorInfo }).catch(() => {});
   }
 
   handleReload = () => {

@@ -29,8 +29,7 @@ export const useBookmarks = (book: IBook | null, isExternal: boolean) => {
                     setBookmarks(Array.isArray(list) ? list : []);
                 }
             })
-            .catch((e) => {
-                console.warn("获取书签失败", e);
+            .catch(() => {
                 if (isMounted) setBookmarks([]);
             });
 
@@ -60,7 +59,6 @@ export const useBookmarks = (book: IBook | null, isExternal: boolean) => {
                 showToast(tCommon("bookmarkAdded"));
                 return true;
             } catch (e) {
-                console.error("添加书签失败", e);
                 alert(tCommon("addBookmarkFailed"));
                 return false;
             }
@@ -76,7 +74,6 @@ export const useBookmarks = (book: IBook | null, isExternal: boolean) => {
                 setBookmarks((prev) => prev.filter((b) => b.id !== id));
                 return true;
             } catch (e) {
-                console.error("删除书签失败", e);
                 alert(tCommon("deleteBookmarkFailed"));
                 return false;
             }

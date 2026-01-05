@@ -8,6 +8,8 @@
  * Other pages (Bookshelf, Settings, etc.) always show status bar.
  */
 
+import { logError } from './index';
+
 // Check if we're running in a Tauri mobile environment
 const isTauriMobile = () => {
   const ua = navigator.userAgent || '';
@@ -47,8 +49,6 @@ class StatusBarService {
   async init() {
     if (this.initialized) return;
 
-    console.log('[StatusBar] Initializing service...');
-    
     // Create a promise that resolves when bridge is ready
     this.bridgeReadyPromise = new Promise((resolve) => {
       this.bridgeReadyResolve = resolve;
@@ -58,16 +58,13 @@ class StatusBarService {
       // Bridge already ready
       this.initialized = true;
       this.bridgeReadyResolve?.();
-      console.log('[StatusBar] Service initialized (bridge already ready)');
     } else if (isTauriMobile()) {
       // Wait for bridge to be ready
       this.waitForBridge();
-      console.log('[StatusBar] Waiting for bridge...');
     } else {
       // Non-mobile or browser
       this.initialized = true;
       this.bridgeReadyResolve?.();
-      console.log('[StatusBar] Service initialized (non-mobile)');
     }
   }
 
@@ -77,7 +74,6 @@ class StatusBarService {
   private waitForBridge() {
     // Listen for the custom event from Android
     const handler = () => {
-      console.log('[StatusBar] Bridge ready event received');
       window.removeEventListener('statusBarBridgeReady', handler);
       this.onBridgeReady();
     };
@@ -95,7 +91,6 @@ class StatusBarService {
       } else if (attempts >= maxAttempts) {
         clearInterval(pollInterval);
         window.removeEventListener('statusBarBridgeReady', handler);
-        console.warn('[StatusBar] Bridge not available after timeout');
         this.initialized = true;
         this.bridgeReadyResolve?.();
       }
@@ -108,7 +103,6 @@ class StatusBarService {
   private onBridgeReady() {
     if (this.initialized) return;
     
-    console.log('[StatusBar] Bridge is now ready');
     this.initialized = true;
     this.bridgeReadyResolve?.();
   }
@@ -134,7 +128,7 @@ class StatusBarService {
         await this.hideStatusBar();
       }
     } catch (error) {
-      console.error('[StatusBar] Apply settings failed:', error);
+      logError('[StatusBar] Apply settings failed', { error: String(error), showStatusBar }).catch(() => {});
     }
   }
 
@@ -146,16 +140,14 @@ class StatusBarService {
       if (hasStatusBarBridge()) {
         // Use Android JavascriptInterface bridge
         (window as any).StatusBarBridge.show();
-        console.log('[StatusBar] Shown via bridge');
       } else if (isMobileBrowser()) {
         // Fallback: Exit fullscreen for mobile browsers
         if (document.fullscreenElement) {
           await document.exitFullscreen?.().catch(() => {});
-          console.log('[StatusBar] Exited fullscreen (fallback)');
         }
       }
     } catch (error) {
-      console.error('[StatusBar] Show failed:', error);
+      logError('[StatusBar] Show failed', { error: String(error) }).catch(() => {});
     }
   }
 
@@ -167,16 +159,14 @@ class StatusBarService {
       if (hasStatusBarBridge()) {
         // Use Android JavascriptInterface bridge
         (window as any).StatusBarBridge.hide();
-        console.log('[StatusBar] Hidden via bridge');
       } else if (isMobileBrowser()) {
         // Fallback: Enter fullscreen for mobile browsers
         if (!document.fullscreenElement) {
           await document.documentElement.requestFullscreen?.().catch(() => {});
-          console.log('[StatusBar] Entered fullscreen (fallback)');
         }
       }
     } catch (error) {
-      console.error('[StatusBar] Hide failed:', error);
+      logError('[StatusBar] Hide failed', { error: String(error) }).catch(() => {});
     }
   }
 
@@ -189,7 +179,7 @@ class StatusBarService {
         return (window as any).StatusBarBridge.isVisible();
       }
     } catch (error) {
-      console.error('[StatusBar] isVisible failed:', error);
+      logError('[StatusBar] isVisible failed', { error: String(error) }).catch(() => {});
     }
     return true;
   }

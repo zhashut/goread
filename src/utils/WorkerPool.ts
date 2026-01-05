@@ -3,6 +3,8 @@
  * 用于管理多个Web Workers进行并行PDF页面渲染
  */
 
+import { logError, log } from '../services/index';
+
 export class WorkerPool {
     private workers: Worker[] = [];
     private workerCount: number;
@@ -17,7 +19,7 @@ export class WorkerPool {
     async initialize(): Promise<void> {
         // 注意：PDF.js的Worker是全局的，我们不需要创建多个Worker
         // 这里我们使用OffscreenCanvas来实现并行渲染
-        console.log(`WorkerPool initialized with ${this.workerCount} workers`);
+        await log(`WorkerPool initialized with ${this.workerCount} workers`, 'info');
     }
 
     /**
@@ -57,7 +59,7 @@ export class WorkerPool {
 
                     return { pageNum, canvas };
                 } catch (error) {
-                    console.error(`Failed to render page ${pageNum}:`, error);
+                    logError(`渲染页面失败`, { pageNum, error: String(error) }).catch(() => {});
                     return null;
                 }
             });
@@ -107,7 +109,7 @@ export class WorkerPool {
                     return canvas;
                 }
             } catch (error) {
-                console.warn('OffscreenCanvas failed, falling back to regular canvas:', error);
+                logError('OffscreenCanvas 渲染失败，降级为普通 canvas', { error: String(error) }).catch(() => {});
             }
         }
 

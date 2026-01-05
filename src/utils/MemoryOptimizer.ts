@@ -3,6 +3,8 @@
  * 监控和优化PDF阅读器的内存使用
  */
 
+import { logError } from '../services';
+
 export interface MemoryStats {
     usedMemory: number; // 已使用内存（字节）
     totalMemory: number; // 总内存（字节）
@@ -73,7 +75,7 @@ export class MemoryOptimizer {
             canvas.width = 0;
             canvas.height = 0;
         } catch (error) {
-            console.warn('Failed to cleanup canvas:', error);
+            logError('Failed to cleanup canvas', { error: String(error) }).catch(() => {});
         }
     }
 
@@ -110,14 +112,12 @@ export class MemoryOptimizer {
      * 执行内存清理
      */
     cleanup(): void {
-        console.log('Performing memory cleanup...');
-
         // 执行所有注册的清理回调
         this.cleanupCallbacks.forEach(callback => {
             try {
                 callback();
             } catch (error) {
-                console.warn('Cleanup callback failed:', error);
+                logError('Cleanup callback failed', { error: String(error) }).catch(() => {});
             }
         });
 
@@ -142,8 +142,6 @@ export class MemoryOptimizer {
                 // Ignore
             }
         }
-
-        console.log('Memory cleanup completed');
     }
 
     /**
@@ -221,7 +219,7 @@ export class MemoryOptimizer {
             const bitmap = await createImageBitmap(canvas);
             return bitmap;
         } catch (error) {
-            console.warn('Failed to create ImageBitmap:', error);
+            await logError('Failed to create ImageBitmap', { error: String(error) });
             return null;
         }
     }

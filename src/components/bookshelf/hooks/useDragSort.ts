@@ -2,7 +2,7 @@ import { useCallback, Dispatch, SetStateAction, MutableRefObject } from "react";
 import { DragEndEvent } from "@dnd-kit/core";
 import { arrayMove } from "@dnd-kit/sortable";
 import { IBook, IGroup } from "../../../types";
-import { bookService, groupService } from "../../../services";
+import { bookService, groupService, logError } from "../../../services";
 import { useDndSensors, useDragGuard, useTabSwipe, isTouchDevice } from "../../../utils/gesture";
 import { useAppNav } from "../../../router/useAppNav";
 
@@ -72,7 +72,7 @@ export const useDragSort = (params: {
             try {
                 await bookService.reorderRecentBooks(newItems.map((b) => b.id));
             } catch (e) {
-                console.error("Failed to reorder recent books", e);
+                await logError('重排序最近书籍失败', { error: String(e) });
             }
         } else {
             const oldIndex = groups.findIndex((g) => g.id === active.id);
@@ -86,7 +86,7 @@ export const useDragSort = (params: {
             try {
                 await groupService.reorderGroups(newItems.map((g) => g.id));
             } catch (e) {
-                console.error("Failed to reorder groups", e);
+                await logError('重排序分组失败', { error: String(e) });
             }
         }
     }, [activeTab, books, groups, setBooks, setGroups]);

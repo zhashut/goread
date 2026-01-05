@@ -1,5 +1,6 @@
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
+import { logError } from '../services';
 
 // 中文语言包
 import zhCommon from './zh/common.json';
@@ -73,7 +74,7 @@ export const getSystemLanguage = (): LanguageCode => {
       return supported.code;
     }
   } catch (e) {
-    console.warn('Failed to detect system language:', e);
+    logError('Failed to detect system language', { error: String(e) }).catch(() => {});
   }
   
   return 'zh'; // 默认中文

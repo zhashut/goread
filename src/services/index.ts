@@ -27,9 +27,7 @@ const loadTauriAPI = async () => {
   } catch { }
 
   // 3) 浏览器预览环境：返回 mock，避免页面因未找到 invoke 而报错
-  console.warn('Tauri invoke not available, using mock for browser preview');
-  return async (cmd: string, args?: any) => {
-    console.log('Mock invoke:', cmd, args);
+  return async (cmd: string, _args?: any) => {
     if (cmd === 'get_all_books') return [];
     if (cmd === 'init_database') return;
     return null;
@@ -102,10 +100,10 @@ export class TauriBookService implements IBookService {
     try {
       const invoke = await getInvoke();
       await invoke('init_database');
-    } catch (error) {
-      console.error('Failed to init database:', error);
-      // 如果数据库已经初始化，忽略错误
-    }
+      } catch (error) {
+        await logError('Failed to init database', { error: String(error) });
+        // 如果数据库已经初始化，忽略错误
+      }
   }
 
   async addBook(path: string, title: string, coverImage?: string, totalPages: number = 1): Promise<IBook> {
@@ -180,7 +178,7 @@ export class TauriGroupService implements IGroupService {
     try {
       return await invoke('add_group', { name });
     } catch (e) {
-      console.error('Failed to create group:', e);
+      await logError('Failed to create group', { name, error: String(e) });
       try {
         await invoke('frontend_log', {
           level: 'error',
@@ -295,7 +293,7 @@ export const saveReaderSettings = (settings: Partial<ReaderSettings>) => {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
     return next;
   } catch (e) {
-    console.warn('Save settings failed', e);
+    logError('Save settings failed', { error: String(e) }).catch(() => {});
     return getReaderSettings();
   }
 };

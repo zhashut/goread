@@ -148,7 +148,6 @@ class TauriFileSystemService implements IFileSystemService {
             const invoke = await getInvoke();
             return await invoke('check_storage_permission');
         } catch (error) {
-            console.error('检查存储权限失败:', error);
             return false;
         }
     }
@@ -158,7 +157,6 @@ class TauriFileSystemService implements IFileSystemService {
             const invoke = await getInvoke();
             return await invoke('request_storage_permission');
         } catch (error) {
-            console.error('请求存储权限失败:', error);
             return false;
         }
     }

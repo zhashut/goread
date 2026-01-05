@@ -1,3 +1,5 @@
+import { logError } from './index';
+
 export async function resolveLocalPathFromUri(filePath: string): Promise<string> {
   if (filePath.startsWith("content://")) {
     const bridge = (window as any).SafBridge;
@@ -8,7 +10,7 @@ export async function resolveLocalPathFromUri(filePath: string): Promise<string>
           return dest;
         }
       } catch (e) {
-        console.error("复制 SAF 文件到应用目录失败:", e);
+        await logError('复制 SAF 文件到应用目录失败', { error: String(e), filePath });
       }
     }
   }

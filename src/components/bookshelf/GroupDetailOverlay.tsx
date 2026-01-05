@@ -6,7 +6,7 @@ import { IconDelete, IconMove } from "../Icons";
 import { TOP_BAR_MARGIN_BOTTOM } from "../../constants/ui";
 import { TopBar } from "./TopBar";
 import { Toast } from "../Toast";
-import { groupService } from "../../services";
+import { groupService, logError } from "../../services";
 import { GroupDetail } from "../GroupDetail";
 import { getSafeAreaInsets } from "../../utils/layout";
 import { useDragGuard } from "../../utils/gesture";
@@ -86,7 +86,7 @@ export const GroupDetailOverlay: React.FC<GroupDetailOverlayProps> = ({
       setTimeout(() => { justFinishedEditingRef.current = false; }, 300);
       setIsEditingGroupName(false);
     } catch (e: any) {
-      console.error("Update group name failed", e);
+      await logError('更新分组名称失败', { error: String(e), groupId, newName: name });
       setToastMsg(typeof e === 'string' ? e : (e.message || t('updateFailed')));
       setTimeout(() => editInputRef.current?.focus(), 0);
     }

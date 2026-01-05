@@ -21,6 +21,7 @@ import { FormatFilterButton } from "./FormatFilterButton";
 import { ImportBottomBar } from "./ImportBottomBar";
 import { useImportedBooks, useImportGrouping, useSearchOverlay, useSelectAll } from "../hooks";
 import { checkStoragePermission as checkStoragePermissionUtil } from "../utils/storagePermission";
+import { logError } from "../services";
 
 type TabKey = "scan" | "browse";
 
@@ -164,7 +165,6 @@ export const ImportFiles: React.FC = () => {
           setBrowseStack([roots]);
           setBrowseDirStack([{ name: t('storageDevices'), path: "" }]);
         } catch (error) {
-        console.error("加载根目录失败:", error);
           alert(t('loadRootFailed'));
         } finally {
           setBrowseLoading(false);
@@ -288,7 +288,6 @@ export const ImportFiles: React.FC = () => {
             setFoundPdfCount(results.length);
             completeScan(results);
           } catch (e) {
-            console.error("SAF 扫描结果解析失败:", e);
             setScanLoading(false);
             setDrawerOpen(false);
             alert(t('scanFailed'));
@@ -300,7 +299,6 @@ export const ImportFiles: React.FC = () => {
       (window as any).__onSafTreeSelected__ = onTreeSelected;
       bridge.openDocumentTree();
     } catch (e) {
-      console.error("SAF 扫描失败:", e);
       setScanLoading(false);
       setDrawerOpen(false);
       alert(t('scanFailed'));
@@ -351,7 +349,6 @@ export const ImportFiles: React.FC = () => {
 
       completeScan(results);
     } catch (error: any) {
-      console.error("扫描失败:", error);
       const msg =
         typeof error?.message === "string" ? error.message : String(error);
       alert(`${t('scanFailed')}\n\n${msg}`);
@@ -369,7 +366,7 @@ export const ImportFiles: React.FC = () => {
     try {
       await fileSystemService.cancelScan();
     } catch (e) {
-      console.error('取消扫描失败:', e);
+      await logError('取消扫描失败', { error: String(e) });
     }
     if (progressIntervalRef.current) {
       clearInterval(progressIntervalRef.current);
@@ -416,7 +413,7 @@ export const ImportFiles: React.FC = () => {
         setBrowseDirStack((stack) => stack.slice(0, idx + 1));
       }
     } catch (error: any) {
-      console.error("导航失败:", error);
+      await logError('导航失败', { error: String(error) });
     } finally {
       setBrowseLoading(false);
     }
@@ -458,11 +455,7 @@ export const ImportFiles: React.FC = () => {
               { name: targetEntry.name, path: targetEntry.path },
             ]);
           } catch (error: any) {
-            console.error("读取目录失败:", error);
-            const msg =
-              typeof error?.message === "string" ? error.message : String(error);
-            // 这里不使用 alert 打断，因为是 URL 驱动的，可能只是打印日志
-            console.warn(`无法进入目录: ${msg}`);
+            await logError('读取目录失败', { error: String(error) });
           } finally {
             setBrowseLoading(false);
           }

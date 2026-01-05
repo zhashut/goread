@@ -1,3 +1,5 @@
+import { logError } from './index';
+
 /**
  * 应用生命周期服务
  * 统一管理前后台状态感知，兼容 Android 和 Web/Desktop 平台
@@ -85,7 +87,7 @@ class AppLifecycleService {
             try {
                 cb(this._isForeground);
             } catch (e) {
-                console.error("[AppLifecycle] Callback error:", e);
+                logError('[AppLifecycle] Callback error', { error: String(e) }).catch(() => {});
             }
         });
     }

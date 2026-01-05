@@ -14,6 +14,7 @@ import {
   RendererCapabilities,
 } from '../types';
 import { registerRenderer } from '../registry';
+import { logError } from '../../index';
 
 /** 获取 Tauri invoke 函数 */
 async function getInvoke() {
@@ -206,7 +207,7 @@ export class MarkdownRenderer implements IBookRenderer {
     try {
       await this._renderWithMdEditor(container, options);
     } catch (e) {
-      console.warn('[MarkdownRenderer] md-editor-rt not available, using fallback:', e);
+      await logError('[MarkdownRenderer] md-editor-rt not available, using fallback', { error: String(e) });
       this._renderFallback(container, options);
     }
   }

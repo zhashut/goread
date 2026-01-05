@@ -8,6 +8,7 @@
  */
 
 import { fileSystemService } from '../services/fileSystemService';
+import { logError } from '../services/index';
 
 // ============================================================================
 // 平台权限处理接口定义
@@ -60,10 +61,9 @@ class AndroidStoragePermissionHandler implements StoragePermissionHandler {
                 try {
                     const bridge = (window as any).StoragePermissionBridge;
                     const systemGranted = !!bridge.hasPermission();
-                    console.log('[Android] hasPermission:', systemGranted);
                     this.permissionCache = systemGranted;
                 } catch (e) {
-                    console.warn('[Android] hasPermission 调用失败，视为无权限', e);
+                    logError('[Android] hasPermission 调用失败，视为无权限', { error: String(e) }).catch(() => {});
                     this.permissionCache = false;
                 }
             } else {
@@ -76,7 +76,7 @@ class AndroidStoragePermissionHandler implements StoragePermissionHandler {
             this.cacheExpireTimer = setTimeout(() => { this.permissionCache = null; }, this.CACHE_EXPIRE_MS);
             return this.permissionCache ?? false;
         } catch (error) {
-            console.error('[Android] 检查存储权限失败:', error);
+            logError('[Android] 检查存储权限失败', { error: String(error) }).catch(() => {});
             return false;
         }
     }
@@ -119,7 +119,7 @@ class AndroidStoragePermissionHandler implements StoragePermissionHandler {
             const finalGranted = await this.checkPermission();
             return result && finalGranted;
         } catch (error) {
-            console.error('[Android] 请求存储权限失败:', error);
+            logError('[Android] 请求存储权限失败', { error: String(error) }).catch(() => {});
             return false;
         }
     }
@@ -147,14 +147,12 @@ class IOSStoragePermissionHandler implements StoragePermissionHandler {
     async checkPermission(): Promise<boolean> {
         // iOS 沙盒机制下，App 对沙盒内文件始终有访问权限
         // 外部文件通过 Document Picker 访问时，系统会自动处理权限
-        console.log('[iOS] 沙盒机制，无需检查存储权限');
         return true;
     }
 
     async requestPermission(): Promise<boolean> {
         // iOS 不需要主动请求存储权限
         // 文件访问通过 Document Picker 进行，系统自动处理授权
-        console.log('[iOS] 沙盒机制，无需请求存储权限');
         return true;
     }
 }
@@ -237,7 +235,7 @@ function getPermissionHandler(): StoragePermissionHandler {
         case 'desktop':
             return new DesktopStoragePermissionHandler();
         default:
-            console.warn('[Permission] 未知平台，使用 Desktop 权限处理器');
+            logError('[Permission] 未知平台，使用 Desktop 权限处理器', {}).catch(() => {});
             return new DesktopStoragePermissionHandler();
     }
 }
@@ -298,7 +296,7 @@ export async function ensureStoragePermission(options?: EnsurePermissionOptions)
         const granted = await requestStoragePermission();
         return granted;
     } catch (error) {
-        console.error('权限检查流程失败:', error);
+        logError('权限检查流程失败', { error: String(error) }).catch(() => {});
         return false;
     }
 }
@@ -337,7 +335,7 @@ export async function ensurePermissionForDeleteLocal(): Promise<{ allowed: boole
 
         return { allowed: true, downgrade: false };
     } catch (error) {
-        console.error('删除权限检查流程失败:', error);
+        logError('删除权限检查流程失败', { error: String(error) }).catch(() => {});
         return { allowed: false, downgrade: false };
     }
 }

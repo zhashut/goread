@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { IBook } from "../../../types";
-import { bookService, getReaderSettings } from "../../../services";
+import { bookService, getReaderSettings, logError } from "../../../services";
 
 /**
  * 管理书籍数据的 Hook
@@ -51,7 +51,7 @@ export const useBooksData = (query: string) => {
             // 直接使用后端返回的顺序，无需前端再排序
             setBooks(list);
         } catch (error) {
-            console.error("Failed to load books:", error);
+            await logError('加载书籍列表失败', { error: String(error) });
             setBooks([]);
         }
     }, []);

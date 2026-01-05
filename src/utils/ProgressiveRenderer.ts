@@ -3,6 +3,8 @@
  * 先渲染低分辨率版本，再渲染高分辨率版本，提升感知速度
  */
 
+import { logError } from '../services/index';
+
 export interface ProgressiveRenderOptions {
     lowScale: number;  // 低分辨率缩放比例
     highScale: number; // 高分辨率缩放比例
@@ -111,7 +113,7 @@ export class ProgressiveRenderer {
             });
 
         } catch (error) {
-            console.error('Progressive render failed:', error);
+            logError('渐进式渲染失败', { error: String(error) }).catch(() => {});
             throw error;
         }
     }

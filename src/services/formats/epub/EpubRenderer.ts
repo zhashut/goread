@@ -797,19 +797,25 @@ export class EpubRenderer implements IBookRenderer {
             
             if (index >= 0 && !this._renderedSections.has(index)) {
               // 渲染当前章节
-              this._renderSection(index, options).catch(console.error);
+                this._renderSection(index, options).catch(async (e) => {
+                  await logError('渲染章节失败', { error: String(e), sectionIndex: index });
+                });
               
               // 预加载相邻章节
               const prevIndex = index - 1;
               const nextIndex = index + 1;
               
-              if (prevIndex >= 0 && !this._renderedSections.has(prevIndex)) {
-                this._renderSection(prevIndex, options).catch(console.error);
-              }
+                if (prevIndex >= 0 && !this._renderedSections.has(prevIndex)) {
+                  this._renderSection(prevIndex, options).catch(async (e) => {
+                    await logError('渲染章节失败', { error: String(e), sectionIndex: prevIndex });
+                  });
+                }
               
-              if (nextIndex < this._sectionCount && !this._renderedSections.has(nextIndex)) {
-                this._renderSection(nextIndex, options).catch(console.error);
-              }
+                if (nextIndex < this._sectionCount && !this._renderedSections.has(nextIndex)) {
+                  this._renderSection(nextIndex, options).catch(async (e) => {
+                    await logError('渲染章节失败', { error: String(e), sectionIndex: nextIndex });
+                  });
+                }
             }
             
             // 更新当前页码（当章节进入视口时）
@@ -1132,7 +1138,7 @@ export class EpubRenderer implements IBookRenderer {
           replacements.push({ old: url, new: blobUrl });
         }
       } catch (e) {
-        // console.warn(`[EpubRenderer] 解析 CSS URL 失败: ${url}`, e);
+        logError('[EpubRenderer] 解析 CSS URL 失败', { url, error: String(e) }).catch(() => {});
       }
     }
 
@@ -1161,7 +1167,6 @@ export class EpubRenderer implements IBookRenderer {
       const resolvedUrl = await this._resolveAndLoad(src, section);
       if (resolvedUrl && resolvedUrl !== src) {
         img.setAttribute('src', resolvedUrl);
-        // console.log(`[EpubRenderer] 图片路径解析成功: ${src} -> ${resolvedUrl.substring(0, 50)}...`);
       }
     });
     

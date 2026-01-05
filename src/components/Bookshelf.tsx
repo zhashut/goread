@@ -172,7 +172,6 @@ export const Bookshelf: React.FC = () => {
         await Promise.all([loadBooks(), loadGroups()]);
       }
     } catch (error: any) {
-      console.error("删除书籍失败:", error);
       const msg =
         typeof error?.message === "string" ? error.message : String(error);
       alert(t('deleteBookFailedWithReason', { reason: msg }));
@@ -208,7 +207,6 @@ export const Bookshelf: React.FC = () => {
       }
       exitSelection();
     } catch (err) {
-      console.error("批量删除失败", err);
       alert(t('deleteFailed'));
     }
   };

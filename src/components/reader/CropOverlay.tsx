@@ -2,7 +2,7 @@ import React, { useState, useRef } from "react";
 import { useTranslation } from 'react-i18next';
 import { save } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
-import { log } from "../../services";
+import { log, logError } from "../../services";
 import { CropRect, InteractionType, ResizeHandle } from "./types";
 import { getSafeAreaInsets } from "../../utils/layout";
 
@@ -120,8 +120,7 @@ export const CropOverlay: React.FC<CropOverlayProps> = ({
         else msg = JSON.stringify(e);
         onSaveError(msg);
       } else {
-        // 即使没有提供错误回调，也不要弹出 alert，避免打断用户体验
-        console.error("Save failed:", e);
+        await logError('保存截图失败', { error: String(e) });
       }
     } finally {
       // 无论保存成功与否（包括用户取消），都退出裁切视图

@@ -15,6 +15,7 @@ import {
   RendererCapabilities,
 } from '../types';
 import { registerRenderer } from '../registry';
+import { logError } from '../../index';
 
 /** 获取 Tauri invoke 函数 */
 async function getInvoke() {
@@ -111,7 +112,7 @@ export class PdfRenderer implements IBookRenderer {
         }];
       }
     } catch (e) {
-      console.warn('[PdfRenderer] 加载目录失败:', e);
+      await logError('[PdfRenderer] 加载目录失败', { error: String(e), filePath: this._filePath });
       this._toc = [];
     }
   }

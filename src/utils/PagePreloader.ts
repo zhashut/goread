@@ -3,6 +3,8 @@
  * 智能预加载相邻页面，提升翻页体验
  */
 
+import { logError } from '../services';
+
 export interface PreloadTask {
     pageNumber: number;
     priority: number; // 优先级：数字越小优先级越高
@@ -130,8 +132,8 @@ export class PagePreloader {
 
                 // 异步执行渲染
                 renderFunction(task.pageNumber, task.scale)
-                    .catch(error => {
-                        console.warn(`Preload page ${task.pageNumber} failed:`, error);
+                    .catch(async (error) => {
+                        await logError(`Preload page ${task.pageNumber} failed`, { error: String(error), pageNumber: task.pageNumber });
                     })
                     .finally(() => {
                         this.currentTasks.delete(task.pageNumber);

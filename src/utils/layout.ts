@@ -30,7 +30,6 @@ export const initSafeAreaInsets = () => {
     if ((!currentTop || currentTop === '0px') && window.__SAFE_AREA_INSETS__) {
       root.style.setProperty('--safe-area-inset-top', `${window.__SAFE_AREA_INSETS__.top}px`);
       root.style.setProperty('--safe-area-inset-bottom', `${window.__SAFE_AREA_INSETS__.bottom}px`);
-      console.log('[SafeArea] Applied from window object:', window.__SAFE_AREA_INSETS__);
     }
   };
   
