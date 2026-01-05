@@ -670,6 +670,42 @@ class MainActivity : TauriActivity() {
     return name.replace(Regex("[\\\\/:*?\"<>|]"), "_")
   }
 
+  // 应用生命周期：通知前端应用进入后台
+  override fun onPause() {
+    super.onPause()
+    notifyAppPause()
+  }
+  
+  // 应用生命周期：通知前端应用恢复前台
+  override fun onResume() {
+    super.onResume()
+    notifyAppResume()
+  }
+  
+  private fun notifyAppPause() {
+    webViewRef?.post {
+      val js = """
+        (function() {
+          window.dispatchEvent(new CustomEvent('goread:app-pause'));
+          console.log('[Lifecycle] App paused');
+        })();
+      """.trimIndent()
+      webViewRef?.evaluateJavascript(js, null)
+    }
+  }
+  
+  private fun notifyAppResume() {
+    webViewRef?.post {
+      val js = """
+        (function() {
+          window.dispatchEvent(new CustomEvent('goread:app-resume'));
+          console.log('[Lifecycle] App resumed');
+        })();
+      """.trimIndent()
+      webViewRef?.evaluateJavascript(js, null)
+    }
+  }
+  
   private fun requestStoragePermissions() {
     // 已有权限则直接返回
     if (checkStoragePermissionInternal()) {
