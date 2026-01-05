@@ -199,6 +199,7 @@ pub fn run() {
             pdf_clear_cache,
             pdf_close_document,
             pdf_get_cache_stats,
+            pdf_set_cache_expiry,
             pdf_warmup_cache,
             pdf_get_performance_metrics,
             pdf_get_performance_report,

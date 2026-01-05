@@ -12,6 +12,12 @@
   "scrollSpeed": "滚动速度",
   "pageGap": "页面间隙",
   "unlimited": "不限",
+  "cacheExpiry": {
+    "label": "缓存有效期",
+    "unlimitedHint": "不限表示不按时间自动清理，缓存仍受大小上限限制（约 100MB）",
+    "days": "{{count}} 天",
+    "updateSuccess": "配置更新完成"
+  },
   "theme": {
     "label": "阅读主题",
     "light": "亮色",

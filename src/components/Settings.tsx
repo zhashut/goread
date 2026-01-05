@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { getReaderSettings, saveReaderSettings, ReaderSettings, bookService } from "../services";
+import { cacheConfigService } from "../services/cacheConfigService";
 import type { ReaderTheme } from "../services";
 import { useAppNav } from "../router/useAppNav";
 import { supportedLanguages, changeLanguage } from "../locales";
@@ -28,11 +29,14 @@ import { CustomSelect } from "./CustomSelect";
 import { PageHeader } from "./PageHeader";
 import { exportAppData, importAppData } from "../services/dataBackupService";
 import { Toast } from "./Toast";
+import { IconInfo } from "./Icons";
 
 export const Settings: React.FC = () => {
   const { t, i18n } = useTranslation('settings');
   const [settings, setSettings] = useState<ReaderSettings>(getReaderSettings());
   const [toastMessage, setToastMessage] = useState("");
+  const [showCacheHint, setShowCacheHint] = useState(false);
+  const isFirstRender = useRef(true);
 
   const nav = useAppNav();
 
@@ -65,7 +69,22 @@ export const Settings: React.FC = () => {
     return () => clearTimeout(id);
   }, [settings]);
 
-  const Row: React.FC<{ label: string; right?: React.ReactNode }> = ({
+  // 缓存有效期变更时同步到后端
+  useEffect(() => {
+    // 跳过首次渲染，避免初始化时显示 Toast
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    const days = typeof settings.cacheExpiryDays === "number" ? settings.cacheExpiryDays : 0;
+    cacheConfigService.setCacheExpiry(days).then((success) => {
+      if (success) {
+        setToastMessage(t('cacheExpiry.updateSuccess'));
+      }
+    });
+  }, [settings.cacheExpiryDays, t]);
+
+  const Row: React.FC<{ label: string | React.ReactNode; right?: React.ReactNode }> = ({
     label,
     right,
   }) => (
@@ -78,7 +97,7 @@ export const Settings: React.FC = () => {
         borderBottom: "1px solid #eee",
       }}
     >
-      <div style={{ color: "#333", fontSize: "15px" }}>{label}</div>
+      <div style={{ color: "#333", fontSize: "15px", display: "flex", alignItems: "center" }}>{label}</div>
       <div>{right}</div>
     </div>
   );
@@ -93,6 +112,22 @@ export const Settings: React.FC = () => {
         paddingBottom: getSafeAreaInsets().bottom,
       }}
     >
+      {/* Tooltip Backdrop */}
+      {showCacheHint && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 998,
+            backgroundColor: "transparent",
+          }}
+          onClick={() => setShowCacheHint(false)}
+        />
+      )}
+      
       <PageHeader
         title={t('title')}
         onBack={goBack}
@@ -208,7 +243,7 @@ export const Settings: React.FC = () => {
                   }));
                   bookService.resetAllBookThemes().catch(() => { });
                 }}
-                style={{ minWidth: 120 }}
+                style={{ minWidth: 100 }}
               />
               <button
                 style={{
@@ -246,6 +281,91 @@ export const Settings: React.FC = () => {
                 label: lang.label,
               }))}
               onChange={handleLanguageChange}
+              style={{ minWidth: 100 }}
+            />
+          }
+        />
+
+        <Row
+          label={
+            <div style={{ display: "flex", alignItems: "center", position: "relative" }}>
+              {t('cacheExpiry.label')}
+              <div
+                style={{
+                  width: 20,
+                  height: 20,
+                  marginLeft: 6,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#999",
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowCacheHint(!showCacheHint);
+                }}
+              >
+                <IconInfo width="16" height="16" fill="currentColor" />
+              </div>
+              
+              {/* Tooltip */}
+              {showCacheHint && (
+                <div
+                  style={{
+                    position: "absolute",
+                    bottom: "100%",
+                    left: "50%",
+                    transform: "translateX(-20%)",
+                    marginBottom: 10,
+                    padding: "8px 12px",
+                    backgroundColor: "rgba(0, 0, 0, 0.8)",
+                    color: "#fff",
+                    fontSize: "12px",
+                    borderRadius: "6px",
+                    zIndex: 999,
+                    width: "max-content",
+                    maxWidth: "200px",
+                    lineHeight: 1.4,
+                    boxShadow: "0 2px 10px rgba(0,0,0,0.2)",
+                    whiteSpace: "normal",
+                  }}
+                  onClick={(e) => e.stopPropagation()} // 防止点击 tooltip 自身关闭
+                >
+                  {t('cacheExpiry.unlimitedHint')}
+                  {/* Arrow */}
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "100%",
+                      left: "20%",
+                      marginLeft: "-5px",
+                      borderWidth: "5px",
+                      borderStyle: "solid",
+                      borderColor: "rgba(0, 0, 0, 0.8) transparent transparent transparent",
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+          }
+          right={
+            <CustomSelect
+              value={typeof settings.cacheExpiryDays === "number" ? settings.cacheExpiryDays : 0}
+              options={[
+                { value: 0, label: t('unlimited') },
+                { value: 1, label: t('cacheExpiry.days', { count: 1 }) },
+                { value: 3, label: t('cacheExpiry.days', { count: 3 }) },
+                { value: 7, label: t('cacheExpiry.days', { count: 7 }) },
+                { value: 15, label: t('cacheExpiry.days', { count: 15 }) },
+                { value: 30, label: t('cacheExpiry.days', { count: 30 }) },
+              ]}
+              onChange={(val) =>
+                setSettings((s) => ({
+                  ...s,
+                  cacheExpiryDays: Number(val),
+                }))
+              }
               style={{ minWidth: 100 }}
             />
           }

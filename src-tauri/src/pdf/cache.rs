@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::RwLock;
 use moka::future::Cache as MokaCache;
 use crate::formats::{BookRenderCache, BoxFuture};
@@ -8,13 +9,17 @@ use crate::pdf::types::{CacheKey, RenderResult, PdfError};
 
 const DEFAULT_MAX_CACHE_SIZE: usize = 100 * 1024 * 1024; // 100MB（按权重表示字节数）
 const DEFAULT_MAX_CACHE_ITEMS: usize = 50; // 仅用于统计展示
-const DEFAULT_CACHE_TIME_TO_IDLE_SECS: u64 = 24 * 60 * 60; // 一天内完全没有访问的页面会逐步被 Moka 清理
+const DEFAULT_CACHE_TIME_TO_IDLE_SECS: u64 = 24 * 60 * 60; // 一天内未访问的页面按默认策略过期
 
 pub struct CacheManager {
     cache: MokaCache<CacheKey, RenderResult>,
     sizes: Arc<RwLock<HashMap<CacheKey, usize>>>,
+    // 记录每个缓存项的最后访问时间，实现自定义空闲过期策略
+    access_times: Arc<RwLock<HashMap<CacheKey, Instant>>>,
     max_size: usize,
     max_items: usize,
+    // 逻辑空闲过期时间（秒），0 表示不限时间，仅按容量淘汰
+    time_to_idle_secs: Arc<AtomicU64>,
 }
 
 impl CacheManager {
@@ -26,25 +31,54 @@ impl CacheManager {
         let cache = MokaCache::builder()
             .weigher(|_k: &CacheKey, v: &RenderResult| v.image_data.len() as u32)
             .max_capacity(max_size as u64)
-            .time_to_idle(Duration::from_secs(DEFAULT_CACHE_TIME_TO_IDLE_SECS))
             .build();
         Self {
             cache,
             sizes: Arc::new(RwLock::new(HashMap::new())),
             max_size,
             max_items,
+            access_times: Arc::new(RwLock::new(HashMap::new())),
+            time_to_idle_secs: Arc::new(AtomicU64::new(DEFAULT_CACHE_TIME_TO_IDLE_SECS)),
         }
     }
 
     pub async fn get(&self, key: &CacheKey) -> Option<RenderResult> {
-        self.cache.get(key).await
+        // 先检查逻辑空闲过期时间
+        let ttl_secs = self.time_to_idle_secs.load(Ordering::Relaxed);
+        if ttl_secs > 0 {
+            let expired = {
+                let times = self.access_times.read().await;
+                if let Some(last) = times.get(key) {
+                    last.elapsed().as_secs() > ttl_secs
+                } else {
+                    false
+                }
+            };
+            if expired {
+                // 过期时同步移除缓存记录
+                let _ = self.remove(key).await;
+                return None;
+            }
+        }
+
+        let result = self.cache.get(key).await;
+        if result.is_some() && ttl_secs > 0 {
+            let mut times = self.access_times.write().await;
+            times.insert(key.clone(), Instant::now());
+        }
+        result
     }
 
     pub async fn put(&self, key: CacheKey, data: RenderResult) -> Result<(), PdfError> {
         let size = data.image_data.len();
         self.cache.insert(key.clone(), data).await;
         let mut sizes = self.sizes.write().await;
-        sizes.insert(key, size);
+        sizes.insert(key.clone(), size);
+        let ttl_secs = self.time_to_idle_secs.load(Ordering::Relaxed);
+        if ttl_secs > 0 {
+            let mut times = self.access_times.write().await;
+            times.insert(key, Instant::now());
+        }
         Ok(())
     }
 
@@ -53,6 +87,8 @@ impl CacheManager {
         self.cache.invalidate(key).await;
         let mut sizes = self.sizes.write().await;
         sizes.remove(key);
+        let mut times = self.access_times.write().await;
+        times.remove(key);
         val
     }
 
@@ -60,6 +96,8 @@ impl CacheManager {
         self.cache.invalidate_all();
         let mut sizes = self.sizes.write().await;
         sizes.clear();
+        let mut times = self.access_times.write().await;
+        times.clear();
     }
 
     pub async fn clear_page(&self, file_path: &str, page_number: u32) {
@@ -71,7 +109,13 @@ impl CacheManager {
             self.cache.invalidate(k).await;
         }
         let mut sizes = self.sizes.write().await;
-        for k in keys { sizes.remove(&k); }
+        for k in keys.iter() {
+            sizes.remove(k);
+        }
+        let mut times = self.access_times.write().await;
+        for k in keys {
+            times.remove(&k);
+        }
     }
 
     pub async fn get_stats(&self) -> CacheStats {
@@ -99,13 +143,17 @@ impl CacheManager {
         pages
     }
 
+    /// 动态更新逻辑空闲过期时间（秒），0 表示不限时间
+    pub fn set_time_to_idle_secs(&self, secs: u64) {
+        self.time_to_idle_secs.store(secs, Ordering::Relaxed);
+    }
+
     pub fn set_max_size(&mut self, max_size: usize) {
         self.max_size = max_size;
         // 重新构建缓存容量（注意：这会丢失内部策略状态，但不影响功能）
         let new = MokaCache::builder()
             .weigher(|_k: &CacheKey, v: &RenderResult| v.image_data.len() as u32)
             .max_capacity(max_size as u64)
-            .time_to_idle(Duration::from_secs(DEFAULT_CACHE_TIME_TO_IDLE_SECS))
             .build();
         // 将旧缓存中可见的键值迁移（通过 sizes 表）
         let sizes = futures::executor::block_on(self.sizes.read());
@@ -128,8 +176,10 @@ impl Clone for CacheManager {
         Self {
             cache: self.cache.clone(),
             sizes: Arc::clone(&self.sizes),
+            access_times: Arc::clone(&self.access_times),
             max_size: self.max_size,
             max_items: self.max_items,
+            time_to_idle_secs: Arc::clone(&self.time_to_idle_secs),
         }
     }
 }

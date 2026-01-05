@@ -345,6 +345,23 @@ pub async fn pdf_get_cache_stats(
     }))
 }
 
+/// 设置 PDF 缓存空闲过期时间（天）
+#[tauri::command]
+pub async fn pdf_set_cache_expiry(
+    days: u32,
+    manager: State<'_, PdfManagerState>,
+) -> Result<bool, String> {
+    let secs: u64 = if days == 0 {
+        0
+    } else {
+        (days as u64).saturating_mul(24 * 60 * 60)
+    };
+    let manager = manager.lock().await;
+    let cache_manager = manager.get_cache_manager();
+    cache_manager.set_time_to_idle_secs(secs);
+    Ok(true)
+}
+
 /// 缓存预热
 #[tauri::command]
 pub async fn pdf_warmup_cache(

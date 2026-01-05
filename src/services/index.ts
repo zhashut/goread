@@ -271,6 +271,7 @@ export type ReaderSettings = {
   renderQuality?: string;
   language?: 'zh' | 'en';
   theme?: ReaderTheme;
+  cacheExpiryDays?: number;
 };
 
 const SETTINGS_KEY = 'reader_settings_v1';
