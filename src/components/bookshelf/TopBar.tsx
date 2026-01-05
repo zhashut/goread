@@ -3,7 +3,9 @@ import React, {
   useRef,
   useLayoutEffect,
   useEffect,
+  useCallback,
 } from "react";
+import { useOverlayBackHandler } from "../../hooks/useOverlayBackHandler";
 import { useTranslation } from "react-i18next";
 import {
   TOP_BAR_ICON_SIZE,
@@ -96,6 +98,17 @@ export const TopBar: React.FC<TopBarProps> = (props) => {
   });
   const menuRef = useRef<HTMLDivElement | null>(null);
   const menuBtnRef = useRef<HTMLButtonElement | null>(null);
+
+  // 处理侧滑返回关闭菜单
+  const handleMenuClose = useCallback(() => {
+    setMenuOpen(false);
+  }, []);
+
+  const { closeForNavigation } = useOverlayBackHandler({
+    overlayId: "bookshelf-menu",
+    isOpen: menuOpen,
+    onClose: handleMenuClose,
+  });
 
   useEffect(() => {
     onMenuOpenChange?.(menuOpen);
@@ -420,7 +433,7 @@ export const TopBar: React.FC<TopBarProps> = (props) => {
           >
             <MenuButton
               onClick={() => {
-                setMenuOpen(false);
+                closeForNavigation();
                 onMenuAction?.("import");
               }}
               icon={
@@ -445,7 +458,7 @@ export const TopBar: React.FC<TopBarProps> = (props) => {
             />
             <MenuButton
               onClick={() => {
-                setMenuOpen(false);
+                closeForNavigation();
                 onMenuAction?.("statistics");
               }}
               icon={
@@ -493,7 +506,7 @@ export const TopBar: React.FC<TopBarProps> = (props) => {
             />
             <MenuButton
               onClick={() => {
-                setMenuOpen(false);
+                closeForNavigation();
                 onMenuAction?.("settings");
               }}
               icon={
@@ -517,7 +530,7 @@ export const TopBar: React.FC<TopBarProps> = (props) => {
             />
             <MenuButton
               onClick={() => {
-                setMenuOpen(false);
+                closeForNavigation();
                 onMenuAction?.("about");
               }}
               icon={

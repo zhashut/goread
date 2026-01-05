@@ -250,15 +250,15 @@ export const Bookshelf: React.FC = () => {
           if (action === "import") {
             const ok = await ensurePermissionForImport();
             if (ok) {
-              nav.toImport({ fromTab: activeTab, initialTab: "scan" });
+              nav.toImport({ fromTab: activeTab, initialTab: "scan", fromMenu: true }, { replace: true });
             } else {
               // 权限被拒绝，停留在书架页并提示
               setToastMsg(t('importNeedPermission'));
             }
           }
-          else if (action === "settings") nav.toSettings({ fromTab: activeTab });
-          else if (action === "statistics") nav.toStatistics({ fromTab: activeTab });
-          else if (action === "about") nav.toAbout();
+          else if (action === "settings") nav.toSettings({ fromTab: activeTab, fromMenu: true }, { replace: true });
+          else if (action === "statistics") nav.toStatistics({ fromTab: activeTab, fromMenu: true }, { replace: true });
+          else if (action === "about") nav.toAbout({ fromMenu: true }, { replace: true });
         }}
         onMenuOpenChange={setMenuOpen}
         selectedCount={selectedCount}

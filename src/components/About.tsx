@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppNav } from '../router/useAppNav';
 import { getSafeAreaInsets } from '../utils/layout';
 import { PageHeader } from './PageHeader';
 import { getVersion } from '@tauri-apps/api/app';
 import { openUrl } from '@tauri-apps/plugin-opener';
+import { useOverlayBackHandler } from '../hooks/useOverlayBackHandler';
 
 interface LibraryInfo {
   name: string;
@@ -65,6 +66,17 @@ export const About: React.FC = () => {
   const safeArea = getSafeAreaInsets();
   const [version, setVersion] = useState<string>('0.1.0');
   const [donateModalVisible, setDonateModalVisible] = useState(false);
+
+  // 处理侧滑返回关闭捐赠弹窗
+  const handleCloseDonate = useCallback(() => {
+    setDonateModalVisible(false);
+  }, []);
+
+  useOverlayBackHandler({
+    overlayId: "donate-modal",
+    isOpen: donateModalVisible,
+    onClose: handleCloseDonate,
+  });
 
   useEffect(() => {
     getVersion()
@@ -344,7 +356,7 @@ export const About: React.FC = () => {
           style={styles.modal}
           onClick={(e) => {
             if (e.target === e.currentTarget) {
-              setDonateModalVisible(false);
+              handleCloseDonate();
             }
           }}
         >

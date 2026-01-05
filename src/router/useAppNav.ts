@@ -19,24 +19,29 @@ export const useAppNav = () => {
       const routerIdx = historyState?.idx;
       const { replace, state, resetStack } = options || {};
 
+      // 检查是否是从菜单进入的（原生 pushState 导致 idx 未更新）
+      const locationState = location.state as any;
+      const extraBack = locationState?.fromMenu ? 1 : 0;
+      const effectiveIdx = (typeof routerIdx === 'number' ? routerIdx : 0) + extraBack;
+
       if (resetStack) {
-        if (typeof routerIdx === 'number' && routerIdx > 0) {
+        if (effectiveIdx > 0) {
           sessionStorage.setItem('bookshelf_active_tab', tab);
-          navigate(-routerIdx);
+          navigate(-effectiveIdx);
           return;
         }
         navigate(`/?tab=${tab}`, { replace: true, state });
         return;
       }
 
-      if (isAtRoot) {
+      if (isAtRoot && effectiveIdx === 0) {
         navigate(`/?tab=${tab}`, { replace: typeof replace === 'boolean' ? replace : true, state });
         return;
       }
 
-      if (typeof routerIdx === 'number' && routerIdx > 0) {
+      if (effectiveIdx > 0) {
         sessionStorage.setItem('bookshelf_active_tab', tab);
-        navigate(-routerIdx);
+        navigate(-effectiveIdx);
       } else {
         navigate(`/?tab=${tab}`, { replace: typeof replace === 'boolean' ? replace : true, state });
       }
@@ -61,11 +66,11 @@ export const useAppNav = () => {
       }
     },
 
-    toSettings: (state?: any) => navigate('/settings', { state }),
+    toSettings: (state?: any, options?: { replace?: boolean }) => navigate('/settings', { state, ...options }),
     toSearch: () => navigate('/search'),
-    toImport: (state?: any) => navigate('/import', { state }),
-    toStatistics: (state?: any) => navigate('/statistics', { state }),
-    toAbout: (state?: any) => navigate('/about', { state }),
+    toImport: (state?: any, options?: { replace?: boolean }) => navigate('/import', { state, ...options }),
+    toStatistics: (state?: any, options?: { replace?: boolean }) => navigate('/statistics', { state, ...options }),
+    toAbout: (state?: any, options?: { replace?: boolean }) => navigate('/about', { state, ...options }),
     toImportResults: (state: any, options?: { replace?: boolean }) => navigate('/import/results', { state, ...options }),
     
     /**
@@ -76,7 +81,12 @@ export const useAppNav = () => {
       const historyState = window.history.state as { idx?: number } | null | undefined;
       const routerIdx = historyState?.idx;
       
-      if (typeof routerIdx === 'number' && routerIdx > 0) {
+      // 检查是否是从菜单进入的（原生 pushState 导致 idx 未更新）
+      const locationState = location.state as any;
+      const extraBack = locationState?.fromMenu ? 1 : 0;
+      const effectiveIdx = (typeof routerIdx === 'number' ? routerIdx : 0) + extraBack;
+      
+      if (effectiveIdx > 0) {
         // 监听 popstate 事件，在回退完成后替换 URL 确保正确定位
         const handlePopState = () => {
           window.removeEventListener('popstate', handlePopState);
@@ -87,7 +97,7 @@ export const useAppNav = () => {
         };
         window.addEventListener('popstate', handlePopState);
         // 回退到历史栈底部
-        window.history.go(-routerIdx);
+        window.history.go(-effectiveIdx);
       } else {
         // 无历史记录可回退，直接替换
         navigate(`/?tab=all`, { replace: true });

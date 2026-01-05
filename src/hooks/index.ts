@@ -5,3 +5,4 @@ export { useImportGrouping } from "./useImportGrouping";
 export { useSearchOverlay } from "./useSearchOverlay";
 export { useSelectAll } from "./useSelectAll";
 export { useExternalFileOpen } from "./useExternalFileOpen";
+export { useOverlayBackHandler } from "./useOverlayBackHandler";

@@ -237,7 +237,12 @@ export const ImportFiles: React.FC = () => {
     // foundPdfCount 已经在 startScan 中更新，这里不需要再次设置
     setActiveTab("scan");
    // 跳转到结果页并传递数据
-    nav.toImportResults({ results: mapped, fromTab: (nav.location.state as any)?.fromTab });
+    const currentState = nav.location.state as any;
+    nav.toImportResults({ 
+      results: mapped, 
+      fromTab: currentState?.fromTab,
+      fromMenu: currentState?.fromMenu 
+    });
   };
 
   const startSafScan = async () => {
