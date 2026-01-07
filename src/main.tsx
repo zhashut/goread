@@ -4,8 +4,9 @@ import App from "./App";
 import { initSafeAreaInsets } from "./utils/layout";
 import { statusBarService } from "./services/statusBarService";
 import { volumeKeyService } from "./services/volumeKeyService";
-import i18n, { getSystemLanguage } from "./locales";
-import { getReaderSettings } from "./services";
+import i18n from "./locales";
+import { getReaderSettings, ReaderSettings } from "./services";
+import { getSystemAppLanguage, AppLanguage } from "./services/systemLanguageService";
 
 // 抑制 ResizeObserver loop 错误（常见的浏览器警告，不影响功能）
 const resizeObserverErr = (e: ErrorEvent) => {
@@ -18,18 +19,29 @@ window.addEventListener('error', resizeObserverErr);
 // 提前初始化安全区域（在 React 渲染之前）
 initSafeAreaInsets();
 
+/**
+ * 解析初始语言设置
+ * - 用户显式选择 zh/en：直接使用
+ * - 用户选择 system 或未设置：跟随系统语言
+ */
+async function resolveInitialLanguage(settings: ReaderSettings): Promise<AppLanguage> {
+  // 情况 1：用户显式选择了 zh/en
+  if (settings.language === 'zh' || settings.language === 'en') {
+    return settings.language;
+  }
+
+  // 情况 2：system 或未设置 => 跟随系统
+  const sysLang = await getSystemAppLanguage();
+  return sysLang;
+}
+
 // 等待Tauri API加载
 const setupApp = async () => {
   try {
-    // 初始化语言设置：优先使用用户设置，否则使用系统语言
+    // 初始化语言设置：优先使用用户设置，否则跟随系统语言
     const settings = getReaderSettings();
-    if (settings.language) {
-      i18n.changeLanguage(settings.language);
-    } else {
-      // 首次使用，检测系统语言
-      const systemLang = getSystemLanguage();
-      i18n.changeLanguage(systemLang);
-    }
+    const initialLang = await resolveInitialLanguage(settings);
+    await i18n.changeLanguage(initialLang);
 
     // 动态导入Tauri API
     await import('@tauri-apps/api/core');

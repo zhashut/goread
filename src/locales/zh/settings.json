@@ -6,6 +6,7 @@
   "recentDisplayCount": "最近显示数量",
   "renderQuality": "书籍渲染质量",
   "language": "多语言 (Language)",
+  "languageFollowSystem": "跟随系统",
   "dataManagement": "数据管理",
   "export": "导出",
   "import": "导入",

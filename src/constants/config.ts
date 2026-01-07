@@ -43,6 +43,7 @@ export const DEFAULT_SETTINGS = {
   renderQuality: DEFAULT_RENDER_QUALITY,
   theme: 'light' as const,
   cacheExpiryDays: 0 as const,
+  language: 'system' as const,
 };
 
 // 阅读器自动翻页/滚动配置

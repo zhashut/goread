@@ -1,10 +1,11 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { getReaderSettings, saveReaderSettings, ReaderSettings, bookService } from "../services";
+import { getReaderSettings, saveReaderSettings, ReaderSettings, LanguageSetting, bookService } from "../services";
 import { cacheConfigService } from "../services/cacheConfigService";
 import type { ReaderTheme } from "../services";
 import { useAppNav } from "../router/useAppNav";
 import { supportedLanguages, changeLanguage } from "../locales";
+import { getSystemAppLanguage } from "../services/systemLanguageService";
 // 注意：此处特意不导入 statusBarService
 // 状态栏控制应仅在阅读页进行，而非设置页
 import {
@@ -32,7 +33,7 @@ import { Toast } from "./Toast";
 import { IconInfo } from "./Icons";
 
 export const Settings: React.FC = () => {
-  const { t, i18n } = useTranslation('settings');
+  const { t } = useTranslation('settings');
   const [settings, setSettings] = useState<ReaderSettings>(getReaderSettings());
   const [toastMessage, setToastMessage] = useState("");
   const [showCacheHint, setShowCacheHint] = useState(false);
@@ -45,10 +46,19 @@ export const Settings: React.FC = () => {
   };
 
   // 处理语言切换
-  const handleLanguageChange = (lng: string | number) => {
-    const langCode = String(lng) as 'zh' | 'en';
-    changeLanguage(langCode);
-    setSettings((s) => ({ ...s, language: langCode }));
+  const handleLanguageChange = async (lng: string | number) => {
+    const value = String(lng) as LanguageSetting;
+
+    if (value === 'system') {
+      // 跟随系统：实时解析一次当前系统语言，并设置 i18n
+      const appLang = await getSystemAppLanguage();
+      await changeLanguage(appLang);
+      setSettings((s) => ({ ...s, language: 'system' }));
+    } else {
+      // 显式选择 zh/en
+      await changeLanguage(value as 'zh' | 'en');
+      setSettings((s) => ({ ...s, language: value as 'zh' | 'en' }));
+    }
   };
 
   // 获取渲染质量选项（根据当前语言）
@@ -70,19 +80,26 @@ export const Settings: React.FC = () => {
   }, [settings]);
 
   // 缓存有效期变更时同步到后端
+  const initialCacheExpiryDays = useRef(settings.cacheExpiryDays);
   useEffect(() => {
     // 跳过首次渲染，避免初始化时显示 Toast
     if (isFirstRender.current) {
       isFirstRender.current = false;
       return;
     }
+    // 只有当值实际发生变化时才同步到后端
+    if (settings.cacheExpiryDays === initialCacheExpiryDays.current) {
+      return;
+    }
+    initialCacheExpiryDays.current = settings.cacheExpiryDays;
     const days = typeof settings.cacheExpiryDays === "number" ? settings.cacheExpiryDays : 0;
     cacheConfigService.setCacheExpiry(days).then((success) => {
       if (success) {
         setToastMessage(t('cacheExpiry.updateSuccess'));
       }
     });
-  }, [settings.cacheExpiryDays, t]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings.cacheExpiryDays]);
 
   const Row: React.FC<{ label: string | React.ReactNode; right?: React.ReactNode }> = ({
     label,
@@ -274,11 +291,14 @@ export const Settings: React.FC = () => {
           label={t('language')}
           right={
             <CustomSelect
-              value={settings.language || i18n.language}
-              options={supportedLanguages.map((lang) => ({
-                value: lang.code,
-                label: lang.label,
-              }))}
+              value={settings.language || 'system'}
+              options={[
+                { value: 'system', label: t('languageFollowSystem') },
+                ...supportedLanguages.map((lang) => ({
+                  value: lang.code,
+                  label: lang.label,
+                })),
+              ]}
               onChange={handleLanguageChange}
             />
           }

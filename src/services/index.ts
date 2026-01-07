@@ -260,6 +260,8 @@ export const logError = async (message: string, context?: any) => {
 };
 
 // --------------- 阅读器设置持久化 ---------------
+export type LanguageSetting = 'zh' | 'en' | 'system';
+
 export type ReaderSettings = {
   volumeKeyTurnPage: boolean;
   clickTurnPage: boolean;
@@ -269,7 +271,7 @@ export type ReaderSettings = {
   pageGap: number;
   readingMode?: 'horizontal' | 'vertical';
   renderQuality?: string;
-  language?: 'zh' | 'en';
+  language?: LanguageSetting;
   theme?: ReaderTheme;
   cacheExpiryDays?: number;
 };
