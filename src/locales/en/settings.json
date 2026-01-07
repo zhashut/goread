@@ -14,7 +14,7 @@
   "unlimited": "Unlimited",
   "cacheExpiry": {
     "label": "Cache Expiration",
-    "unlimitedHint": "Unlimited means no time-based expiration. Cache is still bounded by size (~100MB).",
+    "unlimitedHint": "Cache never expires. Limit ~100MB, least-used chapter cache evicted when exceeded.",
     "days": "{{count}} day",
     "days_plural": "{{count}} days",
     "updateSuccess": "Settings updated"

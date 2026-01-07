@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import { SELECT_MIN_WIDTH } from "../constants/ui";
 
 interface Option {
   value: string | number;
@@ -45,7 +46,7 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
       ref={containerRef}
       style={{
         position: "relative",
-        minWidth: "80px",
+        minWidth: SELECT_MIN_WIDTH,
         ...style,
       }}
     >

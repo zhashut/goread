@@ -67,3 +67,6 @@ export const SETTINGS_BUTTON_PADDING = "6px 16px";
 export const SETTINGS_BUTTON_FONT_SIZE = 13;
 export const SETTINGS_BUTTON_RADIUS = 20;
 export const SETTINGS_BUTTON_FONT_WEIGHT = 500;
+
+// 下拉菜单配置（统一所有下拉选择器的尺寸）
+export const SELECT_MIN_WIDTH = 100; // 下拉菜单最小宽度（px）

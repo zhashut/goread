@@ -14,7 +14,7 @@
   "unlimited": "不限",
   "cacheExpiry": {
     "label": "缓存有效期",
-    "unlimitedHint": "不限表示不按时间自动清理，缓存仍受大小上限限制（约 100MB）",
+    "unlimitedHint": "缓存不会过期，上限约 100MB，超出后自动淘汰最少使用的章节缓存",
     "days": "{{count}} 天",
     "updateSuccess": "配置更新完成"
   },
@@ -26,10 +26,10 @@
     "resetSuccess": "重置成功"
   },
   "quality": {
-    "thumbnail": "极速(Thumbnail)",
-    "standard": "标准(Standard)",
-    "high": "高清(High)",
-    "best": "超清(Best)"
+    "thumbnail": "极速",
+    "standard": "标准",
+    "high": "高清",
+    "best": "超清"
   },
   "backup": {
     "dialogNotSupportedSave": "当前环境不支持文件保存对话框",

@@ -193,11 +193,11 @@ export const Settings: React.FC = () => {
             <CustomSelect
               value={settings.recentDisplayCount}
               options={[
+                { value: RECENT_DISPLAY_COUNT_UNLIMITED, label: t('unlimited') },
                 ...RECENT_DISPLAY_COUNT_OPTIONS.map((n) => ({
                   value: n,
                   label: n,
                 })),
-                { value: RECENT_DISPLAY_COUNT_UNLIMITED, label: t('unlimited') },
               ]}
               onChange={(val) =>
                 setSettings((s) => ({
@@ -243,7 +243,6 @@ export const Settings: React.FC = () => {
                   }));
                   bookService.resetAllBookThemes().catch(() => { });
                 }}
-                style={{ minWidth: 100 }}
               />
               <button
                 style={{
@@ -281,7 +280,6 @@ export const Settings: React.FC = () => {
                 label: lang.label,
               }))}
               onChange={handleLanguageChange}
-              style={{ minWidth: 100 }}
             />
           }
         />
@@ -290,24 +288,26 @@ export const Settings: React.FC = () => {
           label={
             <div style={{ display: "flex", alignItems: "center", position: "relative" }}>
               {t('cacheExpiry.label')}
-              <div
-                style={{
-                  width: 20,
-                  height: 20,
-                  marginLeft: 6,
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  color: "#999",
-                }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowCacheHint(!showCacheHint);
-                }}
-              >
-                <IconInfo width="16" height="16" fill="currentColor" />
-              </div>
+              {(typeof settings.cacheExpiryDays === "number" ? settings.cacheExpiryDays : 0) === 0 && (
+                <div
+                  style={{
+                    width: 20,
+                    height: 20,
+                    marginLeft: 6,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "#999",
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowCacheHint(!showCacheHint);
+                  }}
+                >
+                  <IconInfo width="16" height="16" fill="currentColor" />
+                </div>
+              )}
               
               {/* Tooltip */}
               {showCacheHint && (
@@ -366,7 +366,6 @@ export const Settings: React.FC = () => {
                   cacheExpiryDays: Number(val),
                 }))
               }
-              style={{ minWidth: 100 }}
             />
           }
         />
