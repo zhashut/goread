@@ -376,6 +376,3 @@ export class TauriStatsService implements IStatsService {
 
 // 统计服务实例
 export const statsService = new TauriStatsService();
-
-// 应用生命周期服务
-export { appLifecycleService } from './appLifecycleService';

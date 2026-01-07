@@ -8,7 +8,6 @@ import { MarkdownRenderer } from "../../../services/formats/markdown/MarkdownRen
 import { useReaderState } from "./useReaderState";
 import { useNavigation } from "./useNavigation";
 import { IBookRenderer } from "../../../services/formats";
-import { appLifecycleService } from "../../../services";
 
 type AutoScrollProps = {
     readerState: ReturnType<typeof useReaderState>;
@@ -145,27 +144,36 @@ export const useAutoScroll = ({
         domContainerRef,
     ]);
 
-    // 监听应用生命周期：后台时暂停自动滚动，前台时可选恢复
+    // 监听应用生命周期：后台时暂停自动滚动，前台时恢复
     const wasAutoScrollingRef = useRef(false);
     useEffect(() => {
-        const handleLifecycleChange = (isForeground: boolean) => {
-            if (!isForeground) {
-                // 进入后台：记住当前状态并停止
-                if (autoScroll) {
-                    wasAutoScrollingRef.current = true;
-                    setAutoScroll(false);
-                }
-            } else {
-                // 恢复前台：如果之前在自动滚动则恢复
-                if (wasAutoScrollingRef.current) {
-                    wasAutoScrollingRef.current = false;
-                    setAutoScroll(true);
-                }
+        const handleBackground = () => {
+            if (autoScroll) {
+                wasAutoScrollingRef.current = true;
+                setAutoScroll(false);
             }
         };
 
-        const unsubscribe = appLifecycleService.onStateChange(handleLifecycleChange);
-        return () => unsubscribe();
+        const handleForeground = () => {
+            if (wasAutoScrollingRef.current) {
+                wasAutoScrollingRef.current = false;
+                setAutoScroll(true);
+            }
+        };
+
+        const handleVisibilityChange = () => {
+            if (document.hidden) {
+                handleBackground();
+            } else {
+                handleForeground();
+            }
+        };
+
+        document.addEventListener("visibilitychange", handleVisibilityChange);
+
+        return () => {
+            document.removeEventListener("visibilitychange", handleVisibilityChange);
+        };
     }, [autoScroll]);
 
     return { autoScroll, setAutoScroll };
