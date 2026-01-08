@@ -60,3 +60,7 @@ export const TOAST_DURATION_SHORT_MS = 1200; // 短提示显示时间
 export const TOAST_DURATION_LONG_MS = 2000; // 长提示显示时间
 export const TOAST_DURATION_ERROR_MS = 3000; // 错误提示显示时间
 export const LAZY_LOAD_ROOT_MARGIN = "800px 0px 800px 0px"; // 懒加载预加载距离
+
+// 撤回跳转配置
+export const UNDO_JUMP_VISIBLE_DURATION_MS = 10_000; // 撤回按钮显示时间 (10秒)
+export const UNDO_JUMP_ANIMATION_DURATION_MS = 350; // 撤回按钮动画过渡时间

@@ -41,7 +41,10 @@ import {
   useExternalVisibility,
   usePageSync,
   useReaderTheme,
+  useUndoJump,
 } from "./reader/hooks";
+
+import { UndoJumpIcon } from "./covers/UndoJumpIcon";
 
 
 export const Reader: React.FC = () => {
@@ -237,6 +240,10 @@ export const Reader: React.FC = () => {
     tocData,
     refs: { verticalCanvasRefs, rendererRef },
     data: { readingMode, isExternal, markReadingActive }
+  });
+
+  const undoJump = useUndoJump({
+    navigator: { goToPage: navigation.goToPage }
   });
 
   // 自动滚动
@@ -528,6 +535,59 @@ export const Reader: React.FC = () => {
           );
         })()}
 
+      {/* 撤回跳转按钮 */}
+      {(uiVisible || isSeeking) && !moreDrawerOpen && !tocOverlayOpen && !modeOverlayOpen && undoJump.undoJumpState?.active &&
+        (() => {
+          const toolbarVisible = uiVisible || isSeeking;
+          const baseOffsetPx = toolbarVisible ? 72 : 14;
+          const safeAreaTop = getSafeAreaInsets().top;
+          const shouldIncludeSafeArea = toolbarVisible || settings.showStatusBar;
+          const topStyle = shouldIncludeSafeArea
+            ? `calc(${safeAreaTop} + ${baseOffsetPx}px)`
+            : `${baseOffsetPx}px`;
+
+          return (
+            <div
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                undoJump.performUndo();
+              }}
+              style={{
+                position: "fixed",
+                top: topStyle,
+                right: "calc(env(safe-area-inset-right) + 12px)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "6px",
+                zIndex: 11,
+                padding: "0 14px",
+                height: "32px",
+                borderRadius: "16px",
+                backgroundColor: "rgba(40, 40, 40, 0.9)",
+                color: "rgba(255, 255, 255, 0.95)",
+                fontSize: "12px",
+                boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+                backdropFilter: "blur(4px)",
+                cursor: "pointer",
+                userSelect: "none",
+                // 简单进入动画
+                animation: "fadeSlideIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)",
+              }}
+            >
+              <UndoJumpIcon size={14} />
+              <span>撤回跳转</span>
+              <style>{`
+                @keyframes fadeSlideIn {
+                  from { opacity: 0; transform: translateX(15px); }
+                  to { opacity: 1; transform: translateX(0); }
+                }
+              `}</style>
+            </div>
+          );
+        })()}
+
       <TocOverlay
         visible={tocOverlayOpen}
         toc={tocData.toc}
@@ -596,6 +656,7 @@ export const Reader: React.FC = () => {
           verticalScroll.lastSeekTsRef.current = Date.now();
         }}
         onSeekEnd={async (v) => {
+          undoJump.handleJump(currentPage, v);
           setSeekPage(null);
           setIsSeeking(false);
           verticalScroll.lastSeekTsRef.current = 0;

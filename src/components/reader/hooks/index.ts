@@ -19,5 +19,6 @@ export * from "./useViewport";
 export * from "./useExternalVisibility";
 export * from "./usePageSync";
 export * from "./useReaderTheme";
+export * from "./useUndoJump";
 
 
