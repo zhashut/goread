@@ -164,3 +164,11 @@ GoRead is under active development. You are welcome to:
 - Share your usage scenarios across different devices and reading contexts
 
 If you run into problems while using GoRead or have new ideas for features, please open an Issue or submit a Pull Request in the project repository.
+
+---
+
+## License & Usage Agreement
+
+This project is released under the AGPL-3.0 license. For the full legal text, please refer to the “GNU Affero General Public License v3.0” as published by the Free Software Foundation.
+
+In addition, this project explicitly prohibits any form of commercial use, including but not limited to selling this software, using this software or its modified versions as part of paid services, or profiting directly or indirectly in any manner through this software. Any violation may result in legal liability pursued by the author in accordance with applicable laws.
