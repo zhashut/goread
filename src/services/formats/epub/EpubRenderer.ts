@@ -790,6 +790,9 @@ export class EpubRenderer implements IBookRenderer {
   private _setupSectionObserver(container: HTMLElement, options?: RenderOptions): void {
     this._sectionObserver = new IntersectionObserver(
       (entries) => {
+        // 导航过程中跳过渲染，避免平滑滚动时渲染所有中间章节
+        if (this._isNavigating) return;
+        
         entries.forEach((entry) => {
           if (entry.isIntersecting) {
             const wrapper = entry.target as HTMLElement;
@@ -1008,6 +1011,34 @@ export class EpubRenderer implements IBookRenderer {
       }
     }
   }
+
+  /**
+   * 确保指定章节及邻近章节已渲染（用于导航完成后补充渲染）
+   */
+  private _ensureSectionsRendered(sectionIndex: number): void {
+    const renderOptions = {
+      theme: this._currentTheme,
+      pageGap: this._currentPageGap,
+    };
+    
+    // 渲染当前章节
+    if (!this._renderedSections.has(sectionIndex)) {
+      this._renderSection(sectionIndex, renderOptions).catch(() => {});
+    }
+    
+    // 渲染前一章节
+    const prevIndex = sectionIndex - 1;
+    if (prevIndex >= 0 && !this._renderedSections.has(prevIndex)) {
+      this._renderSection(prevIndex, renderOptions).catch(() => {});
+    }
+    
+    // 渲染后一章节
+    const nextIndex = sectionIndex + 1;
+    if (nextIndex < this._sectionCount && !this._renderedSections.has(nextIndex)) {
+      this._renderSection(nextIndex, renderOptions).catch(() => {});
+    }
+  }
+
   
   /**
    * 清理生成的 Blob URL
@@ -1425,19 +1456,26 @@ export class EpubRenderer implements IBookRenderer {
       if (targetWrapper) {
         this._isNavigating = true;
         
-        targetWrapper.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        // 使用立即滚动代替平滑滚动，避免中间章节被渲染
+        targetWrapper.scrollIntoView({ behavior: 'auto', block: 'start' });
         this._currentPage = page;
         this._currentPreciseProgress = page;
         
+        // 立即滚动完成较快，300ms 足够
         setTimeout(() => {
           this._isNavigating = false;
+          
+          // 导航完成后主动渲染目标章节及邻近章节
+          this._ensureSectionsRendered(page - 1);
+          
           if (this.onPageChange) {
             this.onPageChange(page);
           }
-        }, 500);
+        }, 300);
       }
       return;
     }
+
     
     // 横向模式：使用 foliate-view 的 goTo
     if (!this._view || page < 1 || page > this._totalPages) return;

@@ -181,66 +181,69 @@ export const useInitReader = ({
                         renderer.onScrollActivity = markReadingActive;
                     }
 
-                if (isEpub) {
-                    epubRenderedRef.current = true;
-                }
-
-                // 刷新 DOM 提取的目录 (MdCatalog/Epub TOC)
-                try {
-                    const items = await renderer.getToc();
-                    const toTocNode = (list: any[]): TocNode[] => {
-                        return (list || []).map((item: any) => ({
-                            title: String(item?.title || ""),
-                            page:
-                                typeof item?.location === "number"
-                                    ? item.location
-                                    : undefined,
-                            anchor:
-                                typeof item?.location === "string"
-                                    ? item.location
-                                    : undefined,
-                            children: item?.children ? toTocNode(item.children) : [],
-                            expanded: false,
-                        }));
-                    };
-                    const nodes = toTocNode(items as any);
-                    if (nodes.length > 0) setToc(nodes);
-
-                    if (renderer instanceof EpubRenderer) {
-                        renderer.onTocChange = (href: string) => {
-                            const normalizeHref = (h: string) => h?.split("#")[0] || "";
-                            const hrefBase = normalizeHref(href);
-
-                            const findByHref = (
-                                list: TocNode[],
-                                level: number
-                            ): { title: string; level: number } | null => {
-                                for (const n of list) {
-                                    const anchorBase = normalizeHref(n.anchor || "");
-                                    if (
-                                        n.anchor === href ||
-                                        (hrefBase && anchorBase === hrefBase)
-                                    ) {
-                                        return { title: n.title, level };
-                                    }
-                                    if (n.children) {
-                                        const r = findByHref(n.children, level + 1);
-                                        if (r) return r;
-                                    }
-                                }
-                                return null;
-                            };
-                            const found = findByHref(nodes, 0);
-                            if (found) {
-                                const sig = `${found.title}|-1|${found.level}`;
-                                setActiveNodeSignature(sig);
-                            }
-                        };
+                    if (isEpub) {
+                        epubRenderedRef.current = true;
                     }
-                } catch { }
-            } catch (e) {
-                await logError('DOM渲染失败', { error: String(e), stack: (e as Error)?.stack });
-            }            }
+
+                    // 刷新 DOM 提取的目录 (MdCatalog/Epub TOC)
+                    try {
+                        const items = await renderer.getToc();
+                        const toTocNode = (list: any[]): TocNode[] => {
+                            return (list || []).map((item: any) => ({
+                                title: String(item?.title || ""),
+                                page:
+                                    typeof item?.location === "number"
+                                        ? item.location
+                                        : undefined,
+                                anchor:
+                                    typeof item?.location === "string"
+                                        ? item.location
+                                        : undefined,
+                                children: item?.children ? toTocNode(item.children) : [],
+                                expanded: false,
+                            }));
+                        };
+                        const nodes = toTocNode(items as any);
+                        if (nodes.length > 0) setToc(nodes);
+
+                        if (renderer instanceof EpubRenderer) {
+                            renderer.onTocChange = (href: string) => {
+                                const normalizeHref = (h: string) => h?.split("#")[0] || "";
+                                const hrefBase = normalizeHref(href);
+
+                                const findByHref = (
+                                    list: TocNode[],
+                                    level: number
+                                ): { title: string; level: number } | null => {
+                                    for (const n of list) {
+                                        const anchorBase = normalizeHref(n.anchor || "");
+                                        if (
+                                            n.anchor === href ||
+                                            (hrefBase && anchorBase === hrefBase)
+                                        ) {
+                                            return { title: n.title, level };
+                                        }
+                                        if (n.children) {
+                                            const r = findByHref(n.children, level + 1);
+                                            if (r) return r;
+                                        }
+                                    }
+                                    return null;
+                                };
+                                const found = findByHref(nodes, 0);
+                                if (found) {
+                                    const sig = `${found.title}|-1|${found.level}`;
+                                    setActiveNodeSignature(sig);
+                                }
+                            };
+                        }
+                    } catch { }
+                } catch (e) {
+                    await logError('DOM渲染失败', { error: String(e), stack: (e as Error)?.stack });
+                }
+                // DOM 渲染模式完成后直接返回，不进入 canvas 渲染分支
+                return;
+            }
 
             if (readingMode === "horizontal") {
                 const waitForCanvas = () => {
