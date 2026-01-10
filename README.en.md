@@ -55,6 +55,17 @@ You can consolidate e‑books scattered across different folders, organize them 
 - Built-in English and Simplified Chinese UI, follows system language by default
 - Planned in-app language switch and more languages support
 
+### 8. Format Support
+
+- [x] PDF
+- [x] Markdown
+- [x] EPUB
+- [ ] MOBI
+- [ ] AZW3
+- [ ] FB2
+- [x] HTML
+- [ ] Comics
+
 ---
 
 ## Who Is GoRead For?
