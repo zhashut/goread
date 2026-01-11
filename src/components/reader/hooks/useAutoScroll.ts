@@ -85,16 +85,38 @@ export const useAutoScroll = ({
 
             const r = rendererRef.current;
             if (isDomRender && r && r instanceof EpubRenderer) {
-                const step = () => {
-                    if (!autoScroll || tocOverlayOpen || modeOverlayOpen) {
-                        stopAll();
-                        return;
-                    }
-                    r.scrollBy(speed / 60);
-                    markReadingActive();
+                const container = r.getScrollContainer();
+                if (container) {
+                    const step = () => {
+                        if (!autoScroll || tocOverlayOpen || modeOverlayOpen) {
+                            stopAll();
+                            return;
+                        }
+                        const atBottom =
+                            container.scrollTop + container.clientHeight >=
+                            container.scrollHeight - 2;
+                        if (atBottom) {
+                            stopAll();
+                            setAutoScroll(false);
+                            return;
+                        }
+                        container.scrollTop = container.scrollTop + speed / 60;
+                        markReadingActive();
+                        autoScrollRafRef.current = requestAnimationFrame(step);
+                    };
                     autoScrollRafRef.current = requestAnimationFrame(step);
-                };
-                autoScrollRafRef.current = requestAnimationFrame(step);
+                } else {
+                    const step = () => {
+                        if (!autoScroll || tocOverlayOpen || modeOverlayOpen) {
+                            stopAll();
+                            return;
+                        }
+                        r.scrollBy(speed / 60);
+                        markReadingActive();
+                        autoScrollRafRef.current = requestAnimationFrame(step);
+                    };
+                    autoScrollRafRef.current = requestAnimationFrame(step);
+                }
             } else {
                 let el: HTMLElement | null = null;
                 if (isDomRender) {
