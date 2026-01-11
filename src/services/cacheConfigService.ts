@@ -1,4 +1,5 @@
 import { getInvoke } from './index';
+import { epubCacheService } from './formats/epub/epubCacheService';
 
 /**
  * 通用缓存配置服务，管理应用级别的缓存策略
@@ -9,9 +10,13 @@ export const cacheConfigService = {
    * @param days 过期天数，0 表示不限时间
    */
   async setCacheExpiry(days: number): Promise<boolean> {
+    const secs =
+      typeof days === 'number' && days > 0
+        ? days * 24 * 60 * 60
+        : 0;
+    epubCacheService.setTimeToIdleSecs(secs);
     try {
       const invoke = await getInvoke();
-      // 当前仅 PDF 后端实现了缓存过期配置，后续其他格式可复用此接口
       return await invoke('pdf_set_cache_expiry', { days });
     } catch {
       return false;

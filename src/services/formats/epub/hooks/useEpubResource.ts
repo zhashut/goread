@@ -5,6 +5,11 @@
 
 import { logError } from '../../../index';
 import { EpubBook } from './useEpubLoader';
+import {
+  toResourcePlaceholder,
+  getMimeType,
+  type IEpubResourceCache,
+} from '../cache';
 
 /** 资源加载上下文 */
 export interface EpubResourceContext {
@@ -24,6 +29,21 @@ export interface EpubResourceHook {
   fixResourcePaths: (content: HTMLElement, section: any) => Promise<void>;
   /** 清理生成的 Blob URL */
   clearBlobUrls: () => void;
+  /** 解析资源路径为规范化的绝对路径（用于缓存） */
+  resolveResourcePath: (url: string, section: any) => string | null;
+  /** 收集 HTML 内容中的所有资源引用路径（规范化后） */
+  collectResourceRefs: (content: HTMLElement, section: any) => string[];
+  /** 将 HTML 内容中的资源路径替换为占位符格式 */
+  normalizeHtmlResources: (html: string, resourceRefs: string[], section: any) => string;
+  /** 从资源缓存中恢复 Blob URL 并替换占位符 */
+  restoreBlobUrls: (
+    html: string,
+    resourceRefs: string[],
+    bookId: string,
+    resourceCache: IEpubResourceCache
+  ) => string;
+  /** 加载资源二进制数据（用于缓存存储） */
+  loadResourceData: (resourcePath: string) => Promise<ArrayBuffer | null>;
 }
 
 /**
@@ -31,13 +51,13 @@ export interface EpubResourceHook {
  * 提供资源路径解析、CSS/图片加载等功能
  */
 export function useEpubResource(context: EpubResourceContext): EpubResourceHook {
-  const { book, blobUrls } = context;
+  const { blobUrls } = context;
 
   /**
    * 解析并加载资源
    */
   const resolveAndLoadResource = async (url: string, section: any): Promise<string | null> => {
-    if (!url || !book) return null;
+    if (!url || !context.book) return null;
 
     // 跳过绝对路径和 data URL
     if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:') || url.startsWith('blob:')) {
@@ -61,8 +81,8 @@ export function useEpubResource(context: EpubResourceContext): EpubResourceHook 
       if (!path) return null;
 
       // 加载资源为 Blob
-      if (book.loadBlob) {
-        const blob = await book.loadBlob(path);
+      if (context.book.loadBlob) {
+        const blob = await context.book.loadBlob(path);
         if (blob) {
           const blobUrl = URL.createObjectURL(blob);
           blobUrls.add(blobUrl);
@@ -138,8 +158,8 @@ export function useEpubResource(context: EpubResourceContext): EpubResourceHook 
           cssPath = section.resolveHref(href);
         }
 
-        if (book && book.loadText && cssPath) {
-          const cssContent = await book.loadText(cssPath);
+        if (context.book && context.book.loadText && cssPath) {
+          const cssContent = await context.book.loadText(cssPath);
           if (cssContent) {
             // 处理 CSS 文件中的相对路径（相对于 CSS 文件本身）
             const processedCss = await processCssUrls(cssContent, cssPath);
@@ -240,11 +260,175 @@ export function useEpubResource(context: EpubResourceContext): EpubResourceHook 
     blobUrls.clear();
   };
 
+  /**
+   * 解析资源路径为规范化的绝对路径
+   */
+  const resolveResourcePath = (url: string, section: any): string | null => {
+    if (!url || !context.book) return null;
+
+    // 跳过绝对路径和 data URL
+    if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:') || url.startsWith('blob:')) {
+      return null;
+    }
+
+    try {
+      let path = url;
+      if (section && typeof section.resolveHref === 'function') {
+        path = section.resolveHref(url);
+      } else if (section && typeof section.resolve === 'function') {
+        const resolved = section.resolve(url);
+        if (typeof resolved === 'string') {
+          path = resolved;
+        }
+      }
+      return path || null;
+    } catch {
+      return null;
+    }
+  };
+
+  /**
+   * 收集 HTML 内容中的所有资源引用路径
+   */
+  const collectResourceRefs = (content: HTMLElement, section: any): string[] => {
+    const refs = new Set<string>();
+
+    // 收集 img src
+    content.querySelectorAll('img[src]').forEach((img) => {
+      const src = img.getAttribute('src');
+      if (src) {
+        const resolved = resolveResourcePath(src, section);
+        if (resolved) refs.add(resolved);
+      }
+    });
+
+    // 收集 SVG image href
+    content.querySelectorAll('image').forEach((img) => {
+      const href = img.getAttribute('href') || img.getAttribute('xlink:href');
+      if (href) {
+        const resolved = resolveResourcePath(href, section);
+        if (resolved) refs.add(resolved);
+      }
+    });
+
+    // 收集背景图片 URL
+    content.querySelectorAll('[style*="background"]').forEach((el) => {
+      const style = el.getAttribute('style');
+      if (!style) return;
+
+      const urlRegex = /url\(['"]?([^'"()]+)['"]?\)/g;
+      let match;
+      while ((match = urlRegex.exec(style)) !== null) {
+        const url = match[1];
+        if (!url.startsWith('data:') && !url.startsWith('blob:') && !url.startsWith('http')) {
+          const resolved = resolveResourcePath(url, section);
+          if (resolved) refs.add(resolved);
+        }
+      }
+    });
+
+    return Array.from(refs);
+  };
+
+  /**
+   * 将 HTML 内容中的资源路径替换为占位符格式
+   */
+  const normalizeHtmlResources = (html: string, resourceRefs: string[], section: any): string => {
+    let normalized = html;
+
+    // 构建原始路径到规范化路径的映射
+    const pathMap = new Map<string, string>();
+
+    // 解析 HTML 中的所有资源引用
+    const urlPatterns = [
+      /src=["']([^"']+)["']/g,
+      /href=["']([^"']+)["']/g,
+      /xlink:href=["']([^"']+)["']/g,
+      /url\(["']?([^"')]+)["']?\)/g,
+    ];
+
+    for (const pattern of urlPatterns) {
+      let match;
+      while ((match = pattern.exec(html)) !== null) {
+        const originalUrl = match[1];
+        if (originalUrl.startsWith('data:') || originalUrl.startsWith('blob:') || originalUrl.startsWith('http')) {
+          continue;
+        }
+
+        const resolved = resolveResourcePath(originalUrl, section);
+        if (resolved && resourceRefs.includes(resolved)) {
+          pathMap.set(originalUrl, resolved);
+        }
+      }
+    }
+
+    // 替换为占位符
+    pathMap.forEach((resolved, original) => {
+      const placeholder = toResourcePlaceholder(resolved);
+      // 使用正则替换，确保只替换属性值中的路径
+      const escapedOriginal = original.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      normalized = normalized.replace(new RegExp(escapedOriginal, 'g'), placeholder);
+    });
+
+    return normalized;
+  };
+
+  /**
+   * 从资源缓存中恢复 Blob URL 并替换占位符
+   */
+  const restoreBlobUrls = (
+    html: string,
+    resourceRefs: string[],
+    bookId: string,
+    resourceCache: IEpubResourceCache
+  ): string => {
+    let restored = html;
+
+    for (const ref of resourceRefs) {
+      const placeholder = toResourcePlaceholder(ref);
+      if (!restored.includes(placeholder)) continue;
+
+      const data = resourceCache.get(bookId, ref);
+      if (data) {
+        const mimeType = getMimeType(ref);
+        const blob = new Blob([data], { type: mimeType });
+        const blobUrl = URL.createObjectURL(blob);
+        blobUrls.add(blobUrl);
+        restored = restored.split(placeholder).join(blobUrl);
+      }
+    }
+
+    return restored;
+  };
+
+  /**
+   * 加载资源二进制数据
+   */
+  const loadResourceData = async (resourcePath: string): Promise<ArrayBuffer | null> => {
+    if (!context.book || !context.book.loadBlob) return null;
+
+    try {
+      const blob = await context.book.loadBlob(resourcePath);
+      if (blob) {
+        return await blob.arrayBuffer();
+      }
+    } catch (e) {
+      logError(`[EpubResource] 加载资源数据失败: ${resourcePath}`, e).catch(() => {});
+    }
+
+    return null;
+  };
+
   return {
     resolveAndLoadResource,
     loadAndProcessStyles,
     processCssUrls,
     fixResourcePaths,
     clearBlobUrls,
+    resolveResourcePath,
+    collectResourceRefs,
+    normalizeHtmlResources,
+    restoreBlobUrls,
+    loadResourceData,
   };
 }

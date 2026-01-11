@@ -529,7 +529,7 @@ export const Reader: React.FC = () => {
                   boxShadow: "0 2px 6px rgba(0,0,0,0.25)",
                 }}
               >
-                {isSeeking && seekPage !== null ? seekPage : currentPage} / {totalPages}
+                {Math.floor(isSeeking && seekPage !== null ? seekPage : currentPage)} / {totalPages}
               </div>
             </div>
           );

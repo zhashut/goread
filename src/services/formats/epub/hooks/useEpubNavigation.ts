@@ -29,7 +29,7 @@ export interface EpubNavigationHook {
  * 提供链接点击处理、锚点跳转等功能
  */
 export function useEpubNavigation(context: NavigationContext): EpubNavigationHook {
-  const { book, getScrollContainer, sectionContainers, goToPage } = context;
+  const { getScrollContainer, sectionContainers, goToPage } = context;
 
   /**
    * 滚动到锚点
@@ -69,8 +69,8 @@ export function useEpubNavigation(context: NavigationContext): EpubNavigationHoo
     const [path, anchor] = href.split('#');
 
     // 查找匹配的章节
-    if (book) {
-      const sectionIndex = book.sections.findIndex((section: any) => {
+    if (context.book) {
+      const sectionIndex = context.book.sections.findIndex((section: any) => {
         return section.id === path || section.id.endsWith(path);
       });
 

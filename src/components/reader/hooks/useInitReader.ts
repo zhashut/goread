@@ -78,6 +78,7 @@ export const useInitReader = ({
     // Add logic to track initialization to prevent unwanted scrolls
     const hasInitializedRef = useRef(false);
     const lastThemeRef = useRef<string | undefined>();
+    const lastReadingModeRef = useRef<string | undefined>();
 
     // Reset initialization flag when book or mode changes
     useEffect(() => {
@@ -92,9 +93,17 @@ export const useInitReader = ({
         const themeChanged = typeof prevTheme !== "undefined" && prevTheme !== currentTheme;
         lastThemeRef.current = currentTheme;
 
+        const currentMode = readingMode;
+        const prevMode = lastReadingModeRef.current;
+        const modeChanged = typeof prevMode !== "undefined" && prevMode !== currentMode;
+        lastReadingModeRef.current = currentMode;
+
         const filePathForEpub = isExternal ? externalPath : book?.file_path;
         const isEpub = filePathForEpub && getBookFormat(filePathForEpub) === "epub";
-        if (isEpub && epubRenderedRef.current && !themeChanged) {
+        
+        // 如果是 EPUB 且已渲染，仅当主题或阅读模式未变化时才跳过
+        // 模式变化时必须重新调用 renderPage 以切换视图
+        if (isEpub && epubRenderedRef.current && !themeChanged && !modeChanged) {
             log(
                 `[Reader] EPUB 已渲染，跳过重复渲染（模式切换由 setReadingMode 处理）`
             );
@@ -152,6 +161,15 @@ export const useInitReader = ({
                         };
                     }
 
+                    // EPUB 纵向模式：设置首屏渲染完成回调，在首屏渲染完成时立即隐藏 loading
+                    // 这样缓存命中时用户可以立即看到内容，而不必等待后续滚动定位和预加载完成
+                    if (renderer instanceof EpubRenderer && readingMode === 'vertical') {
+                        renderer.onFirstScreenReady = () => {
+                            log("[Reader] EPUB 首屏渲染完成，提前隐藏 loading");
+                            setContentReady(true);
+                        };
+                    }
+
                     // DOM 渲染
                     await renderer.renderPage(1, domContainerRef.current!, {
                         initialVirtualPage: pageToRender || 1,
@@ -162,8 +180,12 @@ export const useInitReader = ({
                     log("[Reader] DOM 渲染完成");
                     domRestoreDoneRef.current = true;
 
+                    // 对于非 EPUB 纵向模式，或未触发首屏回调的情况，仍需在此设置 contentReady
+                    // EPUB 纵向模式已在 onFirstScreenReady 中提前设置
                     if (!(renderer instanceof MarkdownRenderer)) {
-                        setContentReady(true);
+                        if (!(renderer instanceof EpubRenderer && readingMode === 'vertical')) {
+                            setContentReady(true);
+                        }
                     }
 
                     if (renderer instanceof EpubRenderer) {

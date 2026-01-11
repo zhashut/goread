@@ -33,6 +33,14 @@ import {
   type FoliateView,
 } from './hooks';
 
+// 导入缓存模块
+import {
+  generateQuickBookId,
+  type IEpubSectionCache,
+  type IEpubResourceCache,
+} from './cache';
+import { epubCacheService } from './epubCacheService';
+
 /** 获取 Tauri invoke 函数 */
 async function getInvoke() {
   const { invoke } = await import('@tauri-apps/api/core');
@@ -56,6 +64,7 @@ export class EpubRenderer implements IBookRenderer {
 
   private _isReady = false;
   private _book: EpubBook | null = null;
+  private _bookLoadPromise: Promise<void> | null = null;
   private _view: FoliateView | null = null;
   private _toc: TocItem[] = [];
   private _currentContainer: HTMLElement | null = null;
@@ -73,6 +82,11 @@ export class EpubRenderer implements IBookRenderer {
   // Blob URL 管理（供 hooks 使用）
   private _blobUrls: Set<string> = new Set();
 
+  // 缓存管理器
+  private _bookId: string | null = null;
+  private _sectionCache: IEpubSectionCache | null = null;
+  private _resourceCache: IEpubResourceCache | null = null;
+
   // Hooks 实例
   private _loaderHook: EpubLoaderHook;
   private _themeHook: EpubThemeHook;
@@ -84,32 +98,40 @@ export class EpubRenderer implements IBookRenderer {
     // 初始化无依赖的 hooks
     this._loaderHook = useEpubLoader();
     this._themeHook = useEpubTheme();
+
+    // 使用全局缓存服务（单例，跨 EpubRenderer 实例共享）
+    this._sectionCache = epubCacheService.sectionCache;
+    this._resourceCache = epubCacheService.resourceCache;
   }
 
   /**
    * 初始化依赖 book 的 hooks
    */
   private _initHooks(): void {
-    // 资源 hook
-    this._resourceHook = useEpubResource({
-      book: this._book,
-      blobUrls: this._blobUrls,
-    });
+    // 创建动态上下文对象，使 hooks 可以在运行时访问最新的 book
+    const self = this;
 
-    // 纵向渲染 hook
-    this._verticalRenderHook = useVerticalRender({
-      book: this._book,
+    // 资源 hook - 使用动态 book 访问
+    const resourceContext = {
+      get book() { return self._book; },
+      blobUrls: this._blobUrls,
+    };
+    this._resourceHook = useEpubResource(resourceContext);
+
+    // 纵向渲染 hook - 使用动态 book 访问
+    const verticalContext = {
+      get book() { return self._book; },
       sectionCount: this._sectionCount,
       currentTheme: this._currentTheme,
       currentPageGap: this._currentPageGap,
-      onPageChange: (page) => {
+      onPageChange: (page: number) => {
         this._currentPage = Math.floor(page);
         this._currentPreciseProgress = page;
         if (this.onPageChange) {
           this.onPageChange(page);
         }
       },
-      onTocChange: (href) => {
+      onTocChange: (href: string) => {
         this._currentTocHref = href;
         if (this.onTocChange) {
           this.onTocChange(href);
@@ -120,18 +142,30 @@ export class EpubRenderer implements IBookRenderer {
           this.onScrollActivity();
         }
       },
+      onFirstScreenReady: () => {
+        if (this.onFirstScreenReady) {
+          this.onFirstScreenReady();
+        }
+      },
       resourceHook: this._resourceHook!,
       themeHook: this._themeHook,
-    });
+      // 缓存相关
+      bookId: this._bookId || undefined,
+      sectionCache: this._sectionCache || undefined,
+      resourceCache: this._resourceCache || undefined,
+      // 懒加载回调
+      ensureBookLoaded: () => this._ensureBookLoaded(),
+    };
+    this._verticalRenderHook = useVerticalRender(verticalContext);
 
-    // 导航 hook（需要 verticalRenderHook 的 goToPage）
-    // 使用 getter 函数获取 scrollContainer，解决初始化时引用为 null 的问题
-    this._navigationHook = useEpubNavigation({
-      book: this._book,
+    // 导航 hook - 使用动态 book 访问
+    const navigationContext = {
+      get book() { return self._book; },
       getScrollContainer: () => this._verticalRenderHook?.state.scrollContainer ?? null,
       sectionContainers: this._verticalRenderHook!.state.sectionContainers,
-      goToPage: (page) => this._verticalRenderHook!.goToPage(page),
-    });
+      goToPage: (page: number) => this._verticalRenderHook!.goToPage(page),
+    };
+    this._navigationHook = useEpubNavigation(navigationContext);
 
     // 将导航 hook 传递给纵向渲染 hook
     this._verticalRenderHook.setNavigationHook(this._navigationHook);
@@ -144,49 +178,128 @@ export class EpubRenderer implements IBookRenderer {
   /**
    * 加载 EPUB 文档
    */
+  /**
+   * 加载 EPUB 文档
+   */
   async loadDocument(filePath: string): Promise<BookInfo> {
-    // 通过 Tauri 读取文件为 ArrayBuffer
-    const invoke = await getInvoke();
-    const bytes = await invoke<number[]>('read_file_bytes', { path: filePath });
-    const arrayBuffer = new Uint8Array(bytes).buffer;
+    // 1. 生成 Quick ID
+    this._bookId = generateQuickBookId(filePath);
 
-    // 创建 File 对象（foliate-js 需要 File 或 Blob）
-    const fileName = this._loaderHook.extractFileName(filePath);
-    const file = new File([arrayBuffer], fileName + '.epub', {
-      type: 'application/epub+zip',
-    });
+    // 2. 尝试获取元数据缓存
+    const metadata = await epubCacheService.getMetadata(this._bookId);
 
-    this._book = await this._loaderHook.createBookFromFile(file);
+    if (metadata) {
+      logError(`[EpubRenderer] 命中元数据缓存，启用懒加载: ${this._bookId}`).catch(() => {});
+      
+      // 恢复状态
+      this._toc = metadata.toc;
+      this._sectionCount = metadata.sectionCount;
+      this._totalPages = this._sectionCount; 
+      this._isReady = true;
 
-    // 提取元数据
-    const book = this._book!;
-    const metadata = book.metadata || {};
-    const author = Array.isArray(metadata.author)
-      ? metadata.author.join(', ')
-      : metadata.author;
+      // 启动后台加载
+      this._bookLoadPromise = this._lazyLoadBook(filePath, this._bookId);
 
-    // 计算总节数作为页数
-    this._sectionCount = book.sections?.length || 1;
-    this._totalPages = this._sectionCount;
+      // 初始化 Hooks (book 为 null，但 hooks 将通过 getter 访问)
+      this._initHooks(); 
 
-    // 解析目录
-    this._toc = this._loaderHook.convertToc(book.toc || []);
+      return {
+        ...metadata.bookInfo,
+        format: 'epub',
+      };
+    }
 
-    // 初始化依赖 book 的 hooks
-    this._initHooks();
-
+    // 3. 缓存未命中，执行完整加载
+    logError(`[EpubRenderer] 元数据未命中，执行完整加载`).catch(() => {});
+    await this._lazyLoadBook(filePath, this._bookId);
+    
+    // 标记就绪
     this._isReady = true;
-
-    return {
-      title: metadata.title,
-      author,
-      publisher: metadata.publisher,
-      language: metadata.language,
-      description: metadata.description,
+    
+    // 初始化 Hooks
+    this._initHooks();
+    
+    // 返回 BookInfo
+    const book = this._book!;
+    const bookInfo: BookInfo = {
+      title: book.metadata?.title,
+      author: Array.isArray(book.metadata?.author) ? book.metadata?.author.join(', ') : book.metadata?.author,
+      publisher: book.metadata?.publisher,
+      language: book.metadata?.language,
+      description: book.metadata?.description,
       pageCount: this._totalPages,
       format: 'epub',
-      coverImage: await this._loaderHook.getCoverImage(this._book),
+      coverImage: await this._loaderHook.getCoverImage(book),
     };
+    
+    return bookInfo;
+  }
+
+  /**
+   * 懒加载书籍文件（后台执行）
+   */
+  private async _lazyLoadBook(filePath: string, bookId: string): Promise<void> {
+    try {
+      // 通过 Tauri 读取文件
+      const invoke = await getInvoke();
+      const bytes = await invoke<number[]>('read_file_bytes', { path: filePath });
+      const arrayBuffer = new Uint8Array(bytes).buffer;
+
+      // 创建 File 对象
+      const fileName = this._loaderHook.extractFileName(filePath);
+      const file = new File([arrayBuffer], fileName + '.epub', {
+        type: 'application/epub+zip',
+      });
+
+      this._book = await this._loaderHook.createBookFromFile(file);
+      
+      // 更新状态
+      const book = this._book;
+      this._sectionCount = book.sections?.length || 1;
+      this._toc = this._loaderHook.convertToc(book.toc || []);
+      
+      // 首次加载（非缓存恢复）时，sectionCount 可能变化，需更新 totalPages
+      if (this._totalPages === 1 && this._sectionCount > 1) {
+         this._totalPages = this._sectionCount;
+      }
+
+      logError(`[EpubRenderer] 书籍后台加载完成: ${bookId}`).catch(() => {});
+
+      // 缓存元数据（排除 coverImage，它可能是 Blob 无法序列化）
+      const bookInfoForCache: BookInfo = {
+        title: book.metadata?.title,
+        author: Array.isArray(book.metadata?.author) ? book.metadata?.author.join(', ') : book.metadata?.author,
+        publisher: book.metadata?.publisher,
+        language: book.metadata?.language,
+        description: book.metadata?.description,
+        pageCount: this._totalPages,
+        format: 'epub',
+        // coverImage 不存储，它可能是 Blob 无法序列化到 IndexedDB
+      };
+
+      await epubCacheService.saveMetadata(bookId, {
+         bookInfo: bookInfoForCache,
+         toc: this._toc,
+         sectionCount: this._sectionCount,
+      });
+
+    } catch (e) {
+      logError(`[EpubRenderer] 书籍加载失败: ${e}`).catch(() => {});
+      throw e;
+    } finally {
+      // 标记 promise 完成（虽然没置空，但后续 await 会立即 resolve）
+      // this._bookLoadPromise = null; // 可选，保留作为状态指示
+    }
+  }
+
+  /**
+   * 确保书籍已加载
+   */
+  private async _ensureBookLoaded(): Promise<void> {
+    if (this._book) return;
+    if (this._bookLoadPromise) {
+      await this._bookLoadPromise;
+    }
   }
 
   /**
@@ -226,22 +339,42 @@ export class EpubRenderer implements IBookRenderer {
     container: HTMLElement,
     options?: RenderOptions
   ): Promise<void> {
+    const readingMode = options?.readingMode || 'horizontal';
+    
+    // 纵向模式：允许缓存优先渲染，不强制等待 _book
+    // 如果章节已缓存，renderSection 会直接从缓存渲染，无需 _book
+    // 只有在缓存未命中时，renderSection 内部会调用 ensureBookLoaded
+    if (readingMode === 'vertical') {
+      // 纵向模式只需要 _isReady（元数据已加载）
+      if (!this._isReady) {
+        throw new Error('Document not loaded');
+      }
+      
+      const theme = options?.theme || this._currentTheme || 'light';
+      this._currentTheme = theme as ReaderTheme;
+      this._currentContainer = container;
+      this._readingMode = 'vertical';
+      
+      return this.renderVerticalContinuous(container, {
+        ...options,
+        theme,
+      });
+    }
+    
+    // 横向模式：必须等待 _book 加载完成（foliate-js View 需要完整 book 对象）
+    if (!this._book && this._bookLoadPromise) {
+      logError('[EpubRenderer] renderPage (horizontal): 等待懒加载完成...').catch(() => {});
+      await this._ensureBookLoaded();
+    }
+
     if (!this._isReady || !this._book) {
       throw new Error('Document not loaded');
     }
 
     const theme = options?.theme || this._currentTheme || 'light';
     this._currentTheme = theme as ReaderTheme;
-
     this._currentContainer = container;
-    this._readingMode = options?.readingMode || 'horizontal';
-
-    if (this._readingMode === 'vertical') {
-      return this.renderVerticalContinuous(container, {
-        ...options,
-        theme,
-      });
-    }
+    this._readingMode = 'horizontal';
 
     // 检查是否可以复用现有视图（同一容器且 view 仍然有效）
     const canReuseView = this._view 
@@ -746,6 +879,11 @@ export class EpubRenderer implements IBookRenderer {
     if (this._verticalRenderHook) {
       this._verticalRenderHook.cleanup();
     }
+
+    // 注意：不在 close() 时清空缓存
+    // 缓存由 LRU + 空闲过期策略管理，与 PDF 缓存行为一致
+    // 用户可通过设置页的缓存配置来管理缓存
+    this._bookId = null;
     
     // 关闭视图
     if (this._view) {
@@ -790,6 +928,9 @@ export class EpubRenderer implements IBookRenderer {
 
   /** 滚动活跃回调（用于更新阅读时长统计的活跃时间） */
   onScrollActivity?: () => void;
+
+  /** 首屏渲染完成回调（EPUB 纵向模式专用，用于提前隐藏 loading） */
+  onFirstScreenReady?: () => void;
 
   /**
    * 获取当前目录项 href
