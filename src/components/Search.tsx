@@ -6,6 +6,7 @@ import { COVER_ASPECT_RATIO_COMPACT, GROUP_GRID_COLUMNS, GROUP_GRID_GAP } from "
 import { bookService } from "../services";
 import { BookCard } from "./BookCard";
 import { SearchHeader } from "./SearchHeader";
+import { epubPreloader, isEpubFile } from "../services/formats/epub/epubPreloader";
 
 const EmptyState: React.FC = () => {
   const { t } = useTranslation('search');
@@ -163,7 +164,13 @@ export const Search: React.FC = () => {
                 key={b.id}
                 book={b}
                 aspectRatio={COVER_ASPECT_RATIO_COMPACT}
-                onClick={() => nav.toReader(b.id)}
+                onClick={() => {
+                  // EPUB 预加载：提前触发书籍加载，利用页面切换时间完成 ZIP 解析
+                  if (isEpubFile(b.file_path)) {
+                    epubPreloader.preload(b.file_path);
+                  }
+                  nav.toReader(b.id);
+                }}
               />
             ))}
           </div>

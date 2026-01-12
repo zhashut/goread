@@ -706,6 +706,7 @@ class Loader {
     #cache = new Map()
     #children = new Map()
     #refCount = new Map()
+    #externalCache = null
     eventTarget = new EventTarget()
     constructor({ loadText, loadBlob, resources }) {
         this.loadText = loadText
@@ -714,6 +715,19 @@ class Loader {
         this.assets = resources.manifest
         // needed only when replacing in (X)HTML w/o parsing (see below)
         //.filter(({ mediaType }) => ![MIME.XHTML, MIME.HTML].includes(mediaType))
+    }
+    /**
+     * 设置外部缓存，用于横向模式缓存加速
+     * @param {Object} cache - 外部缓存对象，需实现 get(href) 方法
+     */
+    setExternalCache(cache) {
+        this.#externalCache = cache
+    }
+    /**
+     * 获取外部缓存
+     */
+    getExternalCache() {
+        return this.#externalCache
     }
     async createURL(href, data, type, parent) {
         if (!data) return ''
@@ -772,6 +786,25 @@ class Loader {
 
         const parent = parents.at(-1)
         if (this.#cache.has(href)) return this.ref(href, parent)
+
+        // 尝试从外部缓存获取（横向模式缓存加速）
+        if (this.#externalCache) {
+            try {
+                const cached = await this.#externalCache.get(href, mediaType)
+                if (cached && cached.url) {
+                    this.#cache.set(href, cached.url)
+                    this.#refCount.set(href, 1)
+                    if (parent) {
+                        const childList = this.#children.get(parent)
+                        if (childList) childList.push(href)
+                        else this.#children.set(parent, [href])
+                    }
+                    return cached.url
+                }
+            } catch (e) {
+                // 外部缓存获取失败，继续正常加载
+            }
+        }
 
         const shouldReplace =
             (isScript || [MIME.XHTML, MIME.HTML, MIME.CSS, MIME.SVG].includes(mediaType))
@@ -937,6 +970,21 @@ export class EPUB {
         this.loadBlob = loadBlob
         this.getSize = getSize
         this.#encryption = new Encryption(deobfuscators(sha1))
+    }
+    /**
+     * 设置外部资源缓存（用于横向模式缓存加速）
+     * @param {Object} cache - 外部缓存对象，需实现 get(href, mediaType) 方法
+     */
+    setResourceCache(cache) {
+        if (this.#loader) {
+            this.#loader.setExternalCache(cache)
+        }
+    }
+    /**
+     * 获取外部资源缓存
+     */
+    getResourceCache() {
+        return this.#loader?.getExternalCache() ?? null
     }
     async #loadXML(uri) {
         const str = await this.loadText(uri)

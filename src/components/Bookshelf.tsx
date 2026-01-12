@@ -4,6 +4,7 @@ import React, {
 import { useTranslation } from "react-i18next";
 
 import { IBook } from "../types";
+import { epubPreloader, isEpubFile } from "../services/formats/epub/epubPreloader";
 import { ensurePermissionForDeleteLocal, ensurePermissionForImport } from "../utils/storagePermission";
 import { IconDelete } from "./Icons";
 import {
@@ -133,6 +134,10 @@ export const Bookshelf: React.FC = () => {
     if (selectionMode) {
       toggleBookSelection(book.id);
       return;
+    }
+    // EPUB 预加载：提前触发书籍加载，利用页面切换时间完成 ZIP 解析
+    if (isEpubFile(book.file_path)) {
+      epubPreloader.preload(book.file_path);
     }
     // 后端 mark_book_opened 会自动更新 recent_order，使该书移到最前
     nav.toReader(book.id, { fromTab: activeTab });

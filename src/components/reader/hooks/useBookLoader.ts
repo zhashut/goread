@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { ExternalFileOpenPayload } from "../../../types";
 import {
@@ -68,17 +68,42 @@ export const useBookLoader = (
         ? params.externalFile.uri || params.externalFile.path || ""
         : "";
 
+    // 用于追踪当前已成功加载的书籍标识和 renderer 引用
+    // 这个 ref 不会被 cleanup 清除，只在书籍标识变化时更新
+    const loadedStateRef = useRef<{key: string | undefined, renderer: IBookRenderer | null}>({key: undefined, renderer: null});
+
     useEffect(() => {
         const currentKey = params.isExternal
             ? externalKey || undefined
             : params.bookId;
+        
+        // 如果书籍标识未变化且之前已成功加载 renderer，复用它
+        if (loadedStateRef.current.key === currentKey && loadedStateRef.current.renderer) {
+            // 恢复 rendererRef 引用（可能被 cleanup 清除了）
+            rendererRef.current = loadedStateRef.current.renderer;
+            setLoading(false);
+            return;
+        }
+        
+        // 如果书籍标识未变化但 renderer 正在加载中（key 已设置但 renderer 为 null），跳过
+        if (loadedStateRef.current.key === currentKey && loadedStateRef.current.renderer === null) {
+            return;
+        }
+        
+        // 仅在书籍标识变化时关闭旧 renderer
+        if (loadedStateRef.current.key !== currentKey && loadedStateRef.current.renderer) {
+            loadedStateRef.current.renderer.close();
+        }
+        
+        // 同步设置 key，标记"正在加载"状态（renderer 为 null）
+        // 这样 React Strict Mode 第二次运行时会进入上面的"跳过"分支
+        loadedStateRef.current = {key: currentKey, renderer: null};
+        
         bookIdRef.current = currentKey;
         modeVersionRef.current += 1;
 
-        if (rendererRef.current) {
-            rendererRef.current.close();
-            rendererRef.current = null;
-        }
+        // 清理 rendererRef
+        rendererRef.current = null;
         epubRenderedRef.current = false;
         cleanupActions.resetCache();
 
@@ -138,6 +163,8 @@ export const useBookLoader = (
 
                 const renderer = createRenderer(targetBook.file_path);
                 rendererRef.current = renderer;
+                // 保存到 loadedStateRef，用于后续复用
+                loadedStateRef.current = {key: currentKey, renderer};
 
                 const useDom =
                     renderer.capabilities.supportsDomRender &&
@@ -207,6 +234,8 @@ export const useBookLoader = (
 
                 const renderer = createRenderer(filePath);
                 rendererRef.current = renderer;
+                // 保存到 loadedStateRef，用于后续复用
+                loadedStateRef.current = {key: currentKey, renderer};
 
                 const useDom =
                     renderer.capabilities.supportsDomRender &&
@@ -254,11 +283,11 @@ export const useBookLoader = (
         }
 
         return () => {
-            if (rendererRef.current) {
-                rendererRef.current.close();
-                rendererRef.current = null;
-            }
-            cleanupActions.resetCache();
+            // cleanup 时不关闭 loadedStateRef 中的 renderer，只清理 rendererRef 引用
+            // 这样 React Strict Mode 双重调用时，下一次 effect 可以复用之前的 renderer
+            rendererRef.current = null;
+            // 注意：不重置 cleanupActions.resetCache()，因为 renderer 仍然有效
+            // cleanupActions.resetCache();
         };
     }, [params.bookId, params.isExternal, externalKey]);
 };

@@ -13,6 +13,7 @@ import ConfirmDeleteDrawer from "./bookshelf/ConfirmDeleteDrawer";
 import ChooseExistingGroupDrawer from "./ChooseExistingGroupDrawer";
 import { loadGroupsWithPreviews } from "../utils/groupImport";
 import { useDndSensors, useDragGuard, isTouchDevice } from "../utils/gesture";
+import { epubPreloader, isEpubFile } from "../services/formats/epub/epubPreloader";
 
 // 使用 dnd-kit 实现拖拽排序
 
@@ -68,6 +69,10 @@ export const GroupDetail: React.FC<{
   const goToReader = (b: IBook) => {
     const el = scrollRef.current;
     if (el) sessionStorage.setItem(KEY, String(el.scrollTop));
+    // EPUB 预加载：提前触发书籍加载，利用页面切换时间完成 ZIP 解析
+    if (isEpubFile(b.file_path)) {
+      epubPreloader.preload(b.file_path);
+    }
     nav.toReader(b.id, { fromGroupId: id });
   };
 

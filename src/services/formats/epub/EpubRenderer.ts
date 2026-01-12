@@ -36,10 +36,12 @@ import {
 // 导入缓存模块
 import {
   generateQuickBookId,
+  getMimeType,
   type IEpubSectionCache,
   type IEpubResourceCache,
 } from './cache';
 import { epubCacheService } from './epubCacheService';
+import { epubPreloader } from './epubPreloader';
 
 /** 获取 Tauri invoke 函数 */
 async function getInvoke() {
@@ -185,7 +187,46 @@ export class EpubRenderer implements IBookRenderer {
     // 1. 生成 Quick ID
     this._bookId = generateQuickBookId(filePath);
 
-    // 2. 尝试获取元数据缓存
+    // 2. 检查预加载缓存（用户点击书籍时已提前触发加载）
+    const preloadedBook = await epubPreloader.get(filePath);
+    if (preloadedBook) {
+      logError(`[EpubRenderer] 命中预加载缓存，直接使用: ${this._bookId}`).catch(() => {});
+      
+      this._book = preloadedBook;
+      this._sectionCount = preloadedBook.sections?.length || 1;
+      this._toc = this._loaderHook.convertToc(preloadedBook.toc || []);
+      this._totalPages = this._sectionCount;
+      this._isReady = true;
+      
+      // 初始化 Hooks
+      this._initHooks();
+      
+      // 异步保存/更新元数据缓存
+      const bookInfoForCache: BookInfo = {
+        title: preloadedBook.metadata?.title,
+        author: Array.isArray(preloadedBook.metadata?.author) 
+          ? preloadedBook.metadata?.author.join(', ') 
+          : preloadedBook.metadata?.author,
+        publisher: preloadedBook.metadata?.publisher,
+        language: preloadedBook.metadata?.language,
+        description: preloadedBook.metadata?.description,
+        pageCount: this._totalPages,
+        format: 'epub',
+      };
+      
+      epubCacheService.saveMetadata(this._bookId, {
+        bookInfo: bookInfoForCache,
+        toc: this._toc,
+        sectionCount: this._sectionCount,
+      }).catch(() => {});
+      
+      return {
+        ...bookInfoForCache,
+        coverImage: await this._loaderHook.getCoverImage(preloadedBook),
+      };
+    }
+
+    // 3. 尝试获取元数据缓存
     const metadata = await epubCacheService.getMetadata(this._bookId);
 
     if (metadata) {
@@ -299,6 +340,61 @@ export class EpubRenderer implements IBookRenderer {
     if (this._book) return;
     if (this._bookLoadPromise) {
       await this._bookLoadPromise;
+    }
+  }
+
+  /**
+   * 为横向模式注入外部资源缓存到 foliate-js
+   * 加速已缓存资源的加载，避免重复解析
+   */
+  private _injectResourceCacheToBook(): void {
+    if (!this._book || !this._resourceCache || !this._bookId) return;
+
+    const bookId = this._bookId;
+    const resourceCache = this._resourceCache;
+    const book = this._book as any;
+
+    // 检查 book 是否支持 setResourceCache 方法
+    if (typeof book.setResourceCache !== 'function') {
+      return;
+    }
+
+    // 创建外部缓存适配器
+    const externalCache = {
+      /**
+       * 从缓存获取资源
+       * @param href - 资源路径（相对于 EPUB 根目录）
+       * @param mediaType - 资源 MIME 类型
+       * @returns 缓存命中时返回 { url: blobUrl }，否则返回 null
+       */
+      get: async (href: string, mediaType?: string): Promise<{ url: string } | null> => {
+        try {
+          const cachedData = resourceCache.get(bookId, href);
+          if (!cachedData) return null;
+
+          // 确定 MIME 类型
+          const mimeType = mediaType || getMimeType(href);
+          
+          // 创建 Blob URL
+          const blob = new Blob([cachedData], { type: mimeType });
+          const url = URL.createObjectURL(blob);
+          
+          // 记录 Blob URL 以便后续清理
+          this._blobUrls.add(url);
+          
+          return { url };
+        } catch {
+          return null;
+        }
+      },
+    };
+
+    // 注入缓存到 book 对象
+    try {
+      book.setResourceCache(externalCache);
+      logError(`[EpubRenderer] 横向模式缓存注入成功: ${bookId}`).catch(() => {});
+    } catch (e) {
+      logError(`[EpubRenderer] 横向模式缓存注入失败: ${e}`).catch(() => {});
     }
   }
 
@@ -440,6 +536,9 @@ export class EpubRenderer implements IBookRenderer {
     // 打开书籍
     await view.open(this._book);
 
+    // 横向模式缓存加速：注入外部资源缓存到 foliate-js
+    this._injectResourceCacheToBook();
+
     
     const r: any = view.renderer;
     if (r?.setAttribute) {
@@ -559,6 +658,8 @@ export class EpubRenderer implements IBookRenderer {
       view2.addEventListener('relocate', (e: any) => this._handleRelocate(e.detail));
       view2.addEventListener('load', () => { this._disableFoliateTouch(); this._applyFlowSafely(); });
       await view2.open(this._book);
+      // 备用视图也需要注入缓存
+      this._injectResourceCacheToBook();
       const r2: any = view2.renderer;
       if (r2?.setAttribute) {
         const w2 = container.clientWidth;
