@@ -11,6 +11,7 @@ import { EpubRenderer } from "../../../services/formats/epub/EpubRenderer";
 /**
  * 管理阅读器设置的 Hook
  * 负责加载、监听和保存阅读器设置，以及处理状态栏等副作用
+ * 注意：阅读模式(readingMode)已改为书籍级配置，由 useBookReadingMode 管理
  */
 export const useReaderSettings = (rendererRef?: React.MutableRefObject<IBookRenderer | null>) => {
     const [settings, setSettings] = useState<ReaderSettings>(getReaderSettings());
@@ -34,15 +35,6 @@ export const useReaderSettings = (rendererRef?: React.MutableRefObject<IBookRend
             statusBarService.showStatusBar();
         };
     }, [settings.showStatusBar]);
-
-    // 当阅读模式变化时，更新 EPUB 渲染器的流式布局
-    useEffect(() => {
-        if (!rendererRef) return;
-        const renderer = rendererRef.current;
-        if (renderer && renderer instanceof EpubRenderer) {
-            renderer.setReadingMode(settings.readingMode || "horizontal").catch(() => { });
-        }
-    }, [settings.readingMode, rendererRef]);
 
     // 当页面间隙变化时，更新 EPUB 渲染器的分割线间距
     useEffect(() => {

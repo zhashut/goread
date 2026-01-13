@@ -20,5 +20,6 @@ export * from "./useExternalVisibility";
 export * from "./usePageSync";
 export * from "./useReaderTheme";
 export * from "./useUndoJump";
+export * from "./useBookReadingMode";
 
 

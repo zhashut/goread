@@ -141,6 +141,11 @@ pub async fn init_database(db: DbState<'_>) -> Result<(), Error> {
         .execute(&*pool)
         .await;
 
+    // 阅读模式字段迁移（默认纵向模式）
+    let _ = sqlx::query("ALTER TABLE books ADD COLUMN reading_mode TEXT DEFAULT 'vertical'")
+        .execute(&*pool)
+        .await;
+
     let _ = sqlx::query(
         "UPDATE books SET precise_progress = current_page WHERE precise_progress IS NULL",
     )
@@ -376,6 +381,29 @@ pub async fn reset_all_book_themes(db: DbState<'_>) -> Result<(), Error> {
     sqlx::query("UPDATE books SET theme = NULL")
         .execute(&*pool)
         .await?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn update_book_reading_mode(
+    id: i64,
+    reading_mode: Option<String>,
+    db: DbState<'_>,
+) -> Result<(), Error> {
+    let pool = db.lock().await;
+
+    if let Some(m) = reading_mode.as_deref() {
+        if m != "horizontal" && m != "vertical" {
+            return Err(Error::Message("Invalid reading mode".to_string()));
+        }
+    }
+
+    sqlx::query("UPDATE books SET reading_mode = ? WHERE id = ?")
+        .bind(reading_mode.as_deref())
+        .bind(id)
+        .execute(&*pool)
+        .await?;
+
     Ok(())
 }
 

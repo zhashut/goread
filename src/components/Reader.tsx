@@ -42,6 +42,7 @@ import {
   usePageSync,
   useReaderTheme,
   useUndoJump,
+  useBookReadingMode,
 } from "./reader/hooks";
 
 import { UndoJumpIcon } from "./covers/UndoJumpIcon";
@@ -84,8 +85,14 @@ export const Reader: React.FC = () => {
   const verticalCanvasRefs = useRef<Map<number, HTMLCanvasElement>>(new Map());
 
   // 2. 设置与会话 (传递 rendererRef 以支持 EPUB 同步)
-  const { settings, updateSettings } = useReaderSettings(rendererRef);
-  const readingMode = settings.readingMode || "horizontal";
+  const { settings } = useReaderSettings(rendererRef);
+
+  // 书籍级阅读模式管理
+  const { readingMode, setReadingMode: setBookReadingMode } = useBookReadingMode({
+    book,
+    isExternal,
+    rendererRef,
+  });
 
   const {
     effectiveTheme,
@@ -622,8 +629,13 @@ export const Reader: React.FC = () => {
           setModeOverlayOpen(false);
           setUiVisible(false);
         }}
-        onChangeMode={(mode) => {
-          updateSettings({ readingMode: mode });
+        onChangeMode={async (mode) => {
+          // 更新书籍级阅读模式配置
+          await setBookReadingMode(mode);
+          // 同步更新本地 book 状态以触发 UI 更新
+          if (!isExternal && book) {
+            setBook({ ...book, reading_mode: mode });
+          }
           setModeOverlayOpen(false);
           setUiVisible(false);
         }}

@@ -14,6 +14,7 @@ export interface IBook {
   finished_at?: number | null;   // 完成时间戳
   recent_order?: number;  // 最近阅读排序值，值越大越靠前
   theme?: 'light' | 'dark' | null;
+  reading_mode?: 'horizontal' | 'vertical' | null; // 阅读模式：horizontal=横向分页，vertical=纵向滚动
   precise_progress?: number;
 }
 
