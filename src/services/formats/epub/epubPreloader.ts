@@ -19,12 +19,12 @@ interface PreloadCacheEntry {
   promise: Promise<EpubBook>;
   /** 创建时间 */
   createdAt: number;
-  /** 清理定时器 */
-  cleanupTimer: ReturnType<typeof setTimeout>;
+  /** 清理定时器（可选，不过期时为 null） */
+  cleanupTimer: ReturnType<typeof setTimeout> | null;
 }
 
-/** 预加载缓存过期时间（毫秒）*/
-const CACHE_EXPIRY_MS = 5 * 60 * 1000; // 5 分钟
+/** 默认预加载过期时间：0 表示不过期，与全局缓存策略一致 */
+const DEFAULT_EXPIRY_MS = 0;
 
 /**
  * EPUB 预加载器类
@@ -36,6 +36,25 @@ class EpubPreloader {
   
   /** loader hook 实例 */
   private _loaderHook = useEpubLoader();
+
+  /** 当前过期时间（毫秒），0 表示不过期 */
+  private _expiryMs = DEFAULT_EXPIRY_MS;
+
+  /**
+   * 设置过期时间（毫秒）
+   * @param ms 过期时间，0 表示不过期
+   */
+  setExpiryMs(ms: number): void {
+    this._expiryMs = ms >= 0 ? ms : 0;
+  }
+
+  /**
+   * 设置过期时间（天）
+   * @param days 过期天数，0 表示不过期
+   */
+  setExpiryDays(days: number): void {
+    this._expiryMs = days > 0 ? days * 24 * 60 * 60 * 1000 : 0;
+  }
 
   /**
    * 触发预加载（不等待结果）
@@ -50,10 +69,13 @@ class EpubPreloader {
     // 立即开始加载，不等待结果
     const loadPromise = this._loadBook(filePath);
     
-    // 设置自动清理定时器
-    const cleanupTimer = setTimeout(() => {
-      this._cache.delete(filePath);
-    }, CACHE_EXPIRY_MS);
+    // 设置自动清理定时器（仅在有过期时间时）
+    let cleanupTimer: ReturnType<typeof setTimeout> | null = null;
+    if (this._expiryMs > 0) {
+      cleanupTimer = setTimeout(() => {
+        this._cache.delete(filePath);
+      }, this._expiryMs);
+    }
 
     // 存入缓存
     this._cache.set(filePath, {
@@ -67,7 +89,9 @@ class EpubPreloader {
       // 加载失败时立即清理
       const entry = this._cache.get(filePath);
       if (entry) {
-        clearTimeout(entry.cleanupTimer);
+        if (entry.cleanupTimer) {
+          clearTimeout(entry.cleanupTimer);
+        }
         this._cache.delete(filePath);
       }
     });
@@ -89,18 +113,25 @@ class EpubPreloader {
     try {
       const book = await entry.promise;
       
-      // 获取成功后，保留缓存但重置过期时间
-      // 这样如果用户快速退出再进入，仍可复用
-      clearTimeout(entry.cleanupTimer);
-      entry.cleanupTimer = setTimeout(() => {
-        this._cache.delete(filePath);
-      }, CACHE_EXPIRY_MS);
+      // 获取成功后，保留缓存但重置过期时间（仅在有过期时间时）
+      if (entry.cleanupTimer) {
+        clearTimeout(entry.cleanupTimer);
+      }
+      if (this._expiryMs > 0) {
+        entry.cleanupTimer = setTimeout(() => {
+          this._cache.delete(filePath);
+        }, this._expiryMs);
+      } else {
+        entry.cleanupTimer = null;
+      }
       
       logError(`[EpubPreloader] 命中预加载缓存: ${filePath}`).catch(() => {});
       return book;
     } catch (e) {
       // 加载失败，清理缓存
-      clearTimeout(entry.cleanupTimer);
+      if (entry.cleanupTimer) {
+        clearTimeout(entry.cleanupTimer);
+      }
       this._cache.delete(filePath);
       logError(`[EpubPreloader] 预加载失败: ${e}`).catch(() => {});
       return null;
@@ -122,7 +153,9 @@ class EpubPreloader {
   clear(filePath: string): void {
     const entry = this._cache.get(filePath);
     if (entry) {
-      clearTimeout(entry.cleanupTimer);
+      if (entry.cleanupTimer) {
+        clearTimeout(entry.cleanupTimer);
+      }
       this._cache.delete(filePath);
     }
   }
@@ -132,7 +165,9 @@ class EpubPreloader {
    */
   clearAll(): void {
     for (const [, entry] of this._cache) {
-      clearTimeout(entry.cleanupTimer);
+      if (entry.cleanupTimer) {
+        clearTimeout(entry.cleanupTimer);
+      }
     }
     this._cache.clear();
   }

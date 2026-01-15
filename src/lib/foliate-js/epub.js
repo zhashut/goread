@@ -745,6 +745,15 @@ class Loader {
             if (childList) childList.push(href)
             else this.#children.set(parent, [href])
         }
+        // 保存到外部缓存（用于持久化）
+        if (this.#externalCache && typeof this.#externalCache.set === 'function') {
+            try {
+                // 异步保存，不阻塞返回
+                this.#externalCache.set(href, newData, newType).catch(() => {})
+            } catch {
+                // 保存失败不影响正常流程
+            }
+        }
         return url
     }
     ref(href, parent) {

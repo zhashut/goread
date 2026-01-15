@@ -3,6 +3,7 @@ use std::future::Future;
 use std::pin::Pin;
 
 pub mod common;
+pub mod epub;
 pub mod markdown;
 pub mod html;
 

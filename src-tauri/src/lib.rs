@@ -1,4 +1,5 @@
 mod commands;
+mod epub_commands;
 mod formats;
 mod html_commands;
 mod markdown_commands;
@@ -66,6 +67,7 @@ use commands::{
     update_books_last_read_time,
     update_group,
 };
+use epub_commands::*;
 use html_commands::*;
 use markdown_commands::*;
 use pdf_commands::*;
@@ -123,6 +125,11 @@ pub fn run() {
 
                 // 初始化PDF管理器
                 app.manage(init_pdf_manager());
+
+                // 初始化EPUB缓存管理器
+                app.manage(epub_commands::EpubCacheState::new(Mutex::new(
+                    formats::epub::EpubCacheManager::new(),
+                )));
 
                 if let Ok(res_dir) = app.path().resource_dir() {
                     #[cfg(target_os = "windows")]
@@ -232,7 +239,18 @@ pub fn run() {
             has_reading_sessions,
             // Backup commands
             export_app_data,
-            import_app_data
+            import_app_data,
+            // EPUB cache commands
+            epub_save_section,
+            epub_load_section,
+            epub_save_resource,
+            epub_load_resource,
+            epub_set_cache_expiry,
+            epub_clear_book_cache,
+            epub_cleanup_expired,
+            epub_get_cache_stats,
+            epub_save_metadata,
+            epub_load_metadata
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

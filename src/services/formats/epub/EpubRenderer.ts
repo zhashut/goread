@@ -346,6 +346,7 @@ export class EpubRenderer implements IBookRenderer {
   /**
    * 为横向模式注入外部资源缓存到 foliate-js
    * 加速已缓存资源的加载，避免重复解析
+   * 支持内存缓存 -> IndexedDB 的两级回退
    */
   private _injectResourceCacheToBook(): void {
     if (!this._book || !this._resourceCache || !this._bookId) return;
@@ -362,18 +363,33 @@ export class EpubRenderer implements IBookRenderer {
     // 创建外部缓存适配器
     const externalCache = {
       /**
-       * 从缓存获取资源
+       * 从缓存获取资源（内存缓存 -> 后端磁盘缓存）
        * @param href - 资源路径（相对于 EPUB 根目录）
        * @param mediaType - 资源 MIME 类型
        * @returns 缓存命中时返回 { url: blobUrl }，否则返回 null
        */
       get: async (href: string, mediaType?: string): Promise<{ url: string } | null> => {
         try {
-          const cachedData = resourceCache.get(bookId, href);
-          if (!cachedData) return null;
+          // 先尝试内存缓存
+          let cachedData = resourceCache.get(bookId, href);
+          let mimeType = mediaType || getMimeType(href);
 
-          // 确定 MIME 类型
-          const mimeType = mediaType || getMimeType(href);
+          // 内存缓存未命中时，尝试从后端磁盘缓存加载
+          if (!cachedData) {
+            try {
+              const dbEntry = await epubCacheService.loadResourceFromDB(bookId, href);
+              if (dbEntry) {
+                // 恢复到内存缓存
+                resourceCache.set(bookId, href, dbEntry.data, dbEntry.mimeType);
+                cachedData = dbEntry.data;
+                mimeType = dbEntry.mimeType || mimeType;
+              }
+            } catch {
+              // 后端加载失败，返回 null 让 foliate-js 自行加载
+            }
+          }
+
+          if (!cachedData) return null;
           
           // 创建 Blob URL
           const blob = new Blob([cachedData], { type: mimeType });
@@ -385,6 +401,41 @@ export class EpubRenderer implements IBookRenderer {
           return { url };
         } catch {
           return null;
+        }
+      },
+
+      /**
+       * 保存资源到缓存（内存缓存 + 后端磁盘持久化）
+       * @param href - 资源路径
+       * @param data - 资源数据
+       * @param mediaType - 资源 MIME 类型
+       */
+      set: async (href: string, data: ArrayBuffer | Blob, mediaType: string): Promise<void> => {
+        try {
+          // 将 Blob 转换为 ArrayBuffer
+          let arrayBuffer: ArrayBuffer;
+          if (data instanceof Blob) {
+            arrayBuffer = await data.arrayBuffer();
+          } else {
+            arrayBuffer = data;
+          }
+
+          const mimeType = mediaType || getMimeType(href);
+
+          // 写入内存缓存
+          resourceCache.set(bookId, href, arrayBuffer, mimeType);
+
+          // 写入后端磁盘持久化
+          await epubCacheService.saveResourceToDB({
+            bookId,
+            resourcePath: href,
+            data: arrayBuffer,
+            mimeType,
+            sizeBytes: arrayBuffer.byteLength,
+            lastAccessTime: Date.now(),
+          });
+        } catch {
+          // 保存失败不影响正常流程
         }
       },
     };

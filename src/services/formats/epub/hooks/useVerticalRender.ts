@@ -229,21 +229,21 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
 
     const { bookId, sectionCache, resourceCache } = context;
 
-    // 尝试从缓存读取（一级内存缓存 -> 二级 IndexedDB 缓存）
+    // 尝试从缓存读取（一级内存缓存 -> 二级后端磁盘缓存）
     if (bookId && sectionCache && resourceCache) {
       let cacheEntry = sectionCache.getSection(bookId, index);
 
-      // 内存缓存未命中时，尝试从 IndexedDB 加载
+      // 内存缓存未命中时，尝试从后端磁盘缓存加载
       if (!cacheEntry) {
         try {
           cacheEntry = await epubCacheService.loadSectionFromDB(bookId, index);
           if (cacheEntry) {
             // 加载到内存缓存
             sectionCache.setSection(cacheEntry);
-            logError(`[EpubRenderer] 从 IndexedDB 恢复章节 ${index + 1} 到内存`).catch(() => {});
+            logError(`[EpubRenderer] 从后端磁盘恢复章节 ${index + 1} 到内存`).catch(() => {});
           }
         } catch {
-          // IndexedDB 加载失败，继续常规渲染
+          // 后端加载失败，继续常规渲染
         }
       }
 
@@ -266,10 +266,48 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
             shadow.appendChild(originalStyleEl);
           }
 
-          // 从缓存恢复 HTML，替换占位符为 Blob URL
+          // 从缓存恢复 HTML，替换占位符为 Blob URL（内存缓存 -> 后端磁盘缓存 -> 网络加载）
           let restoredHtml = cacheEntry.rawHtml;
           for (const ref of cacheEntry.resourceRefs) {
-            const data = resourceCache.get(bookId, ref);
+            let data = resourceCache.get(bookId, ref);
+
+            // 内存缓存未命中时，尝试从后端磁盘缓存加载
+            if (!data) {
+              try {
+                const dbEntry = await epubCacheService.loadResourceFromDB(bookId, ref);
+                if (dbEntry) {
+                  // 恢复到内存缓存
+                  resourceCache.set(bookId, ref, dbEntry.data, dbEntry.mimeType);
+                  data = dbEntry.data;
+                  logError(`[EpubRenderer] 从 IndexedDB 恢复资源: ${ref}`).catch(() => {});
+                }
+              } catch {
+                // IndexedDB 加载失败，继续尝试网络加载
+              }
+            }
+
+            // 如果仍未命中，尝试通过 resourceHook 加载（需要 book 对象）
+            if (!data && resourceHook) {
+              try {
+                data = await resourceHook.loadResourceData(ref);
+                if (data) {
+                  const mimeType = getMimeType(ref);
+                  resourceCache.set(bookId, ref, data, mimeType);
+                  // 异步写入 IndexedDB
+                  epubCacheService.saveResourceToDB({
+                    bookId,
+                    resourcePath: ref,
+                    data,
+                    mimeType,
+                    sizeBytes: data.byteLength,
+                    lastAccessTime: Date.now(),
+                  }).catch(() => {});
+                }
+              } catch {
+                // 网络加载失败
+              }
+            }
+
             if (data) {
               const mimeType = getMimeType(ref);
               const blob = new Blob([data], { type: mimeType });
@@ -385,12 +423,22 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
               section
             );
 
-            // 缓存资源数据
+            // 缓存资源数据（内存 + IndexedDB 双写）
             for (const ref of resourceRefs) {
               if (!resourceCache.has(bookId, ref)) {
                 const data = await resourceHook.loadResourceData(ref);
                 if (data) {
-                  resourceCache.set(bookId, ref, data, getMimeType(ref));
+                  const mimeType = getMimeType(ref);
+                  resourceCache.set(bookId, ref, data, mimeType);
+                  // 同时写入 IndexedDB 持久化
+                  epubCacheService.saveResourceToDB({
+                    bookId,
+                    resourcePath: ref,
+                    data,
+                    mimeType,
+                    sizeBytes: data.byteLength,
+                    lastAccessTime: Date.now(),
+                  }).catch(() => {});
                 }
               } else {
                 resourceCache.addRef(bookId, ref);

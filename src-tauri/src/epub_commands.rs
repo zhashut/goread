@@ -1,0 +1,153 @@
+//! EPUB 相关的 Tauri 命令
+use crate::formats::epub::{EpubCacheManager, BookInfo, TocItem, MetadataCacheEntry, SectionCacheData};
+use serde_json::Value;
+use std::sync::Arc;
+use tauri::State;
+use tokio::sync::Mutex;
+
+/// EPUB 缓存管理器状态
+pub type EpubCacheState = Arc<Mutex<EpubCacheManager>>;
+
+/// 保存章节缓存到磁盘（包含完整的样式和资源引用信息）
+#[tauri::command]
+pub async fn epub_save_section(
+    book_id: String,
+    section_index: u32,
+    html_content: String,
+    styles: Vec<String>,
+    resource_refs: Vec<String>,
+    state: State<'_, EpubCacheState>,
+) -> Result<bool, String> {
+    let manager = state.lock().await;
+    manager
+        .save_section(&book_id, section_index, &html_content, styles, resource_refs)
+        .await?;
+    Ok(true)
+}
+
+/// 从磁盘加载章节缓存（返回完整的 HTML、样式和资源引用）
+#[tauri::command]
+pub async fn epub_load_section(
+    book_id: String,
+    section_index: u32,
+    state: State<'_, EpubCacheState>,
+) -> Result<Option<SectionCacheData>, String> {
+    let manager = state.lock().await;
+    manager.load_section(&book_id, section_index).await
+}
+
+/// 保存资源缓存到磁盘
+#[tauri::command]
+pub async fn epub_save_resource(
+    book_id: String,
+    resource_path: String,
+    data: Vec<u8>,
+    mime_type: String,
+    state: State<'_, EpubCacheState>,
+) -> Result<bool, String> {
+    let manager = state.lock().await;
+    manager
+        .save_resource(&book_id, &resource_path, &data, &mime_type)
+        .await?;
+    Ok(true)
+}
+
+/// 从磁盘加载资源缓存
+#[tauri::command]
+pub async fn epub_load_resource(
+    book_id: String,
+    resource_path: String,
+    state: State<'_, EpubCacheState>,
+) -> Result<Option<(Vec<u8>, String)>, String> {
+    let manager = state.lock().await;
+    manager.load_resource(&book_id, &resource_path).await
+}
+
+/// 设置 EPUB 缓存有效期（天），0 表示不限
+#[tauri::command]
+pub async fn epub_set_cache_expiry(
+    days: u32,
+    state: State<'_, EpubCacheState>,
+) -> Result<bool, String> {
+    let manager = state.lock().await;
+    manager.set_expiry_days(days as u64);
+    // 立即触发过期清理（设置有效期后按新配置清理存量缓存）
+    let _ = manager.cleanup_expired().await;
+    Ok(true)
+}
+
+/// 清理指定书籍的缓存，包括章节、资源和元数据
+#[tauri::command]
+pub async fn epub_clear_book_cache(
+    book_id: String,
+    state: State<'_, EpubCacheState>,
+) -> Result<bool, String> {
+    let manager = state.lock().await;
+    manager.clear_book_cache(&book_id).await?;
+    Ok(true)
+}
+
+/// 清理所有过期缓存
+#[tauri::command]
+pub async fn epub_cleanup_expired(state: State<'_, EpubCacheState>) -> Result<usize, String> {
+    let manager = state.lock().await;
+    manager.cleanup_expired().await
+}
+
+/// 获取 EPUB 缓存统计信息
+#[tauri::command]
+pub async fn epub_get_cache_stats(
+    state: State<'_, EpubCacheState>,
+) -> Result<crate::formats::epub::CacheStats, String> {
+    let manager = state.lock().await;
+    manager.get_stats().await
+}
+
+// ====================== 元数据缓存命令 ======================
+
+/// 保存书籍元数据到磁盘
+#[tauri::command]
+pub async fn epub_save_metadata(
+    book_id: String,
+    book_info: Value,
+    toc: Value,
+    section_count: u32,
+    state: State<'_, EpubCacheState>,
+) -> Result<bool, String> {
+    let manager = state.lock().await;
+
+    // 解析 book_info
+    let book_info: BookInfo = match &book_info {
+        Value::String(s) => serde_json::from_str(s)
+            .map_err(|e| format!("解析 book_info 失败: {}", e))?,
+        Value::Object(_) => serde_json::from_value(book_info.clone())
+            .map_err(|e| format!("解析 book_info 失败: {}", e))?,
+        _ => return Err("book_info 类型不支持".to_string()),
+    };
+
+    // 解析 toc
+    let toc: Vec<TocItem> = match &toc {
+        Value::String(s) => serde_json::from_str(s)
+            .map_err(|e| format!("解析 toc 失败: {}", e))?,
+        Value::Array(_) => serde_json::from_value(toc.clone())
+            .map_err(|e| format!("解析 toc 失败: {}", e))?,
+        _ => return Err("toc 类型不支持".to_string()),
+    };
+
+    manager
+        .save_metadata(&book_id, book_info, toc, section_count)
+        .await?;
+    
+    println!("[backend] EPUB 元数据保存成功: {}", book_id);
+    Ok(true)
+}
+
+/// 从磁盘加载书籍元数据
+#[tauri::command]
+pub async fn epub_load_metadata(
+    book_id: String,
+    state: State<'_, EpubCacheState>,
+) -> Result<Option<MetadataCacheEntry>, String> {
+    let manager = state.lock().await;
+    manager.load_metadata(&book_id).await
+}
