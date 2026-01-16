@@ -19,14 +19,14 @@ export const RECENT_DISPLAY_COUNT_OPTIONS = [5, 7, 9, 12, 15];
 export const RECENT_DISPLAY_COUNT_UNLIMITED = 0;
 
 // 滚动速度配置
-export const SCROLL_SPEED_MIN = 60;
+export const SCROLL_SPEED_MIN = 10;
 export const SCROLL_SPEED_MAX = 300;
-export const SCROLL_SPEED_STEP = 10;
+export const SCROLL_SPEED_STEP = 1;
 
 // 页面间隙配置
 export const PAGE_GAP_MIN = 0;
 export const PAGE_GAP_MAX = 48;
-export const PAGE_GAP_STEP = 2;
+export const PAGE_GAP_STEP = 1;
 
 // 设置保存防抖时间 (ms)
 export const SETTINGS_SAVE_DEBOUNCE_MS = 100;
