@@ -9,6 +9,7 @@ import type {
 } from './types';
 import type { BookPageCacheStats } from '../../types';
 import { logError } from '../../../index';
+import { isIdleExpired, evictOldestEntry } from './lruCacheUtils';
 
 /**
  * EPUB 章节缓存管理器
@@ -54,32 +55,20 @@ export class EpubSectionCacheManager implements IEpubSectionCache {
   }
 
   /**
-   * 检查条目是否已过期（空闲过期）
-   */
-  private isExpired(entry: EpubSectionCacheEntry): boolean {
-    if (this.timeToIdleSecs <= 0) return false;
-    if (!entry.meta.lastAccessTime) return false;
-    const now = Date.now();
-    const idleMs = this.timeToIdleSecs * 1000;
-    return now - entry.meta.lastAccessTime > idleMs;
-  }
-
-  /**
    * 淘汰最久未使用的条目
    */
   private evictOldest(): void {
-    if (this.cache.size === 0) return;
-
-    const iterator = this.cache.keys();
-    const first = iterator.next();
-    if (first.done || typeof first.value !== 'string') return;
-
-    const key = first.value;
-    const entry = this.cache.get(key);
-    if (entry) {
-      this.currentMemoryMB -= this.calculateMemoryMB(entry);
-      this.cache.delete(key);
-      logError(`[EpubSectionCache] 淘汰章节缓存: ${key}`).catch(() => {});
+    const removed = evictOldestEntry(this.cache, {
+      onEvict: (entry, key) => {
+        this.currentMemoryMB -= this.calculateMemoryMB(entry);
+        if (this.currentMemoryMB < 0) {
+          this.currentMemoryMB = 0;
+        }
+        logError(`[EpubSectionCache] 淘汰章节缓存: ${String(key)}`).catch(() => {});
+      },
+    });
+    if (!removed) {
+      return;
     }
   }
 
@@ -99,9 +88,11 @@ export class EpubSectionCacheManager implements IEpubSectionCache {
 
     if (!entry) return null;
 
-    // 检查是否过期
-    if (this.isExpired(entry)) {
+    if (isIdleExpired(entry.meta.lastAccessTime, this.timeToIdleSecs)) {
       this.currentMemoryMB -= this.calculateMemoryMB(entry);
+      if (this.currentMemoryMB < 0) {
+        this.currentMemoryMB = 0;
+      }
       this.cache.delete(key);
       logError(`[EpubSectionCache] 章节缓存已过期: ${key}`).catch(() => {});
       return null;
@@ -163,9 +154,11 @@ export class EpubSectionCacheManager implements IEpubSectionCache {
     const entry = this.cache.get(key);
     if (!entry) return false;
 
-    // 检查是否过期
-    if (this.isExpired(entry)) {
+    if (isIdleExpired(entry.meta.lastAccessTime, this.timeToIdleSecs)) {
       this.currentMemoryMB -= this.calculateMemoryMB(entry);
+      if (this.currentMemoryMB < 0) {
+        this.currentMemoryMB = 0;
+      }
       this.cache.delete(key);
       return false;
     }

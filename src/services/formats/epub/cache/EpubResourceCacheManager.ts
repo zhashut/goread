@@ -9,6 +9,7 @@ import type {
 } from './types';
 import type { BookPageCacheStats } from '../../types';
 import { logError } from '../../../index';
+import { isIdleExpired, evictOldestEntry } from './lruCacheUtils';
 
 /**
  * EPUB 资源缓存管理器
@@ -46,42 +47,19 @@ export class EpubResourceCacheManager implements IEpubResourceCache {
   }
 
   /**
-   * 检查条目是否已过期（空闲过期）
-   */
-  private isExpired(entry: EpubResourceCacheEntry): boolean {
-    if (this.timeToIdleSecs <= 0) return false;
-    if (!entry.lastAccessTime) return false;
-    const now = Date.now();
-    const idleMs = this.timeToIdleSecs * 1000;
-    return now - entry.lastAccessTime > idleMs;
-  }
-
-  /**
    * 淘汰最久未使用且引用计数为 0 的条目
    */
   private evictUnusedOldest(): boolean {
-    if (this.cache.size === 0) return false;
-
-    // 找到 refCount === 0 且最久未使用的条目
-    let oldestKey: string | null = null;
-    let oldestTime = Infinity;
-
-    this.cache.forEach((entry, key) => {
-      if (entry.refCount === 0 && entry.lastAccessTime < oldestTime) {
-        oldestTime = entry.lastAccessTime;
-        oldestKey = key;
-      }
+    return evictOldestEntry(this.cache, {
+      canEvict: (entry) => entry.refCount === 0,
+      onEvict: (entry, key) => {
+        this.currentMemoryMB -= this.calculateMemoryMB(entry.data);
+        if (this.currentMemoryMB < 0) {
+          this.currentMemoryMB = 0;
+        }
+        logError(`[EpubResourceCache] 淘汰资源: ${String(key)}`).catch(() => {});
+      },
     });
-
-    if (oldestKey) {
-      const entry = this.cache.get(oldestKey)!;
-      this.currentMemoryMB -= this.calculateMemoryMB(entry.data);
-      this.cache.delete(oldestKey);
-      logError(`[EpubResourceCache] 淘汰资源: ${oldestKey}`).catch(() => {});
-      return true;
-    }
-
-    return false;
   }
 
   /**
@@ -100,8 +78,10 @@ export class EpubResourceCacheManager implements IEpubResourceCache {
 
     if (!entry) return null;
 
-    // 检查是否过期（仅当 refCount === 0 时才过期）
-    if (entry.refCount === 0 && this.isExpired(entry)) {
+    if (
+      entry.refCount === 0 &&
+      isIdleExpired(entry.lastAccessTime, this.timeToIdleSecs)
+    ) {
       this.currentMemoryMB -= this.calculateMemoryMB(entry.data);
       this.cache.delete(key);
       return null;
@@ -161,9 +141,14 @@ export class EpubResourceCacheManager implements IEpubResourceCache {
     const entry = this.cache.get(key);
     if (!entry) return false;
 
-    // 检查是否过期
-    if (entry.refCount === 0 && this.isExpired(entry)) {
+    if (
+      entry.refCount === 0 &&
+      isIdleExpired(entry.lastAccessTime, this.timeToIdleSecs)
+    ) {
       this.currentMemoryMB -= this.calculateMemoryMB(entry.data);
+      if (this.currentMemoryMB < 0) {
+        this.currentMemoryMB = 0;
+      }
       this.cache.delete(key);
       return false;
     }
