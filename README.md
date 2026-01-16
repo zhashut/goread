@@ -16,6 +16,15 @@ GoRead 是一款专为本地电子书阅读打造的轻量级阅读器应用，�
 
 GoRead 聚焦「本地电子书管理与沉浸式阅读」，不依赖云端账号，无广告、少打扰，适合希望掌控自己书库和隐私的用户。你可以将散落在各个文件夹中的电子书集中管理，按分组整理，并在一个统一的阅读器中完成阅读、标记和进度管理。
 
+<div style="display: flex; flex-wrap: wrap; gap: 10px; justify-content: center;">
+  <img height="300px" src="https://i.meee.com.tw/HF73JGU.jpg" alt="GoRead界面截图" style="max-width: 100%; object-fit: contain;" />
+  <img height="300px" src="https://i.meee.com.tw/RY9Ahtd.jpg" alt="GoRead界面截图" style="max-width: 100%; object-fit: contain;" />
+  <img height="300px" src="https://i.meee.com.tw/brsYHQH.jpg" alt="GoRead界面截图" style="max-width: 100%; object-fit: contain;" />
+  <img height="300px" src="https://i.meee.com.tw/R9GxmsH.jpg" alt="GoRead界面截图" style="max-width: 100%; object-fit: contain;" />
+  <img height="300px" src="https://i.meee.com.tw/RBwwGWL.jpg" alt="GoRead界面截图" style="max-width: 100%; object-fit: contain;" />
+  <img height="300px" src="https://i.meee.com.tw/6JKFBzF.jpg" alt="GoRead界面截图" style="max-width: 100%; object-fit: contain;" />
+</div>
+
 ---
 
 ## 核心功能
