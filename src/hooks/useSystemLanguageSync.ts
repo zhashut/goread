@@ -4,10 +4,11 @@
  * 仅在语言设置为 'system' 时生效
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { getReaderSettings } from '../services';
 import { getSystemAppLanguage, AppLanguage } from '../services/systemLanguageService';
 import i18n from '../locales';
+import { useAppLifecycle } from './useAppLifecycle';
 
 /**
  * 检测系统语言并同步到 i18n
@@ -35,34 +36,20 @@ async function syncSystemLanguage(): Promise<void> {
  * 监听应用可见性变化，当应用从后台返回前台时重新检测系统语言
  */
 export function useSystemLanguageSync(): void {
-  const isInitialMount = useRef(true);
+  useAppLifecycle({
+    onForeground: () => {
+      void syncSystemLanguage();
+    },
+  });
 
   useEffect(() => {
-    // 跳过首次挂载，因为 main.tsx 已经初始化语言
-    if (isInitialMount.current) {
-      isInitialMount.current = false;
-      return;
-    }
-
-    // 处理页面可见性变化
-    const handleVisibilityChange = async () => {
-      if (document.visibilityState === 'visible') {
-        await syncSystemLanguage();
-      }
+    const handleFocus = () => {
+      void syncSystemLanguage();
     };
 
-    // 处理页面获得焦点（桌面端备用）
-    const handleFocus = async () => {
-      await syncSystemLanguage();
-    };
-
-    // 添加事件监听
-    document.addEventListener('visibilitychange', handleVisibilityChange);
     window.addEventListener('focus', handleFocus);
 
-    // 清理
     return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('focus', handleFocus);
     };
   }, []);

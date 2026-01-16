@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useAppNav } from "../../../router/useAppNav";
+import { useAppLifecycle } from "../../../hooks/useAppLifecycle";
 
 /**
  * 外部文件可见性 Hook
@@ -10,16 +11,14 @@ export const useExternalVisibility = (isExternal: boolean) => {
 
     useEffect(() => {
         if (!isExternal) return;
-
-        const handleVisibilityChange = () => {
-            if (document.hidden) {
-                nav.toBookshelf("recent", { replace: true, resetStack: true });
-            }
-        };
-
-        document.addEventListener("visibilitychange", handleVisibilityChange);
         return () => {
-            document.removeEventListener("visibilitychange", handleVisibilityChange);
         };
     }, [isExternal, nav]);
+
+    useAppLifecycle({
+        onBackground: () => {
+            if (!isExternal) return;
+            nav.toBookshelf("recent", { replace: true, resetStack: true });
+        },
+    });
 };

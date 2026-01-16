@@ -8,6 +8,7 @@ import { MarkdownRenderer } from "../../../services/formats/markdown/MarkdownRen
 import { useReaderState } from "./useReaderState";
 import { useNavigation } from "./useNavigation";
 import { IBookRenderer } from "../../../services/formats";
+import { useAppLifecycle } from "../../../hooks/useAppLifecycle";
 
 type AutoScrollProps = {
     readerState: ReturnType<typeof useReaderState>;
@@ -166,37 +167,21 @@ export const useAutoScroll = ({
         domContainerRef,
     ]);
 
-    // 监听应用生命周期：后台时暂停自动滚动，前台时恢复
     const wasAutoScrollingRef = useRef(false);
-    useEffect(() => {
-        const handleBackground = () => {
+    useAppLifecycle({
+        onBackground: () => {
             if (autoScroll) {
                 wasAutoScrollingRef.current = true;
                 setAutoScroll(false);
             }
-        };
-
-        const handleForeground = () => {
+        },
+        onForeground: () => {
             if (wasAutoScrollingRef.current) {
                 wasAutoScrollingRef.current = false;
                 setAutoScroll(true);
             }
-        };
-
-        const handleVisibilityChange = () => {
-            if (document.hidden) {
-                handleBackground();
-            } else {
-                handleForeground();
-            }
-        };
-
-        document.addEventListener("visibilitychange", handleVisibilityChange);
-
-        return () => {
-            document.removeEventListener("visibilitychange", handleVisibilityChange);
-        };
-    }, [autoScroll]);
+        },
+    });
 
     return { autoScroll, setAutoScroll };
 };

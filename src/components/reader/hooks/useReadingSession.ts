@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from "react";
 import { IBook } from "../../../types";
 import { statsService, logError } from "../../../services";
 import { READING_INACTIVITY_THRESHOLD_MS } from "../../../constants/interactions";
+import { useAppLifecycle } from "../../../hooks/useAppLifecycle";
 
 // 单次会话最大时长（30分钟），超过后强制结束
 const MAX_SESSION_DURATION_MS = 30 * 60 * 1000;
@@ -18,6 +19,7 @@ export const useReadingSession = (book: IBook | null, isExternal: boolean) => {
     const readingSessionIntervalRef = useRef<number | null>(null);
     const lastActiveTimeRef = useRef<number>(0);
     const pausedDueToInactivityRef = useRef<boolean>(false);
+    const sessionActiveRef = useRef<boolean>(false);
 
     const bookIdRef = useRef(book?.id);
     bookIdRef.current = book?.id;
@@ -115,53 +117,48 @@ export const useReadingSession = (book: IBook | null, isExternal: boolean) => {
     }, [startSessionTimer]);
 
     useEffect(() => {
-        if (isExternal) return;
-        if (!book?.id) return;
+        if (isExternal || !book?.id) {
+            sessionActiveRef.current = false;
+            stopSessionTimer();
+            return;
+        }
 
         const now = Date.now();
         sessionStartRef.current = now;
         lastSaveTimeRef.current = now;
         lastActiveTimeRef.current = now;
         pausedDueToInactivityRef.current = false;
+        sessionActiveRef.current = true;
 
-        // 只在前台时启动定时器
         if (!document.hidden) {
             startSessionTimer();
         }
 
-        // 统一的后台处理函数
-        const handleBackground = () => {
+        return () => {
+            if (sessionActiveRef.current) {
+                saveSessionSync();
+                stopSessionTimer();
+                sessionActiveRef.current = false;
+            }
+        };
+    }, [book?.id, isExternal, startSessionTimer, stopSessionTimer, saveSessionSync]);
+
+    useAppLifecycle({
+        onBackground: () => {
+            if (!sessionActiveRef.current) return;
             saveSessionSync();
             stopSessionTimer();
-        };
-
-        // 统一的前台处理函数
-        const handleForeground = () => {
+        },
+        onForeground: () => {
+            if (!sessionActiveRef.current) return;
             const ts = Date.now();
             sessionStartRef.current = ts;
             lastSaveTimeRef.current = ts;
             lastActiveTimeRef.current = ts;
             pausedDueToInactivityRef.current = false;
             startSessionTimer();
-        };
-
-        // visibilitychange 事件
-        const handleVisibilityChange = () => {
-            if (document.hidden) {
-                handleBackground();
-            } else {
-                handleForeground();
-            }
-        };
-
-        document.addEventListener("visibilitychange", handleVisibilityChange);
-
-        return () => {
-            saveSessionSync();
-            stopSessionTimer();
-            document.removeEventListener("visibilitychange", handleVisibilityChange);
-        };
-    }, [book?.id, isExternal, startSessionTimer, stopSessionTimer, saveSessionSync]);
+        },
+    });
 
     return { markReadingActive };
 };
