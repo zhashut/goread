@@ -207,6 +207,7 @@ export const Statistics: React.FC = () => {
   // 加载范围统计数据
   const loadRangeStats = useCallback(async () => {
     try {
+      setLoading(true);
       if (rangeType === 'day') {
         // 日视图使用特殊的按小时统计
         const today = new Date();
@@ -272,8 +273,10 @@ export const Statistics: React.FC = () => {
       }
     } catch (e) {
       await logError('加载范围统计失败', { error: String(e) });
+    } finally {
+      setLoading(false);
     }
-  }, [rangeType, rangeOffset]);
+  }, [rangeType, rangeOffset]); 
 
   // 加载热力图数据
   const loadHeatmapData = useCallback(async () => {
@@ -288,12 +291,10 @@ export const Statistics: React.FC = () => {
   // 初始化加载
   useEffect(() => {
     const init = async () => {
-      setLoading(true);
       await Promise.all([loadSummary(), loadRangeStats(), loadHeatmapData()]);
-      setLoading(false);
     };
     init();
-  }, [loadSummary, loadRangeStats, loadHeatmapData]);
+  }, []);
 
   // 切换范围类型时重新加载，并设置默认选中的柱子
   useEffect(() => {
@@ -373,7 +374,12 @@ export const Statistics: React.FC = () => {
   };
 
   const heatmapData = generateHeatmapData();
-  const weeksCount = Math.ceil(heatmapRange / 7);
+  
+  // 动态计算行列
+  // 近一年(365天)改为10行，其他情况(90天、180天)保持默认7行
+  const gridRows = heatmapRange === 365 ? 10 : 7;
+  const gridCols = Math.ceil(heatmapRange / gridRows);
+
   const trend = getTrendText();
   const chartValues = rangeType === 'day' ? dayHourStats : (rangeStats?.values || []);
   const maxChartValue = Math.max(...chartValues, 1);
@@ -771,9 +777,9 @@ export const Statistics: React.FC = () => {
         <div style={{ width: '100%', overflow: 'hidden' }}>
           <div style={{
             display: 'grid',
-            gridTemplateRows: 'repeat(7, 1fr)',
+            gridTemplateRows: `repeat(${gridRows}, 1fr)`,
             gridAutoFlow: 'column',
-            gridTemplateColumns: `repeat(${weeksCount}, 1fr)`,
+            gridTemplateColumns: `repeat(${gridCols}, 1fr)`,
             gap: 3,
             width: '100%'
           }}>
