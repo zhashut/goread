@@ -19,10 +19,19 @@ pub async fn epub_save_section(
     state: State<'_, EpubCacheState>,
 ) -> Result<bool, String> {
     let manager = state.lock().await;
-    manager
+    match manager
         .save_section(&book_id, section_index, &html_content, styles, resource_refs)
-        .await?;
-    Ok(true)
+        .await
+    {
+        Ok(_) => Ok(true),
+        Err(e) => {
+            eprintln!(
+                "[EPUB缓存] 保存章节失败: book_id={}, section_index={}, error={}",
+                book_id, section_index, e
+            );
+            Err(e)
+        }
+    }
 }
 
 /// 从磁盘加载章节缓存（返回完整的 HTML、样式和资源引用）
@@ -33,7 +42,13 @@ pub async fn epub_load_section(
     state: State<'_, EpubCacheState>,
 ) -> Result<Option<SectionCacheData>, String> {
     let manager = state.lock().await;
-    manager.load_section(&book_id, section_index).await
+    manager.load_section(&book_id, section_index).await.map_err(|e| {
+        eprintln!(
+            "[EPUB缓存] 加载章节失败: book_id={}, section_index={}, error={}",
+            book_id, section_index, e
+        );
+        e
+    })
 }
 
 /// 保存资源缓存到磁盘
@@ -46,10 +61,19 @@ pub async fn epub_save_resource(
     state: State<'_, EpubCacheState>,
 ) -> Result<bool, String> {
     let manager = state.lock().await;
-    manager
+    match manager
         .save_resource(&book_id, &resource_path, &data, &mime_type)
-        .await?;
-    Ok(true)
+        .await
+    {
+        Ok(_) => Ok(true),
+        Err(e) => {
+            eprintln!(
+                "[EPUB缓存] 保存资源失败: book_id={}, resource_path={}, error={}",
+                book_id, resource_path, e
+            );
+            Err(e)
+        }
+    }
 }
 
 /// 从磁盘加载资源缓存
@@ -60,7 +84,13 @@ pub async fn epub_load_resource(
     state: State<'_, EpubCacheState>,
 ) -> Result<Option<(Vec<u8>, String)>, String> {
     let manager = state.lock().await;
-    manager.load_resource(&book_id, &resource_path).await
+    manager.load_resource(&book_id, &resource_path).await.map_err(|e| {
+        eprintln!(
+            "[EPUB缓存] 加载资源失败: book_id={}, resource_path={}, error={}",
+            book_id, resource_path, e
+        );
+        e
+    })
 }
 
 /// 设置 EPUB 缓存有效期（天），0 表示不限

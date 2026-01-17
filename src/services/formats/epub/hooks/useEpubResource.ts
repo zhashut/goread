@@ -90,7 +90,12 @@ export function useEpubResource(context: EpubResourceContext): EpubResourceHook 
         }
       }
     } catch (e) {
-      logError(`[EpubRenderer] 加载资源失败: ${url}`, e).catch(() => {});
+      logError(`[EpubRenderer] 加载资源失败`, {
+        error: String(e),
+        stack: (e as Error)?.stack,
+        url,
+        step: 'resolveAndLoadResource',
+      }).catch(() => {});
     }
 
     return null;
@@ -167,7 +172,12 @@ export function useEpubResource(context: EpubResourceContext): EpubResourceHook 
           }
         }
       } catch (e) {
-        logError(`[EpubRenderer] 加载外部 CSS 失败: ${href}`, e).catch(() => {});
+        logError(`[EpubRenderer] 加载外部 CSS 失败`, {
+          error: String(e),
+          stack: (e as Error)?.stack,
+          href,
+          step: 'loadAndProcessStyles',
+        }).catch(() => {});
       }
     }
 
@@ -413,7 +423,12 @@ export function useEpubResource(context: EpubResourceContext): EpubResourceHook 
         return await blob.arrayBuffer();
       }
     } catch (e) {
-      logError(`[EpubResource] 加载资源数据失败: ${resourcePath}`, e).catch(() => {});
+      logError(`[EpubResource] 加载资源数据失败`, {
+        error: String(e),
+        stack: (e as Error)?.stack,
+        resourcePath,
+        step: 'loadResourceData',
+      }).catch(() => {});
     }
 
     return null;

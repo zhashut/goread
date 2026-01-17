@@ -253,8 +253,14 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
         logError(`[EpubRenderer] 从缓存加载章节 ${index + 1}`).catch(() => {});
 
         try {
-          // 使用 shadow DOM 隔离样式
-          const shadow = wrapper.attachShadow({ mode: 'open' });
+          // 使用 shadow DOM 隔离样式（复用已存在的 Shadow Root 或创建新的）
+          let shadow = wrapper.shadowRoot;
+          if (shadow) {
+            // 清空已存在的 Shadow Root 内容
+            shadow.innerHTML = '';
+          } else {
+            shadow = wrapper.attachShadow({ mode: 'open' });
+          }
 
           // 注入主题样式
           const style = document.createElement('style');
@@ -338,7 +344,14 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
           logError(`[EpubRenderer] 章节 ${index + 1} 从缓存加载完成`).catch(() => {});
           return;
         } catch (e) {
-          logError(`[EpubRenderer] 从缓存恢复章节 ${index + 1} 失败，回退到解析:`, e).catch(() => {});
+          logError(`[EpubRenderer] 从缓存恢复章节 ${index + 1} 失败，回退到解析`, {
+            error: String(e),
+            stack: (e as Error)?.stack,
+            bookId,
+            sectionIndex: index,
+            phase: 'reading',
+            step: 'restoreFromSectionCache',
+          }).catch(() => {});
         }
       }
     }
@@ -352,7 +365,13 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
         logError(`[EpubRenderer] 章节 ${index + 1} 等待书籍加载...`).catch(() => {});
         await context.ensureBookLoaded();
       } catch (e) {
-        logError(`[EpubRenderer] 等待书籍加载失败:`, e).catch(() => {});
+        logError(`[EpubRenderer] 等待书籍加载失败`, {
+          error: String(e),
+          stack: (e as Error)?.stack,
+          bookId,
+          sectionIndex: index,
+          step: 'ensureBookLoaded',
+        }).catch(() => {});
       }
     }
 
@@ -384,8 +403,14 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
       // 在原始文档上下文中解析资源路径
       await resourceHook.fixResourcePaths(tempContent, section);
 
-      // 使用 shadow DOM 隔离样式
-      const shadow = wrapper.attachShadow({ mode: 'open' });
+      // 使用 shadow DOM 隔离样式（复用已存在的 Shadow Root 或创建新的）
+      let shadow = wrapper.shadowRoot;
+      if (shadow) {
+        // 清空已存在的 Shadow Root 内容
+        shadow.innerHTML = '';
+      } else {
+        shadow = wrapper.attachShadow({ mode: 'open' });
+      }
 
       // 注入主题样式
       const style = document.createElement('style');
@@ -470,14 +495,27 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
             
             logError(`[EpubRenderer] 章节 ${index + 1} 已写入缓存`).catch(() => {});
           } catch (e) {
-            logError(`[EpubRenderer] 写入章节 ${index + 1} 缓存失败:`, e).catch(() => {});
+            logError(`[EpubRenderer] 写入章节 ${index + 1} 缓存失败`, {
+              error: String(e),
+              stack: (e as Error)?.stack,
+              bookId,
+              sectionIndex: index,
+              step: 'writeCache',
+            }).catch(() => {});
           }
         })();
       }
 
       logError(`[EpubRenderer] 章节 ${index + 1} 渲染完成`).catch(() => {});
     } catch (e) {
-      logError(`[EpubRenderer] 渲染章节 ${index + 1} 失败:`, e).catch(() => {});
+      logError(`[EpubRenderer] 渲染章节 ${index + 1} 失败`, {
+        error: String(e),
+        stack: (e as Error)?.stack,
+        bookId,
+        sectionIndex: index,
+        phase: 'reading',
+        step: 'renderSection',
+      }).catch(() => {});
     }
   };
 
@@ -850,7 +888,14 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
           await renderSection(index, { theme: 'light' });
           logError(`[EPUB预热] 章节 ${index + 1} 预热完成`).catch(() => {});
         } catch (e) {
-          logError(`[EPUB预热] 章节 ${index + 1} 预热失败:`, e).catch(() => {});
+          logError(`[EPUB预热] 章节 ${index + 1} 预热失败`, {
+            error: String(e),
+            stack: (e as Error)?.stack,
+            bookId,
+            sectionIndex: index,
+            phase: 'preload',
+            step: 'preloadSectionsOffscreen',
+          }).catch(() => {});
         }
       }
 

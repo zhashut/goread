@@ -102,7 +102,11 @@ export function useEpubLoader(): EpubLoaderHook {
         });
       }
     } catch (e) {
-      logError('[EpubRenderer] 获取封面失败:', e).catch(() => {});
+      logError('[EpubRenderer] 获取封面失败', {
+        error: String(e),
+        stack: (e as Error)?.stack,
+        step: 'getCoverImage',
+      }).catch(() => {});
     }
     return undefined;
   };

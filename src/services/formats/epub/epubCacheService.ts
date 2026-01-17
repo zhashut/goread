@@ -172,7 +172,12 @@ class EpubCacheService {
       logError('[EpubCacheService] 准备保存章节，参数键:', Object.keys(params).join(', ')).catch(() => {});
       await invoke('epub_save_section', params);
     } catch (e) {
-      logError('[EpubCacheService] 保存章节到后端失败:', e).catch(() => {});
+      logError('[EpubCacheService] 保存章节到后端失败', {
+        error: String(e),
+        stack: (e as Error)?.stack,
+        bookId: entry.bookId,
+        sectionIndex: entry.sectionIndex,
+      }).catch(() => {});
     }
   }
 
@@ -225,7 +230,12 @@ class EpubCacheService {
         mimeType: entry.mimeType,
       });
     } catch (e) {
-      logError('[EpubCacheService] 保存资源到后端失败:', e).catch(() => {});
+      logError('[EpubCacheService] 保存资源到后端失败', {
+        error: String(e),
+        stack: (e as Error)?.stack,
+        bookId: entry.bookId,
+        resourcePath: entry.resourcePath,
+      }).catch(() => {});
     }
   }
 
@@ -324,7 +334,11 @@ class EpubCacheService {
       logError('[EpubCacheService] 准备保存元数据，参数键:', Object.keys(metaParams).join(', ')).catch(() => {});
       await invoke('epub_save_metadata', metaParams);
     } catch (e) {
-      logError('[EpubCacheService] 保存元数据到后端失败:', e).catch(() => {});
+      logError('[EpubCacheService] 保存元数据到后端失败', {
+        error: String(e),
+        stack: (e as Error)?.stack,
+        bookId,
+      }).catch(() => {});
     }
   }
 
@@ -338,7 +352,11 @@ class EpubCacheService {
     try {
       await invoke('epub_clear_book_cache', { bookId });
     } catch (e) {
-      logError('[EpubCacheService] 清理后端书籍缓存失败:', e).catch(() => {});
+      logError('[EpubCacheService] 清理后端书籍缓存失败', {
+        error: String(e),
+        stack: (e as Error)?.stack,
+        bookId,
+      }).catch(() => {});
     }
   }
 
@@ -399,7 +417,11 @@ class EpubCacheService {
       await invoke('epub_set_cache_expiry', { days: newDays });
       logError(`[EpubCacheService] 配置变更：${newDays === 0 ? '不限' : newDays + '天'}`).catch(() => {});
     } catch (e) {
-      logError('[EpubCacheService] 设置缓存有效期失败:', e).catch(() => {});
+      logError('[EpubCacheService] 设置缓存有效期失败', {
+        error: String(e),
+        stack: (e as Error)?.stack,
+        days: newDays,
+      }).catch(() => {});
     }
   }
 

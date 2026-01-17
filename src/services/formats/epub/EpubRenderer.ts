@@ -325,7 +325,12 @@ export class EpubRenderer implements IBookRenderer {
       });
 
     } catch (e) {
-      logError(`[EpubRenderer] 书籍加载失败: ${e}`).catch(() => {});
+      logError(`[EpubRenderer] 书籍加载失败`, {
+        error: String(e),
+        stack: (e as Error)?.stack,
+        bookId,
+        filePath,
+      }).catch(() => {});
       throw e;
     } finally {
       // 标记 promise 完成（虽然没置空，但后续 await 会立即 resolve）
@@ -445,7 +450,11 @@ export class EpubRenderer implements IBookRenderer {
       book.setResourceCache(externalCache);
       logError(`[EpubRenderer] 横向模式缓存注入成功: ${bookId}`).catch(() => {});
     } catch (e) {
-      logError(`[EpubRenderer] 横向模式缓存注入失败: ${e}`).catch(() => {});
+      logError(`[EpubRenderer] 横向模式缓存注入失败`, {
+        error: String(e),
+        stack: (e as Error)?.stack,
+        bookId,
+      }).catch(() => {});
     }
   }
 
@@ -826,7 +835,11 @@ export class EpubRenderer implements IBookRenderer {
         }
       }, 300);
     } catch (e) {
-      logError('[EpubRenderer] 跳转失败:', e).catch(() => {});
+      logError('[EpubRenderer] 跳转失败', {
+        error: String(e),
+        stack: (e as Error)?.stack,
+        page,
+      }).catch(() => {});
     }
   }
 
@@ -868,7 +881,11 @@ export class EpubRenderer implements IBookRenderer {
     try {
       await this._view.goTo(href);
     } catch (e) {
-      logError('[EpubRenderer] 跳转到 href 失败:', e).catch(() => {});
+      logError('[EpubRenderer] 跳转到 href 失败', {
+        error: String(e),
+        stack: (e as Error)?.stack,
+        href,
+      }).catch(() => {});
     }
   }
 
@@ -936,7 +953,11 @@ export class EpubRenderer implements IBookRenderer {
         }
       }
     } catch (e) {
-      logError('[EpubRenderer] 搜索失败:', e).catch(() => {});
+      logError('[EpubRenderer] 搜索失败', {
+        error: String(e),
+        stack: (e as Error)?.stack,
+        query,
+      }).catch(() => {});
     }
 
     return results;
@@ -958,7 +979,11 @@ export class EpubRenderer implements IBookRenderer {
         return doc.body?.textContent || '';
       }
     } catch (e) {
-      logError('[EpubRenderer] 提取文本失败:', e).catch(() => {});
+      logError('[EpubRenderer] 提取文本失败', {
+        error: String(e),
+        stack: (e as Error)?.stack,
+        page,
+      }).catch(() => {});
     }
 
     return '';
@@ -981,7 +1006,11 @@ export class EpubRenderer implements IBookRenderer {
   scrollToAnchor(anchor: string): void {
     if (!this._view) return;
     this.goToHref(anchor).catch((e) => {
-      logError('[EpubRenderer] 滚动到锚点失败:', e).catch(() => {});
+      logError('[EpubRenderer] 滚动到锚点失败', {
+        error: String(e),
+        stack: (e as Error)?.stack,
+        anchor,
+      }).catch(() => {});
     });
   }
 
