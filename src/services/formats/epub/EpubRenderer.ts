@@ -1016,6 +1016,39 @@ export class EpubRenderer implements IBookRenderer {
   scrollToVirtualPage(page: number, _viewportHeight: number): void {
     this.goToPage(page).catch(() => {});
   }
+  /**
+   * 预热指定章节范围到缓存
+   * 用于导入阶段提前渲染首屏章节，加速用户首次打开时的渲染
+   * @param start 起始章节索引（0-based，包含）
+   * @param end 结束章节索引（0-based，包含）
+   */
+  async preloadSections(start: number, end: number): Promise<void> {
+    if (!this._isReady) {
+      throw new Error('文档未加载');
+    }
+
+    if (!this._verticalRenderHook) {
+      throw new Error('渲染 Hook 未初始化');
+    }
+
+    // 计算有效范围
+    const validStart = Math.max(0, start);
+    const validEnd = Math.min(this._sectionCount - 1, end);
+
+    if (validEnd < validStart) {
+      return;
+    }
+
+    // 生成要预热的章节索引列表
+    const indices: number[] = [];
+    for (let i = validStart; i <= validEnd; i++) {
+      indices.push(i);
+    }
+
+    await logError(`[EpubRenderer] 开始预热章节 ${validStart + 1}-${validEnd + 1}`);
+    await this._verticalRenderHook.preloadSectionsOffscreen(indices);
+    await logError(`[EpubRenderer] 预热完成`);
+  }
 
   /**
    * 关闭并释放资源

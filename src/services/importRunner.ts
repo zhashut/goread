@@ -122,6 +122,17 @@ async function importEpubBook(filePath: string, _invoke: any, logError: any): Pr
     }
     
     totalPages = bookInfo.pageCount || 1;
+
+    // 预热前 1-3 个章节到缓存，加速首次打开
+    try {
+      const preloadEnd = Math.min(3, totalPages) - 1;
+      if (preloadEnd >= 0) {
+        await renderer.preloadSections(0, preloadEnd);
+      }
+    } catch (preloadErr) {
+      await logError('EPUB 导入预热失败', { error: String(preloadErr), filePath });
+    }
+
     await renderer.close();
   } catch (err) {
     await logError('EPUB import failed', { error: String(err), filePath });

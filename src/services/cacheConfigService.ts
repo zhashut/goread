@@ -117,10 +117,15 @@ export const cacheConfigService = {
         const format = getBookFormat(filePath);
 
         if (format === 'epub') {
-          // 清理指定 EPUB 的缓存
+          // 清理预加载缓存
+          epubPreloader.clear(filePath);
+          
+          // 生成 bookId 并清理内存缓存
           const bookId = generateQuickBookId(filePath);
           epubCacheService.sectionCache.clearBook(bookId);
           epubCacheService.resourceCache.clearBook(bookId);
+          
+          // 清理后端磁盘缓存（章节、资源、元数据）
           await epubCacheService.clearBookFromDB(bookId);
           return true;
         } else if (format === 'pdf') {

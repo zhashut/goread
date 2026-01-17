@@ -134,6 +134,34 @@ class EpubPreloader {
       return;
     }
 
+    // 检查元数据缓存是否存在，如果存在则跳过预加载
+    // 因为 EpubRenderer.loadDocument 会直接从元数据缓存启动
+    this._checkMetadataCacheAndPreload(filePath, bookId);
+  }
+
+  /**
+   * 检查元数据缓存并决定是否执行预加载
+   */
+  private async _checkMetadataCacheAndPreload(filePath: string, bookId: string): Promise<void> {
+    try {
+      // 动态导入避免循环依赖
+      const { epubCacheService } = await import('./epubCacheService');
+      const metadata = await epubCacheService.getMetadata(bookId);
+      
+      if (metadata) {
+        // 元数据缓存存在，跳过预加载
+        logError(`[EpubPreloader] 元数据缓存命中，跳过预加载: ${filePath}`).catch(() => {});
+        return;
+      }
+    } catch {
+      // 检查失败，继续正常预加载
+    }
+
+    // 已经有缓存了（在检查期间被添加），跳过
+    if (this._cache.has(bookId)) {
+      return;
+    }
+
     // 立即开始加载，不等待结果
     const createdAt = Date.now();
     const loadPromise = this._loadBook(filePath).then((book) => {

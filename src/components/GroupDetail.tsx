@@ -6,7 +6,8 @@ import { DndContext, closestCenter, DragEndEvent } from "@dnd-kit/core";
 import { arrayMove, SortableContext, rectSortingStrategy } from "@dnd-kit/sortable";
 import { IBook } from "../types";
 import { GRID_GAP_GROUP_DETAIL, GROUP_GRID_COLUMNS } from "../constants/ui";
-import { groupService, bookService } from "../services";
+import { groupService, bookService, logError } from "../services";
+import { cacheConfigService } from "../services/cacheConfigService";
 import { ensurePermissionForDeleteLocal } from "../utils/storagePermission";
 import { SortableBookItem } from "./bookshelf/SortableBookItem";
 import ConfirmDeleteDrawer from "./bookshelf/ConfirmDeleteDrawer";
@@ -229,8 +230,16 @@ export const GroupDetail: React.FC<{
       }
 
       const ids = Array.from(selectedBookIds);
+      // 收集需要清理缓存的书籍文件路径
+      const filePaths = ids.map(bid => books.find(b => b.id === bid)?.file_path).filter(Boolean) as string[];
       for (const bid of ids) {
         await bookService.deleteBook(bid, !!actualDeleteLocal);
+      }
+      // 清理 EPUB 相关缓存（预加载、内存、磁盘）
+      for (const filePath of filePaths) {
+        cacheConfigService.clearCache(filePath).catch((err) => {
+          logError(`[GroupDetail] 删除书籍后清理缓存失败: ${err}`).catch(() => {});
+        });
       }
       await reloadBooksAndGroups();
       // 关闭确认抽屉（通过返回导航）
@@ -370,6 +379,10 @@ export const GroupDetail: React.FC<{
       }
       if (!ok) return;
       await bookService.deleteBook(book.id);
+      // 清理 EPUB 相关缓存（预加载、内存、磁盘）
+      cacheConfigService.clearCache(book.file_path).catch((err) => {
+        logError(`[GroupDetail] 删除书籍后清理缓存失败: ${err}`).catch(() => {});
+      });
       await reloadBooksAndGroups();
     } catch (err) {
       alert(t('deleteFailed'));

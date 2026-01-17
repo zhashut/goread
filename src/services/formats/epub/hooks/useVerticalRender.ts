@@ -78,6 +78,8 @@ export interface VerticalRenderHook {
   cleanup: () => void;
   /** 设置导航 hook（在初始化后设置，解决循环依赖） */
   setNavigationHook: (hook: EpubNavigationHook) => void;
+  /** 离屏预渲染指定章节到缓存（用于导入阶段预热） */
+  preloadSectionsOffscreen: (indices: number[]) => Promise<void>;
 }
 
 /**
@@ -784,6 +786,85 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
     state.dividerElements = [];
   };
 
+  /**
+   * 离屏预渲染指定章节到缓存
+   * 用于导入阶段预热，在后台执行渲染并写入缓存，不影响 UI
+   */
+  const preloadSectionsOffscreen = async (indices: number[]): Promise<void> => {
+    if (indices.length === 0) return;
+
+    const { bookId, sectionCache } = context;
+    if (!bookId || !sectionCache) {
+      throw new Error('缓存服务未初始化');
+    }
+
+    logError(`[EPUB预热] 开始预热 ${indices.length} 个章节: ${indices.join(', ')}`).catch(() => {});
+
+    // 创建离屏容器（不插入 DOM 树，避免影响页面）
+    const offscreenContainer = document.createElement('div');
+    offscreenContainer.style.cssText = `
+      position: absolute;
+      left: -10000px;
+      top: -10000px;
+      width: 800px;
+      height: 600px;
+      visibility: hidden;
+      pointer-events: none;
+    `;
+    document.body.appendChild(offscreenContainer);
+
+    // 临时保存原有状态
+    const originalSectionContainers = state.sectionContainers;
+    const originalRenderedSections = state.renderedSections;
+
+    // 创建临时状态
+    state.sectionContainers = new Map();
+    state.renderedSections = new Set();
+
+    try {
+      // 为每个待预热章节创建临时容器
+      for (const index of indices) {
+        // 跳过已缓存的章节
+        const cached = sectionCache.getSection(bookId, index);
+        if (cached) {
+          logError(`[EPUB预热] 章节 ${index + 1} 已在缓存中，跳过`).catch(() => {});
+          continue;
+        }
+
+        const wrapper = document.createElement('div');
+        wrapper.dataset.sectionIndex = String(index);
+        wrapper.style.cssText = `
+          min-height: 200px;
+          padding: 0 16px;
+          box-sizing: border-box;
+        `;
+        offscreenContainer.appendChild(wrapper);
+        state.sectionContainers.set(index, wrapper);
+      }
+
+      // 执行渲染（会自动写入缓存）
+      for (const index of indices) {
+        if (!state.sectionContainers.has(index)) continue;
+
+        try {
+          await renderSection(index, { theme: 'light' });
+          logError(`[EPUB预热] 章节 ${index + 1} 预热完成`).catch(() => {});
+        } catch (e) {
+          logError(`[EPUB预热] 章节 ${index + 1} 预热失败:`, e).catch(() => {});
+        }
+      }
+
+      logError(`[EPUB预热] 预热流程完成`).catch(() => {});
+    } finally {
+      // 清理临时容器
+      offscreenContainer.remove();
+
+      // 恢复原有状态
+      state.sectionContainers = originalSectionContainers;
+      state.renderedSections = originalRenderedSections;
+    }
+  };
+
   return {
     state,
     renderVerticalContinuous,
@@ -796,5 +877,6 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
     updatePageGap,
     cleanup,
     setNavigationHook,
+    preloadSectionsOffscreen,
   };
 }

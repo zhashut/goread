@@ -23,7 +23,8 @@ import {
   GROUP_GRID_GAP,
 } from "../constants/ui";
 import { Toast } from "./Toast";
-import { bookService, groupService } from "../services";
+import { bookService, groupService, logError } from "../services";
+import { cacheConfigService } from "../services/cacheConfigService";
 import { BookCard } from "./BookCard";
 import { DndContext, closestCenter } from "@dnd-kit/core";
 import { SortableContext, rectSortingStrategy } from "@dnd-kit/sortable";
@@ -174,6 +175,10 @@ export const Bookshelf: React.FC = () => {
         }
         if (!ok) return;
         await bookService.deleteBook(book.id);
+        // 清理 EPUB 相关缓存（预加载、内存、磁盘）
+        cacheConfigService.clearCache(book.file_path).catch((err) => {
+          logError(`[Bookshelf] 删除书籍后清理缓存失败: ${err}`).catch(() => {});
+        });
         await Promise.all([loadBooks(), loadGroups()]);
       }
     } catch (error: any) {
