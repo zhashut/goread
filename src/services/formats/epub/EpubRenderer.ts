@@ -75,6 +75,7 @@ export class EpubRenderer implements IBookRenderer {
   private _sectionCount = 0;
   private _currentTocHref: string | null = null;
   private _readingMode: 'horizontal' | 'vertical' = 'horizontal';
+  private _expectedReadingMode: 'horizontal' | 'vertical' | null = null;
   private _currentTheme: ReaderTheme = 'light';
   private _resizeObserver: ResizeObserver | null = null;
   private _lastRenderContainer: HTMLElement | null = null;
@@ -178,76 +179,96 @@ export class EpubRenderer implements IBookRenderer {
   }
 
   /**
+   * 设置期望的阅读模式
+   * 在 loadDocument 之前调用，用于决定是否使用懒加载
+   * 横向模式需要同步完整加载，纵向模式可使用懒加载
+   */
+  setExpectedReadingMode(mode: 'horizontal' | 'vertical'): void {
+    this._expectedReadingMode = mode;
+  }
+
+  /**
    * 加载 EPUB 文档
    */
+  private _filePath: string = '';
+
   /**
    * 加载 EPUB 文档
    */
   async loadDocument(filePath: string): Promise<BookInfo> {
+    this._filePath = filePath;
     // 1. 生成 Quick ID
     this._bookId = generateQuickBookId(filePath);
 
-    // 2. 检查预加载缓存（用户点击书籍时已提前触发加载）
-    const preloadedBook = await epubPreloader.get(filePath);
-    if (preloadedBook) {
-      logError(`[EpubRenderer] 命中预加载缓存，直接使用: ${this._bookId}`).catch(() => {});
-      
-      this._book = preloadedBook;
-      this._sectionCount = preloadedBook.sections?.length || 1;
-      this._toc = this._loaderHook.convertToc(preloadedBook.toc || []);
-      this._totalPages = this._sectionCount;
-      this._isReady = true;
-      
-      // 初始化 Hooks
-      this._initHooks();
-      
-      // 异步保存/更新元数据缓存
-      const bookInfoForCache: BookInfo = {
-        title: preloadedBook.metadata?.title,
-        author: Array.isArray(preloadedBook.metadata?.author) 
-          ? preloadedBook.metadata?.author.join(', ') 
-          : preloadedBook.metadata?.author,
-        publisher: preloadedBook.metadata?.publisher,
-        language: preloadedBook.metadata?.language,
-        description: preloadedBook.metadata?.description,
-        pageCount: this._totalPages,
-        format: 'epub',
-      };
-      
-      epubCacheService.saveMetadata(this._bookId, {
-        bookInfo: bookInfoForCache,
-        toc: this._toc,
-        sectionCount: this._sectionCount,
-      }).catch(() => {});
-      
-      return {
-        ...bookInfoForCache,
-        coverImage: await this._loaderHook.getCoverImage(preloadedBook),
-      };
+    // 2. 检查预加载缓存（仅纵向模式使用，横向模式跳过以避免时序问题）
+    if (this._expectedReadingMode !== 'horizontal') {
+      const preloadedBook = await epubPreloader.get(filePath);
+      if (preloadedBook) {
+        logError(`[EpubRenderer] 命中预加载缓存，直接使用: ${this._bookId}`).catch(() => {});
+        
+        this._book = preloadedBook;
+        this._sectionCount = preloadedBook.sections?.length || 1;
+        this._toc = this._loaderHook.convertToc(preloadedBook.toc || []);
+        this._totalPages = this._sectionCount;
+        this._isReady = true;
+        
+        // 初始化 Hooks
+        this._initHooks();
+        
+        // 异步保存/更新元数据缓存
+        const bookInfoForCache: BookInfo = {
+          title: preloadedBook.metadata?.title,
+          author: Array.isArray(preloadedBook.metadata?.author) 
+            ? preloadedBook.metadata?.author.join(', ') 
+            : preloadedBook.metadata?.author,
+          publisher: preloadedBook.metadata?.publisher,
+          language: preloadedBook.metadata?.language,
+          description: preloadedBook.metadata?.description,
+          pageCount: this._totalPages,
+          format: 'epub',
+        };
+        
+        epubCacheService.saveMetadata(this._bookId, {
+          bookInfo: bookInfoForCache,
+          toc: this._toc,
+          sectionCount: this._sectionCount,
+        }).catch(() => {});
+        
+        return {
+          ...bookInfoForCache,
+          coverImage: await this._loaderHook.getCoverImage(preloadedBook),
+        };
+      }
+    } else {
+      logError(`[EpubRenderer] 横向模式跳过预加载缓存: ${this._bookId}`).catch(() => {});
     }
 
-    // 3. 尝试获取元数据缓存
-    const metadata = await epubCacheService.getMetadata(this._bookId);
+    // 3. 尝试获取元数据缓存（仅纵向模式使用）
+    if (this._expectedReadingMode !== 'horizontal') {
+      const metadata = await epubCacheService.getMetadata(this._bookId);
 
-    if (metadata) {
-      logError(`[EpubRenderer] 命中元数据缓存，启用懒加载: ${this._bookId}`).catch(() => {});
-      
-      // 恢复状态
-      this._toc = metadata.toc;
-      this._sectionCount = metadata.sectionCount;
-      this._totalPages = this._sectionCount; 
-      this._isReady = true;
+      if (metadata) {
+        logError(`[EpubRenderer] 命中元数据缓存（纵向模式），启用懒加载: ${this._bookId}`).catch(() => {});
+        
+        // 恢复状态
+        this._toc = metadata.toc;
+        this._sectionCount = metadata.sectionCount;
+        this._totalPages = this._sectionCount;
+        this._isReady = true;
 
-      // 启动后台加载
-      this._bookLoadPromise = this._lazyLoadBook(filePath, this._bookId);
+        // 启动后台加载
+        this._bookLoadPromise = this._lazyLoadBook(filePath, this._bookId);
 
-      // 初始化 Hooks (book 为 null，但 hooks 将通过 getter 访问)
-      this._initHooks(); 
+        // 初始化 Hooks (book 为 null，但 hooks 将通过 getter 访问)
+        this._initHooks();
 
-      return {
-        ...metadata.bookInfo,
-        format: 'epub',
-      };
+        return {
+          ...metadata.bookInfo,
+          format: 'epub',
+        };
+      }
+    } else {
+      logError(`[EpubRenderer] 横向模式跳过元数据缓存: ${this._bookId}`).catch(() => {});
     }
 
     // 3. 缓存未命中，执行完整加载
@@ -597,7 +618,8 @@ export class EpubRenderer implements IBookRenderer {
     await view.open(this._book);
 
     // 横向模式缓存加速：注入外部资源缓存到 foliate-js
-    this._injectResourceCacheToBook();
+    // 暂时禁用以排查白屏问题
+    // this._injectResourceCacheToBook();
 
     
     const r: any = view.renderer;
@@ -1180,6 +1202,24 @@ export class EpubRenderer implements IBookRenderer {
       // 清理纵向模式状态，重置 verticalContinuousMode
       if (this._verticalRenderHook) {
         this._verticalRenderHook.cleanup();
+      }
+
+      // 清空容器，给用户视觉反馈，避免画面卡在旧页面
+      if (this._currentContainer) {
+        this._currentContainer.innerHTML = '';
+      }
+      
+      // 强制重新加载书籍，确保不使用纵向模式的缓存（如预加载或元数据缓存）
+      // 这能保证横向模式总是使用"干净"的完整加载状态
+      if (this._filePath && this._bookId) {
+        this._isReady = false;
+        // 注意：_lazyLoadBook 会重新解析 epub，这是一个较重的操作，但为了解决白屏问题是必要的
+        await this._lazyLoadBook(this._filePath, this._bookId);
+        this._isReady = true;
+        this._initHooks();
+      } else {
+        // 如果没有 filePath（理论上不可能），回退到 ensureBookLoaded
+        await this._ensureBookLoaded();
       }
       
       if (this._currentContainer) {

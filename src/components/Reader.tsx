@@ -67,6 +67,7 @@ export const Reader: React.FC = () => {
     book,
     setBook,
     loading,
+    contentReady,
     currentPage,
     totalPages,
     isExternal,
@@ -307,6 +308,9 @@ export const Reader: React.FC = () => {
     }
   });
 
+  const showModeSwitchLoading =
+    isEpubDom && readingMode === "horizontal" && !contentReady && !loading;
+
   // 加载状态
   if (loading) {
     return (
@@ -330,6 +334,7 @@ export const Reader: React.FC = () => {
       className="reader-fullheight"
       style={{
         display: "flex",
+        position: "relative",
         flexDirection: "column",
         backgroundColor: effectiveTheme === 'dark' ? "#000000" : "#2c2c2c",
         paddingTop: settingsWithTheme.showStatusBar ? getSafeAreaInsets().top : 0,
@@ -486,6 +491,24 @@ export const Reader: React.FC = () => {
           )}
         </div>
       </div>
+
+      {showModeSwitchLoading && (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: "16px",
+            color: "#666",
+            backgroundColor: effectiveTheme === 'dark' ? "#000000" : "#ffffff",
+            zIndex: 999,
+          }}
+        >
+          {tCommon('loading')}
+        </div>
+      )}
 
       <TopBar
         visible={(uiVisible || isSeeking) && !moreDrawerOpen && !tocOverlayOpen && !modeOverlayOpen}

@@ -13,6 +13,7 @@ import {
     createRenderer,
     isFormatSupported,
 } from "../../../services/formats";
+import { EpubRenderer } from "../../../services/formats/epub/EpubRenderer";
 import { resolveLocalPathFromUri } from "../../../services/resolveLocalPath";
 import { useAppNav } from "../../../router/useAppNav";
 import { useReaderState } from "./useReaderState";
@@ -171,6 +172,13 @@ export const useBookLoader = (
                     !renderer.capabilities.supportsBitmap;
                 setIsDomRender(useDom);
 
+                // 在 loadDocument 之前设置期望的阅读模式
+                // 横向模式需要同步加载，纵向模式可使用懒加载
+                if (renderer instanceof EpubRenderer) {
+                    const expectedMode = targetBook.reading_mode || 'vertical';
+                    renderer.setExpectedReadingMode(expectedMode);
+                }
+
                 const bookInfo = await renderer.loadDocument(targetBook.file_path);
                 const pageCount = Math.max(
                     1,
@@ -241,6 +249,11 @@ export const useBookLoader = (
                     renderer.capabilities.supportsDomRender &&
                     !renderer.capabilities.supportsBitmap;
                 setIsDomRender(useDom);
+
+                // 外部文件默认使用纵向模式，可使用懒加载
+                if (renderer instanceof EpubRenderer) {
+                    renderer.setExpectedReadingMode('vertical');
+                }
 
                 const bookInfo = await renderer.loadDocument(filePath);
                 const pageCount = Math.max(1, bookInfo.pageCount ?? 1);
