@@ -23,6 +23,7 @@ You can consolidate e‑books scattered across different folders, organize them 
   <img height="300px" src="https://i.meee.com.tw/HF73JGU.jpg" alt="GoRead界面截图" style="max-width: 100%; object-fit: contain;" />
   <img height="300px" src="https://i.meee.com.tw/RY9Ahtd.jpg" alt="GoRead界面截图" style="max-width: 100%; object-fit: contain;" />
   <img height="300px" src="https://i.meee.com.tw/brsYHQH.jpg" alt="GoRead界面截图" style="max-width: 100%; object-fit: contain;" />
+  <img height="300px" src="https://i.meee.com.tw/mb0cq5H.jpg" alt="GoRead界面截图" style="max-width: 100%; object-fit: contain;" />
   <img height="300px" src="https://i.meee.com.tw/R9GxmsH.jpg" alt="GoRead界面截图" style="max-width: 100%; object-fit: contain;" />
   <img height="300px" src="https://i.meee.com.tw/RBwwGWL.jpg" alt="GoRead界面截图" style="max-width: 100%; object-fit: contain;" />
   <img height="300px" src="https://i.meee.com.tw/6JKFBzF.jpg" alt="GoRead界面截图" style="max-width: 100%; object-fit: contain;" />
