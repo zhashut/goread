@@ -560,6 +560,10 @@ export class EpubRenderer implements IBookRenderer {
 
     if (canReuseView) {
       // 复用现有视图，仅更新阅读模式和位置
+      this._applyTheme(this._view!, {
+        ...options,
+        theme,
+      });
       this._applyFlowSafely();
       
       // 跳转到指定位置
