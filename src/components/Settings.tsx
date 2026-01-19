@@ -31,12 +31,15 @@ import { PageHeader } from "./PageHeader";
 import { exportAppData, importAppData } from "../services/dataBackupService";
 import { Toast } from "./Toast";
 import { IconInfo } from "./Icons";
+import { Loading } from "./Loading";
 
 export const Settings: React.FC = () => {
   const { t } = useTranslation('settings');
   const [settings, setSettings] = useState<ReaderSettings>(getReaderSettings());
   const [toastMessage, setToastMessage] = useState("");
   const [showCacheHint, setShowCacheHint] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [loadingText, setLoadingText] = useState("");
   const isFirstRender = useRef(true);
 
   const nav = useAppNav();
@@ -405,8 +408,19 @@ export const Settings: React.FC = () => {
                   color: "#d15158",
                   cursor: "pointer",
                 }}
-                onClick={() => {
-                  exportAppData();
+                onClick={async () => {
+                  try {
+                    setLoading(true);
+                    setLoadingText(t('exporting') || "正在导出...");
+                    // 给一个极短的延时确保 loading 渲染出来
+                    await new Promise(resolve => setTimeout(resolve, 50));
+                    await exportAppData();
+                  } catch (e) {
+                    // exportAppData 内部已经处理了错误提示，这里只是确保 loading 关闭
+                    console.error('Export failed:', e);
+                  } finally {
+                    setLoading(false);
+                  }
                 }}
               >
                 {t('export')}
@@ -422,8 +436,18 @@ export const Settings: React.FC = () => {
                   color: "#d15158",
                   cursor: "pointer",
                 }}
-                onClick={() => {
-                  importAppData();
+                onClick={async () => {
+                  try {
+                    setLoading(true);
+                    setLoadingText(t('importing') || "正在导入...");
+                    // 给一个极短的延时确保 loading 渲染出来
+                    await new Promise(resolve => setTimeout(resolve, 50));
+                    await importAppData();
+                  } catch (e) {
+                    console.error('Import failed:', e);
+                  } finally {
+                    setLoading(false);
+                  }
                 }}
               >
                 {t('import')}
@@ -524,6 +548,8 @@ export const Settings: React.FC = () => {
           onClose={() => setToastMessage("")}
         />
       )}
+      
+      <Loading visible={loading} text={loadingText} overlay />
     </div>
   );
 };
