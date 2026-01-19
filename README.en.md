@@ -20,13 +20,13 @@ GoRead focuses on **local e‑book management and immersive reading**. It does n
 You can consolidate e‑books scattered across different folders, organize them into custom groups, and read them in a unified reader with bookmarks and reading progress management.
 
 <div style="display: flex; flex-wrap: wrap; gap: 10px; justify-content: center;">
-  <img height="300px" src="https://i.meee.com.tw/HF73JGU.jpg" alt="GoRead界面截图" style="max-width: 100%; object-fit: contain;" />
-  <img height="300px" src="https://i.meee.com.tw/RY9Ahtd.jpg" alt="GoRead界面截图" style="max-width: 100%; object-fit: contain;" />
-  <img height="300px" src="https://i.meee.com.tw/brsYHQH.jpg" alt="GoRead界面截图" style="max-width: 100%; object-fit: contain;" />
-  <img height="300px" src="https://i.meee.com.tw/mb0cq5H.jpg" alt="GoRead界面截图" style="max-width: 100%; object-fit: contain;" />
-  <img height="300px" src="https://i.meee.com.tw/R9GxmsH.jpg" alt="GoRead界面截图" style="max-width: 100%; object-fit: contain;" />
-  <img height="300px" src="https://i.meee.com.tw/RBwwGWL.jpg" alt="GoRead界面截图" style="max-width: 100%; object-fit: contain;" />
-  <img height="300px" src="https://i.meee.com.tw/6JKFBzF.jpg" alt="GoRead界面截图" style="max-width: 100%; object-fit: contain;" />
+  <img height="300px" src="https://i.meee.com.tw/kGGAF07.jpg" alt="GoRead界面截图" style="max-width: 100%; object-fit: contain;" />
+  <img height="300px" src="https://i.meee.com.tw/cIwPQno.jpg" alt="GoRead界面截图" style="max-width: 100%; object-fit: contain;" />
+  <img height="300px" src="https://i.meee.com.tw/BQDpLCt.jpg" alt="GoRead界面截图" style="max-width: 100%; object-fit: contain;" />
+  <img height="300px" src="https://i.meee.com.tw/muKIQst.jpg" alt="GoRead界面截图" style="max-width: 100%; object-fit: contain;" />
+  <img height="300px" src="https://i.meee.com.tw/1ENrDZc.jpg" alt="GoRead界面截图" style="max-width: 100%; object-fit: contain;" />
+  <img height="300px" src="https://i.meee.com.tw/mlElLvB.jpg" alt="GoRead界面截图" style="max-width: 100%; object-fit: contain;" />
+  <img height="300px" src="https://i.meee.com.tw/d8A54qG.jpg" alt="GoRead界面截图" style="max-width: 100%; object-fit: contain;" />
 </div>
 
 ---
