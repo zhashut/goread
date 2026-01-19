@@ -30,3 +30,11 @@ export {
   type VerticalRenderState,
   type VerticalRenderHook,
 } from './useVerticalRender';
+
+// 横向渲染 Hook
+export {
+  useHorizontalRender,
+  type HorizontalRenderContext,
+  type HorizontalRenderState,
+  type HorizontalRenderHook,
+} from './useHorizontalRender';

@@ -10,6 +10,7 @@ import {
   getMimeType,
   type IEpubResourceCache,
 } from '../cache';
+import { epubCacheService } from '../epubCacheService';
 
 /** 资源加载上下文 */
 export interface EpubResourceContext {
@@ -44,6 +45,8 @@ export interface EpubResourceHook {
   ) => string;
   /** 加载资源二进制数据（用于缓存存储） */
   loadResourceData: (resourcePath: string) => Promise<ArrayBuffer | null>;
+  /** 注入外部资源缓存到 foliate-js */
+  injectResourceCacheToBook: (book: EpubBook | null, bookId: string, resourceCache: IEpubResourceCache) => void;
 }
 
 /**
@@ -90,7 +93,7 @@ export function useEpubResource(context: EpubResourceContext): EpubResourceHook 
         }
       }
     } catch (e) {
-      logError(`[EpubRenderer] 加载资源失败`, {
+      logError(`[EpubResource] 加载资源失败`, {
         error: String(e),
         stack: (e as Error)?.stack,
         url,
@@ -129,7 +132,7 @@ export function useEpubResource(context: EpubResourceContext): EpubResourceHook 
           replacements.push({ old: url, new: blobUrl });
         }
       } catch (e) {
-        logError('[EpubRenderer] 解析 CSS URL 失败', { url, error: String(e) }).catch(() => {});
+        logError('[EpubResource] 解析 CSS URL 失败', { url, error: String(e) }).catch(() => {});
       }
     }
 
@@ -172,7 +175,7 @@ export function useEpubResource(context: EpubResourceContext): EpubResourceHook 
           }
         }
       } catch (e) {
-        logError(`[EpubRenderer] 加载外部 CSS 失败`, {
+        logError(`[EpubResource] 加载外部 CSS 失败`, {
           error: String(e),
           stack: (e as Error)?.stack,
           href,
@@ -434,6 +437,106 @@ export function useEpubResource(context: EpubResourceContext): EpubResourceHook 
     return null;
   };
 
+  /**
+   * 注入外部资源缓存到 foliate-js
+   */
+  const injectResourceCacheToBook = (book: EpubBook | null, bookId: string, resourceCache: IEpubResourceCache): void => {
+    if (!book || !resourceCache || !bookId) return;
+
+    const bookAny = book as any;
+
+    // 检查 book 是否支持 setResourceCache 方法
+    if (typeof bookAny.setResourceCache !== 'function') {
+      return;
+    }
+
+    // 创建外部缓存适配器
+    const externalCache = {
+      /**
+       * 从缓存获取资源（内存缓存 -> 后端磁盘缓存）
+       */
+      get: async (href: string, mediaType?: string): Promise<{ url: string } | null> => {
+        try {
+          // 先尝试内存缓存
+          let cachedData = resourceCache.get(bookId, href);
+          let mimeType = mediaType || getMimeType(href);
+
+          // 内存缓存未命中时，尝试从后端磁盘缓存加载
+          if (!cachedData) {
+            try {
+              const dbEntry = await epubCacheService.loadResourceFromDB(bookId, href);
+              if (dbEntry) {
+                // 恢复到内存缓存
+                resourceCache.set(bookId, href, dbEntry.data, dbEntry.mimeType);
+                cachedData = dbEntry.data;
+                mimeType = dbEntry.mimeType || mimeType;
+              }
+            } catch {
+              // 后端加载失败，返回 null 让 foliate-js 自行加载
+            }
+          }
+
+          if (!cachedData) return null;
+          
+          // 创建 Blob URL
+          const blob = new Blob([cachedData], { type: mimeType });
+          const url = URL.createObjectURL(blob);
+          
+          // 记录 Blob URL 以便后续清理
+          blobUrls.add(url);
+          
+          return { url };
+        } catch {
+          return null;
+        }
+      },
+
+      /**
+       * 保存资源到缓存（内存缓存 + 后端磁盘持久化）
+       */
+      set: async (href: string, data: ArrayBuffer | Blob, mediaType: string): Promise<void> => {
+        try {
+          // 将 Blob 转换为 ArrayBuffer
+          let arrayBuffer: ArrayBuffer;
+          if (data instanceof Blob) {
+            arrayBuffer = await data.arrayBuffer();
+          } else {
+            arrayBuffer = data;
+          }
+
+          const mimeType = mediaType || getMimeType(href);
+
+          // 写入内存缓存
+          resourceCache.set(bookId, href, arrayBuffer, mimeType);
+
+          // 写入后端磁盘持久化
+          await epubCacheService.saveResourceToDB({
+            bookId,
+            resourcePath: href,
+            data: arrayBuffer,
+            mimeType,
+            sizeBytes: arrayBuffer.byteLength,
+            lastAccessTime: Date.now(),
+          });
+        } catch {
+          // 保存失败不影响正常流程
+        }
+      },
+    };
+
+    // 注入缓存到 book 对象
+    try {
+      bookAny.setResourceCache(externalCache);
+      logError(`[EpubResource] 横向模式缓存注入成功: ${bookId}`).catch(() => {});
+    } catch (e) {
+      logError(`[EpubResource] 横向模式缓存注入失败`, {
+        error: String(e),
+        stack: (e as Error)?.stack,
+        bookId,
+      }).catch(() => {});
+    }
+  };
+
   return {
     resolveAndLoadResource,
     loadAndProcessStyles,
@@ -445,5 +548,6 @@ export function useEpubResource(context: EpubResourceContext): EpubResourceHook 
     normalizeHtmlResources,
     restoreBlobUrls,
     loadResourceData,
+    injectResourceCacheToBook,
   };
 }
