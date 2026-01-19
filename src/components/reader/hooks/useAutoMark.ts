@@ -42,27 +42,26 @@ export const useAutoMark = ({
         // 只有当：到了最后一页、书籍状态未完成、在当前页还没有自动标记过，才执行自动标记
         if (currentPage >= totalPages && book.status !== 1 && lastAutoMarkPageRef.current !== currentPage) {
 
-            // 针对 DOM 渲染模式（如 Markdown）的额外检查
-            if (isDomRender) {
-                if (!contentReady) return;
-
+            const checkAndMark = () => {
                 const renderer = rendererRef.current;
-                if (renderer && (renderer as any).getScrollContainer) {
-                    const scrollContainer = (renderer as any).getScrollContainer();
-                    if (scrollContainer) {
-                        if (scrollContainer.scrollHeight > scrollContainer.clientHeight) {
-                            const atBottom = scrollContainer.scrollTop + scrollContainer.clientHeight >= scrollContainer.scrollHeight - 50;
-                            if (!atBottom) return;
-                        } else {
-                            return;
-                        }
-                    } else {
-                        return;
-                    }
-                }
-            }
+                if (!renderer || !(renderer as any).getScrollContainer) return;
 
-            lastAutoMarkPageRef.current = currentPage;
+                const scrollContainer = (renderer as any).getScrollContainer();
+                if (!scrollContainer) return;
+
+                // 如果内容高度超过视口高度，检查滚动位置
+                if (scrollContainer.scrollHeight > scrollContainer.clientHeight) {
+                    const atBottom = scrollContainer.scrollTop + scrollContainer.clientHeight >= scrollContainer.scrollHeight - 50;
+                    if (!atBottom) return;
+                }
+                // 如果内容高度小于等于视口高度，说明内容完全可见，视为已到达底部
+
+                // 到达底部，执行标记
+                if (lastAutoMarkPageRef.current !== currentPage) { // 防止重复触发
+                    lastAutoMarkPageRef.current = currentPage;
+                    autoMark();
+                }
+            };
 
             const autoMark = async () => {
                 try {
@@ -79,7 +78,31 @@ export const useAutoMark = ({
                     await logError('自动标记已读失败', { error: String(e), bookId: book.id });
                 }
             };
-            autoMark();
+
+            // 针对 DOM 渲染模式（如 Markdown/EPUB）
+            if (isDomRender) {
+                if (!contentReady) return;
+                
+                // 立即检查一次
+                checkAndMark();
+
+                // 添加滚动监听
+                const renderer = rendererRef.current;
+                if (renderer && (renderer as any).getScrollContainer) {
+                    const scrollContainer = (renderer as any).getScrollContainer();
+                    if (scrollContainer) {
+                        const onScroll = () => checkAndMark();
+                        scrollContainer.addEventListener('scroll', onScroll);
+                        return () => {
+                            scrollContainer.removeEventListener('scroll', onScroll);
+                        };
+                    }
+                }
+            } else {
+                // 非 DOM 渲染模式（如 PDF/图片），直接标记（因为是分页的，进入最后一页即视为完成）
+                lastAutoMarkPageRef.current = currentPage;
+                autoMark();
+            }
         }
     }, [currentPage, totalPages, book, contentReady, isDomRender, isExternal, rendererRef, setBook]);
 };
