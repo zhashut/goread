@@ -75,9 +75,9 @@ async function pickImportPath(): Promise<any | null> {
   }
 }
 
-export async function exportAppData(): Promise<void> {
+export async function exportAppData(): Promise<boolean> {
   const target = await pickExportPath();
-  if (!target) return;
+  if (!target) return false;
 
   try {
     const settings: ReaderSettings = getReaderSettings();
@@ -89,7 +89,7 @@ export async function exportAppData(): Promise<void> {
     const { writeTextFile } = await import("@tauri-apps/plugin-fs");
     await writeTextFile(target as any, backupJson);
 
-    alert(tSettings("backup.exportSuccess"));
+    return true;
   } catch (e: any) {
     const msg =
       typeof e?.message === "string"
@@ -97,11 +97,11 @@ export async function exportAppData(): Promise<void> {
         : typeof e === "string"
         ? e
         : JSON.stringify(e);
-    alert(tSettings("backup.exportFailedWithReason", { reason: msg }));
+    throw new Error(msg);
   }
 }
 
-export async function importAppData(): Promise<void> {
+export async function importAppData(): Promise<boolean> {
   let ok = false;
   try {
     const { confirm } = await import("@tauri-apps/plugin-dialog");
@@ -109,10 +109,10 @@ export async function importAppData(): Promise<void> {
   } catch {
     ok = window.confirm(tSettings("backup.importConfirm"));
   }
-  if (!ok) return;
+  if (!ok) return false;
 
   const target = await pickImportPath();
-  if (!target) return;
+  if (!target) return false;
 
   try {
     const { readTextFile } = await import("@tauri-apps/plugin-fs");
@@ -125,8 +125,7 @@ export async function importAppData(): Promise<void> {
     if (settingsFromBackup && typeof settingsFromBackup === "object") {
       saveReaderSettings(settingsFromBackup as Partial<ReaderSettings>);
     }
-    alert(tSettings("backup.importSuccess"));
-    await invoke("exit_app");
+    return true;
   } catch (e: any) {
     const msg =
       typeof e?.message === "string"
@@ -134,6 +133,11 @@ export async function importAppData(): Promise<void> {
         : typeof e === "string"
         ? e
         : JSON.stringify(e);
-    alert(getBackupErrorText(msg));
+    throw new Error(getBackupErrorText(msg));
   }
+}
+
+export async function exitApp(): Promise<void> {
+  const invoke = await getInvoke();
+  await invoke("exit_app");
 }

@@ -28,7 +28,7 @@ import {
 import { getSafeAreaInsets } from "../utils/layout";
 import { CustomSelect } from "./CustomSelect";
 import { PageHeader } from "./PageHeader";
-import { exportAppData, importAppData } from "../services/dataBackupService";
+import { exportAppData, importAppData, exitApp } from "../services/dataBackupService";
 import { Toast } from "./Toast";
 import { IconInfo } from "./Icons";
 import { Loading } from "./Loading";
@@ -414,12 +414,20 @@ export const Settings: React.FC = () => {
                     setLoadingText(t('exporting') || "正在导出...");
                     // 给一个极短的延时确保 loading 渲染出来
                     await new Promise(resolve => setTimeout(resolve, 50));
-                    await exportAppData();
-                  } catch (e) {
-                    // exportAppData 内部已经处理了错误提示，这里只是确保 loading 关闭
-                    console.error('Export failed:', e);
-                  } finally {
+                    const success = await exportAppData();
                     setLoading(false);
+                    // 确保 loading 消失后再弹出成功提示
+                    if (success) {
+                      setTimeout(() => {
+                        alert(t('backup.exportSuccess'));
+                      }, 100);
+                    }
+                  } catch (e: any) {
+                    setLoading(false);
+                    const msg = typeof e?.message === 'string' ? e.message : String(e);
+                    setTimeout(() => {
+                      alert(t('backup.exportFailedWithReason', { reason: msg }));
+                    }, 100);
                   }
                 }}
               >
@@ -442,11 +450,20 @@ export const Settings: React.FC = () => {
                     setLoadingText(t('importing') || "正在导入...");
                     // 给一个极短的延时确保 loading 渲染出来
                     await new Promise(resolve => setTimeout(resolve, 50));
-                    await importAppData();
-                  } catch (e) {
-                    console.error('Import failed:', e);
-                  } finally {
+                    const success = await importAppData();
                     setLoading(false);
+                    if (success) {
+                        setTimeout(async () => {
+                            alert(t('backup.importSuccess'));
+                            await exitApp();
+                        }, 100);
+                    }
+                  } catch (e: any) {
+                    setLoading(false);
+                    const msg = typeof e?.message === 'string' ? e.message : String(e);
+                    setTimeout(() => {
+                      alert(t('backup.importFailedWithReason', { reason: msg }));
+                    }, 100);
                   }
                 }}
               >
