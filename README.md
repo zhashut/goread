@@ -190,3 +190,6 @@ GoRead 仍在持续迭代中，欢迎你：
 本项目采用 AGPL-3.0 协议进行开源，具体条款可参考 Free Software Foundation 公布的《GNU Affero General Public License v3.0》原文。
 
 在此基础上，本项目明确禁止任何形式的商业使用，包括但不限于销售本软件、将本软件或其修改版本用于收费服务，或以任何直接或间接方式通过本软件牟利。如有违反，作者保留依法追究相关法律责任的权利。
+
+## ⭐ Star History
+ [![Star History Chart](https://api.star-history.com/svg?repos=zhashut/goread&type=Date)](https://star-history.com/#zhashut/goread&Date)
