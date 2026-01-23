@@ -1,4 +1,5 @@
 import { getInvoke } from './index';
+import type { BookFormat } from './formats/types';
 
 export interface FileEntry {
     name: string;
@@ -49,6 +50,7 @@ export interface IFileSystemService {
 class TauriFileSystemService implements IFileSystemService {
     async scanBookFiles(
         rootPath?: string,
+        formats?: BookFormat[],
         onProgress?: (scannedCount: number, foundCount: number) => void
     ): Promise<FileEntry[]> {
         const invoke = await getInvoke();
@@ -66,7 +68,10 @@ class TauriFileSystemService implements IFileSystemService {
         }
 
         try {
-            const results = await invoke('scan_book_files', { rootPath });
+            const results = await invoke('scan_book_files', { 
+                rootPath,
+                formats: formats || null
+            });
             return results.map((item: any) => ({
                 ...item,
                 type: item.type === 'dir' ? 'dir' : 'file',

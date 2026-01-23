@@ -22,6 +22,8 @@ import { ImportBottomBar } from "./ImportBottomBar";
 import { useImportedBooks, useImportGrouping, useSearchOverlay, useSelectAll } from "../hooks";
 import { checkStoragePermission as checkStoragePermissionUtil } from "../utils/storagePermission";
 import { logError } from "../services";
+import { useScanFormats } from "../hooks/useScanFormats";
+import { ScanFormatSelector } from "./ScanFormatSelector";
 
 type TabKey = "scan" | "browse";
 
@@ -39,12 +41,15 @@ const fmtDate = (t?: number) => {
 export const ImportFiles: React.FC = () => {
   const { t } = useTranslation('bookshelf');
   const { t: tc } = useTranslation('common');
+  const { scanFormats, setScanFormats } = useScanFormats();
   const nav = useAppNav();
   const [searchParams, setSearchParams] = useSearchParams();
   const initialTab = (nav.location.state as any)?.initialTab as TabKey | undefined;
   const [activeTab, setActiveTab] = useState<TabKey>(initialTab ?? "scan");
   const [scanLoading, setScanLoading] = useState(false);
   const [scanList, setScanList] = useState<ScanResultItem[]>([]);
+  // 扫描格式筛选菜单状态
+  const [formatMenuOpen, setFormatMenuOpen] = useState(false);
   // 扫描抽屉 & 进度
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [scannedCount, setScannedCount] = useState(0);
@@ -228,11 +233,18 @@ export const ImportFiles: React.FC = () => {
     }
     setScanLoading(false);
     setDrawerOpen(false);
-    const mapped: ScanResultItem[] = results.map((it) => ({
-      ...it,
-      type: "file" as const,
-      imported: importedPaths.has(it.path),
-    }));
+    const mapped: ScanResultItem[] = results
+      .filter(it => {
+        const fmt = getBookFormat(it.path);
+        // 如果格式无法识别或在选中格式列表中，则保留
+        // 这里更严格一点：只保留明确识别且在列表中的
+        return fmt && scanFormats.includes(fmt);
+      })
+      .map((it) => ({
+        ...it,
+        type: "file" as const,
+        imported: importedPaths.has(it.path),
+      }));
     setScanList(mapped);
     // foundPdfCount 已经在 startScan 中更新，这里不需要再次设置
     setActiveTab("scan");
@@ -283,7 +295,8 @@ export const ImportFiles: React.FC = () => {
               }))
               .filter((it) => {
                 // 以文件名作为扩展名判断，避免 content:// 路径没有扩展名
-                return isSupportedFile(it.name);
+                const fmt = getBookFormat(it.name);
+                return isSupportedFile(it.name) && fmt && scanFormats.includes(fmt);
               });
             setFoundPdfCount(results.length);
             completeScan(results);
@@ -322,9 +335,10 @@ export const ImportFiles: React.FC = () => {
     scanCancelledRef.current = false;
 
     try {
-      // 执行真实扫描，带进度回调
+      // 执行真实扫描，带进度回调，传递格式筛选
       const results = await fileSystemService.scanBookFiles(
         undefined,
+        scanFormats,
         (scanned, found) => {
           // 实时更新扫描进度
           // 确保 scanned 是数字类型，避免字符串拼接等问题
@@ -592,7 +606,20 @@ export const ImportFiles: React.FC = () => {
       <PageHeader
         title={scanList.length > 0 ? t('scanResult', { count: scanList.length }) : t('importFiles')}
         onBack={handleBack}
-        rightContent={rightContent}
+        rightContent={
+          <div style={{ display: 'flex', alignItems: 'center' }}>
+            {activeTab === 'scan' && (
+              <ScanFormatSelector
+                selectedFormats={scanFormats}
+                onFormatsChange={setScanFormats}
+                disabled={scanLoading}
+                menuOpen={formatMenuOpen}
+                onMenuOpenChange={setFormatMenuOpen}
+              />
+            )}
+            {rightContent}
+          </div>
+        }
         style={{ padding: '0 12px' }}
       />
     );
@@ -894,6 +921,7 @@ export const ImportFiles: React.FC = () => {
               globalSearch.trim() === "" &&
               !scanLoading
             ) {
+              setFormatMenuOpen(false);
               if (!scanLoading) startScan();
             } else {
               handleImportClick();

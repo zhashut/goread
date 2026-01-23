@@ -24,5 +24,9 @@
     "azw3": "AZW3/Kindle",
     "fb2": "FB2",
     "html": "HTML"
+  },
+  "scanFormatSelector": {
+    "title": "扫描格式",
+    "hint": "选择要扫描的格式"
   }
 }

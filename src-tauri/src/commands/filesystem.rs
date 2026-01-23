@@ -373,7 +373,7 @@ async fn count_directory_children(dir: &Path) -> std::io::Result<u32> {
 fn is_supported_file(path: &Path) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
-        .map(|ext| formats::is_extension_supported(ext))
+        .map(|ext| formats::is_scan_supported_extension(ext))
         .unwrap_or(false)
 }
 
@@ -575,6 +575,29 @@ pub async fn list_directory_supported(path: String) -> Result<Vec<FileEntry>, St
     Ok(results)
 }
 
+/// 检查文件是否符合指定的格式筛选条件
+fn is_file_in_formats(path: &Path, formats: &Option<Vec<formats::BookFormat>>) -> bool {
+    let ext = path.extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.to_lowercase());
+    
+    let ext = match ext {
+        Some(e) => e,
+        None => return false,
+    };
+
+    let file_format = formats::BookFormat::from_extension(&ext);
+    
+    match (file_format, formats) {
+        // 有格式且在筛选列表中
+        (Some(fmt), Some(filter_formats)) => filter_formats.contains(&fmt),
+        // 有格式但无筛选列表，使用默认的扫描支持格式
+        (Some(fmt), None) => formats::is_scan_supported_format(&fmt),
+        // 无法识别的格式
+        _ => false,
+    }
+}
+
 async fn scan_supported_files_recursive(
     dir: &Path,
     results: &mut Vec<FileEntry>,
@@ -582,6 +605,7 @@ async fn scan_supported_files_recursive(
     app_handle: Option<&tauri::AppHandle>,
     cancel_flag: &Arc<AtomicBool>,
     seen_paths: &mut std::collections::HashSet<String>,
+    formats: &Option<Vec<formats::BookFormat>>,
 ) -> std::io::Result<()> {
     use std::collections::VecDeque;
 
@@ -622,7 +646,7 @@ async fn scan_supported_files_recursive(
             if metadata.is_dir() {
                 dirs_to_scan.push_back(path);
             } else if metadata.is_file() {
-                if is_supported_file(&path) {
+                if is_file_in_formats(&path, formats) {
                     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
                     let path_str = normalize_android_path(&path);
                     let size = metadata.len();
@@ -662,6 +686,7 @@ async fn scan_supported_files_recursive(
 #[tauri::command]
 pub async fn scan_book_files(
     root_path: Option<String>,
+    formats: Option<Vec<String>>,
     window: tauri::Window,
     cancel_flag: State<'_, Arc<AtomicBool>>,
 ) -> Result<Vec<FileEntry>, String> {
@@ -709,9 +734,22 @@ pub async fn scan_book_files(
     let mut scanned_count = 0u32;
     let mut seen_paths = std::collections::HashSet::new();
 
+    // 将字符串格式转换为 BookFormat
+    let format_filters: Option<Vec<formats::BookFormat>> = formats.map(|f| {
+        f.iter()
+            .filter_map(|s| match s.to_lowercase().as_str() {
+                "pdf" => Some(formats::BookFormat::Pdf),
+                "epub" => Some(formats::BookFormat::Epub),
+                "markdown" => Some(formats::BookFormat::Markdown),
+                "html" => Some(formats::BookFormat::Html),
+                _ => None,
+            })
+            .collect()
+    });
+
     for root in roots {
         if !root.exists() { continue; }
-        let _ = scan_supported_files_recursive(&root, &mut results, &mut scanned_count, Some(&app_handle), &cancel_flag, &mut seen_paths).await;
+        let _ = scan_supported_files_recursive(&root, &mut results, &mut scanned_count, Some(&app_handle), &cancel_flag, &mut seen_paths, &format_filters).await;
     }
 
     let _ = app_handle.emit(

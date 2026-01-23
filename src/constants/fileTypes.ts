@@ -6,56 +6,52 @@
 import { BookFormat } from '../services/formats/types';
 import i18n from '../locales';
 
-/** 支持的文件扩展名 */
+/** 支持的文件扩展名（当前扫描支持的格式） */
 export const SUPPORTED_FILE_EXTENSIONS = [
   '.pdf',
   '.epub',
   '.md',
   '.markdown',
-  '.mobi',
-  '.azw3',
-  '.azw',
-  '.fb2',
   '.html',
   '.htm',
 ] as const;
 
 export type SupportedExtension = typeof SUPPORTED_FILE_EXTENSIONS[number];
 
-/** 扩展名到格式的映射 */
+/** 扩展名到格式的映射（当前支持的格式） */
 const EXTENSION_FORMAT_MAP: Record<string, BookFormat> = {
   '.pdf': 'pdf',
   '.epub': 'epub',
   '.md': 'markdown',
   '.markdown': 'markdown',
-  '.mobi': 'mobi',
-  '.azw3': 'azw3',
-  '.azw': 'azw3',
-  '.fb2': 'fb2',
   '.html': 'html',
   '.htm': 'html',
 };
 
 /** 格式显示名称（默认英文） */
-export const FORMAT_DISPLAY_NAMES: Record<BookFormat, string> = {
+export const FORMAT_DISPLAY_NAMES: Partial<Record<BookFormat, string>> = {
   pdf: 'PDF',
   epub: 'EPUB',
   markdown: 'Markdown',
-  mobi: 'MOBI',
-  azw3: 'AZW3/Kindle',
-  fb2: 'FB2',
   html: 'HTML',
 };
 
-/** 格式颜色配置 */
+/** 扫描支持的格式（前端已实现的格式） */
+export const SCAN_SUPPORTED_FORMATS: BookFormat[] = ['pdf', 'epub', 'markdown', 'html'];
+
+/** 默认选中的扫描格式 */
+export const DEFAULT_SCAN_FORMATS: BookFormat[] = ['pdf', 'epub', 'markdown', 'html'];
+
+/** 格式颜色配置（当前支持的格式） */
 export const FORMAT_COLORS: Record<BookFormat, string> = {
   pdf: '#E82922',
   epub: '#6DA618',
   markdown: '#595959',
+  html: '#E34C26',
+  // 以下为历史格式，保留以兼容已导入的书籍
   mobi: '#0058A8',
   azw3: '#FF9900',
   fb2: '#8E24AA',
-  html: '#E34C26',
 };
 
 /** 获取格式对应的图标文字 (缩写) */

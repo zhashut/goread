@@ -273,6 +273,14 @@ impl std::fmt::Display for BookError {
 
 impl std::error::Error for BookError {}
 
+/// 当前支持扫描的格式（已实现前端渲染的格式）
+pub const SCAN_SUPPORTED_FORMATS: &[BookFormat] = &[
+    BookFormat::Pdf,
+    BookFormat::Epub,
+    BookFormat::Markdown,
+    BookFormat::Html,
+];
+
 impl BookError {
     pub fn new(code: BookErrorCode, message: impl Into<String>) -> Self {
         Self {
@@ -342,9 +350,25 @@ pub trait BookEngine: Send + Sync {
     fn close(&mut self);
 }
 
-/// 获取所有支持的扩展名
+/// 获取所有支持的扩展名（仅返回当前扫描支持的格式）
 pub fn get_all_supported_extensions() -> Vec<&'static str> {
-    vec![".pdf", ".epub", ".md", ".markdown", ".mobi", ".azw3", ".azw", ".fb2", ".html", ".htm"]
+    vec![".pdf", ".epub", ".md", ".markdown", ".html", ".htm"]
+}
+
+/// 检查文件扩展名是否在扫描支持列表中
+pub fn is_scan_supported_extension(ext: &str) -> bool {
+    let ext_lower = ext.to_lowercase();
+    let ext_with_dot = if ext_lower.starts_with('.') {
+        ext_lower
+    } else {
+        format!(".{}", ext_lower)
+    };
+    matches!(ext_with_dot.as_str(), ".pdf" | ".epub" | ".md" | ".markdown" | ".html" | ".htm")
+}
+
+/// 检查格式是否在扫描支持列表中
+pub fn is_scan_supported_format(format: &BookFormat) -> bool {
+    SCAN_SUPPORTED_FORMATS.contains(format)
 }
 
 /// 检查扩展名是否支持
