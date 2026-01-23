@@ -7,7 +7,7 @@ import { FileEntry, ScanResultItem } from "../types";
 import { fileSystemService } from "../services/fileSystemService";
 import GroupingDrawer from "./GroupingDrawer";
 import ChooseExistingGroupDrawer from "./ChooseExistingGroupDrawer";
-import { isSupportedFile, getBookFormat } from "../constants/fileTypes";
+import { isSupportedFile, getBookFormat, DEFAULT_SCAN_FORMATS } from "../constants/fileTypes";
 import { BookFormat } from "../services/formats/types";
 import { getSafeAreaInsets } from "../utils/layout";
 import {
@@ -19,7 +19,7 @@ import { PageHeader } from "./PageHeader";
 import { SearchHeader } from "./SearchHeader";
 import { FormatFilterButton } from "./FormatFilterButton";
 import { ImportBottomBar } from "./ImportBottomBar";
-import { useImportedBooks, useImportGrouping, useSearchOverlay, useSelectAll } from "../hooks";
+import { useImportedBooks, useImportGrouping, useSearchOverlay, useSelectAll, useOverlayBackHandler } from "../hooks";
 import { checkStoragePermission as checkStoragePermissionUtil } from "../utils/storagePermission";
 import { logError } from "../services";
 import { useScanFormats } from "../hooks/useScanFormats";
@@ -98,14 +98,27 @@ export const ImportFiles: React.FC = () => {
   const [browseDirStack, setBrowseDirStack] = useState<
     { name: string; path: string }[]
   >([]);
-  const [filterFormat, setFilterFormat] = useState<'ALL' | BookFormat>('ALL');
+  // 浏览tab的格式筛选，从 localStorage 读取或使用默认值
+  const [filterFormats, setFilterFormats] = useState<BookFormat[]>(() => {
+    const saved = localStorage.getItem('browse_filter_formats');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed as BookFormat[];
+        }
+      } catch {
+        // 解析失败则使用默认值
+      }
+    }
+    return DEFAULT_SCAN_FORMATS;
+  });
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
 
-  // Reset filter when tab changes
+  // 保存筛选格式到 localStorage
   useEffect(() => {
-      setFilterFormat('ALL');
-      setFilterMenuOpen(false);
-  }, [activeTab]);
+    localStorage.setItem('browse_filter_formats', JSON.stringify(filterFormats));
+  }, [filterFormats]);
 
   // 路由变化时关闭筛选菜单，避免遮罩层阻挡返回按钮
   useEffect(() => {
@@ -150,6 +163,14 @@ export const ImportFiles: React.FC = () => {
       } else {
         // 右滑 -> 前往 "scan"
         if (activeTab === "browse") {
+          // 计算进入了多少层目录（browseDirStack 第一层是根目录，不算）
+          const depth = browseDirStack.length - 1;
+          setBrowseStack([]);
+          setBrowseDirStack([]);
+          // 回退历史记录栈中进入目录时添加的记录
+          if (depth > 0) {
+            nav.go(-depth);
+          }
           setActiveTab("scan");
         }
       }
@@ -212,19 +233,31 @@ export const ImportFiles: React.FC = () => {
       source = devicePdfIndex.filter((it) => it.name.toLowerCase().includes(kw));
     }
     
-    if (filterFormat !== 'ALL') {
+    const isAllSelected = DEFAULT_SCAN_FORMATS.every(fmt => filterFormats.includes(fmt));
+    if (!isAllSelected) {
         return source.filter(it => {
             if (it.type === 'dir') return true;
-            return getBookFormat(it.path) === filterFormat;
+            const fmt = getBookFormat(it.path);
+            return fmt && filterFormats.includes(fmt);
         });
     }
     return source;
-  }, [currentBrowse, browseSearch, devicePdfIndex, filterFormat]);
+  }, [currentBrowse, browseSearch, devicePdfIndex, filterFormats]);
 
   const canFilter = useMemo(() => {
       if (activeTab !== 'browse') return false;
       return currentBrowse.some(it => it.type === 'file');
   }, [activeTab, currentBrowse]);
+
+  const handleFilterMenuClose = useCallback(() => {
+    setFilterMenuOpen(false);
+  }, []);
+
+  useOverlayBackHandler({
+    overlayId: "import-browse-filter",
+    isOpen: filterMenuOpen && canFilter && activeTab === "browse",
+    onClose: handleFilterMenuClose,
+  });
 
   const completeScan = (results: FileEntry[]) => {
     if (scanTimerRef.current) {
@@ -506,15 +539,14 @@ export const ImportFiles: React.FC = () => {
       (activeTab === "scan" && filteredScan.length > 0) ? (
       <div style={{ display: "flex", alignItems: "center" }}>
         <FormatFilterButton
-          filterFormat={filterFormat}
+          mode="multi"
+          filterFormats={filterFormats}
           menuOpen={filterMenuOpen}
           onMenuOpenChange={(open) => {
             if (!canFilter && open) return;
             setFilterMenuOpen(open);
           }}
-          onSelect={(fmt) => {
-            setFilterFormat(fmt);
-          }}
+          onFormatsChange={setFilterFormats}
           canFilter={canFilter}
         />
 
@@ -626,12 +658,28 @@ export const ImportFiles: React.FC = () => {
   };
 
 
-  const Tabs: React.FC = () => (
+const Tabs: React.FC = () => {
+    const handleTabChange = (key: TabKey) => {
+      // 切换到"自动扫描"tab时，清空浏览目录的路径栈
+      if (key === "scan" && activeTab === "browse") {
+        // 计算进入了多少层目录（browseDirStack 第一层是根目录，不算）
+        const depth = browseDirStack.length - 1;
+        setBrowseStack([]);
+        setBrowseDirStack([]);
+        // 回退历史记录栈中进入目录时添加的记录
+        if (depth > 0) {
+          nav.go(-depth);
+        }
+      }
+      setActiveTab(key);
+    };
+
+    return (
     <div style={{ display: "flex", padding: "8px 0 0 0" }}>
       {(["scan", "browse"] as TabKey[]).map((key) => (
         <button
           key={key}
-          onClick={() => setActiveTab(key)}
+          onClick={() => handleTabChange(key)}
           style={{
             background: "none",
             border: "none",
@@ -662,7 +710,8 @@ export const ImportFiles: React.FC = () => {
         </button>
       ))}
     </div>
-  );
+    );
+  };
 
   const ScanEmpty: React.FC = () => (
     <div
@@ -729,7 +778,11 @@ export const ImportFiles: React.FC = () => {
             <button
               onClick={() => {
                 if (!browseLoading) {
-                  setSearchParams({ tab: "browse", path: browseDirStack[idx].path }, { replace: true });
+                  // 计算需要回退的层数（当前层数 - 目标层数）
+                  const backSteps = browseDirStack.length - 1 - idx;
+                  if (backSteps > 0) {
+                    nav.go(-backSteps);
+                  }
                 }
               }}
               style={{

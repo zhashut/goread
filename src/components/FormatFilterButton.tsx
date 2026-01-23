@@ -3,34 +3,90 @@ import { useTranslation } from "react-i18next";
 import { FORMAT_DISPLAY_NAMES, getFormatDisplayName } from "../constants/fileTypes";
 import type { BookFormat } from "../services/formats/types";
 
-interface FormatFilterButtonProps {
-  filterFormat: "ALL" | BookFormat;
-  menuOpen: boolean;
-  onMenuOpenChange: (open: boolean) => void;
-  onSelect: (fmt: "ALL" | BookFormat) => void;
-  canFilter?: boolean;
+/** 单选模式的属性（扫描结果页面使用） */
+interface SingleSelectProps {
+  mode?: 'single';
+  /** 当前选中的格式 */
+  filterFormat: 'ALL' | BookFormat;
+  /** 格式变化回调 */
+  onSelect: (fmt: 'ALL' | BookFormat) => void;
+  filterFormats?: never;
+  onFormatsChange?: never;
 }
 
-export const FormatFilterButton: React.FC<FormatFilterButtonProps> = ({
-  filterFormat,
-  menuOpen,
-  onMenuOpenChange,
-  onSelect,
-  canFilter = true,
-}) => {
+/** 多选模式的属性（浏览全部页面使用） */
+interface MultiSelectProps {
+  mode: 'multi';
+  /** 当前选中的格式列表 */
+  filterFormats: BookFormat[];
+  /** 格式变化回调 */
+  onFormatsChange: (formats: BookFormat[]) => void;
+  filterFormat?: never;
+  onSelect?: never;
+}
+
+type FormatFilterButtonProps = (SingleSelectProps | MultiSelectProps) & {
+  menuOpen: boolean;
+  onMenuOpenChange: (open: boolean) => void;
+  canFilter?: boolean;
+};
+
+export const FormatFilterButton: React.FC<FormatFilterButtonProps> = (props) => {
+  const {
+    menuOpen,
+    onMenuOpenChange,
+    canFilter = true,
+  } = props;
+
   const { t } = useTranslation("import");
+  const isMultiMode = props.mode === 'multi';
+
   const handleToggleMenu: React.MouseEventHandler<HTMLButtonElement> = (e) => {
     e.stopPropagation();
     if (!canFilter) return;
     onMenuOpenChange(!menuOpen);
   };
 
-  const handleSelectAll = () => {
-    onSelect("ALL");
+  const allFormats = Object.keys(FORMAT_DISPLAY_NAMES) as BookFormat[];
+  
+  // 多选模式的状态计算
+  const safeFilterFormats = isMultiMode ? (props.filterFormats ?? []) : [];
+  const isAllSelectedMulti = isMultiMode && allFormats.every(fmt => safeFilterFormats.includes(fmt));
+  const hasSelectionMulti = isMultiMode && safeFilterFormats.length > 0;
+
+  // 单选模式的状态
+  const isAllSelectedSingle = !isMultiMode && props.filterFormat === 'ALL';
+
+  // 计算是否有筛选（用于图标颜色）
+  const hasActiveFilter = isMultiMode 
+    ? (!isAllSelectedMulti && hasSelectionMulti)
+    : !isAllSelectedSingle;
+
+  // 多选模式：切换全选/取消全选
+  const toggleAllMulti = () => {
+    if (!isMultiMode) return;
+    if (isAllSelectedMulti) {
+      props.onFormatsChange([]);
+    } else {
+      props.onFormatsChange([...allFormats]);
+    }
   };
 
-  const handleSelectFormat = (fmt: BookFormat) => {
-    onSelect(fmt);
+  // 多选模式：切换单个格式
+  const toggleFormatMulti = (fmt: BookFormat) => {
+    if (!isMultiMode) return;
+    if (safeFilterFormats.includes(fmt)) {
+      props.onFormatsChange(safeFilterFormats.filter(f => f !== fmt));
+    } else {
+      props.onFormatsChange([...safeFilterFormats, fmt]);
+    }
+  };
+
+  // 单选模式：选择格式
+  const selectFormatSingle = (fmt: 'ALL' | BookFormat) => {
+    if (isMultiMode) return;
+    props.onSelect(fmt);
+    onMenuOpenChange(false);
   };
 
   const showMenu = menuOpen && canFilter;
@@ -55,7 +111,7 @@ export const FormatFilterButton: React.FC<FormatFilterButtonProps> = ({
           alignItems: "center",
           justifyContent: "center",
           backgroundColor:
-            showMenu || filterFormat !== "ALL" ? "#f5f5f5" : "transparent",
+            showMenu || hasActiveFilter ? "#f5f5f5" : "transparent",
           opacity: canFilter ? 1 : 0.3,
         }}
         onClick={handleToggleMenu}
@@ -64,7 +120,7 @@ export const FormatFilterButton: React.FC<FormatFilterButtonProps> = ({
           width="24"
           height="24"
           viewBox="0 0 24 24"
-          fill={filterFormat !== "ALL" && canFilter ? "#d43d3d" : "#333"}
+          fill={hasActiveFilter && canFilter ? "#d43d3d" : "#333"}
         >
           <path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z" />
         </svg>
@@ -99,6 +155,7 @@ export const FormatFilterButton: React.FC<FormatFilterButtonProps> = ({
               overflowY: "auto",
               animation: "fadeIn 0.1s ease-out",
             }}
+            onClick={(e) => e.stopPropagation()}
           >
             <style>{`
               @keyframes fadeIn {
@@ -106,59 +163,84 @@ export const FormatFilterButton: React.FC<FormatFilterButtonProps> = ({
                 to { opacity: 1; transform: scale(1); }
               }
             `}</style>
-            <div
-              style={{
-                padding: "10px 16px",
-                fontSize: 14,
-                color: filterFormat === "ALL" ? "#d43d3d" : "#333",
-                backgroundColor:
-                  filterFormat === "ALL" ? "#fffbfb" : "transparent",
-                cursor: "pointer",
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                fontWeight: filterFormat === "ALL" ? 500 : 400,
-              }}
-              onClick={() => {
-                handleSelectAll();
-                onMenuOpenChange(false);
-              }}
-            >
-              {t("format.all")}
-              {filterFormat === "ALL" && (
-                <span style={{ color: "#d43d3d", fontSize: 12 }}>✓</span>
-              )}
-            </div>
-            {(Object.keys(FORMAT_DISPLAY_NAMES) as BookFormat[]).map((fmt) => (
+            
+            {/* 全部格式选项 */}
+            {isMultiMode ? (
+              // 多选模式的全选选项
               <div
-                key={fmt}
                 style={{
                   padding: "10px 16px",
                   fontSize: 14,
-                  color: filterFormat === fmt ? "#d43d3d" : "#333",
-                  backgroundColor:
-                    filterFormat === fmt ? "#fffbfb" : "transparent",
+                  color: isAllSelectedMulti ? "#d43d3d" : "#333",
+                  backgroundColor: isAllSelectedMulti ? "#fffbfb" : "transparent",
                   cursor: "pointer",
                   display: "flex",
                   justifyContent: "space-between",
                   alignItems: "center",
-                  fontWeight: filterFormat === fmt ? 500 : 400,
+                  fontWeight: isAllSelectedMulti ? 500 : 400,
                 }}
-                onClick={() => {
-                  handleSelectFormat(fmt);
-                  onMenuOpenChange(false);
-                }}
+                onClick={toggleAllMulti}
               >
-                {getFormatDisplayName(fmt)}
-                {filterFormat === fmt && (
+                {t("format.all")}
+                {isAllSelectedMulti && (
                   <span style={{ color: "#d43d3d", fontSize: 12 }}>✓</span>
                 )}
               </div>
-            ))}
+            ) : (
+              // 单选模式的全部格式选项
+              <div
+                style={{
+                  padding: "10px 16px",
+                  fontSize: 14,
+                  color: props.filterFormat === 'ALL' ? "#d43d3d" : "#333",
+                  backgroundColor: props.filterFormat === 'ALL' ? "#fffbfb" : "transparent",
+                  cursor: "pointer",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  fontWeight: props.filterFormat === 'ALL' ? 500 : 400,
+                }}
+                onClick={() => selectFormatSingle('ALL')}
+              >
+                {t("format.all")}
+                {props.filterFormat === 'ALL' && (
+                  <span style={{ color: "#d43d3d", fontSize: 12 }}>✓</span>
+                )}
+              </div>
+            )}
+
+            {/* 各格式选项 */}
+            {allFormats.map((fmt) => {
+              const isChecked = isMultiMode 
+                ? safeFilterFormats.includes(fmt)
+                : props.filterFormat === fmt;
+              
+              return (
+                <div
+                  key={fmt}
+                  style={{
+                    padding: "10px 16px",
+                    fontSize: 14,
+                    color: isChecked ? "#d43d3d" : "#333",
+                    backgroundColor: isChecked ? "#fffbfb" : "transparent",
+                    cursor: "pointer",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    fontWeight: isChecked ? 500 : 400,
+                  }}
+                  onClick={() => isMultiMode ? toggleFormatMulti(fmt) : selectFormatSingle(fmt)}
+                >
+                  {getFormatDisplayName(fmt)}
+                  {isChecked && (
+                    <span style={{ color: "#d43d3d", fontSize: 12 }}>✓</span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </>
       )}
     </div>
   );
 };
-
