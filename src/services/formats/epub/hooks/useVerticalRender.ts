@@ -796,7 +796,19 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
     // 滚动完成后再设置 IntersectionObserver 进行懒加载，避免初始位置触发首页渲染
     setupSectionObserver(container, options);
 
-    logError('[EpubRenderer] 纵向连续渲染模式初始化完成').catch(() => {});
+    // 初始化目录高亮：首次渲染完成后主动更新，确保目录面板正确定位
+    // 使用 async IIFE 处理懒加载场景，等待书籍加载完成后再更新
+    (async () => {
+      // 等待 DOM 更新完成
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      // 确保书籍已加载（懒加载场景）
+      if (!context.book && context.ensureBookLoaded) {
+        await context.ensureBookLoaded();
+      }
+      updateScrollProgress();
+    })();
+
+    logError('[EpubRenderer] 纵向连续渲染模式初始化完成').catch(() => { });
   };
 
   /**

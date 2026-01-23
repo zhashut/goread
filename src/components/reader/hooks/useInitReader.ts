@@ -161,31 +161,12 @@ export const useInitReader = ({
                         };
                     }
 
-                    // EPUB 纵向模式：设置首屏渲染完成回调，在首屏渲染完成时立即隐藏 loading
-                    // 这样缓存命中时用户可以立即看到内容，而不必等待后续滚动定位和预加载完成
+                    // 设置首屏渲染完成回调
                     if (renderer instanceof EpubRenderer && readingMode === 'vertical') {
                         renderer.onFirstScreenReady = () => {
                             log("[Reader] EPUB 首屏渲染完成，提前隐藏 loading");
                             setContentReady(true);
                         };
-                    }
-
-                    // DOM 渲染
-                    await renderer.renderPage(1, domContainerRef.current!, {
-                        initialVirtualPage: pageToRender || 1,
-                        readingMode: readingMode,
-                        theme: currentTheme,
-                        pageGap: settings.pageGap,
-                    });
-                    log("[Reader] DOM 渲染完成");
-                    domRestoreDoneRef.current = true;
-
-                    // 对于非 EPUB 纵向模式，或未触发首屏回调的情况，仍需在此设置 contentReady
-                    // EPUB 纵向模式已在 onFirstScreenReady 中提前设置
-                    if (!(renderer instanceof MarkdownRenderer)) {
-                        if (!(renderer instanceof EpubRenderer && readingMode === 'vertical')) {
-                            setContentReady(true);
-                        }
                     }
 
                     if (renderer instanceof EpubRenderer) {
@@ -203,24 +184,14 @@ export const useInitReader = ({
                         renderer.onScrollActivity = markReadingActive;
                     }
 
-                    if (isEpub) {
-                        epubRenderedRef.current = true;
-                    }
-
-                    // 刷新 DOM 提取的目录 (MdCatalog/Epub TOC)
+                    // 提前刷新目录并注册回调，确保能捕获首次渲染触发的 onTocChange
                     try {
                         const items = await renderer.getToc();
                         const toTocNode = (list: any[]): TocNode[] => {
                             return (list || []).map((item: any) => ({
                                 title: String(item?.title || ""),
-                                page:
-                                    typeof item?.location === "number"
-                                        ? item.location
-                                        : undefined,
-                                anchor:
-                                    typeof item?.location === "string"
-                                        ? item.location
-                                        : undefined,
+                                page: typeof item?.location === "number" ? item.location : undefined,
+                                anchor: typeof item?.location === "string" ? item.location : undefined,
                                 children: item?.children ? toTocNode(item.children) : [],
                                 expanded: false,
                             }));
@@ -233,16 +204,10 @@ export const useInitReader = ({
                                 const normalizeHref = (h: string) => h?.split("#")[0] || "";
                                 const hrefBase = normalizeHref(href);
 
-                                const findByHref = (
-                                    list: TocNode[],
-                                    level: number
-                                ): { title: string; level: number } | null => {
+                                const findByHref = (list: TocNode[], level: number): { title: string; level: number } | null => {
                                     for (const n of list) {
                                         const anchorBase = normalizeHref(n.anchor || "");
-                                        if (
-                                            n.anchor === href ||
-                                            (hrefBase && anchorBase === hrefBase)
-                                        ) {
+                                        if (n.anchor === href || (hrefBase && anchorBase === hrefBase)) {
                                             return { title: n.title, level };
                                         }
                                         if (n.children) {
@@ -260,6 +225,27 @@ export const useInitReader = ({
                             };
                         }
                     } catch { }
+
+                    // DOM 渲染
+                    await renderer.renderPage(1, domContainerRef.current!, {
+                        initialVirtualPage: pageToRender || 1,
+                        readingMode: readingMode,
+                        theme: currentTheme,
+                        pageGap: settings.pageGap,
+                    });
+                    log("[Reader] DOM 渲染完成");
+                    domRestoreDoneRef.current = true;
+
+                    // 对于非 EPUB 纵向模式，或未触发首屏回调的情况，仍需在此设置 contentReady
+                    if (!(renderer instanceof MarkdownRenderer)) {
+                        if (!(renderer instanceof EpubRenderer && readingMode === 'vertical')) {
+                            setContentReady(true);
+                        }
+                    }
+
+                    if (isEpub) {
+                        epubRenderedRef.current = true;
+                    }
                 } catch (e) {
                     await logError('DOM渲染失败', { error: String(e), stack: (e as Error)?.stack });
                 }
