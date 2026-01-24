@@ -742,6 +742,7 @@ pub async fn scan_book_files(
                 "epub" => Some(formats::BookFormat::Epub),
                 "markdown" => Some(formats::BookFormat::Markdown),
                 "html" => Some(formats::BookFormat::Html),
+                "txt" => Some(formats::BookFormat::Txt),
                 _ => None,
             })
             .collect()

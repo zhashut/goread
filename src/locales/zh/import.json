@@ -23,7 +23,8 @@
     "mobi": "MOBI",
     "azw3": "AZW3/Kindle",
     "fb2": "FB2",
-    "html": "HTML"
+    "html": "HTML",
+    "txt": "TXT"
   },
   "scanFormatSelector": {
     "title": "扫描格式",

@@ -141,6 +141,12 @@ export const useInitReader = ({
                     return;
                 }
 
+                // TXT 格式由 useTxtPaging 负责 DOM 渲染和进度恢复，这里跳过通用渲染逻辑
+                if (renderer.format === "txt") {
+                    log("[Reader] DOM渲染模式: 检测到 TXT 格式，交由 useTxtPaging 处理初始化渲染");
+                    return;
+                }
+
                 // EPUB 主题切换时，优先从渲染器获取精确进度（含章节内偏移）
                 if (themeChanged && renderer instanceof EpubRenderer) {
                     const preciseProgress = renderer.getPreciseProgress();

@@ -23,6 +23,7 @@ export const useReaderState = (params: {
     const currentPageRef = useRef<number>(1);
     const savedPageAtOpenRef = useRef<number>(1);
     const domRestoreDoneRef = useRef(false);
+    const latestPreciseProgressRef = useRef<number | null>(null);
 
     // 同步 Ref
     useEffect(() => {
@@ -32,6 +33,7 @@ export const useReaderState = (params: {
     useEffect(() => {
         // 使用 precise_progress（浮点数）恢复精确位置，若不存在则回退到 current_page
         savedPageAtOpenRef.current = book?.precise_progress ?? book?.current_page ?? 1;
+        latestPreciseProgressRef.current = null;
     }, [book?.id]);
 
     // 计算是否为外部模式
@@ -58,6 +60,7 @@ export const useReaderState = (params: {
         currentPageRef,
         savedPageAtOpenRef,
         domRestoreDoneRef,
+        latestPreciseProgressRef,
         isExternal,
     };
 };

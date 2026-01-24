@@ -43,6 +43,7 @@ import {
   useReaderTheme,
   useUndoJump,
   useBookReadingMode,
+  useTxtPaging,
 } from "./reader/hooks";
 
 import { UndoJumpIcon } from "./covers/UndoJumpIcon";
@@ -163,7 +164,7 @@ export const Reader: React.FC = () => {
     { resetCache: pageRenderer.forceClearCache }
   );
 
-  // DOM 渲染器
+  // DOM 渲染器（Markdown 等格式使用，TXT 由 useTxtPaging 单独处理）
   const domRenderer = useDomRenderer({
     readerState,
     refs: { rendererRef },
@@ -173,6 +174,16 @@ export const Reader: React.FC = () => {
     },
     data: { readingMode, toc: tocData.toc, activeNodeSignature: tocData.activeNodeSignature, isExternal }
   });
+
+  // TXT 专用分页链路
+  useTxtPaging({
+    readerState,
+    rendererRef,
+    domContainerRef: domRenderer.domContainerRef,
+    options: settingsWithTheme,
+    readingMode,
+  });
+
 
   const verticalScroll = useVerticalScroll({
     readerState,
@@ -237,6 +248,7 @@ export const Reader: React.FC = () => {
     contentReady: readerState.contentReady,
     rendererRef,
     setBook: readerState.setBook,
+    readingMode,
   });
 
 

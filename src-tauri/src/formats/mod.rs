@@ -4,8 +4,9 @@ use std::pin::Pin;
 
 pub mod common;
 pub mod epub;
-pub mod markdown;
 pub mod html;
+pub mod markdown;
+pub mod txt;
 
 /// 通用异步返回类型，统一封装书籍渲染相关的异步接口
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -49,6 +50,7 @@ pub enum BookFormat {
     Azw3,
     Fb2,
     Html,
+    Txt,
 }
 
 impl BookFormat {
@@ -62,6 +64,7 @@ impl BookFormat {
             BookFormat::Azw3 => &[".azw3", ".azw"],
             BookFormat::Fb2 => &[".fb2"],
             BookFormat::Html => &[".html", ".htm"],
+            BookFormat::Txt => &[".txt"],
         }
     }
 
@@ -82,6 +85,7 @@ impl BookFormat {
             ".azw3" | ".azw" => Some(BookFormat::Azw3),
             ".fb2" => Some(BookFormat::Fb2),
             ".html" | ".htm" => Some(BookFormat::Html),
+            ".txt" => Some(BookFormat::Txt),
             _ => None,
         }
     }
@@ -122,7 +126,7 @@ pub struct TocItem {
 }
 
 /// 目录位置类型
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum TocLocation {
     Page(u32),
@@ -279,6 +283,7 @@ pub const SCAN_SUPPORTED_FORMATS: &[BookFormat] = &[
     BookFormat::Epub,
     BookFormat::Markdown,
     BookFormat::Html,
+    BookFormat::Txt,
 ];
 
 impl BookError {
@@ -352,7 +357,7 @@ pub trait BookEngine: Send + Sync {
 
 /// 获取所有支持的扩展名（仅返回当前扫描支持的格式）
 pub fn get_all_supported_extensions() -> Vec<&'static str> {
-    vec![".pdf", ".epub", ".md", ".markdown", ".html", ".htm"]
+    vec![".pdf", ".epub", ".md", ".markdown", ".html", ".htm", ".txt"]
 }
 
 /// 检查文件扩展名是否在扫描支持列表中
@@ -363,7 +368,7 @@ pub fn is_scan_supported_extension(ext: &str) -> bool {
     } else {
         format!(".{}", ext_lower)
     };
-    matches!(ext_with_dot.as_str(), ".pdf" | ".epub" | ".md" | ".markdown" | ".html" | ".htm")
+    matches!(ext_with_dot.as_str(), ".pdf" | ".epub" | ".md" | ".markdown" | ".html" | ".htm" | ".txt")
 }
 
 /// 检查格式是否在扫描支持列表中

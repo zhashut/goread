@@ -5,6 +5,7 @@ import { getBookFormat } from "../../../constants/fileTypes";
 import {
     MARKDOWN_COVER_PLACEHOLDER,
     HTML_COVER_PLACEHOLDER,
+    TXT_COVER_PLACEHOLDER,
 } from "../../../constants/ui";
 
 /**
@@ -63,6 +64,8 @@ export const useGroupsData = (query: string) => {
                                             covers.push(MARKDOWN_COVER_PLACEHOLDER);
                                         } else if (fmt === "html") {
                                             covers.push(HTML_COVER_PLACEHOLDER);
+                                        } else if (fmt === "txt") {
+                                            covers.push(TXT_COVER_PLACEHOLDER);
                                         }
                                     }
                                 }

@@ -141,6 +141,23 @@ async function importEpubBook(filePath: string, _invoke: any, logError: any): Pr
   return { info, coverImage, totalPages };
 }
 
+// TXT 格式导入
+async function importTxtBook(filePath: string, invoke: any, logError: any): Promise<ImportResult> {
+  let info: any = null;
+  try {
+    info = await (await invoke)('txt_load_document', { filePath });
+  } catch (err) {
+    await logError('txt_load_document failed during import', { error: String(err), filePath });
+  }
+
+  // TXT 没有封面图片，页数由前端虚拟分页决定
+  return {
+    info: { title: info?.title },
+    coverImage: undefined,
+    totalPages: 1,
+  };
+}
+
 // Generic import handler that dispatches by format
 async function importByFormat(
   filePath: string,
@@ -157,6 +174,8 @@ async function importByFormat(
       return await importHtmlBook(filePath, invoke, logError);
     case 'epub':
       return await importEpubBook(filePath, invoke, logError);
+    case 'txt':
+      return await importTxtBook(filePath, invoke, logError);
     default:
       await logError('Unsupported format, skipping', { format, filePath });
       return { info: null, coverImage: undefined, totalPages: 1 };

@@ -14,6 +14,7 @@ export const SUPPORTED_FILE_EXTENSIONS = [
   '.markdown',
   '.html',
   '.htm',
+  '.txt',
 ] as const;
 
 export type SupportedExtension = typeof SUPPORTED_FILE_EXTENSIONS[number];
@@ -26,6 +27,7 @@ const EXTENSION_FORMAT_MAP: Record<string, BookFormat> = {
   '.markdown': 'markdown',
   '.html': 'html',
   '.htm': 'html',
+  '.txt': 'txt',
 };
 
 /** 格式显示名称（默认英文） */
@@ -34,10 +36,11 @@ export const FORMAT_DISPLAY_NAMES: Partial<Record<BookFormat, string>> = {
   epub: 'EPUB',
   markdown: 'Markdown',
   html: 'HTML',
+  txt: 'TXT',
 };
 
 /** 扫描支持的格式（前端已实现的格式） */
-export const SCAN_SUPPORTED_FORMATS: BookFormat[] = ['pdf', 'epub', 'markdown', 'html'];
+export const SCAN_SUPPORTED_FORMATS: BookFormat[] = ['pdf', 'epub', 'markdown', 'html', 'txt'];
 
 /** 默认选中的扫描格式 */
 export const DEFAULT_SCAN_FORMATS: BookFormat[] = ['pdf', 'epub', 'markdown', 'html'];
@@ -48,6 +51,7 @@ export const FORMAT_COLORS: Record<BookFormat, string> = {
   epub: '#6DA618',
   markdown: '#595959',
   html: '#E34C26',
+  txt: '#4A90D9',
   // 以下为历史格式，保留以兼容已导入的书籍
   mobi: '#0058A8',
   azw3: '#FF9900',

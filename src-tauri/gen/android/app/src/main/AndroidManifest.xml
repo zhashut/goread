@@ -35,6 +35,7 @@
                 <data android:mimeType="application/pdf" />
                 <data android:mimeType="application/epub+zip" />
                 <data android:mimeType="text/markdown" />
+                <data android:mimeType="text/plain" />
                 <data android:mimeType="text/html" />
                 <data android:scheme="content" />
                 <data android:scheme="file" />

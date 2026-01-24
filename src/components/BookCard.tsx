@@ -5,6 +5,7 @@ import { IBook } from "../types";
 import { getBookFormat } from "../constants/fileTypes";
 import MarkdownCover from "./covers/MarkdownCover";
 import HtmlCover from "./covers/HtmlCover";
+import TxtIcon from "./covers/TxtIcon";
 import { getDisplayTitle } from "../utils/bookTitle";
 import {
   CARD_WIDTH_COMPACT,
@@ -67,22 +68,30 @@ export const BookCard: React.FC<CommonBookCardProps> = ({
   // 判断文件格式
   const format = getBookFormat(book.file_path);
   const isVirtualPageFormat = format === "markdown" || format === "html";
+  const isTxt = format === "txt";
+
+  const baseProgress = isTxt
+    ? (book.precise_progress ?? book.current_page)
+    : book.current_page;
 
   // 判断是否未读：
   // - 对于虚拟页格式(md/html)：使用 last_read_time 判断，因为 total_pages 始终为 1
+  // - 对于 TXT：使用 last_read_time 判断，避免未分页时被视为已读 100%
   // - 对于其他格式：current_page <= 1 且不是单页书籍
-  const isUnread = isVirtualPageFormat
+  const isUnread = isTxt
     ? !book.last_read_time
-    : book.current_page <= 1 && book.total_pages > 1;
+    : isVirtualPageFormat
+      ? !book.last_read_time
+      : baseProgress <= 1 && book.total_pages > 1;
 
   // 计算进度：
-  // - 虚拟页格式未读时显示 0%，已读显示 100%（因为 current_page/total_pages = 1/1）
-  // - 其他格式正常计算百分比
+  // - 未读时显示 0%
+  // - 已读时按 baseProgress/total_pages 正常计算百分比
   const progress =
     isUnread
       ? 0
       : book.total_pages > 0
-        ? Math.min(100, Math.round((book.current_page / book.total_pages) * 1000) / 10)
+        ? Math.min(100, Math.round((baseProgress / book.total_pages) * 1000) / 10)
         : 0;
 
   // 计算 padding-bottom 比例
@@ -165,6 +174,8 @@ export const BookCard: React.FC<CommonBookCardProps> = ({
             <MarkdownCover />
           ) : getBookFormat(book.file_path) === "html" ? (
             <HtmlCover />
+          ) : getBookFormat(book.file_path) === "txt" ? (
+            <TxtIcon />
           ) : (
             <div style={{ color: "#999", fontSize: "14px", textAlign: "center" }}>
               暂无封面

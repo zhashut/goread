@@ -5,15 +5,17 @@ import { statsService, logError } from '../services';
 import { IStatsSummary, IDailyStats, IRangeStats, IBookReadingStats } from '../types';
 import { HtmlCover } from './covers/HtmlCover';
 import { MarkdownCover } from './covers/MarkdownCover';
+import TxtIcon from './covers/TxtIcon';
 import { getSafeAreaInsets } from '../utils/layout';
 import { PageHeader } from './PageHeader';
 import { getDisplayTitle } from '../utils/bookTitle';
 
 // 根据书名判断书籍格式
-const getBookFormat = (title: string): 'html' | 'markdown' | 'other' => {
+const getBookFormat = (title: string): 'html' | 'markdown' | 'txt' | 'other' => {
   const lowerTitle = title.toLowerCase();
   if (lowerTitle.endsWith('.html') || lowerTitle.endsWith('.htm')) return 'html';
   if (lowerTitle.endsWith('.md') || lowerTitle.endsWith('.markdown')) return 'markdown';
+  if (lowerTitle.endsWith('.txt')) return 'txt';
   return 'other';
 };
 
@@ -663,6 +665,10 @@ export const Statistics: React.FC = () => {
                       // Markdown 格式使用 MarkdownCover
                       if (format === 'markdown') {
                         return <MarkdownCover style={{ width: '100%', height: '100%' }} />;
+                      }
+                      // TXT 格式使用 TxtIcon
+                      if (format === 'txt') {
+                        return <TxtIcon style={{ width: '100%', height: '100%' }} />;
                       }
                       // 有封面图片的书籍
                       if (book.cover_image && book.cover_image.trim() !== '') {

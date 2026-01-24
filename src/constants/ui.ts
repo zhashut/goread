@@ -54,6 +54,9 @@ export const MARKDOWN_COVER_SCALE = 1.6;
 // HTML 默认封面配置
 export const HTML_COVER_PLACEHOLDER = "__HTML__";
 
+// TXT 默认封面配置
+export const TXT_COVER_PLACEHOLDER = "__TXT__";
+
 // 页面顶部栏配置（关于/设置/统计/导入等二级页面）
 export const PAGE_HEADER_HEIGHT = 50;          // 顶部栏内容区高度（不含安全区）
 export const PAGE_HEADER_BACK_ICON_SIZE = 24;  // 返回图标尺寸
