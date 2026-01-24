@@ -102,7 +102,7 @@ export const ScanFormatSelector: React.FC<ScanFormatSelectorProps> = ({
                             background: '#fff',
                             borderRadius: 8,
                             boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
-                            width: 140,
+                            width: 170,
                             padding: '8px 0',
                             border: '1px solid #f0f0f0',
                             zIndex: 1000,

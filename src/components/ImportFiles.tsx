@@ -7,7 +7,7 @@ import { FileEntry, ScanResultItem } from "../types";
 import { fileSystemService } from "../services/fileSystemService";
 import GroupingDrawer from "./GroupingDrawer";
 import ChooseExistingGroupDrawer from "./ChooseExistingGroupDrawer";
-import { isSupportedFile, getBookFormat, DEFAULT_SCAN_FORMATS } from "../constants/fileTypes";
+import { isSupportedFile, getBookFormat, DEFAULT_SCAN_FORMATS, SCAN_SUPPORTED_FORMATS } from "../constants/fileTypes";
 import { BookFormat } from "../services/formats/types";
 import { getSafeAreaInsets } from "../utils/layout";
 import {
@@ -89,7 +89,9 @@ export const ImportFiles: React.FC = () => {
       if (searchOpen) {
         closeSearch();
       }
-      nav.finishImportFlow();
+      // 计算进入了多少层目录（browseDirStack 第一层是根目录，不算）
+      const depth = browseDirStack.length > 0 ? browseDirStack.length - 1 : 0;
+      nav.finishImportFlow({ extraDepth: depth });
     },
   });
 
@@ -108,11 +110,17 @@ export const ImportFiles: React.FC = () => {
           return parsed as BookFormat[];
         }
       } catch {
-        // 解析失败则使用默认值
       }
     }
     return DEFAULT_SCAN_FORMATS;
   });
+  const updateFilterFormats = useCallback((formats: BookFormat[]) => {
+    setFilterFormats(formats);
+    try {
+      localStorage.setItem('browse_filter_formats', JSON.stringify(formats));
+    } catch {
+    }
+  }, []);
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
 
   // 保存筛选格式到 localStorage
@@ -233,7 +241,7 @@ export const ImportFiles: React.FC = () => {
       source = devicePdfIndex.filter((it) => it.name.toLowerCase().includes(kw));
     }
     
-    const isAllSelected = DEFAULT_SCAN_FORMATS.every(fmt => filterFormats.includes(fmt));
+    const isAllSelected = SCAN_SUPPORTED_FORMATS.every(fmt => filterFormats.includes(fmt));
     if (!isAllSelected) {
         return source.filter(it => {
             if (it.type === 'dir') return true;
@@ -253,10 +261,20 @@ export const ImportFiles: React.FC = () => {
     setFilterMenuOpen(false);
   }, []);
 
+  const handleFormatMenuClose = useCallback(() => {
+    setFormatMenuOpen(false);
+  }, []);
+
   useOverlayBackHandler({
     overlayId: "import-browse-filter",
     isOpen: filterMenuOpen && canFilter && activeTab === "browse",
     onClose: handleFilterMenuClose,
+  });
+
+  useOverlayBackHandler({
+    overlayId: "import-scan-format-filter",
+    isOpen: formatMenuOpen && activeTab === "scan" && !scanLoading,
+    onClose: handleFormatMenuClose,
   });
 
   const completeScan = (results: FileEntry[]) => {
@@ -538,17 +556,17 @@ export const ImportFiles: React.FC = () => {
       activeTab === "browse" ||
       (activeTab === "scan" && filteredScan.length > 0) ? (
       <div style={{ display: "flex", alignItems: "center" }}>
-        <FormatFilterButton
-          mode="multi"
-          filterFormats={filterFormats}
-          menuOpen={filterMenuOpen}
-          onMenuOpenChange={(open) => {
-            if (!canFilter && open) return;
-            setFilterMenuOpen(open);
-          }}
-          onFormatsChange={setFilterFormats}
-          canFilter={canFilter}
-        />
+          <FormatFilterButton
+            mode="multi"
+            filterFormats={filterFormats}
+            menuOpen={filterMenuOpen}
+            onMenuOpenChange={(open) => {
+              if (!canFilter && open) return;
+              setFilterMenuOpen(open);
+            }}
+            onFormatsChange={updateFilterFormats}
+            canFilter={canFilter}
+          />
 
         {activeTab === "browse" && (
           <button
@@ -627,6 +645,7 @@ export const ImportFiles: React.FC = () => {
     const handleBack = () => {
       // 先关闭筛选菜单，避免遮罩层阻挡导航
       setFilterMenuOpen(false);
+      setFormatMenuOpen(false);
       
       const state: any = nav.location.state || {};
       // 直接退出导入页面，不再逐级返回
