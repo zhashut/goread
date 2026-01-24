@@ -11,3 +11,4 @@
 6. goread 项目是 Tauri V2(React/Rust) 架构，主要做的是移动端(android 和 ios) 的电子书阅读器
 7. 如果修改了前端文件最后要进行 npm run build 检查问题
 8. 如果修改了后端文件最后要进行 cargo build 检查问题
+9. 本项目日志埋点要使用 src\services\index.ts 中的 log or logError 函数
