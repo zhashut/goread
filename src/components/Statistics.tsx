@@ -215,18 +215,20 @@ export const Statistics: React.FC = () => {
         const today = new Date();
         today.setDate(today.getDate() - rangeOffset);
         const dateStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-        const hourStats = await statsService.getDayStatsByHour(dateStr);
-        setDayHourStats(hourStats);
         
-        // 获取该日期的书籍列表
-        const booksData = await statsService.getBooksByDateRange(dateStr, dateStr);
-        setBooks(booksData);
-        
-        // 获取前一天的统计数据用于计算环比
+        // 日视图：并行请求当天小时统计、书籍列表、昨天统计
         const yesterday = new Date(today);
         yesterday.setDate(yesterday.getDate() - 1);
         const yesterdayStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
-        const yesterdayHourStats = await statsService.getDayStatsByHour(yesterdayStr);
+        
+        const [hourStats, booksData, yesterdayHourStats] = await Promise.all([
+          statsService.getDayStatsByHour(dateStr),
+          statsService.getBooksByDateRange(dateStr, dateStr),
+          statsService.getDayStatsByHour(yesterdayStr)
+        ]);
+        
+        setDayHourStats(hourStats);
+        setBooks(booksData);
         const previousTotalSeconds = yesterdayHourStats.reduce((a, b) => a + b, 0);
         
         // 构造 rangeStats 用于显示
@@ -239,7 +241,39 @@ export const Statistics: React.FC = () => {
           previous_total_seconds: previousTotalSeconds
         });
       } else {
-        const data = await statsService.getReadingStatsByRange(rangeType, rangeOffset);
+        // 周/月/年视图：预计算日期范围，实现并行请求
+        const now = new Date();
+        let startDate: string;
+        let endDate: string;
+        
+        if (rangeType === 'week') {
+          // 计算本周的起止日期
+          const dayOfWeek = now.getDay() || 7; // 周日为7
+          const monday = new Date(now);
+          monday.setDate(now.getDate() - (dayOfWeek - 1) - rangeOffset * 7);
+          const sunday = new Date(monday);
+          sunday.setDate(monday.getDate() + 6);
+          startDate = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`;
+          endDate = `${sunday.getFullYear()}-${String(sunday.getMonth() + 1).padStart(2, '0')}-${String(sunday.getDate()).padStart(2, '0')}`;
+        } else if (rangeType === 'month') {
+          // 计算目标月的起止日期
+          const targetDate = new Date(now.getFullYear(), now.getMonth() - rangeOffset, 1);
+          const monthStart = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
+          const monthEnd = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0);
+          startDate = `${monthStart.getFullYear()}-${String(monthStart.getMonth() + 1).padStart(2, '0')}-${String(monthStart.getDate()).padStart(2, '0')}`;
+          endDate = `${monthEnd.getFullYear()}-${String(monthEnd.getMonth() + 1).padStart(2, '0')}-${String(monthEnd.getDate()).padStart(2, '0')}`;
+        } else {
+          // 年视图
+          const targetYear = now.getFullYear() - rangeOffset;
+          startDate = `${targetYear}-01-01`;
+          endDate = `${targetYear}-12-31`;
+        }
+        
+        // 并行请求柱状图数据和书籍列表
+        const [data, booksData] = await Promise.all([
+          statsService.getReadingStatsByRange(rangeType, rangeOffset),
+          statsService.getBooksByDateRange(startDate, endDate)
+        ]);
         
         // 根据 rangeType 生成国际化标签，替换后端返回的中文标签
         let localizedLabels: string[];
@@ -270,6 +304,7 @@ export const Statistics: React.FC = () => {
         }
         
         setRangeStats({ ...data, labels: localizedLabels });
+        setBooks(booksData);
         
         // 月视图：根据 buckets 查找今天所属的周桶进行默认高亮
         if (rangeType === 'month' && data.buckets && rangeOffset === 0) {
@@ -282,10 +317,6 @@ export const Statistics: React.FC = () => {
             setSelectedBarIndex(bucketIndex);
           }
         }
-        
-        // 加载该范围内的书籍
-        const booksData = await statsService.getBooksByDateRange(data.start_date, data.end_date);
-        setBooks(booksData);
       }
     } catch (e) {
       await logError('加载范围统计失败', { error: String(e) });

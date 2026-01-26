@@ -235,6 +235,12 @@ pub async fn init_database(db: DbState<'_>) -> Result<(), Error> {
     )
     .execute(&*pool)
     .await?;
+    // 复合索引：优化按日期范围查询书籍列表
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_sessions_date_book ON reading_sessions(read_date, book_id)",
+    )
+    .execute(&*pool)
+    .await?;
 
     // Create default group
     sqlx::query("INSERT OR IGNORE INTO groups (id, name, book_count) VALUES (1, '默认分组', 0)")

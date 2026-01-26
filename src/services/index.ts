@@ -320,10 +320,45 @@ export interface IStatsService {
   markBookFinished(bookId: number): Promise<void>;
   unmarkBookFinished(bookId: number): Promise<void>;
   hasReadingSessions(bookId: number): Promise<boolean>;
+  invalidateCache(): void;
+  isCacheValid(): boolean;
 }
 
-// Tauri 统计服务实现
+// 统计缓存类型
+interface StatsCache {
+  rangeStats: Map<string, IRangeStats>;
+  books: Map<string, IBookReadingStats[]>;
+  dayHourStats: Map<string, number[]>;
+  summary: IStatsSummary | null;
+  dailyStats: Map<number, IDailyStats[]>;
+}
+
+// Tauri 统计服务实现（带缓存）
 export class TauriStatsService implements IStatsService {
+  private cache: StatsCache = {
+    rangeStats: new Map(),
+    books: new Map(),
+    dayHourStats: new Map(),
+    summary: null,
+    dailyStats: new Map()
+  };
+  private cacheValid = false;
+
+  // 使缓存失效
+  invalidateCache(): void {
+    this.cacheValid = false;
+    this.cache.rangeStats.clear();
+    this.cache.books.clear();
+    this.cache.dayHourStats.clear();
+    this.cache.summary = null;
+    this.cache.dailyStats.clear();
+  }
+
+  // 检查缓存是否有效
+  isCacheValid(): boolean {
+    return this.cacheValid;
+  }
+
   async saveReadingSession(
     bookId: number,
     duration: number,
@@ -339,41 +374,80 @@ export class TauriStatsService implements IStatsService {
       readDate,
       pagesReadCount
     });
+    // 保存阅读记录后使缓存失效
+    this.invalidateCache();
   }
 
   async getStatsSummary(): Promise<IStatsSummary> {
+    // 缓存有效且有数据时直接返回
+    if (this.cacheValid && this.cache.summary) {
+      return this.cache.summary;
+    }
     const invoke = await getInvoke();
-    return await invoke('get_stats_summary');
+    const result = await invoke('get_stats_summary');
+    this.cache.summary = result;
+    this.cacheValid = true;
+    return result;
   }
 
   async getDailyStats(days: number): Promise<IDailyStats[]> {
+    const cacheKey = days;
+    if (this.cacheValid && this.cache.dailyStats.has(cacheKey)) {
+      return this.cache.dailyStats.get(cacheKey)!;
+    }
     const invoke = await getInvoke();
-    return await invoke('get_daily_stats', { days });
+    const result = await invoke('get_daily_stats', { days });
+    this.cache.dailyStats.set(cacheKey, result);
+    this.cacheValid = true;
+    return result;
   }
 
   async getReadingStatsByRange(rangeType: string, offset: number): Promise<IRangeStats> {
+    const cacheKey = `${rangeType}_${offset}`;
+    if (this.cacheValid && this.cache.rangeStats.has(cacheKey)) {
+      return this.cache.rangeStats.get(cacheKey)!;
+    }
     const invoke = await getInvoke();
-    return await invoke('get_reading_stats_by_range', { rangeType, offset });
+    const result = await invoke('get_reading_stats_by_range', { rangeType, offset });
+    this.cache.rangeStats.set(cacheKey, result);
+    this.cacheValid = true;
+    return result;
   }
 
   async getDayStatsByHour(date: string): Promise<number[]> {
+    const cacheKey = date;
+    if (this.cacheValid && this.cache.dayHourStats.has(cacheKey)) {
+      return this.cache.dayHourStats.get(cacheKey)!;
+    }
     const invoke = await getInvoke();
-    return await invoke('get_day_stats_by_hour', { date });
+    const result = await invoke('get_day_stats_by_hour', { date });
+    this.cache.dayHourStats.set(cacheKey, result);
+    this.cacheValid = true;
+    return result;
   }
 
   async getBooksByDateRange(startDate: string, endDate: string): Promise<IBookReadingStats[]> {
+    const cacheKey = `${startDate}_${endDate}`;
+    if (this.cacheValid && this.cache.books.has(cacheKey)) {
+      return this.cache.books.get(cacheKey)!;
+    }
     const invoke = await getInvoke();
-    return await invoke('get_books_by_date_range', { startDate, endDate });
+    const result = await invoke('get_books_by_date_range', { startDate, endDate });
+    this.cache.books.set(cacheKey, result);
+    this.cacheValid = true;
+    return result;
   }
 
   async markBookFinished(bookId: number): Promise<void> {
     const invoke = await getInvoke();
     await invoke('mark_book_finished', { bookId });
+    this.invalidateCache();
   }
 
   async unmarkBookFinished(bookId: number): Promise<void> {
     const invoke = await getInvoke();
     await invoke('unmark_book_finished', { bookId });
+    this.invalidateCache();
   }
 
   async hasReadingSessions(bookId: number): Promise<boolean> {
