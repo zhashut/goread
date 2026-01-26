@@ -250,12 +250,14 @@ export const Statistics: React.FC = () => {
               t('weekLabels.thu'), t('weekLabels.fri'), t('weekLabels.sat'), t('weekLabels.sun')
             ];
             break;
-          case 'month':
-            localizedLabels = [
-              t('monthWeeks.week1'), t('monthWeeks.week2'),
-              t('monthWeeks.week3'), t('monthWeeks.week4')
-            ];
+          case 'month': {
+            // 根据后端返回的桶数量动态生成标签
+            const weekKeys = ['week1', 'week2', 'week3', 'week4', 'week5', 'week6'] as const;
+            localizedLabels = data.values.map((_, index) => 
+              t(`monthWeeks.${weekKeys[index] || 'week1'}` as any)
+            );
             break;
+          }
           case 'year':
             localizedLabels = [
               t('months.jan'), t('months.feb'), t('months.mar'), t('months.apr'),
@@ -268,6 +270,18 @@ export const Statistics: React.FC = () => {
         }
         
         setRangeStats({ ...data, labels: localizedLabels });
+        
+        // 月视图：根据 buckets 查找今天所属的周桶进行默认高亮
+        if (rangeType === 'month' && data.buckets && rangeOffset === 0) {
+          const today = new Date();
+          const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+          const bucketIndex = data.buckets.findIndex(bucket => 
+            todayStr >= bucket.start_date && todayStr <= bucket.end_date
+          );
+          if (bucketIndex >= 0) {
+            setSelectedBarIndex(bucketIndex);
+          }
+        }
         
         // 加载该范围内的书籍
         const booksData = await statsService.getBooksByDateRange(data.start_date, data.end_date);

@@ -107,6 +107,13 @@ pub struct StatsSummary {
     pub finished_books: i64,
 }
 
+/// 周桶区间（用于月视图的自然周划分）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RangeBucket {
+    pub start_date: String,
+    pub end_date: String,
+}
+
 /// 时间范围统计数据（用于柱状图）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RangeStats {
@@ -116,4 +123,5 @@ pub struct RangeStats {
     pub end_date: String,            // 范围结束日期
     pub total_seconds: i64,          // 总秒数
     pub previous_total_seconds: i64, // 上一周期总秒数（用于计算环比）
+    pub buckets: Option<Vec<RangeBucket>>, // 周桶信息（月视图用）
 }

@@ -138,9 +138,143 @@ pub async fn get_reading_stats_by_range(
     offset: i64,
     db: DbState<'_>,
 ) -> Result<RangeStats, String> {
+    use crate::models::RangeBucket;
+    
     let pool = db.lock().await;
     let now = chrono::Local::now();
 
+    // 月视图需要特殊处理：按自然周划分桶
+    if range_type == "month" {
+        // 计算目标月份（正确处理跨年）
+        let mut target_year = now.year();
+        let mut target_month = now.month() as i32 - offset as i32;
+        
+        while target_month <= 0 {
+            target_month += 12;
+            target_year -= 1;
+        }
+        while target_month > 12 {
+            target_month -= 12;
+            target_year += 1;
+        }
+        
+        let target_month = target_month as u32;
+        
+        // 计算当月起止日期
+        let month_start = chrono::NaiveDate::from_ymd_opt(target_year, target_month, 1)
+            .ok_or("Invalid date")?;
+        let next_month = if target_month == 12 {
+            chrono::NaiveDate::from_ymd_opt(target_year + 1, 1, 1)
+        } else {
+            chrono::NaiveDate::from_ymd_opt(target_year, target_month + 1, 1)
+        }.ok_or("Invalid date")?;
+        let month_end = next_month - chrono::Duration::days(1);
+        
+        // 计算上月起止日期（用于环比）
+        let mut prev_year = target_year;
+        let mut prev_month = target_month as i32 - 1;
+        if prev_month <= 0 {
+            prev_month = 12;
+            prev_year -= 1;
+        }
+        let prev_month = prev_month as u32;
+        let prev_month_start = chrono::NaiveDate::from_ymd_opt(prev_year, prev_month, 1)
+            .ok_or("Invalid date")?;
+        let prev_next_month = if prev_month == 12 {
+            chrono::NaiveDate::from_ymd_opt(prev_year + 1, 1, 1)
+        } else {
+            chrono::NaiveDate::from_ymd_opt(prev_year, prev_month + 1, 1)
+        }.ok_or("Invalid date")?;
+        let prev_month_end = prev_next_month - chrono::Duration::days(1);
+        
+        // 生成自然周桶
+        let mut buckets: Vec<RangeBucket> = Vec::new();
+        let mut bucket_start = month_start;
+        
+        while bucket_start <= month_end {
+            // 找到当前桶所在自然周的周日
+            let weekday = bucket_start.weekday().num_days_from_monday();
+            let week_sunday = bucket_start + chrono::Duration::days((6 - weekday) as i64);
+            
+            // 桶结束日期取周日和月末的较小值
+            let bucket_end = if week_sunday > month_end {
+                month_end
+            } else {
+                week_sunday
+            };
+            
+            buckets.push(RangeBucket {
+                start_date: bucket_start.format("%Y-%m-%d").to_string(),
+                end_date: bucket_end.format("%Y-%m-%d").to_string(),
+            });
+            
+            // 下一个桶从周日后一天开始
+            bucket_start = bucket_end + chrono::Duration::days(1);
+        }
+        
+        // 生成标签
+        let labels: Vec<String> = (1..=buckets.len())
+            .map(|i| format!("第{}周", i))
+            .collect();
+        
+        let start_date = month_start.format("%Y-%m-%d").to_string();
+        let end_date = month_end.format("%Y-%m-%d").to_string();
+        let prev_start = prev_month_start.format("%Y-%m-%d").to_string();
+        let prev_end = prev_month_end.format("%Y-%m-%d").to_string();
+        
+        // 查询当前月份数据
+        let current_data: Vec<(String, i64)> = sqlx::query_as(
+            "SELECT read_date, SUM(duration) as total 
+             FROM reading_sessions 
+             WHERE read_date BETWEEN ? AND ? 
+             GROUP BY read_date",
+        )
+        .bind(&start_date)
+        .bind(&end_date)
+        .fetch_all(&*pool)
+        .await
+        .map_err(|e| e.to_string())?;
+        
+        // 查询上月总时长
+        let prev_total: (i64,) = sqlx::query_as(
+            "SELECT COALESCE(SUM(duration), 0) FROM reading_sessions WHERE read_date BETWEEN ? AND ?",
+        )
+        .bind(&prev_start)
+        .bind(&prev_end)
+        .fetch_one(&*pool)
+        .await
+        .map_err(|e| e.to_string())?;
+        
+        // 按桶聚合数据
+        let mut values = vec![0i64; buckets.len()];
+        for (date_str, duration) in &current_data {
+            if let Ok(date) = chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d") {
+                // 找到这个日期属于哪个桶
+                for (idx, bucket) in buckets.iter().enumerate() {
+                    let bucket_start = chrono::NaiveDate::parse_from_str(&bucket.start_date, "%Y-%m-%d").unwrap();
+                    let bucket_end = chrono::NaiveDate::parse_from_str(&bucket.end_date, "%Y-%m-%d").unwrap();
+                    if date >= bucket_start && date <= bucket_end {
+                        values[idx] += duration;
+                        break;
+                    }
+                }
+            }
+        }
+        
+        let total_seconds: i64 = values.iter().sum();
+        
+        return Ok(RangeStats {
+            labels,
+            values,
+            start_date,
+            end_date,
+            total_seconds,
+            previous_total_seconds: prev_total.0,
+            buckets: Some(buckets),
+        });
+    }
+
+    // 非月视图使用原来的逻辑
     let (start_date, end_date, labels, prev_start, prev_end) = match range_type.as_str() {
         "day" => {
             // 当日按时段分（0-6, 6-12, 12-18, 18-24）
@@ -166,20 +300,6 @@ pub async fn get_reading_stats_by_range(
                 vec!["周一".to_string(), "周二".to_string(), "周三".to_string(), "周四".to_string(), "周五".to_string(), "周六".to_string(), "周日".to_string()],
                 prev_start_of_week.format("%Y-%m-%d").to_string(),
                 prev_end_of_week.format("%Y-%m-%d").to_string(),
-            )
-        }
-        "month" => {
-            // 本月按周分
-            let month_start = now - chrono::Duration::days(now.day() as i64 - 1 + offset * 30);
-            let month_end = month_start + chrono::Duration::days(29);
-            let prev_month_start = month_start - chrono::Duration::days(30);
-            let prev_month_end = month_end - chrono::Duration::days(30);
-            (
-                month_start.format("%Y-%m-%d").to_string(),
-                month_end.format("%Y-%m-%d").to_string(),
-                vec!["第一周".to_string(), "第二周".to_string(), "第三周".to_string(), "第四周".to_string()],
-                prev_month_start.format("%Y-%m-%d").to_string(),
-                prev_month_end.format("%Y-%m-%d").to_string(),
             )
         }
         "year" => {
@@ -234,6 +354,7 @@ pub async fn get_reading_stats_by_range(
         end_date,
         total_seconds,
         previous_total_seconds: prev_total.0,
+        buckets: None,
     })
 }
 

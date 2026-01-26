@@ -101,6 +101,13 @@ export interface IRangeStats {
   end_date: string;
   total_seconds: number;
   previous_total_seconds: number;
+  buckets?: IRangeBucket[];
+}
+
+// 周桶区间（用于月视图的自然周划分）
+export interface IRangeBucket {
+  start_date: string;
+  end_date: string;
 }
 
 export interface FileEntry {
