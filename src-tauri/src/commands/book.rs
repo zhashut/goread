@@ -424,7 +424,11 @@ pub async fn update_book_reading_mode(
 }
 
 #[tauri::command]
-pub async fn mark_book_opened(id: i64, db: DbState<'_>) -> Result<(), Error> {
+pub async fn mark_book_opened(
+    app_handle: AppHandle,
+    id: i64,
+    db: DbState<'_>,
+) -> Result<bool, Error> {
     let pool = db.lock().await;
 
     // 获取当前最大 recent_order
@@ -442,7 +446,25 @@ pub async fn mark_book_opened(id: i64, db: DbState<'_>) -> Result<(), Error> {
     .bind(id)
     .execute(&*pool)
     .await?;
-    Ok(())
+
+    // 封面兜底检查：判断封面文件是否存在，返回是否需要重建
+    let book: Option<Book> = sqlx::query_as::<_, Book>("SELECT * FROM books WHERE id = ?")
+        .bind(id)
+        .fetch_optional(&*pool)
+        .await?;
+
+    if let Some(book) = book {
+        if let Some(ref cover_image) = book.cover_image {
+            if !cover_image.is_empty() && cover::is_file_path(cover_image) {
+                let exists = cover::cover_file_exists(&app_handle, cover_image).await;
+                if !exists && cover::can_rebuild_cover(&book.file_path) {
+                    return Ok(true);
+                }
+            }
+        }
+    }
+
+    Ok(false)
 }
 
 #[tauri::command]

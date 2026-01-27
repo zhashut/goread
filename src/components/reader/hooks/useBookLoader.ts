@@ -7,6 +7,7 @@ import {
     statsService,
     logError,
 } from "../../../services";
+import { rebuildSingleBookCover } from "../../../utils/coverUtils";
 import {
     IBookRenderer,
     getBookFormat,
@@ -149,7 +150,15 @@ export const useBookLoader = (
                 if (!params.isExternal) {
                     try {
                         // 后端 mark_book_opened 会自动更新 last_read_time 和 recent_order
-                        await bookService.markBookOpened(targetBook.id);
+                        // 同时检查封面文件是否存在，返回是否需要重建
+                        const needsRebuild = await bookService.markBookOpened(targetBook.id);
+                        
+                        // 如果需要重建封面，异步触发重建（不阻塞阅读）
+                        if (needsRebuild) {
+                            rebuildSingleBookCover(targetBook).catch((e) => {
+                                logError('重建封面失败', { error: String(e), bookId: targetBook.id });
+                            });
+                        }
                     } catch (e) {
                         await logError('标记书籍已打开失败', { error: String(e), bookId: targetBook.id });
                     }

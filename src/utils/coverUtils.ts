@@ -464,3 +464,60 @@ export async function generateMissingEpubCovers(
   
   return result;
 }
+
+/**
+ * 从文件路径获取书籍格式
+ */
+function getBookFormatFromPath(filePath: string): 'epub' | 'pdf' | 'other' {
+  const lower = filePath.toLowerCase();
+  if (lower.endsWith('.epub')) return 'epub';
+  if (lower.endsWith('.pdf')) return 'pdf';
+  return 'other';
+}
+
+/**
+ * 重建单本书的封面（进入书籍时的兜底检查）
+ * 用于检测到封面文件缺失时，异步重建封面
+ * @param book 需要重建封面的书籍
+ */
+export async function rebuildSingleBookCover(book: {
+  id: number;
+  file_path: string;
+  title?: string;
+}): Promise<void> {
+  const format = getBookFormatFromPath(book.file_path);
+
+  try {
+    if (format === 'pdf') {
+      const coverData = await renderPdfCover(book.file_path);
+      if (coverData) {
+        await coverService.rebuildPdfCover(book.id, coverData);
+        await log('封面重建成功 (PDF)', 'info', { bookId: book.id, title: book.title });
+      } else {
+        await coverService.clearBookCover(book.id);
+        await log('封面渲染失败，已清空封面字段 (PDF)', 'info', { bookId: book.id });
+      }
+    } else if (format === 'epub') {
+      const coverData = await renderEpubCover(book.file_path);
+      if (coverData) {
+        await coverService.rebuildEpubCover(book.id, coverData);
+        await log('封面重建成功 (EPUB)', 'info', { bookId: book.id, title: book.title });
+      } else {
+        await coverService.clearBookCover(book.id);
+        await log('封面渲染失败，已清空封面字段 (EPUB)', 'info', { bookId: book.id });
+      }
+    } else {
+      // 不支持重建封面的格式，清空封面字段
+      await coverService.clearBookCover(book.id);
+      await log('不支持的格式，已清空封面字段', 'info', { bookId: book.id, format });
+    }
+  } catch (e) {
+    await logError('封面重建异常', { error: String(e), bookId: book.id, format });
+    // 出错时也清空封面字段，避免反复重试
+    try {
+      await coverService.clearBookCover(book.id);
+    } catch {
+      // 忽略清空封面时的错误
+    }
+  }
+}
