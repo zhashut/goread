@@ -1,7 +1,8 @@
+use crate::cover;
 use crate::models::Book;
 use sqlx::SqlitePool;
 use std::sync::Arc;
-use tauri::State;
+use tauri::{AppHandle, State};
 use tokio::sync::Mutex;
 
 #[derive(Debug)]
@@ -235,13 +236,6 @@ pub async fn init_database(db: DbState<'_>) -> Result<(), Error> {
     )
     .execute(&*pool)
     .await?;
-    // 复合索引：优化按日期范围查询书籍列表
-    sqlx::query(
-        "CREATE INDEX IF NOT EXISTS idx_sessions_date_book ON reading_sessions(read_date, book_id)",
-    )
-    .execute(&*pool)
-    .await?;
-
     // Create default group
     sqlx::query("INSERT OR IGNORE INTO groups (id, name, book_count) VALUES (1, '默认分组', 0)")
         .execute(&*pool)
@@ -252,6 +246,7 @@ pub async fn init_database(db: DbState<'_>) -> Result<(), Error> {
 
 #[tauri::command]
 pub async fn add_book(
+    app_handle: AppHandle,
     path: String,
     title: String,
     cover_image: Option<String>,
@@ -260,12 +255,27 @@ pub async fn add_book(
 ) -> Result<Book, Error> {
     let pool = db.lock().await;
 
+    // 处理封面：如果是 Base64 则保存为文件
+    let processed_cover = match cover_image.as_deref() {
+        Some(data) if !data.is_empty() => {
+            match cover::process_cover_for_storage(&app_handle, &path, Some(data)).await {
+                Ok(path) => path,
+                Err(e) => {
+                    // 记录错误但不影响导入
+                    eprintln!("[add_book] Failed to save cover: {}", e);
+                    None
+                }
+            }
+        }
+        _ => None,
+    };
+
     let result = sqlx::query(
         "INSERT OR IGNORE INTO books (title, file_path, cover_image, total_pages) VALUES (?, ?, ?, ?)"
     )
     .bind(&title)
     .bind(&path)
-    .bind(&cover_image)
+    .bind(&processed_cover)
     .bind(total_pages as i64)
     .execute(&*pool).await?;
 
@@ -436,24 +446,43 @@ pub async fn mark_book_opened(id: i64, db: DbState<'_>) -> Result<(), Error> {
 }
 
 #[tauri::command]
-pub async fn delete_book(id: i64, delete_local: bool, db: DbState<'_>) -> Result<(), Error> {
+pub async fn delete_book(
+    app_handle: AppHandle,
+    id: i64,
+    delete_local: bool,
+    db: DbState<'_>,
+) -> Result<(), Error> {
     let pool = db.lock().await;
 
-    // If delete_local is true, delete the local file first
-    if delete_local {
-        let file_path: Option<String> =
-            sqlx::query_scalar("SELECT file_path FROM books WHERE id = ?")
-                .bind(id)
-                .fetch_optional(&*pool)
-                .await?;
+    // 先获取书籍信息（用于删除本地文件和封面）
+    let book: Option<Book> = sqlx::query_as::<_, Book>("SELECT * FROM books WHERE id = ?")
+        .bind(id)
+        .fetch_optional(&*pool)
+        .await?;
 
-        if let Some(path) = file_path {
-            match tokio::fs::remove_file(&path).await {
+    if let Some(ref book) = book {
+        // 删除封面文件
+        if let Some(ref cover_image) = book.cover_image {
+            if cover::is_file_path(cover_image) {
+                match cover::delete_cover_file(&app_handle, cover_image).await {
+                    Ok(_) => {
+                        println!("[delete_book] Successfully deleted cover file: {}", cover_image);
+                    }
+                    Err(e) => {
+                        eprintln!("[delete_book] Failed to delete cover file {}: {}", cover_image, e);
+                    }
+                }
+            }
+        }
+
+        // 删除本地书籍文件
+        if delete_local {
+            match tokio::fs::remove_file(&book.file_path).await {
                 Ok(_) => {
-                    println!("[delete_book] Successfully deleted local file: {}", path);
+                    println!("[delete_book] Successfully deleted local file: {}", book.file_path);
                 }
                 Err(e) => {
-                    eprintln!("[delete_book] Failed to delete local file {}: {}", path, e);
+                    eprintln!("[delete_book] Failed to delete local file {}: {}", book.file_path, e);
                 }
             }
         }

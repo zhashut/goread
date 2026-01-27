@@ -2,6 +2,7 @@ import { bookService, groupService } from "./index";
 import { pathToTitle, waitNextFrame } from "./importUtils";
 import { getBookFormat, BookFormat } from "./formats";
 import { resolveLocalPathFromUri } from "./resolveLocalPath";
+import { parseCoverImage, migrateBookCover } from "../utils/coverUtils";
 
 // 格式特定的导入结果
 interface ImportResult {
@@ -114,10 +115,30 @@ async function importEpubBook(filePath: string, _invoke: any, logError: any): Pr
     };
     
     // 封面图片格式: "data:image/...;base64,xxxxx"
-    if (bookInfo.coverImage) {
-      const base64Part = bookInfo.coverImage.split(',')[1];
-      if (base64Part) {
-        coverImage = base64Part;
+    // 直接传完整 data URL，后端会正确识别并落盘
+    // 避免提取纯 Base64 后因长度过短被误识别为路径
+    if (bookInfo.coverImage && bookInfo.coverImage.startsWith('data:')) {
+      coverImage = bookInfo.coverImage;
+    } else {
+      // 命中元数据缓存时 coverImage 可能为空，需要手动获取
+      try {
+        const { useEpubLoader } = await import('./formats/epub/hooks/useEpubLoader');
+        const loaderHook = useEpubLoader();
+        const lifecycleHook = (renderer as any)._lifecycleHook;
+        
+        // 确保书籍加载完成（命中缓存时是后台加载）
+        if (lifecycleHook?.ensureBookLoaded) {
+          await lifecycleHook.ensureBookLoaded();
+        }
+        
+        if (lifecycleHook?.state?.book) {
+          const cover = await loaderHook.getCoverImage(lifecycleHook.state.book);
+          if (cover && cover.startsWith('data:')) {
+            coverImage = cover;
+          }
+        }
+      } catch (e) {
+        await logError('EPUB 封面获取失败', { error: String(e), filePath });
       }
     }
     
@@ -239,6 +260,20 @@ export const importPathsToExistingGroup = async (
       coverImage,
       totalPages,
     );
+
+    try {
+      const coverInfo = parseCoverImage(saved.cover_image);
+      if (coverInfo.type === "base64" || coverInfo.type === "dataUrl") {
+        await migrateBookCover(saved.id);
+      }
+    } catch (err) {
+      await logError("Import cover migration failed", {
+        error: String(err),
+        filePath,
+        bookId: saved.id,
+      });
+    }
+
     await groupService.moveBookToGroup(saved.id, groupId);
 
     // 完成一册后同步进度与标题

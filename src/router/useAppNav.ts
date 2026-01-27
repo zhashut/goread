@@ -1,4 +1,5 @@
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
+import { log, logError } from '../services';
 
 export const useAppNav = () => {
   const navigate = useNavigate();
@@ -48,6 +49,22 @@ export const useAppNav = () => {
     },
     
     toReader: (bookId: number, state?: any) => {
+      import('../utils/coverUtils').then(({ migrateBookCover }) => {
+        migrateBookCover(bookId).then(newPath => {
+          if (newPath) {
+            log('[toReader] Cover migrated for book', 'info', {
+              bookId,
+              newPath,
+            }).catch(() => {});
+          }
+        }).catch(err => {
+          logError('[toReader] Cover migration failed for book', {
+            bookId,
+            error: String(err),
+          }).catch(() => {});
+        });
+      });
+      
       navigate(`/reader/${bookId}`, { state });
     },
     

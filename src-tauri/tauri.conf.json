@@ -20,7 +20,7 @@
       }
     ],
     "security": {
-      "csp": null,
+      "csp": "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:; img-src 'self' asset: http://asset.localhost https://asset.localhost data: blob:; media-src 'self' asset: http://asset.localhost https://asset.localhost data: blob:; connect-src 'self' ipc: http://ipc.localhost https://ipc.localhost asset: http://asset.localhost https://asset.localhost data: blob:",
       "assetProtocol": {
         "enable": true,
         "scope": [
@@ -29,7 +29,8 @@
           "$DOCUMENTS/**",
           "$DOWNLOAD/**",
           "$HOME/Documents/**",
-          "$HOME/Downloads/**"
+          "$HOME/Downloads/**",
+          "$APPDATA/**"
         ]
       }
     }

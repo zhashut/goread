@@ -6,3 +6,4 @@ export { useSearchOverlay } from "./useSearchOverlay";
 export { useSelectAll } from "./useSelectAll";
 export { useExternalFileOpen } from "./useExternalFileOpen";
 export { useOverlayBackHandler } from "./useOverlayBackHandler";
+export { useCover, preloadCoverRoot, getCachedCoverRoot } from "./useCover";

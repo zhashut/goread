@@ -7,6 +7,7 @@ import MarkdownCover from "./covers/MarkdownCover";
 import HtmlCover from "./covers/HtmlCover";
 import TxtIcon from "./covers/TxtIcon";
 import { getDisplayTitle } from "../utils/bookTitle";
+import { CoverImage } from "./CoverImage";
 import {
   CARD_WIDTH_COMPACT,
   COVER_ASPECT_RATIO_COMPACT,
@@ -165,16 +166,31 @@ export const BookCard: React.FC<CommonBookCardProps> = ({
           }}
         >
           {book.cover_image ? (
-            <img
-              src={`data:image/jpeg;base64,${book.cover_image}`}
+            <CoverImage
+              coverImage={book.cover_image}
               alt={displayTitle}
+              bookId={book.id ?? undefined}
+              enableMigration={true}
               style={{ width: "100%", height: "100%", objectFit: "cover" }}
+              placeholder={
+                format === "markdown" ? (
+                  <MarkdownCover />
+                ) : format === "html" ? (
+                  <HtmlCover />
+                ) : format === "txt" ? (
+                  <TxtIcon />
+                ) : (
+                  <div style={{ color: "#999", fontSize: "14px", textAlign: "center" }}>
+                    暂无封面
+                  </div>
+                )
+              }
             />
-          ) : getBookFormat(book.file_path) === "markdown" ? (
+          ) : format === "markdown" ? (
             <MarkdownCover />
-          ) : getBookFormat(book.file_path) === "html" ? (
+          ) : format === "html" ? (
             <HtmlCover />
-          ) : getBookFormat(book.file_path) === "txt" ? (
+          ) : format === "txt" ? (
             <TxtIcon />
           ) : (
             <div style={{ color: "#999", fontSize: "14px", textAlign: "center" }}>

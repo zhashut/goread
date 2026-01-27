@@ -4,6 +4,7 @@ import App from "./App";
 import { initSafeAreaInsets } from "./utils/layout";
 import { statusBarService } from "./services/statusBarService";
 import { volumeKeyService } from "./services/volumeKeyService";
+import { preloadCoverRoot } from "./hooks/useCover";
 import i18n from "./locales";
 import { getReaderSettings, ReaderSettings } from "./services";
 import { getSystemAppLanguage, AppLanguage } from "./services/systemLanguageService";
@@ -51,6 +52,10 @@ const setupApp = async () => {
     
     // 初始化音量键翻页服务
     await volumeKeyService.init();
+    
+    // 预加载封面根目录路径（提高首页封面显示速度）
+    preloadCoverRoot().catch(() => {});
+    
     try {
       const { logError } = await import('./services');
       window.addEventListener('error', async (e) => {

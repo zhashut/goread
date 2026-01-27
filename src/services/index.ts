@@ -458,3 +458,8 @@ export class TauriStatsService implements IStatsService {
 
 // 统计服务实例
 export const statsService = new TauriStatsService();
+
+// ==================== 封面服务 ====================
+// 从 cover.ts 模块 re-export
+export { coverService, TauriCoverService } from './cover';
+export type { ICoverService, BookNeedingCoverRebuild } from './cover';

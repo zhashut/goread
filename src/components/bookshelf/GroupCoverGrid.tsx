@@ -3,6 +3,7 @@ import MarkdownCover from "../covers/MarkdownCover";
 import { MARKDOWN_COVER_PLACEHOLDER, HTML_COVER_PLACEHOLDER, TXT_COVER_PLACEHOLDER } from "../../constants/ui";
 import HtmlCover from "../covers/HtmlCover";
 import TxtIcon from "../covers/TxtIcon";
+import { CoverImage } from "../CoverImage";
 
 /**
  * 通用分组封面 2x2 网格，样式与“全部”栏目一致。
@@ -87,8 +88,8 @@ export const GroupCoverGrid: React.FC<{ covers: string[]; variant?: "default" | 
                       : img === TXT_COVER_PLACEHOLDER
                         ? <TxtIcon />
                         : (
-                        <img
-                          src={`data:image/jpeg;base64,${img}`}
+                        <CoverImage
+                          coverImage={img}
                           alt={`cover-${idx}`}
                           style={{
                             width: "100%",
@@ -96,6 +97,9 @@ export const GroupCoverGrid: React.FC<{ covers: string[]; variant?: "default" | 
                             objectFit: "cover",
                             objectPosition: "center",
                           }}
+                          placeholder={
+                            <div style={{ width: "100%", height: "100%", background: "#f5f5f5" }} />
+                          }
                         />
                       )
                   : (

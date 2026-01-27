@@ -1,8 +1,9 @@
-use crate::models::Book;
 use crate::commands::book::DbState;
+use crate::cover;
+use crate::models::Book;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use tauri::{Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PdfMetadata {
@@ -55,6 +56,7 @@ pub async fn batch_read_files(paths: Vec<String>) -> Result<Vec<(String, Vec<u8>
 /// 批量导入书籍到数据库（使用事务）
 #[tauri::command]
 pub async fn batch_import_books(
+    app_handle: AppHandle,
     books: Vec<PdfMetadata>,
     group_id: Option<i64>,
     db: DbState<'_>,
@@ -65,20 +67,33 @@ pub async fn batch_import_books(
     let mut imported_books = Vec::new();
     
     for book_meta in books {
+        let processed_cover = match book_meta.cover_base64.as_deref() {
+            Some(data) if !data.is_empty() => {
+                match cover::process_cover_for_storage(&app_handle, &book_meta.path, Some(data)).await {
+                    Ok(path_opt) => path_opt.or_else(|| Some(data.to_string())),
+                    Err(e) => {
+                        eprintln!("[batch_import_books] Failed to save cover: {}", e);
+                        Some(data.to_string())
+                    }
+                }
+            }
+            _ => None,
+        };
+
         // 插入书籍
         let result = sqlx::query(
             "INSERT OR IGNORE INTO books (title, file_path, cover_image, total_pages, group_id) VALUES (?, ?, ?, ?, ?)"
         )
         .bind(&book_meta.title)
         .bind(&book_meta.path)
-        .bind(&book_meta.cover_base64)
+        .bind(&processed_cover)
         .bind(book_meta.total_pages as i64)
         .bind(group_id)
         .execute(&mut *tx)
         .await
         .map_err(|e| format!("插入书籍失败: {}", e))?;
         
-        let book = if result.rows_affected() == 0 {
+        let mut book = if result.rows_affected() == 0 {
             // 已存在，查询现有记录
             sqlx::query_as::<_, Book>("SELECT * FROM books WHERE file_path = ?")
                 .bind(&book_meta.path)
@@ -94,6 +109,29 @@ pub async fn batch_import_books(
                 .await
                 .map_err(|e| format!("查询书籍失败: {}", e))?
         };
+
+        if result.rows_affected() == 0 {
+            if let Some(ref new_cover) = processed_cover {
+                let should_update = match &book.cover_image {
+                    None => true,
+                    Some(existing) if existing.is_empty() => true,
+                    Some(existing) if !cover::is_file_path(existing) => true,
+                    _ => false,
+                };
+
+                if should_update {
+                    if let Some(book_id) = book.id {
+                        sqlx::query("UPDATE books SET cover_image = ? WHERE id = ?")
+                            .bind(new_cover)
+                            .bind(book_id)
+                            .execute(&mut *tx)
+                            .await
+                            .map_err(|e| format!("更新书籍封面失败: {}", e))?;
+                        book.cover_image = Some(new_cover.clone());
+                    }
+                }
+            }
+        }
         
         imported_books.push(book);
     }

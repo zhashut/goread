@@ -1,6 +1,9 @@
 use crate::models::{Book, Group};
 use crate::commands::book::{DbState, Error};
+use crate::cover;
 use sqlx::SqlitePool;
+use tauri::AppHandle;
+use futures::future::join_all;
 
 #[tauri::command]
 pub async fn add_group(name: String, db: DbState<'_>) -> Result<Group, Error> {
@@ -70,27 +73,52 @@ pub async fn update_group(group_id: i64, name: String, db: DbState<'_>) -> Resul
 }
 
 #[tauri::command]
-pub async fn delete_group(group_id: i64, delete_local: bool, db: DbState<'_>) -> Result<(), Error> {
+pub async fn delete_group(app_handle: AppHandle, group_id: i64, delete_local: bool, db: DbState<'_>) -> Result<(), Error> {
     let pool = db.lock().await;
 
-    if delete_local {
-        let paths: Vec<(String,)> =
-            sqlx::query_as("SELECT file_path FROM books WHERE group_id = ?")
-                .bind(group_id)
-                .fetch_all(&*pool)
-                .await?;
+    // 获取分组内所有书籍的文件路径和封面路径
+    let books: Vec<(String, Option<String>)> =
+        sqlx::query_as("SELECT file_path, cover_image FROM books WHERE group_id = ?")
+            .bind(group_id)
+            .fetch_all(&*pool)
+            .await?;
 
-        for (p,) in paths {
-            match tokio::fs::remove_file(&p).await {
+    // 删除本地书籍文件（如果需要）
+    if delete_local {
+        for (file_path, _) in &books {
+            match tokio::fs::remove_file(file_path).await {
                 Ok(_) => {
-                    println!("[delete_group] Successfully deleted local file: {}", p);
+                    println!("[delete_group] Successfully deleted local file: {}", file_path);
                 }
                 Err(e) => {
-                    eprintln!("[delete_group] Failed to delete local file {}: {}", p, e);
+                    eprintln!("[delete_group] Failed to delete local file {}: {}", file_path, e);
                 }
             }
         }
     }
+
+    // 批量并发删除封面图片文件
+    let cover_delete_futures: Vec<_> = books
+        .iter()
+        .filter_map(|(_, cover_image)| {
+            cover_image.as_ref().and_then(|cover_path| {
+                // 只删除文件路径格式的封面（非 base64/data URL）
+                if !cover_path.is_empty() && !cover_path.starts_with("data:") {
+                    Some((app_handle.clone(), cover_path.clone()))
+                } else {
+                    None
+                }
+            })
+        })
+        .map(|(handle, cover_path)| async move {
+            match cover::delete_cover_file(&handle, &cover_path).await {
+                Ok(_) => println!("[delete_group] Successfully deleted cover: {}", cover_path),
+                Err(e) => eprintln!("[delete_group] Failed to delete cover {}: {}", cover_path, e),
+            }
+        })
+        .collect();
+    
+    join_all(cover_delete_futures).await;
 
     let mut tx = (&*pool).begin().await?;
     sqlx::query("DELETE FROM books WHERE group_id = ?")

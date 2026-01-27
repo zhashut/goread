@@ -6,6 +6,7 @@ import { IStatsSummary, IDailyStats, IRangeStats, IBookReadingStats } from '../t
 import { HtmlCover } from './covers/HtmlCover';
 import { MarkdownCover } from './covers/MarkdownCover';
 import TxtIcon from './covers/TxtIcon';
+import { CoverImage } from './CoverImage';
 import { getSafeAreaInsets } from '../utils/layout';
 import { PageHeader } from './PageHeader';
 import { getDisplayTitle } from '../utils/bookTitle';
@@ -718,20 +719,29 @@ export const Statistics: React.FC = () => {
                       // 有封面图片的书籍
                       if (book.cover_image && book.cover_image.trim() !== '') {
                         return (
-                          <img 
-                            src={book.cover_image.startsWith('data:') ? book.cover_image : `data:image/jpeg;base64,${book.cover_image}`} 
-                            alt={displayTitle} 
-                            style={{ width: '100%', height: '100%', objectFit: 'cover' }} 
-                            onError={(e) => {
-                              const target = e.target as HTMLImageElement;
-                              target.style.display = 'none';
-                              const parent = target.parentElement;
-                              if (parent) {
-                                parent.style.background = '#666';
-                                parent.style.color = '#fff';
-                                parent.innerText = displayTitle.substring(0, 2);
-                              }
-                            }}
+                          <CoverImage
+                            coverImage={book.cover_image}
+                            alt={displayTitle}
+                            bookId={book.book_id}
+                            enableMigration={true}
+                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                            placeholder={
+                              <span style={{ 
+                                width: '100%',
+                                height: '100%',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: 12, 
+                                fontWeight: 600, 
+                                color: '#fff',
+                                background: '#666',
+                                textAlign: 'center',
+                                padding: 4
+                              }}>
+                                {displayTitle.substring(0, 2)}
+                              </span>
+                            }
                           />
                         );
                       }

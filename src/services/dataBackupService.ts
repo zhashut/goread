@@ -1,4 +1,5 @@
-import { getInvoke, getReaderSettings, saveReaderSettings, ReaderSettings } from "./index";
+import { getInvoke, getReaderSettings, saveReaderSettings, ReaderSettings, log, logError, bookService } from "./index";
+import { rebuildMissingCovers, generateMissingEpubCovers, parseCoverImage, migrateBookCover } from "../utils/coverUtils";
 import i18n from "../locales";
 
 const BACKUP_EXT = "goread-backup";
@@ -125,6 +126,65 @@ export async function importAppData(): Promise<boolean> {
     if (settingsFromBackup && typeof settingsFromBackup === "object") {
       saveReaderSettings(settingsFromBackup as Partial<ReaderSettings>);
     }
+    
+    try {
+      const books = await bookService.getAllBooks();
+      await log('[DataBackup] Starting cover migration check', 'info', { totalBooks: books.length });
+      
+      for (const book of books) {
+        const coverInfo = parseCoverImage(book.cover_image);
+        // 从文件路径推断格式
+        const fileExt = book.file_path.split('.').pop()?.toLowerCase() ?? 'unknown';
+        await log('[DataBackup] Checking book cover', 'info', {
+          bookId: book.id,
+          title: book.title,
+          format: fileExt,
+          coverType: coverInfo.type,
+          coverLength: book.cover_image?.length ?? 0,
+        });
+        
+        if (coverInfo.type === "base64" || coverInfo.type === "dataUrl") {
+          await log('[DataBackup] Migrating cover for book', 'info', { bookId: book.id, title: book.title, coverType: coverInfo.type });
+          await migrateBookCover(book.id);
+        }
+      }
+    } catch (err) {
+      await logError("[DataBackup] Cover migration after import failed", {
+        error: String(err),
+      });
+    }
+
+    try {
+      const result = await rebuildMissingCovers((current, total, title) => {
+        log('[DataBackup] Rebuilding covers', 'info', {
+          current,
+          total,
+          title,
+        }).catch(() => {});
+      });
+      await log('[DataBackup] Cover rebuild completed', 'info', result);
+    } catch (err) {
+      await logError('[DataBackup] Cover rebuild failed', {
+        error: String(err),
+      });
+    }
+
+    // 为封面为空的 EPUB 书籍生成封面
+    try {
+      const epubResult = await generateMissingEpubCovers((current, total, title) => {
+        log('[DataBackup] Generating EPUB covers', 'info', {
+          current,
+          total,
+          title,
+        }).catch(() => {});
+      });
+      await log('[DataBackup] EPUB cover generation completed', 'info', epubResult);
+    } catch (err) {
+      await logError('[DataBackup] EPUB cover generation failed', {
+        error: String(err),
+      });
+    }
+    
     return true;
   } catch (e: any) {
     const msg =

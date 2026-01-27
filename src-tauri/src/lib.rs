@@ -1,4 +1,5 @@
 mod commands;
+pub(crate) mod cover;
 mod epub_commands;
 mod formats;
 mod html_commands;
@@ -13,6 +14,15 @@ use commands::{
     add_book,
     // bookmark commands
     add_bookmark,
+    // cover commands
+    clear_book_cover,
+    get_books_needing_cover_rebuild,
+    get_epub_books_without_cover,
+    get_cover_root_path,
+    get_cover_url,
+    migrate_book_cover,
+    rebuild_pdf_cover,
+    rebuild_epub_cover,
     // group commands
     add_group,
     batch_get_pdf_info,
@@ -254,7 +264,16 @@ pub fn run() {
             epub_cleanup_expired,
             epub_get_cache_stats,
             epub_save_metadata,
-            epub_load_metadata
+            epub_load_metadata,
+            // Cover commands
+            get_cover_url,
+            migrate_book_cover,
+            get_cover_root_path,
+            get_books_needing_cover_rebuild,
+            get_epub_books_without_cover,
+            rebuild_pdf_cover,
+            rebuild_epub_cover,
+            clear_book_cover
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
