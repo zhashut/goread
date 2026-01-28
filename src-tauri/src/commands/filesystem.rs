@@ -743,6 +743,7 @@ pub async fn scan_book_files(
                 "markdown" => Some(formats::BookFormat::Markdown),
                 "html" => Some(formats::BookFormat::Html),
                 "txt" => Some(formats::BookFormat::Txt),
+                "mobi" => Some(formats::BookFormat::Mobi),
                 _ => None,
             })
             .collect()

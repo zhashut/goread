@@ -34,7 +34,7 @@ export const useReaderTheme = ({
             : book?.file_path
                 ? getBookFormat(book.file_path)
                 : null);
-        return format === "epub" || format === "pdf" || format === "txt";
+        return format === "epub" || format === "pdf" || format === "txt" || format === "mobi";
     }, [isExternal, externalPath, book?.file_path]);
 
     const bookThemeForUi: "light" | "dark" | null | undefined =

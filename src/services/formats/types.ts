@@ -143,6 +143,9 @@ export interface IBookRenderer {
   /** 获取当前页码 */
   getCurrentPage(): number;
 
+  /** 获取当前精确阅读进度（可选，用于更精准的定位恢复） */
+  getPreciseProgress?(): number;
+
   /** 跳转到指定页 */
   goToPage(page: number): Promise<void>;
 

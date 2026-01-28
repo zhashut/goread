@@ -284,6 +284,7 @@ pub const SCAN_SUPPORTED_FORMATS: &[BookFormat] = &[
     BookFormat::Markdown,
     BookFormat::Html,
     BookFormat::Txt,
+    BookFormat::Mobi
 ];
 
 impl BookError {
@@ -357,7 +358,7 @@ pub trait BookEngine: Send + Sync {
 
 /// 获取所有支持的扩展名（仅返回当前扫描支持的格式）
 pub fn get_all_supported_extensions() -> Vec<&'static str> {
-    vec![".pdf", ".epub", ".md", ".markdown", ".html", ".htm", ".txt"]
+    vec![".pdf", ".epub", ".md", ".markdown", ".html", ".htm", ".txt", ".mobi"]
 }
 
 /// 检查文件扩展名是否在扫描支持列表中
@@ -368,7 +369,10 @@ pub fn is_scan_supported_extension(ext: &str) -> bool {
     } else {
         format!(".{}", ext_lower)
     };
-    matches!(ext_with_dot.as_str(), ".pdf" | ".epub" | ".md" | ".markdown" | ".html" | ".htm" | ".txt")
+    matches!(
+        ext_with_dot.as_str(),
+        ".pdf" | ".epub" | ".md" | ".markdown" | ".html" | ".htm" | ".txt" | ".mobi"
+    )
 }
 
 /// 检查格式是否在扫描支持列表中

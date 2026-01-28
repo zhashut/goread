@@ -110,11 +110,19 @@ export const Reader: React.FC = () => {
     setBook,
   });
 
-  const isEpubDom = useMemo(() => {
-    const path = isExternal ? externalPath : book?.file_path || null;
-    if (!path) return false;
-    return getBookFormat(path) === "epub";
+  const bookFilePath = useMemo(() => {
+    return (isExternal ? externalPath : book?.file_path) || null;
   }, [isExternal, externalPath, book?.file_path]);
+
+  const isEpubDom = useMemo(() => {
+    if (!bookFilePath) return false;
+    return getBookFormat(bookFilePath) === "epub";
+  }, [bookFilePath]);
+
+  const isMobi = useMemo(() => {
+    if (!bookFilePath) return false;
+    return getBookFormat(bookFilePath) === "mobi";
+  }, [bookFilePath]);
 
   const { markReadingActive } = useReadingSession(book, isExternal);
 
@@ -660,6 +668,7 @@ export const Reader: React.FC = () => {
       <ModeOverlay
         visible={modeOverlayOpen}
         readingMode={readingMode}
+        horizontalDisabled={isMobi}
         onClose={() => {
           setModeOverlayOpen(false);
           setUiVisible(false);

@@ -5,6 +5,7 @@ import {
 } from "../../../constants/config";
 import { EpubRenderer } from "../../../services/formats/epub/EpubRenderer";
 import { MarkdownRenderer } from "../../../services/formats/markdown/MarkdownRenderer";
+import { MobiRenderer } from "../../../services/formats/mobi/MobiRenderer";
 import { useReaderState } from "./useReaderState";
 import { useNavigation } from "./useNavigation";
 import { IBookRenderer } from "../../../services/formats";
@@ -121,7 +122,7 @@ export const useAutoScroll = ({
             } else {
                 let el: HTMLElement | null = null;
                 if (isDomRender) {
-                    if (r && r instanceof MarkdownRenderer) {
+                    if (r && (r instanceof MarkdownRenderer || r instanceof MobiRenderer)) {
                         el = r.getScrollContainer();
                     }
                     if (!el) el = domContainerRef.current;

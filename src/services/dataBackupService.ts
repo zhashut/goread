@@ -1,5 +1,5 @@
 import { getInvoke, getReaderSettings, saveReaderSettings, ReaderSettings, log, logError, bookService } from "./index";
-import { rebuildMissingCovers, generateMissingEpubCovers, parseCoverImage, migrateBookCover } from "../utils/coverUtils";
+import { rebuildMissingCovers, generateMissingEpubCovers, generateMissingMobiCovers, parseCoverImage, migrateBookCover } from "../utils/coverUtils";
 import i18n from "../locales";
 
 const BACKUP_EXT = "goread-backup";
@@ -181,6 +181,22 @@ export async function importAppData(): Promise<boolean> {
       await log('[DataBackup] EPUB cover generation completed', 'info', epubResult);
     } catch (err) {
       await logError('[DataBackup] EPUB cover generation failed', {
+        error: String(err),
+      });
+    }
+
+    // 为封面为空的 MOBI 书籍生成封面
+    try {
+      const mobiResult = await generateMissingMobiCovers((current, total, title) => {
+        log('[DataBackup] Generating MOBI covers', 'info', {
+          current,
+          total,
+          title,
+        }).catch(() => {});
+      });
+      await log('[DataBackup] MOBI cover generation completed', 'info', mobiResult);
+    } catch (err) {
+      await logError('[DataBackup] MOBI cover generation failed', {
         error: String(err),
       });
     }

@@ -15,6 +15,7 @@ export const SUPPORTED_FILE_EXTENSIONS = [
   '.html',
   '.htm',
   '.txt',
+  '.mobi',
 ] as const;
 
 export type SupportedExtension = typeof SUPPORTED_FILE_EXTENSIONS[number];
@@ -28,6 +29,7 @@ const EXTENSION_FORMAT_MAP: Record<string, BookFormat> = {
   '.html': 'html',
   '.htm': 'html',
   '.txt': 'txt',
+  '.mobi': 'mobi',
 };
 
 /** 格式显示名称（默认英文） */
@@ -37,13 +39,14 @@ export const FORMAT_DISPLAY_NAMES: Partial<Record<BookFormat, string>> = {
   markdown: 'Markdown',
   html: 'HTML',
   txt: 'TXT',
+  mobi: 'MOBI',
 };
 
 /** 扫描支持的格式（前端已实现的格式） */
-export const SCAN_SUPPORTED_FORMATS: BookFormat[] = ['pdf', 'epub', 'markdown', 'html', 'txt'];
+export const SCAN_SUPPORTED_FORMATS: BookFormat[] = ['pdf', 'epub', 'markdown', 'html', 'txt', "mobi"];
 
 /** 默认选中的扫描格式 */
-export const DEFAULT_SCAN_FORMATS: BookFormat[] = ['pdf', 'epub', 'markdown', 'html', 'txt'];
+export const DEFAULT_SCAN_FORMATS: BookFormat[] = ['pdf', 'epub', 'markdown', 'html', 'txt', "mobi"];
 
 /** 格式颜色配置（当前支持的格式） */
 export const FORMAT_COLORS: Record<BookFormat, string> = {

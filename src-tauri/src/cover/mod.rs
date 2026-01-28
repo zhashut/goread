@@ -23,6 +23,8 @@ fn format_subdir(file_path: &str) -> &'static str {
         "epub"
     } else if lower.ends_with(".pdf") {
         "pdf"
+    } else if lower.ends_with(".mobi") || lower.ends_with(".azw3") || lower.ends_with(".azw") {
+        "mobi"
     } else if lower.ends_with(".txt") {
         "txt"
     } else if lower.ends_with(".html") || lower.ends_with(".htm") {
@@ -190,7 +192,7 @@ pub struct CoverRebuildResult {
 /// 判断书籍格式是否支持封面重建
 pub fn can_rebuild_cover(file_path: &str) -> bool {
     let lower = file_path.to_lowercase();
-    lower.ends_with(".epub") || lower.ends_with(".pdf")
+    lower.ends_with(".epub") || lower.ends_with(".pdf") || lower.ends_with(".mobi") || lower.ends_with(".azw3") || lower.ends_with(".azw")
 }
 
 /// 获取书籍格式类型
@@ -200,6 +202,8 @@ pub fn get_book_format(file_path: &str) -> &'static str {
         "epub"
     } else if lower.ends_with(".pdf") {
         "pdf"
+    } else if lower.ends_with(".mobi") || lower.ends_with(".azw3") || lower.ends_with(".azw") {
+        "mobi"
     } else if lower.ends_with(".txt") {
         "txt"
     } else if lower.ends_with(".html") || lower.ends_with(".htm") {

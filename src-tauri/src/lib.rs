@@ -18,11 +18,13 @@ use commands::{
     clear_book_cover,
     get_books_needing_cover_rebuild,
     get_epub_books_without_cover,
+    get_mobi_books_without_cover,
     get_cover_root_path,
     get_cover_url,
     migrate_book_cover,
     rebuild_pdf_cover,
     rebuild_epub_cover,
+    rebuild_mobi_cover,
     // group commands
     add_group,
     batch_get_pdf_info,
@@ -271,8 +273,10 @@ pub fn run() {
             get_cover_root_path,
             get_books_needing_cover_rebuild,
             get_epub_books_without_cover,
+            get_mobi_books_without_cover,
             rebuild_pdf_cover,
             rebuild_epub_cover,
+            rebuild_mobi_cover,
             clear_book_cover
         ])
         .run(tauri::generate_context!())

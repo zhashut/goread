@@ -1,6 +1,7 @@
 import { useRef, useEffect } from "react";
 import { log, bookService, ReaderSettings, logError } from "../../../services";
 import { MarkdownRenderer } from "../../../services/formats/markdown/MarkdownRenderer";
+import { MobiRenderer } from "../../../services/formats/mobi/MobiRenderer";
 import { EpubRenderer } from "../../../services/formats/epub/EpubRenderer";
 import { IBookRenderer, getBookFormat } from "../../../services/formats";
 import { TocNode } from "../../reader/types";
@@ -147,8 +148,8 @@ export const useInitReader = ({
                     return;
                 }
 
-                // EPUB 主题切换时，优先从渲染器获取精确进度（含章节内偏移）
-                if (themeChanged && renderer instanceof EpubRenderer) {
+                // 主题切换时，优先从渲染器获取精确进度（含章节内偏移）
+                if (themeChanged && renderer.getPreciseProgress) {
                     const preciseProgress = renderer.getPreciseProgress();
                     if (preciseProgress > 0) {
                         pageToRender = preciseProgress;
@@ -163,6 +164,14 @@ export const useInitReader = ({
                     if (renderer instanceof MarkdownRenderer) {
                         renderer.onPositionRestored = () => {
                             log("[Reader] Markdown 位置恢复完成");
+                            setContentReady(true);
+                        };
+                    }
+
+                    if (renderer instanceof MobiRenderer) {
+                        renderer.onPositionRestored = () => {
+                            log("[Reader] MOBI 位置恢复完成");
+                            domRestoreDoneRef.current = true;
                             setContentReady(true);
                         };
                     }
@@ -230,7 +239,35 @@ export const useInitReader = ({
                                 }
                             };
                         }
+
+                        if (renderer instanceof MobiRenderer) {
+                            renderer.onTocChange = (anchor: string) => {
+                                const normalizeAnchor = (h: string) => h?.split("#")[0] || "";
+                                const anchorBase = normalizeAnchor(anchor);
+
+                                const findByAnchor = (list: TocNode[], level: number): { title: string; level: number } | null => {
+                                    for (const n of list) {
+                                        const base = normalizeAnchor(n.anchor || "");
+                                        if (n.anchor === anchor || (anchorBase && base === anchorBase)) {
+                                            return { title: n.title, level };
+                                        }
+                                        if (n.children) {
+                                            const r = findByAnchor(n.children, level + 1);
+                                            if (r) return r;
+                                        }
+                                    }
+                                    return null;
+                                };
+                                const found = findByAnchor(nodes, 0);
+                                if (found) {
+                                    const sig = `${found.title}|-1|${found.level}`;
+                                    setActiveNodeSignature(sig);
+                                }
+                            };
+                        }
                     } catch { }
+
+                    domRestoreDoneRef.current = false;
 
                     // DOM 渲染
                     await renderer.renderPage(1, domContainerRef.current!, {
@@ -240,10 +277,12 @@ export const useInitReader = ({
                         pageGap: settings.pageGap,
                     });
                     log("[Reader] DOM 渲染完成");
-                    domRestoreDoneRef.current = true;
+                    if (!(renderer instanceof MobiRenderer)) {
+                        domRestoreDoneRef.current = true;
+                    }
 
                     // 对于非 EPUB 纵向模式，或未触发首屏回调的情况，仍需在此设置 contentReady
-                    if (!(renderer instanceof MarkdownRenderer)) {
+                    if (!(renderer instanceof MarkdownRenderer) && !(renderer instanceof MobiRenderer)) {
                         if (!(renderer instanceof EpubRenderer && readingMode === 'vertical')) {
                             setContentReady(true);
                         }

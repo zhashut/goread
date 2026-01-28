@@ -8,6 +8,7 @@ interface ModeOverlayProps {
   readingMode: "horizontal" | "vertical";
   onClose: () => void;
   onChangeMode: (mode: "horizontal" | "vertical") => void;
+  horizontalDisabled?: boolean;
 }
 
 export const ModeOverlay: React.FC<ModeOverlayProps> = ({
@@ -15,6 +16,7 @@ export const ModeOverlay: React.FC<ModeOverlayProps> = ({
   readingMode,
   onClose,
   onChangeMode,
+  horizontalDisabled,
 }) => {
   const { t } = useTranslation('reader');
   
@@ -62,18 +64,27 @@ export const ModeOverlay: React.FC<ModeOverlayProps> = ({
           }}
         >
           <button
-            onClick={() => onChangeMode("horizontal")}
+            onClick={() => {
+              if (horizontalDisabled) return;
+              onChangeMode("horizontal");
+            }}
+            disabled={horizontalDisabled}
             style={{
               display: "flex",
               alignItems: "center",
               background: "none",
               border: "1px solid #333",
-              color: readingMode === "horizontal" ? "#d15158" : "#fff",
-              cursor: "pointer",
+              color: horizontalDisabled
+                ? "#666"
+                : readingMode === "horizontal"
+                ? "#d15158"
+                : "#fff",
+              cursor: horizontalDisabled ? "not-allowed" : "pointer",
               borderRadius: "8px",
               padding: "10px 12px",
               textAlign: "left",
               marginBottom: "16px",
+              opacity: horizontalDisabled ? 0.5 : 1,
             }}
           >
             <span style={{ fontSize: "18px", marginRight: "12px" }}>▤</span>

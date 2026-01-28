@@ -97,6 +97,40 @@ async function importHtmlBook(filePath: string, invoke: any, logError: any): Pro
   };
 }
 
+// MOBI 格式导入
+async function importMobiBook(filePath: string, _invoke: any, logError: any): Promise<ImportResult> {
+  let info: any = null;
+  let coverImage: string | undefined = undefined;
+  let totalPages = 1;
+
+  try {
+    // 动态导入 MobiRenderer 避免循环依赖
+    const { MobiRenderer } = await import('./formats/mobi/MobiRenderer');
+    const renderer = new MobiRenderer();
+    const bookInfo = await renderer.loadDocument(filePath);
+    
+    info = {
+      title: bookInfo.title,
+      author: bookInfo.author,
+    };
+    
+    // 封面图片格式: "data:image/...;base64,xxxxx"
+    // 直接传完整 data URL，后端会正确识别并落盘
+    // 避免提取纯 Base64 后因长度过短被误识别为路径
+    if (bookInfo.coverImage && bookInfo.coverImage.startsWith('data:')) {
+      coverImage = bookInfo.coverImage;
+    }
+    
+    totalPages = bookInfo.pageCount || 1;
+
+    await renderer.close();
+  } catch (err) {
+    await logError('MOBI import failed', { error: String(err), filePath });
+  }
+
+  return { info, coverImage, totalPages };
+}
+
 // EPUB 格式导入
 async function importEpubBook(filePath: string, _invoke: any, logError: any): Promise<ImportResult> {
   let info: any = null;
@@ -195,6 +229,8 @@ async function importByFormat(
       return await importHtmlBook(filePath, invoke, logError);
     case 'epub':
       return await importEpubBook(filePath, invoke, logError);
+    case 'mobi':
+      return await importMobiBook(filePath, invoke, logError);
     case 'txt':
       return await importTxtBook(filePath, invoke, logError);
     default:

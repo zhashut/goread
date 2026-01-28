@@ -20,8 +20,10 @@ export interface ICoverService {
   migrateBookCover(bookId: number): Promise<string | null>;
   getBooksNeedingCoverRebuild(): Promise<BookNeedingCoverRebuild[]>;
   getEpubBooksWithoutCover(): Promise<BookNeedingCoverRebuild[]>;
+  getMobiBooksWithoutCover(): Promise<BookNeedingCoverRebuild[]>;
   rebuildPdfCover(bookId: number, coverData: string): Promise<string | null>;
   rebuildEpubCover(bookId: number, coverData: string): Promise<string | null>;
+  rebuildMobiCover(bookId: number, coverData: string): Promise<string | null>;
   clearBookCover(bookId: number): Promise<void>;
 }
 
@@ -61,6 +63,12 @@ export class TauriCoverService implements ICoverService {
     return await invoke('get_epub_books_without_cover');
   }
 
+  // 获取封面为空但文件存在的 MOBI 书籍列表
+  async getMobiBooksWithoutCover(): Promise<BookNeedingCoverRebuild[]> {
+    const invoke = await getInvoke();
+    return await invoke('get_mobi_books_without_cover');
+  }
+
   // 使用提供的封面数据重建 PDF 封面
   async rebuildPdfCover(bookId: number, coverData: string): Promise<string | null> {
     const invoke = await getInvoke();
@@ -70,6 +78,12 @@ export class TauriCoverService implements ICoverService {
   async rebuildEpubCover(bookId: number, coverData: string): Promise<string | null> {
     const invoke = await getInvoke();
     return await invoke('rebuild_epub_cover', { bookId, coverData });
+  }
+
+  // 使用提供的封面数据重建 MOBI 封面
+  async rebuildMobiCover(bookId: number, coverData: string): Promise<string | null> {
+    const invoke = await getInvoke();
+    return await invoke('rebuild_mobi_cover', { bookId, coverData });
   }
 
   // 清空书籍封面字段

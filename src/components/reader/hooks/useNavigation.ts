@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { bookService, statsService, logError } from "../../../services";
 import { MarkdownRenderer } from "../../../services/formats/markdown/MarkdownRenderer";
+import { MobiRenderer } from "../../../services/formats/mobi/MobiRenderer";
 import { EpubRenderer } from "../../../services/formats/epub/EpubRenderer";
 import { useReaderState } from "./useReaderState";
 import { usePageRenderer } from "./usePageRenderer";
@@ -60,6 +61,12 @@ export const useNavigation = ({
                 if (isDomRender) {
                     const renderer = rendererRef.current;
                     if (renderer && renderer instanceof MarkdownRenderer) {
+                        const scrollContainer = renderer.getScrollContainer();
+                        if (scrollContainer) {
+                            const viewportHeight = scrollContainer.clientHeight;
+                            renderer.scrollToVirtualPage(pageNum, viewportHeight);
+                        }
+                    } else if (renderer && renderer instanceof MobiRenderer) {
                         const scrollContainer = renderer.getScrollContainer();
                         if (scrollContainer) {
                             const viewportHeight = scrollContainer.clientHeight;

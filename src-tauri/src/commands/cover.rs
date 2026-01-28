@@ -299,3 +299,78 @@ pub async fn clear_book_cover(
     
     Ok(())
 }
+
+/// 为 MOBI 书籍重建封面
+#[tauri::command]
+pub async fn rebuild_mobi_cover(
+    app_handle: AppHandle,
+    book_id: i64,
+    cover_data: String,
+    db: DbState<'_>,
+) -> Result<Option<String>, Error> {
+    let pool = db.lock().await;
+
+    let book: Option<Book> = sqlx::query_as::<_, Book>(
+        "SELECT * FROM books WHERE id = ?"
+    )
+    .bind(book_id)
+    .fetch_optional(&*pool)
+    .await?;
+
+    let book = match book {
+        Some(b) => b,
+        None => return Err(Error::Message("Book not found".to_string())),
+    };
+
+    let format = cover::get_book_format(&book.file_path);
+    if format != "mobi" {
+        return Err(Error::Message("Not a MOBI book".to_string()));
+    }
+
+    let relative_path = cover::save_cover_from_base64(
+        &app_handle,
+        &book.file_path,
+        &cover_data,
+    ).await.map_err(Error::Message)?;
+
+    sqlx::query("UPDATE books SET cover_image = ? WHERE id = ?")
+        .bind(&relative_path)
+        .bind(book_id)
+        .execute(&*pool)
+        .await?;
+
+    Ok(Some(relative_path))
+}
+
+/// 获取封面为空但文件存在的 MOBI 书籍列表
+/// 用于备份导入后为这些书籍生成封面
+#[tauri::command]
+pub async fn get_mobi_books_without_cover(
+    db: DbState<'_>,
+) -> Result<Vec<serde_json::Value>, Error> {
+    let pool = db.lock().await;
+    
+    // 查找封面为空的 MOBI 书籍（支持 .mobi, .azw3, .azw 扩展名）
+    let books: Vec<Book> = sqlx::query_as::<_, Book>(
+        "SELECT * FROM books WHERE (cover_image IS NULL OR cover_image = '') AND (LOWER(file_path) LIKE '%.mobi' OR LOWER(file_path) LIKE '%.azw3' OR LOWER(file_path) LIKE '%.azw')"
+    )
+    .fetch_all(&*pool)
+    .await?;
+    
+    let mut result = Vec::new();
+    
+    for book in books {
+        // 检查书籍文件是否存在
+        let file_exists = std::path::Path::new(&book.file_path).exists();
+        if file_exists {
+            result.push(serde_json::json!({
+                "id": book.id,
+                "file_path": book.file_path,
+                "format": "mobi",
+                "title": book.title
+            }));
+        }
+    }
+    
+    Ok(result)
+}

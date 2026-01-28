@@ -1,11 +1,28 @@
 import { useRef, useEffect, useCallback } from "react";
 import { MarkdownRenderer } from "../../../services/formats/markdown/MarkdownRenderer";
+import { MobiRenderer } from "../../../services/formats/mobi/MobiRenderer";
 import { IBookRenderer } from "../../../services/formats";
 import { bookService } from "../../../services";
 import { TocNode } from "../../reader/types";
 import { useReaderState } from "./useReaderState";
 
 const DOM_SCROLL_ACTIVE_INTERVAL = 10000;
+
+type DomPaginationRenderer = IBookRenderer & {
+    getScrollContainer(): HTMLElement | null;
+    calculateVirtualPages(viewportHeight: number): number;
+    getCurrentVirtualPage(scrollTop: number, viewportHeight: number): number;
+    scrollToVirtualPage(page: number, viewportHeight: number): void;
+};
+
+const isDomPaginationRenderer = (
+    renderer: IBookRenderer | null
+): renderer is DomPaginationRenderer => {
+    if (!renderer) return false;
+    if (renderer instanceof MarkdownRenderer) return true;
+    if (renderer instanceof MobiRenderer) return true;
+    return false;
+};
 
 type DomRendererProps = {
     readerState: ReturnType<typeof useReaderState>;
@@ -82,7 +99,7 @@ export const useDomRenderer = ({
         if (!isDomRender || loading || (!book && !isExternal)) return;
 
         const renderer = rendererRef.current;
-        if (!renderer || !(renderer instanceof MarkdownRenderer)) return;
+        if (!isDomPaginationRenderer(renderer)) return;
 
         let cleanup: (() => void) | null = null;
         let attempts = 0;
@@ -99,11 +116,13 @@ export const useDomRenderer = ({
 
             let rafId: number | null = null;
             // 使用 Ref 追踪当前状态，避免闭包过时
-            const stateRef = { lastPage: currentPage, lastTotalPages: totalPages };
+            const stateRef = { lastPage: currentPage, lastTotalPages: totalPages, lastSavedProgress: currentPage };
 
+            // 更新 Ref
             // 更新 Ref
             stateRef.lastPage = currentPage;
             stateRef.lastTotalPages = totalPages;
+            stateRef.lastSavedProgress = currentPage;
 
             const handleScroll = () => {
                 if (rafId !== null) return;
@@ -148,63 +167,87 @@ export const useDomRenderer = ({
                         savedPageAtOpenRef.current === 1 ||
                         domRestoreDoneRef.current;
 
-                    if (canUpdatePage && virtualCurrentPage !== stateRef.lastPage) {
-                        stateRef.lastPage = virtualCurrentPage;
-                        setCurrentPage(virtualCurrentPage);
-                        if (!isExternal && book) {
-                            bookService
-                                .updateBookProgress(book.id, virtualCurrentPage)
-                                .catch(() => { });
+                    if (canUpdatePage) {
+                        let progressToSave = virtualCurrentPage;
+                        let shouldSave = false;
+                        
+                        // Try to get precise progress
+                        if (typeof (renderer as any).getPreciseProgress === 'function') {
+                            progressToSave = (renderer as any).getPreciseProgress();
+                            // For precise progress, save if changed significantly (> 0.005) or integer page changed
+                            if (Math.abs(progressToSave - stateRef.lastSavedProgress) > 0.005 || virtualCurrentPage !== stateRef.lastPage) {
+                                shouldSave = true;
+                            }
+                        } else {
+                            // Legacy behavior: save only when integer page changes
+                            if (virtualCurrentPage !== stateRef.lastPage) {
+                                shouldSave = true;
+                            }
                         }
-                        markReadingActive();
+
+                        // Update UI state if integer page changed
+                        if (virtualCurrentPage !== stateRef.lastPage) {
+                            stateRef.lastPage = virtualCurrentPage;
+                            setCurrentPage(virtualCurrentPage);
+                            markReadingActive();
+                        }
+
+                        // Save to DB
+                        if (shouldSave) {
+                           stateRef.lastSavedProgress = progressToSave;
+                           if (!isExternal && book) {
+                               bookService
+                                   .updateBookProgress(book.id, progressToSave)
+                                   .catch(() => { });
+                           }
+                        }
                     }
 
-                    // 计算 Markdown 目录高亮 (保持原有逻辑)
                     try {
-                        const centerY =
-                            scrollContainer.scrollTop + scrollContainer.clientHeight * 0.5;
-                        const headings = Array.from(
-                            scrollContainer.querySelectorAll("h1,h2,h3,h4,h5,h6")
-                        ) as HTMLElement[];
-                        if (headings.length > 0) {
-                            let bestIdx = 0;
-                            let bestDist = Infinity;
-                            for (let i = 0; i < headings.length; i++) {
-                                const h = headings[i];
-                                const top = h.offsetTop;
-                                const bottom = top + h.offsetHeight;
-                                const dist =
-                                    centerY >= top && centerY <= bottom
-                                        ? 0
-                                        : Math.min(
-                                            Math.abs(centerY - top),
-                                            Math.abs(centerY - bottom)
-                                        );
-                                if (dist < bestDist) {
-                                    bestDist = dist;
-                                    bestIdx = i;
-                                }
-                            }
-                            const anchor = `heading-${bestIdx}`;
-                            // 简化目录查找逻辑，避免递归过深影响性能
-                            // (这里保留原逻辑，假设 toc 结构不深)
-                            const findByAnchor = (
-                                nodes: TocNode[],
-                                level: number
-                            ): { title: string; level: number } | null => {
-                                for (const n of nodes) {
-                                    if (n.anchor === anchor) return { title: n.title, level };
-                                    if (n.children) {
-                                        const r = findByAnchor(n.children, level + 1);
-                                        if (r) return r;
+                        if (renderer instanceof MarkdownRenderer) {
+                            const centerY =
+                                scrollContainer.scrollTop + scrollContainer.clientHeight * 0.5;
+                            const headings = Array.from(
+                                scrollContainer.querySelectorAll("h1,h2,h3,h4,h5,h6")
+                            ) as HTMLElement[];
+                            if (headings.length > 0) {
+                                let bestIdx = 0;
+                                let bestDist = Infinity;
+                                for (let i = 0; i < headings.length; i++) {
+                                    const h = headings[i];
+                                    const top = h.offsetTop;
+                                    const bottom = top + h.offsetHeight;
+                                    const dist =
+                                        centerY >= top && centerY <= bottom
+                                            ? 0
+                                            : Math.min(
+                                                Math.abs(centerY - top),
+                                                Math.abs(centerY - bottom)
+                                            );
+                                    if (dist < bestDist) {
+                                        bestDist = dist;
+                                        bestIdx = i;
                                     }
                                 }
-                                return null;
-                            };
-                            const found = findByAnchor(toc, 0);
-                            if (found) {
-                                const sig = `${found.title}|-1|${found.level}`;
-                                if (sig !== activeNodeSignature) setActiveNodeSignature(sig);
+                                const anchor = `heading-${bestIdx}`;
+                                const findByAnchor = (
+                                    nodes: TocNode[],
+                                    level: number
+                                ): { title: string; level: number } | null => {
+                                    for (const n of nodes) {
+                                        if (n.anchor === anchor) return { title: n.title, level };
+                                        if (n.children) {
+                                            const r = findByAnchor(n.children, level + 1);
+                                            if (r) return r;
+                                        }
+                                    }
+                                    return null;
+                                };
+                                const found = findByAnchor(toc, 0);
+                                if (found) {
+                                    const sig = `${found.title}|-1|${found.level}`;
+                                    if (sig !== activeNodeSignature) setActiveNodeSignature(sig);
+                                }
                             }
                         }
                     } catch { }
@@ -246,7 +289,7 @@ export const useDomRenderer = ({
     useEffect(() => {
         if (!isDomRender || (!book && !isExternal) || loading) return;
         const renderer = rendererRef.current;
-        if (!renderer || !(renderer instanceof MarkdownRenderer)) return;
+        if (!isDomPaginationRenderer(renderer)) return;
         let attempts = 0;
         const maxAttempts = 50;
         const check = () => {

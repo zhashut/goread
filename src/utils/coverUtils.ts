@@ -301,6 +301,37 @@ async function renderEpubCover(filePath: string): Promise<string | null> {
 }
 
 /**
+ * 渲染 MOBI 书籍封面
+ * 返回 Base64 编码的 JPEG 数据（不含 data: 前缀）
+ */
+async function renderMobiCover(filePath: string): Promise<string | null> {
+  try {
+    const { MobiRenderer } = await import('../services/formats/mobi/MobiRenderer');
+    const renderer = new MobiRenderer();
+    const bookInfo = await renderer.loadDocument(filePath);
+
+    await renderer.close().catch(() => {});
+
+    if (!bookInfo.coverImage || typeof bookInfo.coverImage !== 'string') {
+      return null;
+    }
+
+    const base64 = await convertDataUrlToJpegBase64(bookInfo.coverImage);
+    if (!base64) {
+      throw new Error('Failed to convert MOBI cover to JPEG');
+    }
+
+    return base64;
+  } catch (e) {
+    await logError('Failed to render MOBI cover', {
+      filePath,
+      error: String(e),
+    });
+    return null;
+  }
+}
+
+/**
  * 批量重建封面（备份导入后调用）
  * 检查所有书籍的封面文件，对缺失的封面进行重建
  * @param onProgress 进度回调 (current, total, bookTitle)
@@ -360,6 +391,23 @@ export async function rebuildMissingCovers(
             await coverService.clearBookCover(book.id);
             result.failed++;
             await logError('Failed to render EPUB cover during rebuild', {
+              bookId: book.id,
+              title: book.title,
+            });
+          }
+        } else if (book.format === 'mobi') {
+          const coverData = await renderMobiCover(book.file_path);
+          if (coverData) {
+            await coverService.rebuildMobiCover(book.id, coverData);
+            result.success++;
+            await log('Rebuilt cover for MOBI', 'info', {
+              bookId: book.id,
+              title: book.title,
+            });
+          } else {
+            await coverService.clearBookCover(book.id);
+            result.failed++;
+            await logError('Failed to render MOBI cover during rebuild', {
               bookId: book.id,
               title: book.title,
             });
@@ -468,10 +516,11 @@ export async function generateMissingEpubCovers(
 /**
  * 从文件路径获取书籍格式
  */
-function getBookFormatFromPath(filePath: string): 'epub' | 'pdf' | 'other' {
+function getBookFormatFromPath(filePath: string): 'epub' | 'pdf' | 'mobi' | 'other' {
   const lower = filePath.toLowerCase();
   if (lower.endsWith('.epub')) return 'epub';
   if (lower.endsWith('.pdf')) return 'pdf';
+  if (lower.endsWith('.mobi') || lower.endsWith('.azw3') || lower.endsWith('.azw')) return 'mobi';
   return 'other';
 }
 
@@ -506,6 +555,15 @@ export async function rebuildSingleBookCover(book: {
         await coverService.clearBookCover(book.id);
         await log('封面渲染失败，已清空封面字段 (EPUB)', 'info', { bookId: book.id });
       }
+    } else if (format === 'mobi') {
+      const coverData = await renderMobiCover(book.file_path);
+      if (coverData) {
+        await coverService.rebuildMobiCover(book.id, coverData);
+        await log('封面重建成功 (MOBI)', 'info', { bookId: book.id, title: book.title });
+      } else {
+        await coverService.clearBookCover(book.id);
+        await log('封面渲染失败，已清空封面字段 (MOBI)', 'info', { bookId: book.id });
+      }
     } else {
       // 不支持重建封面的格式，清空封面字段
       await coverService.clearBookCover(book.id);
@@ -520,4 +578,73 @@ export async function rebuildSingleBookCover(book: {
       // 忽略清空封面时的错误
     }
   }
+}
+
+/**
+ * 为封面为空的 MOBI 书籍生成封面
+ * 用于备份导入后，处理那些 cover_image 为空但文件存在的 MOBI 书籍
+ * @param onProgress 进度回调 (current, total, bookTitle)
+ * @returns 生成结果统计
+ */
+export async function generateMissingMobiCovers(
+  onProgress?: (current: number, total: number, bookTitle: string) => void
+): Promise<{ success: number; failed: number }> {
+  const result = { success: 0, failed: 0 };
+  
+  try {
+    // 获取封面为空但文件存在的 MOBI 书籍列表
+    const mobiBooksWithoutCover = await coverService.getMobiBooksWithoutCover();
+    const total = mobiBooksWithoutCover.length;
+    
+    if (total === 0) {
+      await log('[CoverUtils] No MOBI books need cover generation', 'info');
+      return result;
+    }
+    
+    await log('[CoverUtils] Starting MOBI cover generation', 'info', { total });
+    
+    for (let i = 0; i < mobiBooksWithoutCover.length; i++) {
+      const book = mobiBooksWithoutCover[i];
+      
+      // 报告进度
+      onProgress?.(i + 1, total, book.title);
+      
+      try {
+        const coverData = await renderMobiCover(book.file_path);
+        if (coverData) {
+          await coverService.rebuildMobiCover(book.id, coverData);
+          result.success++;
+          await log('[CoverUtils] Generated cover for MOBI', 'info', {
+            bookId: book.id,
+            title: book.title,
+          });
+        } else {
+          result.failed++;
+          await logError('[CoverUtils] Failed to generate MOBI cover', {
+            bookId: book.id,
+            title: book.title,
+          });
+        }
+      } catch (e) {
+        await logError('[CoverUtils] Error generating cover for MOBI', {
+          bookId: book.id,
+          error: String(e),
+        });
+        result.failed++;
+      }
+      
+      // 每处理一定数量后让出执行权
+      if (i > 0 && i % 10 === 0) {
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+    }
+    
+    await log('[CoverUtils] MOBI cover generation completed', 'info', result);
+  } catch (e) {
+    await logError('[CoverUtils] Failed to get MOBI books without cover', {
+      error: String(e),
+    });
+  }
+  
+  return result;
 }
