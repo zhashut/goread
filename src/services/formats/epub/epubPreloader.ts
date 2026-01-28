@@ -5,15 +5,9 @@
  */
 
 import { useEpubLoader, type EpubBook } from './hooks';
-import { logError } from '../../index';
+import { logError, getInvoke } from '../../index';
 import { generateQuickBookId } from './cache';
-import { evictOldestEntry } from './cache/lruCacheUtils';
-
-/** 获取 Tauri invoke 函数 */
-async function getInvoke() {
-  const { invoke } = await import('@tauri-apps/api/core');
-  return invoke;
-}
+import { evictOldestEntry } from '../../../utils/lruCacheUtils';
 
 /** 预加载缓存条目 */
 interface PreloadCacheEntry {
@@ -290,7 +284,7 @@ class EpubPreloader {
   private async _loadBook(filePath: string): Promise<EpubBook> {
     // 通过 Tauri 读取文件
     const invoke = await getInvoke();
-    const bytes = await invoke<number[]>('read_file_bytes', { path: filePath });
+    const bytes = await invoke('read_file_bytes', { path: filePath });
     const arrayBuffer = new Uint8Array(bytes).buffer;
 
     // 创建 File 对象

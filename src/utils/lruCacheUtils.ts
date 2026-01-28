@@ -43,4 +43,3 @@ export function touchEntryAsMostRecentlyUsed<K, V>(
   map.set(key, entry);
   return entry;
 }
-

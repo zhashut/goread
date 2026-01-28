@@ -29,4 +29,4 @@ export {
   generateBookId,
   generateQuickBookId,
   extractLogicalId,
-} from './bookIdUtils';
+} from '../../../../utils/bookId';

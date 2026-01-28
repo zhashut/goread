@@ -60,6 +60,9 @@ export class MobiRenderer implements IBookRenderer {
     const renderContext = {
       // 通过闭包访问生命周期状态
       get book() { return lifecycleHook.state.book; },
+      get bookId() { return lifecycleHook.state.bookId; },
+      get sectionCount() { return lifecycleHook.state.sectionCount; },
+      ensureBookLoaded: lifecycleHook.ensureBookLoaded,
       themeHook: this._themeHook,
       onPageChange: (page: number) => {
         if (this.onPageChange) this.onPageChange(page);

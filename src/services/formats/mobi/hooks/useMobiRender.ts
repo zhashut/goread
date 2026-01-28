@@ -6,9 +6,16 @@ import { logError } from '../../../index';
 import { RenderOptions } from '../../types';
 import { MobiBook } from '../types';
 import { MobiThemeHook } from './useMobiTheme';
+import { mobiCacheService } from '../mobiCacheService';
+import { sha256 } from '../../../../utils/bookId';
+
+const RESOURCE_PREFIX = 'mobi-res://';
 
 export interface MobiRenderContext {
     book: MobiBook | null;
+    bookId: string | null;
+    sectionCount: number;
+    ensureBookLoaded: () => Promise<void>;
     themeHook: MobiThemeHook;
     onPageChange?: (page: number) => void;
     onTocChange?: (anchor: string) => void;
@@ -30,7 +37,7 @@ export interface MobiRenderHook {
 
 export function useMobiRender(context: MobiRenderContext): MobiRenderHook {
     // 从 Context 中解构需要的属性
-    const { themeHook, onPageChange, onTocChange, onPositionRestored } = context;
+    const { themeHook, onPageChange, onTocChange, onPositionRestored, bookId, sectionCount, ensureBookLoaded } = context;
 
     const state: MobiRenderState = {
         currentVirtualPage: 1,
@@ -43,53 +50,237 @@ export function useMobiRender(context: MobiRenderContext): MobiRenderHook {
     let lastTocAnchor: string | null = null;
 
     /**
+     * 处理并缓存资源
+     */
+    const _processAndCacheResources = async (html: string, bookId: string): Promise<string> => {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+        // 查找所有 blob: 开头的图片
+        const imgs = Array.from(doc.querySelectorAll('img[src^="blob:"]')) as HTMLImageElement[];
+        // 查找所有 blob: 开头的链接 (CSS等)
+        const links = Array.from(doc.querySelectorAll('link[href^="blob:"]')) as HTMLLinkElement[];
+
+        const processResource = async (url: string, element: Element, attr: 'src' | 'href') => {
+            try {
+                // 读取 Blob 数据
+                const response = await fetch(url);
+                const blob = await response.blob();
+                const buffer = await blob.arrayBuffer();
+                
+                // 计算哈希
+                const hash = await sha256(buffer);
+                const resourcePath = hash; // 使用哈希作为资源路径/ID
+
+                // 保存到缓存
+                if (!mobiCacheService.resourceCache.has(bookId, resourcePath)) {
+                    await mobiCacheService.saveResourceToDB({
+                        bookId,
+                        resourcePath,
+                        mimeType: blob.type,
+                        sizeBytes: buffer.byteLength,
+                        lastAccessTime: Date.now(),
+                        data: buffer
+                    });
+                     // 同时写入内存缓存
+                    mobiCacheService.resourceCache.set(bookId, resourcePath, buffer, blob.type);
+                }
+
+                // 替换 URL 为占位符
+                element.setAttribute(attr, `${RESOURCE_PREFIX}${resourcePath}`);
+            } catch (e) {
+                console.error('[MobiRender] Resource process failed', e);
+            }
+        };
+
+        await Promise.all([
+            ...imgs.map(img => processResource(img.src, img, 'src')),
+            ...links.map(link => processResource(link.href, link, 'href'))
+        ]);
+
+        return doc.body.innerHTML;
+    };
+
+    /**
+     * 从缓存恢复资源
+     */
+    const _restoreResources = async (html: string, bookId: string): Promise<string> => {
+        // 简单正则替换，比 DOM 解析更快
+        // 查找 mobi-res://([a-f0-9]+)
+        const regex = new RegExp(`${RESOURCE_PREFIX}([a-f0-9]+)`, 'g');
+        
+        // 收集所有需要恢复的资源ID
+        const matches = Array.from(html.matchAll(regex));
+        const resourceIds = new Set(matches.map(m => m[1]));
+        
+        const urlMap = new Map<string, string>();
+
+        await Promise.all(Array.from(resourceIds).map(async (resId) => {
+            let buffer = mobiCacheService.resourceCache.get(bookId, resId);
+            let mimeType = mobiCacheService.resourceCache.getMimeType(bookId, resId) || 'application/octet-stream';
+
+            if (!buffer) {
+                // 从 DB 加载
+                const entry = await mobiCacheService.loadResourceFromDB(bookId, resId);
+                if (entry) {
+                    buffer = entry.data;
+                    mimeType = entry.mimeType;
+                    // 放入内存缓存
+                    mobiCacheService.resourceCache.set(bookId, resId, buffer, mimeType);
+                }
+            }
+
+            if (buffer) {
+                const blob = new Blob([buffer], { type: mimeType });
+                const url = URL.createObjectURL(blob);
+                blobUrls.add(url);
+                urlMap.set(resId, url);
+            }
+        }));
+
+        // 替换回去
+        return html.replace(regex, (_match, resId) => {
+            return urlMap.get(resId) || _match;
+        });
+    };
+
+    /**
      * 渲染所有章节内容
      */
     const _renderAllSections = async (
         bodyEl: HTMLElement,
         _options?: RenderOptions
     ): Promise<void> => {
-        const book = context.book;
-        if (!book) return;
+        // 使用传入的 sectionCount，不依赖 book.sections (支持 lazy load)
+        const count = sectionCount || context.book?.sections.filter(s => s.linear !== 'no').length || 0;
 
-        const validSections = book.sections.filter(s => s.linear !== 'no');
+        // 使用 for 循环顺序渲染，保证顺序
+        for (let i = 0; i < count; i++) {
+            const sectionIndex = i; 
+            // 注意: 如果 book 尚未加载，我们无法获取 section 对象，也就没有 section.id
+            // 缓存策略需要能处理 sectionId 缺失的情况，或者等待 book 加载
 
-        for (const section of validSections) {
             try {
                 const sectionEl = document.createElement('div');
                 sectionEl.className = 'mobi-section';
-                sectionEl.dataset.sectionId = String(section.id);
+                // 先用 index 作为临时 sectionId，等加载到 cache 或 book 后更新
+                sectionEl.dataset.sectionId = String(i); 
 
-                // 加载章节内容
-                const url = await section.load();
-                if (url) {
-                    // 获取章节 HTML 内容
-                    const response = await fetch(url);
-                    const html = await response.text();
+                let start = performance.now();
+                let htmlContent: string | null = null;
+                let fromCache = false;
 
-                    // 解析并提取 body 内容
-                    const parser = new DOMParser();
-                    const doc = parser.parseFromString(html, 'text/html');
+                // 1. 尝试从缓存加载
+                if (bookId) {
+                    // 内存缓存
+                    const memCache = mobiCacheService.sectionCache.getSection(bookId, sectionIndex);
+                    if (memCache) {
+                        htmlContent = memCache.rawHtml;
+                        fromCache = true;
+                        // 恢复 sectionId (如果缓存中有)
+                        if (memCache.meta.sectionId !== undefined) {
+                             sectionEl.dataset.sectionId = String(memCache.meta.sectionId);
+                        }
+                    } else {
+                        // 数据库缓存
+                        const dbCache = await mobiCacheService.loadSectionFromDB(bookId, sectionIndex);
+                        if (dbCache) {
+                            htmlContent = dbCache.rawHtml;
+                             // 恢复 sectionId
+                            if (dbCache.meta.sectionId !== undefined) {
+                                 sectionEl.dataset.sectionId = String(dbCache.meta.sectionId);
+                            }
+                            mobiCacheService.sectionCache.setSection(dbCache);
+                            fromCache = true;
+                        }
+                    }
+                }
 
-                    // 复制 body 内容到章节元素
-                    sectionEl.innerHTML = doc.body.innerHTML;
+                // 2. 缓存未因中，加载并处理
+                if (!htmlContent) {
+                    // 缓存未命中，必须要有 book 对象才能加载
+                    if (!context.book) {
+                         // 等待 book 加载完成
+                         await ensureBookLoaded();
+                    }
+                    
+                    const book = context.book!;
+                    const validSections = book.sections.filter(s => s.linear !== 'no');
+                    const section = validSections[i];
+                    
+                    if (!section) {
+                        // 理论上不应发生，除非 sectionCount 不一致
+                        continue;
+                    }
 
-                    // 记录 Blob URL 以便后续清理
-                    if (url.startsWith('blob:')) {
-                        blobUrls.add(url);
+                    // 更新 sectionId
+                     sectionEl.dataset.sectionId = String(section.id);
+                    
+                    const url = await section.load();
+                    if (url) {
+                        const response = await fetch(url);
+                        let rawHtml = await response.text();
+                        
+                        // 解析 DOM 提取 body 内容，因为 rawHtml 是完整页面
+                        // foliate 返回的是完整 HTML 文档
+                        const parser = new DOMParser();
+                        const doc = parser.parseFromString(rawHtml, 'text/html');
+                        rawHtml = doc.body.innerHTML;
+
+                        if (bookId) {
+                             // 处理资源并替换为占位符
+                             htmlContent = await _processAndCacheResources(rawHtml, bookId);
+                             
+                             // 保存到缓存
+                             const entry = {
+                                 bookId,
+                                 sectionIndex,
+                                 rawHtml: htmlContent,
+                                 rawStyles: [], // 目前样式在 shadow dom head 统一管理，这里暂不存特定样式
+                                 resourceRefs: [], // 可以在 process 过程中收集
+                                 meta: {
+                                     lastAccessTime: Date.now(),
+                                     sizeBytes: htmlContent.length * 2,
+                                     createdAt: Date.now(),
+                                     sectionId: section.id
+                                 }
+                             };
+                             mobiCacheService.sectionCache.setSection(entry);
+                             mobiCacheService.saveSectionToDB(entry); // 异步保存
+                        } else {
+                            htmlContent = rawHtml;
+                        }
+
+                        // 记录原始 blob url (如果是直接加载的)
+                        if (url.startsWith('blob:')) {
+                            blobUrls.add(url);
+                        }
+                    }
+                }
+
+                // 3. 渲染内容
+                if (htmlContent) {
+                    // 如果来自缓存(或经过处理)，需要恢复资源 URL
+                    if (bookId && (fromCache || htmlContent.includes(RESOURCE_PREFIX))) {
+                        htmlContent = await _restoreResources(htmlContent, bookId);
+                    }
+                    sectionEl.innerHTML = htmlContent;
+                    
+                    if (Date.now() - start > 100) {
+                        // console.log(`[MobiRenderer] Section ${sectionIndex} rendered in ${Date.now() - start}ms (cache: ${fromCache})`);
                     }
                 }
 
                 bodyEl.appendChild(sectionEl);
 
-                // 如果不是最后一个章节，添加分割线
-                if (section !== validSections[validSections.length - 1]) {
+                // 添加分割线
+                if (i < count - 1) {
                     const divider = document.createElement('div');
                     divider.className = 'mobi-divider';
                     bodyEl.appendChild(divider);
                 }
+
             } catch (error) {
-                await logError(`[MobiRenderer] 章节加载失败: ${section.id}`, {
+                await logError(`[MobiRenderer] 章节加载失败: ${i}`, {
                     error: String(error),
                 }).catch(() => { });
             }
@@ -260,9 +451,11 @@ export function useMobiRender(context: MobiRenderContext): MobiRenderHook {
         container: HTMLElement,
         options?: RenderOptions
     ): Promise<void> => {
-        const book = context.book;
-        if (!book) {
-            throw new Error('文档未加载');
+        // 不再强制检查 context.book，允许 lazy load
+        // if (!context.book) { throw new Error('文档未加载'); }
+        if (!bookId && !context.book) {
+             // 如果连 bookId 都没有，那确实无法渲染
+             throw new Error('文档未就绪');
         }
 
         // 清理容器
@@ -413,7 +606,7 @@ export function useMobiRender(context: MobiRenderContext): MobiRenderHook {
         // 恢复阅读位置
         const initialPage = options?.initialVirtualPage;
         if (typeof initialPage === 'number' && initialPage > 0) {
-            const pageCount = book.sections?.filter(s => s.linear !== 'no').length || 1;
+            const pageCount = sectionCount || context.book?.sections?.filter(s => s.linear !== 'no').length || 1;
             _restorePosition(initialPage, host, shadowRoot, pageCount);
         } else {
             requestAnimationFrame(() => {
