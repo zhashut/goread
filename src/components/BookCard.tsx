@@ -68,22 +68,12 @@ export const BookCard: React.FC<CommonBookCardProps> = ({
   }
   // 判断文件格式
   const format = getBookFormat(book.file_path);
-  const isVirtualPageFormat = format === "markdown" || format === "html";
-  const isTxt = format === "txt";
+  const baseProgress = book.precise_progress ?? book.current_page;
+  const totalPages = book.total_pages || 0;
+  const hasPagination = totalPages > 1;
+  const hasReadRecord = !!book.last_read_time;
 
-  const baseProgress = isTxt
-    ? (book.precise_progress ?? book.current_page)
-    : book.current_page;
-
-  // 判断是否未读：
-  // - 对于虚拟页格式(md/html)：使用 last_read_time 判断，因为 total_pages 始终为 1
-  // - 对于 TXT：使用 last_read_time 判断，避免未分页时被视为已读 100%
-  // - 对于其他格式：current_page <= 1 且不是单页书籍
-  const isUnread = isTxt
-    ? !book.last_read_time
-    : isVirtualPageFormat
-      ? !book.last_read_time
-      : baseProgress <= 1 && book.total_pages > 1;
+  const isUnread = hasPagination ? baseProgress <= 1 : !hasReadRecord;
 
   // 计算进度：
   // - 未读时显示 0%

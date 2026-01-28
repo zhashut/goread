@@ -18,10 +18,10 @@ export const useBooksData = (query: string) => {
             // 明确检查 undefined，允许 0 (不限)
             const recentCount = settings.recentDisplayCount !== undefined ? settings.recentDisplayCount : 9;
             if (recentCount === 0) {
-                // 不限制数量时，获取所有有阅读记录的书籍
+                // 不限制数量时，获取所有在「最近」列表中的书籍（以 recent_order 为准）
                 const allBooks = await bookService.getAllBooks();
                 list = (allBooks || [])
-                    .filter((b) => (b.last_read_time || 0) > 0)
+                    .filter((b) => (b.recent_order ?? 0) > 0)
                     .sort((a, b) => {
                         // 先按 recent_order 排序（值大的在前），再按 last_read_time 排序
                         const orderA = a.recent_order ?? 0;
@@ -38,7 +38,7 @@ export const useBooksData = (query: string) => {
                 } catch {
                     const allBooks = await bookService.getAllBooks();
                     list = (allBooks || [])
-                        .filter((b) => (b.last_read_time || 0) > 0)
+                        .filter((b) => (b.recent_order ?? 0) > 0)
                         .sort((a, b) => {
                             const orderA = a.recent_order ?? 0;
                             const orderB = b.recent_order ?? 0;

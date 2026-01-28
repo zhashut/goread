@@ -312,10 +312,11 @@ pub async fn get_all_books(db: DbState<'_>) -> Result<Vec<Book>, Error> {
 pub async fn get_recent_books(limit: u32, db: DbState<'_>) -> Result<Vec<Book>, Error> {
     let pool = db.lock().await;
 
-    // 按 recent_order 排序，recent_order 为空的排在最后，再按 last_read_time 倒序
+    // 仅根据 recent_order 维护最近阅读列表，last_read_time 用于排序兜底
+    // 这样在清除最近记录时可以保留 last_read_time，不影响已读状态展示
     let books = sqlx::query_as::<_, Book>(
-        "SELECT * FROM books WHERE last_read_time IS NOT NULL 
-         ORDER BY recent_order IS NULL, recent_order DESC, last_read_time DESC LIMIT ?",
+        "SELECT * FROM books WHERE recent_order IS NOT NULL 
+         ORDER BY recent_order DESC, last_read_time DESC LIMIT ?",
     )
     .bind(limit as i64)
     .fetch_all(&*pool)
@@ -538,7 +539,9 @@ pub async fn delete_book(
 #[tauri::command]
 pub async fn clear_recent_read_record(id: i64, db: DbState<'_>) -> Result<(), Error> {
     let pool = db.lock().await;
-    sqlx::query("UPDATE books SET last_read_time = NULL, recent_order = NULL WHERE id = ?")
+    // 仅清除 recent_order，将书籍从「最近」列表中移除
+    // last_read_time 保留用于判断是否有阅读记录，避免影响已读状态展示
+    sqlx::query("UPDATE books SET recent_order = NULL WHERE id = ?")
         .bind(id)
         .execute(&*pool)
         .await?;

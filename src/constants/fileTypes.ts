@@ -43,7 +43,7 @@ export const FORMAT_DISPLAY_NAMES: Partial<Record<BookFormat, string>> = {
 export const SCAN_SUPPORTED_FORMATS: BookFormat[] = ['pdf', 'epub', 'markdown', 'html', 'txt'];
 
 /** 默认选中的扫描格式 */
-export const DEFAULT_SCAN_FORMATS: BookFormat[] = ['pdf', 'epub', 'markdown', 'html'];
+export const DEFAULT_SCAN_FORMATS: BookFormat[] = ['pdf', 'epub', 'markdown', 'html', 'txt'];
 
 /** 格式颜色配置（当前支持的格式） */
 export const FORMAT_COLORS: Record<BookFormat, string> = {
