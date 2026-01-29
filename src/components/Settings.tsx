@@ -125,11 +125,12 @@ export const Settings: React.FC = () => {
   return (
     <div
       style={{
-        minHeight: "100vh",
+        height: "100vh",
         backgroundColor: "#fafafa",
         display: "flex",
         flexDirection: "column",
         paddingBottom: getSafeAreaInsets().bottom,
+        overflow: "hidden",
       }}
     >
       {/* Tooltip Backdrop */}
@@ -153,16 +154,23 @@ export const Settings: React.FC = () => {
         onBack={goBack}
         style={{ boxShadow: "0 1px 6px rgba(0,0,0,0.08)" }}
       />
-
       <div
+        className="no-scrollbar"
         style={{
-          backgroundColor: "#fff",
-          borderRadius: "8px",
-          padding: "4px 16px",
-          margin: "16px",
-          boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+          flex: 1,
+          overflowY: "auto",
+          WebkitOverflowScrolling: "touch",
         }}
       >
+        <div
+          style={{
+            backgroundColor: "#fff",
+            borderRadius: "8px",
+            padding: "4px 16px",
+            margin: "16px",
+            boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+          }}
+        >
         <Row
           label={t('volumeKeyTurnPage')}
           right={
@@ -473,7 +481,7 @@ export const Settings: React.FC = () => {
           }
         />
 
-        <div style={{ padding: "12px 0" }}>
+          <div style={{ padding: "12px 0" }}>
           <div
             style={{
               display: "flex",
@@ -516,7 +524,7 @@ export const Settings: React.FC = () => {
           })()}
         </div>
 
-        <div style={{ padding: "12px 0" }}>
+          <div style={{ padding: "12px 0" }}>
           <div
             style={{
               display: "flex",
@@ -557,6 +565,7 @@ export const Settings: React.FC = () => {
               />
             );
           })()}
+          </div>
         </div>
       </div>
       {toastMessage && (

@@ -14,6 +14,9 @@ interface TopBarProps {
 export const TopBar: React.FC<TopBarProps> = ({ visible, bookTitle, onBack, isFinished, onToggleFinish }) => {
   const { t } = useTranslation('reader');
   
+  // 去除书名中的文件后缀
+  const displayTitle = bookTitle?.replace(/\.(txt|epub|pdf|mobi|azw3?|fb2|cbz|cbr|djvu|html?|md)$/i, '');
+  
   if (!visible) return null;
 
   return (
@@ -78,7 +81,7 @@ export const TopBar: React.FC<TopBarProps> = ({ visible, bookTitle, onBack, isFi
           margin: "0 4px",
         }}
       >
-        {bookTitle}
+        {displayTitle}
       </div>
       
       {/* 右侧标记已读按钮 */}
