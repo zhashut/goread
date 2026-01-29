@@ -1,6 +1,5 @@
 import { useRef, useEffect, useCallback } from "react";
 import { MarkdownRenderer } from "../../../services/formats/markdown/MarkdownRenderer";
-import { MobiRenderer } from "../../../services/formats/mobi/MobiRenderer";
 import { IBookRenderer } from "../../../services/formats";
 import { bookService } from "../../../services";
 import { TocNode } from "../../reader/types";
@@ -19,8 +18,8 @@ const isDomPaginationRenderer = (
     renderer: IBookRenderer | null
 ): renderer is DomPaginationRenderer => {
     if (!renderer) return false;
+    // MOBI 的页码由内部滚动监听驱动，不走通用 DOM 分页逻辑
     if (renderer instanceof MarkdownRenderer) return true;
-    if (renderer instanceof MobiRenderer) return true;
     return false;
 };
 

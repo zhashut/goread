@@ -21,6 +21,7 @@ export interface MobiRenderContext {
     onPageChange?: (page: number) => void;
     onTocChange?: (anchor: string) => void;
     onPositionRestored?: () => void;
+    onScrollActivity?: () => void;
 }
 
 export interface MobiRenderState {
@@ -38,7 +39,7 @@ export interface MobiRenderHook {
 
 export function useMobiRender(context: MobiRenderContext): MobiRenderHook {
     // 从 Context 中解构需要的属性
-    const { themeHook, onPageChange, onTocChange, onPositionRestored, bookId, sectionCount, ensureBookLoaded } = context;
+    const { themeHook, onPageChange, onTocChange, onPositionRestored, onScrollActivity, bookId, sectionCount, ensureBookLoaded } = context;
 
     const state: MobiRenderState = {
         currentVirtualPage: 1,
@@ -446,7 +447,12 @@ export function useMobiRender(context: MobiRenderContext): MobiRenderHook {
                 state.currentVirtualPage = virtualPage;
 
                 if (onPageChange) {
-                    onPageChange(virtualPage);
+                    onPageChange(preciseProgress);
+                }
+                
+                // 通知滚动活跃状态，用于阅读时长统计
+                if (onScrollActivity) {
+                    onScrollActivity();
                 }
             }
         };

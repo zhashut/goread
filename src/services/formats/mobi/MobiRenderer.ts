@@ -72,6 +72,9 @@ export class MobiRenderer implements IBookRenderer {
       },
       onPositionRestored: () => {
         if (this.onPositionRestored) this.onPositionRestored();
+      },
+      onScrollActivity: () => {
+        if (this.onScrollActivity) this.onScrollActivity();
       }
     };
     
@@ -216,6 +219,7 @@ export class MobiRenderer implements IBookRenderer {
   onPageChange?: (page: number) => void;
   onTocChange?: (anchor: string) => void;
   onPositionRestored?: () => void;
+  onScrollActivity?: () => void;
 }
 
 // 注册 MOBI 渲染器

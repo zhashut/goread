@@ -55,11 +55,17 @@ export const useNavigation = ({
             if (pageNum < 1 || pageNum > totalPages) return;
 
             markReadingActive();
-            setCurrentPage(pageNum);
+
+            // 对于 Mobi 格式，页码由内部滚动监听驱动的 onPageChange 回调统一更新
+            // 其他格式需要提前设置页码
+            const renderer = rendererRef.current;
+            const isMobi = renderer && renderer instanceof MobiRenderer;
+            if (!isMobi) {
+                setCurrentPage(pageNum);
+            }
 
             try {
                 if (isDomRender) {
-                    const renderer = rendererRef.current;
                     if (renderer && renderer instanceof MarkdownRenderer) {
                         const scrollContainer = renderer.getScrollContainer();
                         if (scrollContainer) {
@@ -94,7 +100,8 @@ export const useNavigation = ({
                     predictor.recordPageVisit(pageNum);
                 }
 
-                if (!isExternal && book) {
+                // Mobi 格式的进度由 onPageChange 回调保存，避免重复写入
+                if (!isExternal && book && !isMobi) {
                     bookService.updateBookProgress(book.id, pageNum).catch(() => { });
                 }
             } catch (e) {

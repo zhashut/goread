@@ -174,6 +174,16 @@ export const useInitReader = ({
                             domRestoreDoneRef.current = true;
                             setContentReady(true);
                         };
+                        // MOBI 页码由内部滚动监听驱动，通过 onPageChange 统一更新 UI 和进度
+                        renderer.onPageChange = (p: number) => {
+                            const pageInt = Math.floor(p);
+                            setCurrentPage(pageInt);
+                            if (!isExternal && book) {
+                                bookService.updateBookProgress(book.id, p).catch(() => { });
+                            }
+                        };
+                        // 滚动活跃回调，用于更新阅读时长统计
+                        renderer.onScrollActivity = markReadingActive;
                     }
 
                     // 设置首屏渲染完成回调
