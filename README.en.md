@@ -70,11 +70,12 @@ You can consolidate e‑books scattered across different folders, organize them 
 - [x] PDF
 - [x] Markdown
 - [x] EPUB
-- [ ] MOBI
+- [x] MOBI
+- [x] TXT
+- [x] HTML
 - [ ] AZW3
 - [ ] FB2
-- [x] HTML
-- [ ] Comics
+- [ ] 漫画本
 
 ---
 
@@ -159,10 +160,11 @@ npm run tauri ios dev
 
 ```bash
 # Build Android packages (APK/AAB)
-npm run tauri android build
+npm run tauri android build -- --target aarch64
 
 # Build iOS packages (IPA)
-npm run tauri ios build
+# Option: app-store, ad-hoc, enterprise, development
+npm run tauri ios build -- --export-method development
 ```
 
 To generate a signing key for Android, you can use a command similar to:

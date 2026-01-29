@@ -67,10 +67,11 @@ GoRead 聚焦「本地电子书管理与沉浸式阅读」，不依赖云端账�
 - [x] PDF
 - [x] Markdown
 - [x] EPUB
-- [ ] MOBI
+- [x] MOBI
+- [x] TXT
+- [x] HTML
 - [ ] AZW3
 - [ ] FB2
-- [x] HTML
 - [ ] 漫画本
 
 ---
@@ -156,10 +157,11 @@ npm run tauri ios dev
 
 ```bash
 # 构建 Android 安装包（APK/AAB）
-npm run tauri android build
+npm run tauri android build -- --target aarch64
 
 # 构建 iOS 安装包（IPA）
-npm run tauri ios build
+# 选项: app-store, ad-hoc, enterprise, development
+npm run tauri ios build -- --export-method development
 ```
 
 如需为 Android 生成签名密钥，可参考如下命令：
