@@ -4,6 +4,8 @@ import { bookService, statsService, logError } from "../../../services";
 import { MarkdownRenderer } from "../../../services/formats/markdown/MarkdownRenderer";
 import { MobiRenderer } from "../../../services/formats/mobi/MobiRenderer";
 import { EpubRenderer } from "../../../services/formats/epub/EpubRenderer";
+import { HtmlRenderer } from "../../../services/formats/html/HtmlRenderer";
+import { TxtRenderer } from "../../../services/formats/txt/TxtRenderer";
 import { useReaderState } from "./useReaderState";
 import { usePageRenderer } from "./usePageRenderer";
 import { useToc } from "./useToc";
@@ -46,27 +48,45 @@ export const useNavigation = ({
         isDomRender,
         book,
         setBook,
+        latestPreciseProgressRef,
     } = readerState;
     const { verticalCanvasRefs, rendererRef } = refs;
     const { readingMode, isExternal, markReadingActive } = data;
 
     const goToPage = useCallback(
         async (pageNum: number) => {
-            if (pageNum < 1 || pageNum > totalPages) return;
+            // 提取整数页码，用于边界检查和 currentPage 更新
+            const intPage = Math.floor(pageNum);
+            if (intPage < 1 || intPage > totalPages) return;
 
             markReadingActive();
 
             // 对于 Mobi 格式，页码由内部滚动监听驱动的 onPageChange 回调统一更新
-            // 其他格式需要提前设置页码
+            // 其他格式需要提前设置页码（使用整数部分）
             const renderer = rendererRef.current;
             const isMobi = renderer && renderer instanceof MobiRenderer;
+            const isEpub = renderer && renderer instanceof EpubRenderer;
+            const isTxt = renderer && renderer instanceof TxtRenderer;
+
+            // TXT 纵向模式：先更新精确进度，再更新整数页码
+            // 这样 useTxtPaging 的 useEffect 能拿到正确的精确进度
+            if (isTxt && (renderer as TxtRenderer).isVerticalMode() && latestPreciseProgressRef) {
+                latestPreciseProgressRef.current = pageNum;
+            }
+
             if (!isMobi) {
-                setCurrentPage(pageNum);
+                setCurrentPage(intPage);
             }
 
             try {
                 if (isDomRender) {
                     if (renderer && renderer instanceof MarkdownRenderer) {
+                        const scrollContainer = renderer.getScrollContainer();
+                        if (scrollContainer) {
+                            const viewportHeight = scrollContainer.clientHeight;
+                            renderer.scrollToVirtualPage(pageNum, viewportHeight);
+                        }
+                    } else if (renderer && renderer instanceof HtmlRenderer) {
                         const scrollContainer = renderer.getScrollContainer();
                         if (scrollContainer) {
                             const viewportHeight = scrollContainer.clientHeight;
@@ -79,30 +99,46 @@ export const useNavigation = ({
                             renderer.scrollToVirtualPage(pageNum, viewportHeight);
                         }
                     } else if (renderer && renderer instanceof EpubRenderer) {
+                        // 传递完整的浮点数进度，渲染器内部处理精确位置恢复
                         await renderer.goToPage(pageNum);
+                    } else if (renderer && renderer instanceof TxtRenderer) {
+                        // TXT 纵向模式使用精确进度定位
+                        if (renderer.isVerticalMode()) {
+                            // 先更新精确进度，避免 useTxtPaging 的 useEffect 覆盖
+                            renderer.updatePreciseProgress(pageNum);
+                            const scrollContainer = renderer.getScrollContainer();
+                            if (scrollContainer) {
+                                const viewportHeight = scrollContainer.clientHeight;
+                                renderer.scrollToVirtualPage(pageNum, viewportHeight);
+                            }
+                        } else {
+                            // 横向模式使用整数页码
+                            await renderer.goToPage(intPage);
+                        }
                     }
                 } else if (readingMode === "horizontal") {
                     // 强制渲染，因为是主动跳转
-                    await pageRenderer.renderPage(pageNum, true);
+                    await pageRenderer.renderPage(intPage, true);
                 } else {
                     // 纵向模式
-                    const target = verticalCanvasRefs.current.get(pageNum);
+                    const target = verticalCanvasRefs.current.get(intPage);
                     if (target) {
                         target.scrollIntoView({ behavior: "auto", block: "start" });
                     }
-                    if (!pageRenderer.renderedPagesRef.current.has(pageNum)) {
-                        await pageRenderer.renderPageToTarget(pageNum, target || null);
+                    if (!pageRenderer.renderedPagesRef.current.has(intPage)) {
+                        await pageRenderer.renderPageToTarget(intPage, target || null);
                     }
                 }
 
                 const predictor = pageRenderer.getSmartPredictor();
                 if (predictor) {
-                    predictor.recordPageVisit(pageNum);
+                    predictor.recordPageVisit(intPage);
                 }
 
                 // Mobi 格式的进度由 onPageChange 回调保存，避免重复写入
-                if (!isExternal && book && !isMobi) {
-                    bookService.updateBookProgress(book.id, pageNum).catch(() => { });
+                // EPUB 格式在精确进度恢复时，进度由渲染器内部回调更新
+                if (!isExternal && book && !isMobi && !isEpub) {
+                    bookService.updateBookProgress(book.id, intPage).catch(() => { });
                 }
             } catch (e) {
                 await logError('页面跳转失败', { error: String(e), pageNum });

@@ -315,8 +315,8 @@ pub async fn get_recent_books(limit: u32, db: DbState<'_>) -> Result<Vec<Book>, 
     // 仅根据 recent_order 维护最近阅读列表，last_read_time 用于排序兜底
     // 这样在清除最近记录时可以保留 last_read_time，不影响已读状态展示
     let books = sqlx::query_as::<_, Book>(
-        "SELECT * FROM books WHERE recent_order IS NOT NULL 
-         ORDER BY recent_order DESC, last_read_time DESC LIMIT ?",
+        "SELECT * FROM books WHERE last_read_time IS NOT NULL 
+         ORDER BY recent_order IS NULL, recent_order DESC, last_read_time DESC LIMIT ?",
     )
     .bind(limit as i64)
     .fetch_all(&*pool)

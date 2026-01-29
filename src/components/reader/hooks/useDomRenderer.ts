@@ -1,5 +1,6 @@
 import { useRef, useEffect, useCallback } from "react";
 import { MarkdownRenderer } from "../../../services/formats/markdown/MarkdownRenderer";
+import { HtmlRenderer } from "../../../services/formats/html/HtmlRenderer";
 import { IBookRenderer } from "../../../services/formats";
 import { bookService } from "../../../services";
 import { TocNode } from "../../reader/types";
@@ -20,6 +21,7 @@ const isDomPaginationRenderer = (
     if (!renderer) return false;
     // MOBI 的页码由内部滚动监听驱动，不走通用 DOM 分页逻辑
     if (renderer instanceof MarkdownRenderer) return true;
+    if (renderer instanceof HtmlRenderer) return true;
     return false;
 };
 
@@ -246,6 +248,57 @@ export const useDomRenderer = ({
                                 if (found) {
                                     const sig = `${found.title}|-1|${found.level}`;
                                     if (sig !== activeNodeSignature) setActiveNodeSignature(sig);
+                                }
+                            }
+                        }
+                        
+                        // HTML 格式目录高亮处理
+                        if (renderer instanceof HtmlRenderer) {
+                            const shadowRoot = (renderer as any)._shadowRoot as ShadowRoot | null;
+                            if (shadowRoot) {
+                                const centerY = scrollContainer.scrollTop + scrollContainer.clientHeight * 0.5;
+                                const headings = Array.from(
+                                    shadowRoot.querySelectorAll("h1,h2,h3,h4,h5,h6")
+                                ) as HTMLElement[];
+                                
+                                if (headings.length > 0) {
+                                    let bestIdx = 0;
+                                    let bestDist = Infinity;
+                                    for (let i = 0; i < headings.length; i++) {
+                                        const h = headings[i];
+                                        const top = h.offsetTop;
+                                        const bottom = top + h.offsetHeight;
+                                        const dist =
+                                            centerY >= top && centerY <= bottom
+                                                ? 0
+                                                : Math.min(
+                                                    Math.abs(centerY - top),
+                                                    Math.abs(centerY - bottom)
+                                                );
+                                        if (dist < bestDist) {
+                                            bestDist = dist;
+                                            bestIdx = i;
+                                        }
+                                    }
+                                    const anchor = `html-heading-${bestIdx}`;
+                                    const findByAnchor = (
+                                        nodes: TocNode[],
+                                        level: number
+                                    ): { title: string; level: number } | null => {
+                                        for (const n of nodes) {
+                                            if (n.anchor === anchor) return { title: n.title, level };
+                                            if (n.children) {
+                                                const r = findByAnchor(n.children, level + 1);
+                                                if (r) return r;
+                                            }
+                                        }
+                                        return null;
+                                    };
+                                    const found = findByAnchor(toc, 0);
+                                    if (found) {
+                                        const sig = `${found.title}|-1|${found.level}`;
+                                        if (sig !== activeNodeSignature) setActiveNodeSignature(sig);
+                                    }
                                 }
                             }
                         }

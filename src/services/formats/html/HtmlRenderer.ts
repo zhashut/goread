@@ -21,7 +21,7 @@ export class HtmlRenderer implements IBookRenderer {
   readonly capabilities: RendererCapabilities = {
     supportsBitmap: false,
     supportsDomRender: true,
-    supportsPagination: false, // Single page scroll
+    supportsPagination: false, // 虚拟分页通过滚动实现
     supportsSearch: true,
   };
 
@@ -30,6 +30,17 @@ export class HtmlRenderer implements IBookRenderer {
   private _title = '';
   private _toc: TocItem[] = [];
   private _currentContainer: HTMLElement | null = null;
+  
+  // 虚拟分页相关
+  private _currentPreciseProgress: number = 1;
+  private _shadowRoot: ShadowRoot | null = null;
+  private _scrollHost: HTMLElement | null = null;
+
+  /** 位置恢复完成回调 */
+  onPositionRestored?: () => void;
+  
+  /** 目录变更回调（用于高亮当前章节） */
+  onTocChange?: (anchor: string) => void;
 
   get isReady(): boolean {
     return this._isReady;
@@ -46,7 +57,7 @@ export class HtmlRenderer implements IBookRenderer {
     this._title = result.title || this.extractFileName(filePath);
     this._isReady = true;
 
-    // Parse TOC
+    // 解析目录
     this._toc = this.parseToc(this._content);
 
     return {
@@ -70,10 +81,10 @@ export class HtmlRenderer implements IBookRenderer {
 
     this._currentContainer = container;
 
-    // Clear container
+    // 清空容器
     container.innerHTML = '';
     
-    // Create host for Shadow DOM
+    // 创建 Shadow DOM 宿主
     const host = document.createElement('div');
     host.className = 'html-renderer-host';
     host.style.width = '100%';
@@ -81,27 +92,24 @@ export class HtmlRenderer implements IBookRenderer {
     host.style.display = 'block';
     container.appendChild(host);
 
-    // Attach Shadow DOM to isolate styles
+    // 创建 Shadow DOM 隔离样式
     const shadow = host.attachShadow({ mode: 'open' });
 
-    // Parse the HTML content
+    // 解析 HTML 内容
     const parser = new DOMParser();
     const doc = parser.parseFromString(this._content, 'text/html');
 
-    // Extract and process styles
+    // 提取并处理样式
     let styleContent = '';
     const styleNodes = doc.querySelectorAll('style');
     styleNodes.forEach(style => {
-      // Replace 'body' selector with '.html-body' and 'html' with ':host' to ensure styles apply within Shadow DOM
-      // We use a regex that looks for 'body'/'html' at the start of string or preceded by whitespace/comma/brace
-      // and followed by whitespace/comma/brace/pseudo-class
       let css = style.textContent || '';
       css = css.replace(/(^|[\s,])html(?=[\s,{:])/gi, '$1:host');
       css = css.replace(/(^|[\s,])body(?=[\s,{:])/gi, '$1.html-body');
       styleContent += css + '\n';
     });
 
-    // Default styles for better reading experience (GitHub-like theme)
+    // 默认样式（GitHub 风格）
     const defaultStyles = `
       :host {
         display: block;
@@ -255,11 +263,7 @@ export class HtmlRenderer implements IBookRenderer {
       }
     `;
 
-    // Construct Shadow DOM content
-    // 1. Default Styles
-    // 2. Document Styles (Processed)
-    // 3. Document Body Content (Wrapped)
-    
+    // 构建 Shadow DOM 内容
     shadow.innerHTML = `
       <style>
         ${defaultStyles}
@@ -270,14 +274,128 @@ export class HtmlRenderer implements IBookRenderer {
       </div>
     `;
 
-    // Handle scroll on the host (or let internal overflow handle it)
-    // We set overflow-y: auto on :host, so the Shadow Host scrolls.
-    // The container should not scroll.
+    // 为标题元素添加唯一 ID（用于目录定位）
+    const headings = shadow.querySelectorAll('h1, h2, h3, h4, h5, h6');
+    headings.forEach((heading, index) => {
+      heading.id = `html-heading-${index}`;
+    });
+
+    // 保存引用
+    this._shadowRoot = shadow;
+    this._scrollHost = host;
+
+    // 容器禁用滚动，由 Shadow Host 内部滚动
     container.style.overflow = 'hidden';
 
     if (options?.fontSize) {
-      // Apply font size to the host
       host.style.fontSize = `${options.fontSize}px`;
+    }
+
+    // 位置恢复逻辑
+    const initialProgress = options?.initialVirtualPage;
+    if (typeof initialProgress === 'number' && initialProgress > 1) {
+      this._restorePosition(initialProgress, host);
+    } else {
+      requestAnimationFrame(() => {
+        this.onPositionRestored?.();
+      });
+    }
+  }
+
+  /**
+   * 获取滚动容器
+   */
+  getScrollContainer(): HTMLElement | null {
+    return this._scrollHost;
+  }
+
+  /**
+   * 计算虚拟页数
+   */
+  calculateVirtualPages(viewportHeight: number): number {
+    const scrollContainer = this.getScrollContainer();
+    if (!scrollContainer || !this._shadowRoot) return 1;
+    
+    const contentHeight = scrollContainer.scrollHeight;
+    return Math.max(1, Math.ceil(contentHeight / viewportHeight));
+  }
+
+  /**
+   * 获取当前虚拟页码
+   */
+  getCurrentVirtualPage(scrollTop: number, viewportHeight: number): number {
+    const scrollContainer = this.getScrollContainer();
+    if (!scrollContainer) return 1;
+    
+    const contentHeight = scrollContainer.scrollHeight;
+    const totalPages = Math.max(1, Math.ceil(contentHeight / viewportHeight));
+    const maxScrollTop = Math.max(0, contentHeight - viewportHeight);
+    
+    // 计算精确进度
+    if (maxScrollTop > 0 && totalPages > 1) {
+      const scrollRatio = Math.max(0, Math.min(1, scrollTop / maxScrollTop));
+      this._currentPreciseProgress = 1 + scrollRatio * (totalPages - 1);
+    } else {
+      this._currentPreciseProgress = 1;
+    }
+    
+    // 接近底部时返回最后一页
+    if (maxScrollTop > 0 && scrollTop >= maxScrollTop - 10) {
+      return totalPages;
+    }
+    
+    return Math.min(totalPages, Math.floor(scrollTop / viewportHeight) + 1);
+  }
+
+  /**
+   * 获取精确进度（浮点数）
+   */
+  getPreciseProgress(): number {
+    return this._currentPreciseProgress;
+  }
+
+  /**
+   * 滚动到指定虚拟页
+   */
+  scrollToVirtualPage(page: number, viewportHeight: number): void {
+    const scrollContainer = this.getScrollContainer();
+    if (!scrollContainer) return;
+    
+    const scrollHeight = scrollContainer.scrollHeight;
+    const maxScrollTop = Math.max(0, scrollHeight - viewportHeight);
+    
+    if (maxScrollTop <= 0) {
+      scrollContainer.scrollTo({ top: 0, behavior: 'auto' });
+      this._currentPreciseProgress = 1;
+      return;
+    }
+    
+    const totalPages = Math.max(1, Math.ceil(scrollHeight / viewportHeight));
+    const clampedPage = Math.max(1, Math.min(page, totalPages));
+    
+    const scrollRatio = (clampedPage - 1) / (totalPages - 1);
+    const targetScroll = scrollRatio * maxScrollTop;
+    
+    scrollContainer.scrollTo({ top: targetScroll, behavior: 'auto' });
+    this._currentPreciseProgress = clampedPage;
+  }
+
+  /**
+   * 跳转到指定锚点（目录点击）
+   */
+  scrollToAnchor(anchor: string): void {
+    const scrollContainer = this.getScrollContainer();
+    if (!scrollContainer || !this._shadowRoot) return;
+    
+    const heading = this._shadowRoot.getElementById(anchor);
+    if (heading) {
+      // 预留顶部空间（TopBar 约 60px + 20px 间距）
+      const top = heading.offsetTop - 80;
+      
+      const originalBehavior = scrollContainer.style.scrollBehavior;
+      scrollContainer.style.scrollBehavior = 'auto';
+      scrollContainer.scrollTop = Math.max(0, top);
+      scrollContainer.style.scrollBehavior = originalBehavior;
     }
   }
 
@@ -286,28 +404,17 @@ export class HtmlRenderer implements IBookRenderer {
   }
 
   async goToPage(page: number): Promise<void> {
-    // Single page, nothing to do unless we support anchors
     if (page !== 1) return;
   }
 
   async searchText(query: string, _options?: { caseSensitive?: boolean }): Promise<SearchResult[]> {
-    // Simple text search in content
     const results: SearchResult[] = [];
     if (!query || query.length < 2) return results;
-
-    // Use browser's find capability or manual search?
-    // Since we injected HTML, we can search in DOM?
-    // But this method might be called when not rendered?
-    // Interface says returns SearchResult.
-    
-    // Naive implementation searching in raw content string (stripping tags would be better)
-    // For now return empty as placeholder
     return [];
   }
 
   async extractText(page: number): Promise<string> {
     if (page !== 1) return '';
-    // Strip HTML tags
     const tmp = document.createElement('div');
     tmp.innerHTML = this._content;
     return tmp.textContent || tmp.innerText || '';
@@ -320,16 +427,9 @@ export class HtmlRenderer implements IBookRenderer {
     }
     this._content = '';
     this._isReady = false;
-  }
-
-  // Helper for virtual scrolling (used by Reader for "vertical" mode progress)
-  // This might be called by Reader.tsx via type assertion
-  scrollToVirtualPage(_page: number, _viewportHeight: number): void {
-     // HTML is single page, so this logic might depend on how we map "pages" to scroll position
-     // For now, do nothing or scroll to top
-     if (this._currentContainer) {
-       this._currentContainer.scrollTop = 0;
-     }
+    this._shadowRoot = null;
+    this._scrollHost = null;
+    this._currentPreciseProgress = 1;
   }
 
   onPageChange?: (page: number) => void;
@@ -339,6 +439,9 @@ export class HtmlRenderer implements IBookRenderer {
     return parts[parts.length - 1];
   }
 
+  /**
+   * 解析目录，为标题生成唯一锚点 ID
+   */
   private parseToc(content: string): TocItem[] {
     const parser = new DOMParser();
     const doc = parser.parseFromString(content, 'text/html');
@@ -346,27 +449,49 @@ export class HtmlRenderer implements IBookRenderer {
     const toc: TocItem[] = [];
     
     headers.forEach((header, index) => {
-      // Create a unique ID for anchor if not exists
-      let id = header.id;
-      if (!id) {
-        id = `header-${index}`;
-        // Note: we are not modifying the source content string here, 
-        // so these IDs won't exist in the rendered HTML unless we modify it before render.
-        // For now, let's just extract titles.
-      }
+      // 生成唯一 ID 作为锚点
+      const headingId = `html-heading-${index}`;
 
       toc.push({
         title: header.textContent || '',
         level: parseInt(header.tagName.substring(1)),
-        location: 1, // Page 1
+        location: headingId, // 使用锚点字符串作为 location
       });
     });
     
     return toc;
   }
+
+  /**
+   * 位置恢复辅助方法
+   */
+  private _restorePosition(progress: number, _container: HTMLElement): void {
+    let attempts = 0;
+    const maxAttempts = 50;
+    
+    const tryRestore = () => {
+      const scrollContainer = this.getScrollContainer();
+      if (scrollContainer) {
+        const vh = scrollContainer.clientHeight;
+        const sh = scrollContainer.scrollHeight;
+        if (vh > 0 && sh > vh) {
+          this.scrollToVirtualPage(progress, vh);
+          this.onPositionRestored?.();
+          return;
+        }
+      }
+      attempts++;
+      if (attempts < maxAttempts) {
+        setTimeout(tryRestore, 100);
+      } else {
+        this.onPositionRestored?.();
+      }
+    };
+    setTimeout(tryRestore, 150);
+  }
 }
 
-// Register HTML renderer
+// 注册 HTML 渲染器
 registerRenderer({
   format: 'html',
   extensions: ['.html', '.htm'],

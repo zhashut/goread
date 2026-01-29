@@ -600,17 +600,30 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
 
   /**
    * 跳转到指定页面
+   * 支持精确进度：page 可以是浮点数，整数部分表示章节，小数部分表示章节内偏移
    */
   const goToPage = async (page: number): Promise<void> => {
-    if (page < 1 || page > sectionCount) return;
+    // 提取整数页码和章节内偏移
+    const intPage = Math.floor(page);
+    const offsetRatio = page - intPage;
+    
+    if (intPage < 1 || intPage > sectionCount) return;
 
-    const targetWrapper = state.sectionContainers.get(page - 1);
+    const targetWrapper = state.sectionContainers.get(intPage - 1);
     if (targetWrapper) {
       state.isNavigating = true;
 
       // 使用立即滚动代替平滑滚动，避免中间章节被渲染
       targetWrapper.scrollIntoView({ behavior: 'auto', block: 'start' });
-      state.currentPage = page;
+      
+      // 应用章节内偏移
+      if (offsetRatio > 0 && state.scrollContainer) {
+        const sectionHeight = targetWrapper.scrollHeight;
+        const offsetPx = sectionHeight * offsetRatio;
+        state.scrollContainer.scrollTop += offsetPx;
+      }
+      
+      state.currentPage = intPage;
       state.currentPreciseProgress = page;
 
       // 立即滚动完成较快，300ms 足够
@@ -618,7 +631,7 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
         state.isNavigating = false;
 
         // 导航完成后主动渲染目标章节及邻近章节
-        ensureSectionsRendered(page - 1);
+        ensureSectionsRendered(intPage - 1);
 
         if (context.onPageChange) {
           context.onPageChange(page);

@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { UNDO_JUMP_VISIBLE_DURATION_MS } from '../../../constants/config';
 
-interface UndoJumpState {
+export interface UndoJumpState {
   active: boolean;
-  fromPage: number;
-  toPage: number;
+  fromProgress: number;   // 精确进度（浮点数）
+  toPage: number;         // 目标页码（保持整数用于 UI 显示）
   expireAt: number;
 }
 
@@ -26,9 +26,9 @@ export const useUndoJump = ({ navigator }: UseUndoJumpProps) => {
     }
   }, []);
 
-  const handleJump = useCallback((fromPage: number, toPage: number) => {
-    // 若跳转目标页与当前页相同，则忽略
-    if (fromPage === toPage) return;
+  const handleJump = useCallback((fromProgress: number, toPage: number) => {
+    // 若跳转目标页与当前页相同（整数部分），则忽略
+    if (Math.floor(fromProgress) === toPage) return;
 
     // 清理旧的定时器
     if (timerRef.current) {
@@ -39,7 +39,7 @@ export const useUndoJump = ({ navigator }: UseUndoJumpProps) => {
     
     setUndoJumpState({
       active: true,
-      fromPage,
+      fromProgress,   // 保存精确进度
       toPage,
       expireAt,
     });
@@ -53,7 +53,7 @@ export const useUndoJump = ({ navigator }: UseUndoJumpProps) => {
 
   const performUndo = useCallback(() => {
     if (undoJumpState && undoJumpState.active) {
-      navigator.goToPage(undoJumpState.fromPage);
+      navigator.goToPage(undoJumpState.fromProgress);  // 传递精确进度
       clearUndo();
     }
   }, [undoJumpState, navigator, clearUndo]);

@@ -87,6 +87,9 @@ export class MobiRenderer implements IBookRenderer {
       getRenderState: () => {
          if (!this._renderHook) throw new Error("Render hook not initialized");
          return this._renderHook.state; 
+      },
+      onPageChange: (page: number) => {
+        if (this.onPageChange) this.onPageChange(page);
       }
     };
     

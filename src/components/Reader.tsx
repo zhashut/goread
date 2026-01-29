@@ -124,6 +124,16 @@ export const Reader: React.FC = () => {
     return getBookFormat(bookFilePath) === "mobi";
   }, [bookFilePath]);
 
+  const isMarkdown = useMemo(() => {
+    if (!bookFilePath) return false;
+    return getBookFormat(bookFilePath) === "markdown";
+  }, [bookFilePath]);
+
+  const isHtml = useMemo(() => {
+    if (!bookFilePath) return false;
+    return getBookFormat(bookFilePath) === "html";
+  }, [bookFilePath]);
+
   const { markReadingActive } = useReadingSession(book, isExternal);
 
   // 视口缩放
@@ -649,6 +659,20 @@ export const Reader: React.FC = () => {
         }}
         onGoToPage={(page, anchor) => {
           const isEpub = book?.file_path && getBookFormat(book.file_path) === 'epub';
+          const isMobiFormat = book?.file_path && getBookFormat(book.file_path) === 'mobi';
+          const isHtmlFormat = book?.file_path && getBookFormat(book.file_path) === 'html';
+          const isTxtFormat = book?.file_path && getBookFormat(book.file_path) === 'txt';
+          
+          // HTML/Markdown/TXT 始终使用精确进度，EPUB/MOBI 仅纵向模式使用精确进度
+          let fromProgress = currentPage;
+          if (rendererRef.current) {
+            const renderer = rendererRef.current as any;
+            if (isHtmlFormat || isMarkdown || isTxtFormat || ((isEpub || isMobiFormat) && readingMode === 'vertical')) {
+              fromProgress = renderer.getPreciseProgress?.() ?? currentPage;
+            }
+          }
+          undoJump.handleJump(fromProgress, page ?? currentPage);
+          
           if (anchor && isDomRender && rendererRef.current) {
             if (isEpub) {
               (rendererRef.current as any).goToHref?.(anchor);
@@ -668,7 +692,7 @@ export const Reader: React.FC = () => {
       <ModeOverlay
         visible={modeOverlayOpen}
         readingMode={readingMode}
-        horizontalDisabled={isMobi}
+        horizontalDisabled={isMobi || isMarkdown || isHtml}
         onClose={() => {
           setModeOverlayOpen(false);
           setUiVisible(false);
@@ -712,7 +736,22 @@ export const Reader: React.FC = () => {
           verticalScroll.lastSeekTsRef.current = Date.now();
         }}
         onSeekEnd={async (v) => {
-          undoJump.handleJump(currentPage, v);
+          // 获取当前精确进度
+          let fromProgress = currentPage;
+          const isMarkdownFormat = bookFilePath && getBookFormat(bookFilePath) === 'markdown';
+          const isEpubFormat = bookFilePath && getBookFormat(bookFilePath) === 'epub';
+          const isMobiFormat = bookFilePath && getBookFormat(bookFilePath) === 'mobi';
+          const isHtmlFormat = bookFilePath && getBookFormat(bookFilePath) === 'html';
+          const isTxtFormat = bookFilePath && getBookFormat(bookFilePath) === 'txt';
+          
+          // HTML/Markdown/TXT 始终使用精确进度，EPUB/MOBI 仅纵向模式使用精确进度
+          if (rendererRef.current) {
+            const renderer = rendererRef.current as any;
+            if (isHtmlFormat || isMarkdownFormat || isTxtFormat || ((isEpubFormat || isMobiFormat) && readingMode === 'vertical')) {
+              fromProgress = renderer.getPreciseProgress?.() ?? currentPage;
+            }
+          }
+          undoJump.handleJump(fromProgress, v);
           setSeekPage(null);
           setIsSeeking(false);
           verticalScroll.lastSeekTsRef.current = 0;

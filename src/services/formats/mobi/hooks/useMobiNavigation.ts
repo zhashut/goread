@@ -9,6 +9,7 @@ import { MobiRenderState } from './useMobiRender';
 export interface MobiNavigationContext {
     getRenderState: () => MobiRenderState;
     book: MobiBook | null;
+    onPageChange?: (page: number) => void;
 }
 
 export interface MobiNavigationHook {
@@ -17,7 +18,7 @@ export interface MobiNavigationHook {
 }
 
 export function useMobiNavigation(context: MobiNavigationContext): MobiNavigationHook {
-    const { getRenderState } = context;
+    const { getRenderState, onPageChange } = context;
 
 
     /**
@@ -64,6 +65,7 @@ export function useMobiNavigation(context: MobiNavigationContext): MobiNavigatio
 
     /**
      * 跳转到指定页面 (章节)
+     * 支持精确进度：page 可以是浮点数，整数部分表示章节，小数部分表示章节内偏移
      */
     const goToPage = async (page: number): Promise<void> => {
         const { scrollContainer, shadowRoot } = getRenderState();
@@ -72,14 +74,31 @@ export function useMobiNavigation(context: MobiNavigationContext): MobiNavigatio
         const bodyEl = shadowRoot.querySelector('.mobi-body');
         if (!bodyEl) return;
 
+        // 提取整数页码和章节内偏移
+        const intPage = Math.floor(page);
+        const offsetRatio = page - intPage;
+
         const sections = Array.from(bodyEl.querySelectorAll('.mobi-section')) as HTMLElement[];
         const pageCount = sections.length || 1;
         // page 是从 1 开始的索引
-        const sectionIndex = Math.max(1, Math.min(page, pageCount));
+        const sectionIndex = Math.max(1, Math.min(intPage, pageCount));
         const targetSection = sections[sectionIndex - 1]; // 0 为起始索引
 
         if (targetSection) {
+            // 先滚动到章节开头
             targetSection.scrollIntoView({ behavior: 'auto', block: 'start' });
+            
+            // 应用章节内偏移
+            if (offsetRatio > 0) {
+                const sectionHeight = targetSection.offsetHeight;
+                const offsetPx = sectionHeight * offsetRatio;
+                scrollContainer.scrollTop += offsetPx;
+            }
+            
+            // 直接使用传入的 page 值通知页码变化，无需等待 scroll 事件
+            if (onPageChange) {
+                onPageChange(page);
+            }
         }
     };
 

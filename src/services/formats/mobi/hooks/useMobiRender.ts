@@ -276,14 +276,28 @@ export function useMobiRender(context: MobiRenderContext): MobiRenderHook {
             sectionElements.push(sectionEl);
 
             bodyEl.appendChild(sectionEl);
-
-            // 添加分割线
-            if (i < count - 1) {
-                const divider = document.createElement('div');
-                divider.className = 'mobi-divider';
-                bodyEl.appendChild(divider);
-            }
         }
+
+        const ensureDividerForSection = (index: number) => {
+            if (index >= count - 1) return;
+
+            const sectionEl = sectionElements[index];
+            if (!sectionEl || !sectionEl.parentElement) return;
+
+            const nextSibling = sectionEl.nextElementSibling as HTMLElement | null;
+            if (nextSibling && nextSibling.classList.contains('mobi-divider')) {
+                return;
+            }
+
+            const divider = document.createElement('div');
+            divider.className = 'mobi-divider';
+
+            if (nextSibling) {
+                sectionEl.parentElement.insertBefore(divider, nextSibling);
+            } else {
+                sectionEl.parentElement.appendChild(divider);
+            }
+        };
 
         await log(`[MobiRender] 首屏优先渲染: 目标章节=${targetSectionIndex}, 范围=[${firstScreenStart}, ${firstScreenEnd}]`, 'info').catch(() => {});
 
@@ -294,6 +308,7 @@ export function useMobiRender(context: MobiRenderContext): MobiRenderHook {
                 const success = await _renderSingleSection(sectionElements[i], i);
                 if (success) {
                     sectionElements[i].dataset.loaded = 'true';
+                    ensureDividerForSection(i);
                     if (i === targetSectionIndex) {
                         targetRendered = true;
                     }
@@ -333,6 +348,7 @@ export function useMobiRender(context: MobiRenderContext): MobiRenderHook {
                     const success = await _renderSingleSection(sectionElements[sectionIndex], sectionIndex);
                     if (success) {
                         sectionElements[sectionIndex].dataset.loaded = 'true';
+                        ensureDividerForSection(sectionIndex);
                     }
                 } catch (error) {
                     await logError(`[MobiRender] 后台章节加载失败: ${sectionIndex}`, { error: String(error) }).catch(() => {});

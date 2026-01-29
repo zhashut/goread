@@ -128,14 +128,18 @@ export const useTxtPaging = ({
           await txtRenderer.renderFullContent(container!, options);
 
           const viewportHeight = container!.clientHeight;
-          if (viewportHeight > 0) {
-            txtRenderer.scrollToVirtualPage(preciseProgress, viewportHeight);
-          }
           const pageInt = Math.floor(preciseProgress);
-          setCurrentPage(pageInt);
+          
+          // 先更新 ref，避免 setCurrentPage 触发页码变化监听时产生二次滚动
           lastPageRef.current = pageInt;
           if (latestPreciseProgressRef) {
             latestPreciseProgressRef.current = preciseProgress;
+          }
+          
+          // 再设置页码和滚动
+          setCurrentPage(pageInt);
+          if (viewportHeight > 0) {
+            txtRenderer.scrollToVirtualPage(preciseProgress, viewportHeight);
           }
         } else {
           const targetPage = Math.min(
@@ -143,12 +147,14 @@ export const useTxtPaging = ({
             unifiedTotalPages > 0 ? unifiedTotalPages : 1
           );
 
-          await txtRenderer.renderPage(targetPage, container!, options);
-          setCurrentPage(targetPage);
+          // 先更新 ref，避免 setCurrentPage 触发页码变化监听时产生二次渲染
           lastPageRef.current = targetPage;
           if (latestPreciseProgressRef) {
             latestPreciseProgressRef.current = preciseProgress;
           }
+          
+          await txtRenderer.renderPage(targetPage, container!, options);
+          setCurrentPage(targetPage);
         }
         setContentReady(true);
       } catch (err) {
@@ -169,14 +175,32 @@ export const useTxtPaging = ({
     lastPageRef.current = currentPage;
 
     if (readingMode === 'vertical') {
+      // 纵向模式：优先使用精确进度（如果整数部分匹配）
       const viewportHeight = container.clientHeight;
-      renderer.scrollToVirtualPage(currentPage, viewportHeight);
+      const preciseProgress = latestPreciseProgressRef?.current ?? currentPage;
+      const preciseIntPage = Math.floor(preciseProgress);
+      
+      if (preciseIntPage === currentPage) {
+        // 整数部分匹配，使用精确进度恢复位置
+        renderer.scrollToVirtualPage(preciseProgress, viewportHeight);
+      } else {
+        // 整数部分不匹配，说明是新的页面跳转，使用整数页码
+        renderer.scrollToVirtualPage(currentPage, viewportHeight);
+      }
     } else {
       renderer.goToPage(currentPage).catch(() => {});
     }
 
+    // 页码跳转时更新精确进度
+    // 如果是外部整数页码跳转，检查当前是否在同一页，保留原精确进度
     if (latestPreciseProgressRef) {
-      latestPreciseProgressRef.current = currentPage;
+      const existingProgress = latestPreciseProgressRef.current ?? currentPage;
+      const existingIntPage = Math.floor(existingProgress);
+      if (existingIntPage !== currentPage) {
+        // 跳转到不同页，重置为整数页码
+        latestPreciseProgressRef.current = currentPage;
+      }
+      // 同一页内则保留现有精确进度
     }
 
     if (!isExternal && book && readingMode !== 'vertical') {
@@ -205,23 +229,55 @@ export const useTxtPaging = ({
         if (viewportHeight <= 0) return;
 
         const scrollTop = container.scrollTop;
-        const scrollHeight = container.scrollHeight;
-        const maxScrollTop = Math.max(0, scrollHeight - viewportHeight);
 
-        let virtualTotalPages =
-          totalPages > 0 ? totalPages : renderer.getPageCount();
-        if (virtualTotalPages <= 0) {
-          virtualTotalPages = 1;
+        // 基于 pageWrapper 锚点计算精确进度
+        const pageWrappers = container.querySelectorAll('[data-page-index]');
+        let currentPageIndex = 0;
+        let offsetRatio = 0;
+        let foundWrapper = false;
+
+        for (const wrapper of pageWrappers) {
+          const el = wrapper as HTMLElement;
+          const wrapperTop = el.offsetTop;
+          const wrapperHeight = el.scrollHeight;
+          const wrapperBottom = wrapperTop + wrapperHeight;
+
+          // 判断滚动位置是否在这个 wrapper 内
+          if (scrollTop >= wrapperTop && scrollTop < wrapperBottom) {
+            currentPageIndex = parseInt(el.getAttribute('data-page-index') || '0', 10);
+            // 计算页内偏移比例
+            if (wrapperHeight > 0) {
+              offsetRatio = (scrollTop - wrapperTop) / wrapperHeight;
+              offsetRatio = Math.max(0, Math.min(1, offsetRatio));
+            }
+            foundWrapper = true;
+            break;
+          }
         }
 
+        // 如果没找到对应的 wrapper，使用降级计算
         let precisePage = 1;
-        if (maxScrollTop > 0 && virtualTotalPages > 1) {
-          const ratio = scrollTop / maxScrollTop;
-          const clampedRatio = Math.max(0, Math.min(1, ratio));
-          precisePage = 1 + clampedRatio * (virtualTotalPages - 1);
+        if (foundWrapper) {
+          // 精确进度 = 页码(1-based) + 页内偏移
+          precisePage = (currentPageIndex + 1) + offsetRatio;
         } else {
-          precisePage = 1;
+          // 降级：使用原有的全局比例计算
+          const scrollHeight = container.scrollHeight;
+          const maxScrollTop = Math.max(0, scrollHeight - viewportHeight);
+          let virtualTotalPages =
+            totalPages > 0 ? totalPages : renderer.getPageCount();
+          if (virtualTotalPages <= 0) {
+            virtualTotalPages = 1;
+          }
+          if (maxScrollTop > 0 && virtualTotalPages > 1) {
+            const ratio = scrollTop / maxScrollTop;
+            const clampedRatio = Math.max(0, Math.min(1, ratio));
+            precisePage = 1 + clampedRatio * (virtualTotalPages - 1);
+          }
         }
+
+        // 同步更新渲染器内部精确进度
+        renderer.updatePreciseProgress(precisePage);
 
         const pageInt = Math.floor(precisePage);
         if (pageInt !== lastPageRef.current) {
@@ -293,13 +349,16 @@ export const useTxtPaging = ({
           if (precisePage < 1) precisePage = 1;
           if (precisePage > total) precisePage = total;
 
-          txtRenderer.scrollToVirtualPage(precisePage, viewportHeight);
-
           const pageInt = Math.floor(precisePage);
-          setCurrentPage(pageInt);
+          
+          // 先更新 ref，避免 setCurrentPage 触发页码变化监听时产生二次滚动
+          lastPageRef.current = pageInt;
           if (latestPreciseProgressRef) {
             latestPreciseProgressRef.current = precisePage;
           }
+          
+          setCurrentPage(pageInt);
+          txtRenderer.scrollToVirtualPage(precisePage, viewportHeight);
         } else {
           const total = txtRenderer.getPageCount() || 1;
           let targetPage = currentPage || 1;

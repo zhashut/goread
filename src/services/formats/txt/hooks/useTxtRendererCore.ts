@@ -334,6 +334,16 @@ export function useTxtRendererCore(): TxtRendererCore {
     }
   };
 
+  /**
+   * 创建页面 wrapper 容器
+   * 用于精确定位，添加 data-page-index 属性标识页码
+   */
+  const createPageWrapper = (pageIndex: number): HTMLDivElement => {
+    const wrapper = document.createElement('div');
+    wrapper.setAttribute('data-page-index', String(pageIndex));
+    return wrapper;
+  };
+
   const renderContentWithPageDividers = (
     container: HTMLElement,
     content: string,
@@ -344,16 +354,22 @@ export function useTxtRendererCore(): TxtRendererCore {
     container.innerHTML = '';
     const paragraphs = splitIntoParagraphsWithOffsets(content);
 
+    // 无分页时，所有内容放入一个 wrapper
     if (pages.length === 0) {
+      const wrapper = createPageWrapper(0);
       for (const para of paragraphs) {
         const p = createParagraphElement(para.text, true);
-        container.appendChild(p);
+        wrapper.appendChild(p);
       }
+      container.appendChild(wrapper);
       return;
     }
 
     let pageIndex = 0;
     let currentPage = pages[pageIndex];
+    let currentWrapper = createPageWrapper(pageIndex);
+    container.appendChild(currentWrapper);
+
     const fontSize = options?.fontSize || 16;
     const theme = options?.theme || 'light';
     const pageGap = options?.pageGap ?? 4;
@@ -365,9 +381,11 @@ export function useTxtRendererCore(): TxtRendererCore {
 
     for (const para of paragraphs) {
       const p = createParagraphElement(para.text, true);
-      container.appendChild(p);
+      currentWrapper.appendChild(p);
 
+      // 检查是否需要插入分隔符并开始新页面
       while (pageIndex < pages.length - 1 && para.endOffset >= currentPage.endOffset) {
+        // 插入分隔符
         const divider = document.createElement('div');
         divider.style.height = `${bandHeight}px`;
         divider.style.width = '100%';
@@ -376,8 +394,11 @@ export function useTxtRendererCore(): TxtRendererCore {
         divider.style.marginBottom = `${dividerMarginBottom}px`;
         container.appendChild(divider);
 
+        // 开始新页面
         pageIndex += 1;
         currentPage = pages[pageIndex];
+        currentWrapper = createPageWrapper(pageIndex);
+        container.appendChild(currentWrapper);
       }
     }
   };

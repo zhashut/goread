@@ -66,6 +66,8 @@ export class TxtRenderer implements IBookRenderer {
   private _isVerticalMode: boolean = false;
   private _scrollHeight: number = 0;
   private _core: TxtRendererCore;
+  // 精确进度（浮点数），用于撤回跳转等场景的精确定位
+  private _currentPreciseProgress: number = 1;
 
   constructor() {
     this._core = useTxtRendererCore();
@@ -131,17 +133,33 @@ export class TxtRenderer implements IBookRenderer {
     return this._currentPage;
   }
 
-  /** 跳转到指定页（横向模式） */
+  /** 获取精确进度（浮点数），用于撤回跳转等场景 */
+  getPreciseProgress(): number {
+    return this._currentPreciseProgress;
+  }
+
+  /** 更新精确进度，由滚动监听调用 */
+  updatePreciseProgress(progress: number): void {
+    const total = this.getPageCount() || 1;
+    this._currentPreciseProgress = Math.max(1, Math.min(progress, total));
+  }
+
+  /** 跳转到指定页（横向模式，支持浮点数精确进度） */
   async goToPage(page: number): Promise<void> {
-    if (page < 1 || page > this._pages.length) {
+    // 记录精确进度（可能是浮点数）
+    this._currentPreciseProgress = page;
+
+    // 取整数部分用于实际分页渲染
+    const intPage = Math.floor(page);
+    if (intPage < 1 || intPage > this._pages.length) {
       return;
     }
-    this._currentPage = page;
+    this._currentPage = intPage;
     // 确保有容器时才渲染
     if (this._container) {
-      await this.renderPage(page, this._container, this._lastRenderOptions || {});
+      await this.renderPage(intPage, this._container, this._lastRenderOptions || {});
     }
-    this.onPageChange?.(page);
+    this.onPageChange?.(intPage);
   }
 
   /** 渲染指定页面（横向模式） */
@@ -218,18 +236,21 @@ export class TxtRenderer implements IBookRenderer {
     return Math.max(1, page);
   }
 
-  /** 滚动到虚拟页（纵向模式） */
+  /** 滚动到虚拟页（纵向模式，支持浮点数精确进度） */
   scrollToVirtualPage(page: number, viewportHeight: number): void {
+    // 记录精确进度
+    this._currentPreciseProgress = page;
+
     if (!this._container || !this._isVerticalMode) {
       // 横向模式走 goToPage
-      const targetPage = Math.floor(page);
-      this.goToPage(targetPage);
+      this.goToPage(page);
       return;
     }
     const container = this._container;
     if (viewportHeight <= 0) {
       container.scrollTop = 0;
       this._currentPage = 1;
+      this._currentPreciseProgress = 1;
       return;
     }
 
@@ -237,16 +258,32 @@ export class TxtRenderer implements IBookRenderer {
     const validTotalPages = Math.max(1, totalPages);
     const clampedPage = Math.min(Math.max(1, page), validTotalPages);
 
-    const maxScrollTop = Math.max(0, container.scrollHeight - viewportHeight);
-    let scrollTop = 0;
-    if (maxScrollTop > 0 && validTotalPages > 1) {
-      const ratio = (clampedPage - 1) / (validTotalPages - 1);
-      const clampedRatio = Math.max(0, Math.min(1, ratio));
-      scrollTop = clampedRatio * maxScrollTop;
+    // 提取整数页码和页内偏移
+    const pageIndex = Math.floor(clampedPage) - 1;  // 转为 0-based
+    const offsetRatio = Math.max(0, Math.min(1, clampedPage - Math.floor(clampedPage)));
+
+    // 查找对应的页面 wrapper
+    const pageWrapper = container.querySelector(`[data-page-index="${pageIndex}"]`) as HTMLElement;
+
+    if (pageWrapper) {
+      // 基于 wrapper 位置 + 偏移计算目标滚动位置
+      const wrapperTop = pageWrapper.offsetTop;
+      const wrapperHeight = pageWrapper.scrollHeight;
+      const targetScrollTop = wrapperTop + wrapperHeight * offsetRatio;
+      
+      container.scrollTop = targetScrollTop;
+    } else {
+      // 降级：使用原有的全局比例计算
+      const maxScrollTop = Math.max(0, container.scrollHeight - viewportHeight);
+      if (maxScrollTop > 0 && validTotalPages > 1) {
+        const ratio = (clampedPage - 1) / (validTotalPages - 1);
+        const clampedRatio = Math.max(0, Math.min(1, ratio));
+        container.scrollTop = clampedRatio * maxScrollTop;
+      }
     }
 
-    container.scrollTop = scrollTop;
-    this._currentPage = clampedPage;
+    this._currentPage = Math.floor(clampedPage);
+    this._currentPreciseProgress = clampedPage;
   }
 
   /** 计算虚拟分页 */
@@ -341,6 +378,7 @@ export class TxtRenderer implements IBookRenderer {
     this._lastRenderOptions = null;
     this._isVerticalMode = false;
     this._scrollHeight = 0;
+    this._currentPreciseProgress = 1;
   }
 
   /** 页面变化回调 */

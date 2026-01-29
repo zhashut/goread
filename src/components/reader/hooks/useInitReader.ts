@@ -3,6 +3,7 @@ import { log, bookService, ReaderSettings, logError } from "../../../services";
 import { MarkdownRenderer } from "../../../services/formats/markdown/MarkdownRenderer";
 import { MobiRenderer } from "../../../services/formats/mobi/MobiRenderer";
 import { EpubRenderer } from "../../../services/formats/epub/EpubRenderer";
+import { HtmlRenderer } from "../../../services/formats/html/HtmlRenderer";
 import { IBookRenderer, getBookFormat } from "../../../services/formats";
 import { TocNode } from "../../reader/types";
 import { useReaderState } from "./useReaderState";
@@ -164,6 +165,14 @@ export const useInitReader = ({
                     if (renderer instanceof MarkdownRenderer) {
                         renderer.onPositionRestored = () => {
                             log("[Reader] Markdown 位置恢复完成");
+                            setContentReady(true);
+                        };
+                    }
+
+                    if (renderer instanceof HtmlRenderer) {
+                        renderer.onPositionRestored = () => {
+                            log("[Reader] HTML 位置恢复完成");
+                            domRestoreDoneRef.current = true;
                             setContentReady(true);
                         };
                     }

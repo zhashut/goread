@@ -75,6 +75,8 @@ export class MarkdownRenderer implements IBookRenderer {
   private _reactRoot: any = null;
   private _previewId = `md-preview-${Date.now()}`;
   private _editorId = `md-editor-${Date.now()}`;
+  /** 当前精确进度，整数部分为虚拟页码，小数部分为页内偏移比例 */
+  private _currentPreciseProgress: number = 1;
   
   /** 位置恢复完成回调 */
   onPositionRestored?: () => void;
@@ -229,10 +231,16 @@ export class MarkdownRenderer implements IBookRenderer {
       overflow-y: auto;
       scrollbar-width: none;
       -ms-overflow-style: none;
+      scroll-behavior: auto !important;
     `;
-    // 隐藏 WebKit 浏览器滚动条
+    // 隐藏 WebKit 浏览器滚动条并强制禁用平滑滚动
     const style = document.createElement('style');
-    style.textContent = `#${this._previewId}::-webkit-scrollbar { display: none; }`;
+    style.textContent = `
+      #${this._previewId}::-webkit-scrollbar { display: none; }
+      #${this._previewId}, #${this._previewId} * {
+        scroll-behavior: auto !important;
+      }
+    `;
     root.appendChild(style);
     container.appendChild(root);
 
@@ -302,8 +310,9 @@ export class MarkdownRenderer implements IBookRenderer {
 
     reactRoot.render((React as any).createElement(Wrapper));
 
-    const initialPage = options?.initialVirtualPage;
-    if (typeof initialPage === 'number' && initialPage > 1) {
+    // 支持精确进度恢复（浮点数），如 2.35 表示第 2 页的 35% 位置
+    const initialProgress = options?.initialVirtualPage;
+    if (typeof initialProgress === 'number' && initialProgress > 1) {
       let attempts = 0;
       const maxAttempts = 50;
       const tryRestore = () => {
@@ -311,10 +320,9 @@ export class MarkdownRenderer implements IBookRenderer {
         if (scrollContainer) {
           const vh = scrollContainer.clientHeight;
           const sh = scrollContainer.scrollHeight;
-          const target = (initialPage - 1) * vh;
-          if (vh > 0 && sh >= target) {
-            scrollContainer.scrollTo({ top: target, behavior: 'auto' });
-            // 位置恢复成功，通知调用方
+          if (vh > 0 && sh > vh) {
+            // 使用精确进度定位
+            this.scrollToVirtualPage(initialProgress, vh);
             this.onPositionRestored?.();
             return;
           }
@@ -483,7 +491,15 @@ export class MarkdownRenderer implements IBookRenderer {
       const heading = headings[index] as HTMLElement;
       // 使用 offsetTop 计算位置，并预留顶部空间（TopBar 高度约 60px + 20px 间距）
       const top = heading.offsetTop - 80;
-      scrollContainer.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+      
+      // 临时禁用平滑滚动确保立即跳转
+      const originalBehavior = scrollContainer.style.scrollBehavior;
+      scrollContainer.style.scrollBehavior = 'auto';
+      
+      scrollContainer.scrollTop = Math.max(0, top);  // 直接设置 scrollTop
+      
+      // 恢复原设置
+      scrollContainer.style.scrollBehavior = originalBehavior;
     }
   }
 
@@ -510,29 +526,71 @@ export class MarkdownRenderer implements IBookRenderer {
   }
 
   /**
-   * 获取当前虚拟页码
+   * 获取当前虚拟页码（同时更新内部精确进度）
    * @param scrollTop 当前滚动位置
    * @param viewportHeight 视口高度
    */
   getCurrentVirtualPage(scrollTop: number, viewportHeight: number): number {
     const scrollContainer = this.getScrollContainer();
     if (!scrollContainer) return 1;
+    
     const contentHeight = scrollContainer.scrollHeight;
     const totalPages = Math.max(1, Math.ceil(contentHeight / viewportHeight));
+    const maxScrollTop = Math.max(0, contentHeight - viewportHeight);
+    
+    // 计算并更新精确进度
+    if (maxScrollTop > 0 && totalPages > 1) {
+      const scrollRatio = Math.max(0, Math.min(1, scrollTop / maxScrollTop));
+      this._currentPreciseProgress = 1 + scrollRatio * (totalPages - 1);
+    } else {
+      this._currentPreciseProgress = 1;
+    }
+    
+    // 当滚动接近底部时（距离底部小于 10px），直接返回最后一页
+    if (maxScrollTop > 0 && scrollTop >= maxScrollTop - 10) {
+      return totalPages;
+    }
+    
+    // 其他情况使用常规计算
     const currentPage = Math.min(totalPages, Math.floor(scrollTop / viewportHeight) + 1);
     return currentPage;
   }
 
   /**
-   * 滚动到指定虚拟页
-   * @param page 虚拟页码
+   * 获取当前精确阅读进度
+   * @returns 精确进度，整数部分为虚拟页码，小数部分为页内偏移比例
+   */
+  getPreciseProgress(): number {
+    return this._currentPreciseProgress;
+  }
+
+  /**
+   * 滚动到指定虚拟页（支持精确进度定位）
+   * @param page 虚拟页码，支持浮点数（如 2.35 表示第 2 页的 35% 位置）
    * @param viewportHeight 视口高度
    */
   scrollToVirtualPage(page: number, viewportHeight: number): void {
     const scrollContainer = this.getScrollContainer();
     if (!scrollContainer) return;
-    const targetScroll = (page - 1) * viewportHeight;
+    
+    const scrollHeight = scrollContainer.scrollHeight;
+    const maxScrollTop = Math.max(0, scrollHeight - viewportHeight);
+    
+    if (maxScrollTop <= 0) {
+      scrollContainer.scrollTo({ top: 0, behavior: 'auto' });
+      this._currentPreciseProgress = 1;
+      return;
+    }
+    
+    const totalPages = Math.max(1, Math.ceil(scrollHeight / viewportHeight));
+    const clampedPage = Math.max(1, Math.min(page, totalPages));
+    
+    // 使用精确进度计算滚动位置
+    const scrollRatio = (clampedPage - 1) / (totalPages - 1);
+    const targetScroll = scrollRatio * maxScrollTop;
+    
     scrollContainer.scrollTo({ top: targetScroll, behavior: 'auto' });
+    this._currentPreciseProgress = clampedPage;
   }
 
   /**
