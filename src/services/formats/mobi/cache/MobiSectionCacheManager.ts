@@ -1,23 +1,23 @@
 /**
- * EPUB 章节缓存管理器
+ * MOBI 章节缓存管理器
  * 使用 LRU 策略管理章节快照缓存
  */
 
 import type {
-  EpubSectionCacheEntry,
-  IEpubSectionCache,
+  MobiSectionCacheEntry,
+  IMobiSectionCache,
 } from './types';
 import type { BookPageCacheStats } from '../../types';
 import { logError } from '../../../index';
 import { isIdleExpired, evictOldestEntry } from '../../../../utils/lruCacheUtils';
 
 /**
- * EPUB 章节缓存管理器
+ * MOBI 章节缓存管理器
  * 参考 PageCacheManager 实现 LRU 淘汰和内存控制
  */
-export class EpubSectionCacheManager implements IEpubSectionCache {
+export class MobiSectionCacheManager implements IMobiSectionCache {
   /** 缓存容器 */
-  private cache: Map<string, EpubSectionCacheEntry>;
+  private cache: Map<string, MobiSectionCacheEntry>;
   /** 最大缓存章节数 */
   private maxCacheSize: number;
   /** 最大内存占用（MB） */
@@ -46,7 +46,7 @@ export class EpubSectionCacheManager implements IEpubSectionCache {
    * 计算章节条目的内存占用（MB）
    * 按 UTF-16 编码估算：每个字符 2 字节
    */
-  private calculateMemoryMB(entry: EpubSectionCacheEntry): number {
+  private calculateMemoryMB(entry: MobiSectionCacheEntry): number {
     const htmlBytes = entry.rawHtml.length * 2;
     const stylesBytes = entry.rawStyles.reduce((sum, s) => sum + s.length * 2, 0);
     const refsBytes = entry.resourceRefs.reduce((sum, s) => sum + s.length * 2, 0);
@@ -64,7 +64,7 @@ export class EpubSectionCacheManager implements IEpubSectionCache {
         if (this.currentMemoryMB < 0) {
           this.currentMemoryMB = 0;
         }
-        logError(`[EpubSectionCache] 淘汰章节缓存: ${String(key)}`).catch(() => {});
+        logError(`[MobiSectionCache] 淘汰章节缓存: ${String(key)}`).catch(() => {});
       },
     });
     if (!removed) {
@@ -82,7 +82,7 @@ export class EpubSectionCacheManager implements IEpubSectionCache {
   /**
    * 获取章节缓存
    */
-  getSection(bookId: string, sectionIndex: number): EpubSectionCacheEntry | null {
+  getSection(bookId: string, sectionIndex: number): MobiSectionCacheEntry | null {
     const key = this.getCacheKey(bookId, sectionIndex);
     const entry = this.cache.get(key);
 
@@ -94,7 +94,7 @@ export class EpubSectionCacheManager implements IEpubSectionCache {
         this.currentMemoryMB = 0;
       }
       this.cache.delete(key);
-      logError(`[EpubSectionCache] 章节缓存已过期: ${key}`).catch(() => {});
+      logError(`[MobiSectionCache] 章节缓存已过期: ${key}`).catch(() => {});
       return null;
     }
 
@@ -113,7 +113,7 @@ export class EpubSectionCacheManager implements IEpubSectionCache {
   /**
    * 写入章节缓存
    */
-  setSection(entry: EpubSectionCacheEntry): void {
+  setSection(entry: MobiSectionCacheEntry): void {
     const key = this.getCacheKey(entry.bookId, entry.sectionIndex);
     const memoryMB = this.calculateMemoryMB(entry);
 
@@ -143,7 +143,7 @@ export class EpubSectionCacheManager implements IEpubSectionCache {
     this.cache.set(key, entry);
     this.currentMemoryMB += memoryMB;
 
-    logError(`[EpubSectionCache] 写入章节缓存: ${key}, 内存: ${memoryMB.toFixed(2)}MB`).catch(() => {});
+    // logError(`[MobiSectionCache] 写入章节缓存: ${key}, 内存: ${memoryMB.toFixed(2)}MB`).catch(() => {});
   }
 
   /**
@@ -193,7 +193,7 @@ export class EpubSectionCacheManager implements IEpubSectionCache {
     });
 
     keysToDelete.forEach((key) => this.cache.delete(key));
-    logError(`[EpubSectionCache] 清空书籍缓存: ${bookId}, 删除 ${keysToDelete.length} 个章节`).catch(() => {});
+    logError(`[MobiSectionCache] 清空书籍缓存: ${bookId}, 删除 ${keysToDelete.length} 个章节`).catch(() => {});
   }
 
   /**
@@ -202,7 +202,7 @@ export class EpubSectionCacheManager implements IEpubSectionCache {
   clearAll(): void {
     this.cache.clear();
     this.currentMemoryMB = 0;
-    logError('[EpubSectionCache] 清空所有缓存').catch(() => {});
+    logError('[MobiSectionCache] 清空所有缓存').catch(() => {});
   }
 
   /**

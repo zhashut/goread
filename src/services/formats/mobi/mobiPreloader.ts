@@ -1,34 +1,31 @@
 /**
- * EPUB 书籍预加载器
+ * MOBI 书籍预加载器
  * 在用户点击书籍准备进入阅读页时，提前触发书籍加载
- * 利用页面切换动画的时间完成 ZIP 解析，减少横向模式的等待时间
+ * 利用页面切换动画的时间完成 MOBI 解析，减少等待时间
  */
 
-import { useEpubLoader, type EpubBook } from './hooks';
 import { logError, getInvoke } from '../../index';
-import { generateQuickBookId } from './cache';
+import { generateQuickBookId } from '../../../utils/bookId';
 import { evictOldestEntry } from '../../../utils/lruCacheUtils';
+import { MobiBook } from './types';
 
 /** 预加载缓存条目 */
 interface PreloadCacheEntry {
   bookId: string;
   filePath: string;
-  promise: Promise<EpubBook>;
+  promise: Promise<MobiBook>;
   createdAt: number;
   lastAccessTime: number;
   estimatedSizeMB: number;
 }
 
 /**
- * EPUB 预加载器类
+ * MOBI 预加载器类
  * 单例模式，在用户点击书籍时触发预加载
  */
-class EpubPreloader {
+class MobiPreloader {
   /** 预加载缓存（bookId -> entry） */
   private _cache = new Map<string, PreloadCacheEntry>();
-  
-  /** loader hook 实例 */
-  private _loaderHook = useEpubLoader();
 
   /** 空闲过期时间（秒），0 表示不过期 */
   private _timeToIdleSecs = 0;
@@ -69,10 +66,10 @@ class EpubPreloader {
   /**
    * 估算预加载书籍的内存占用（MB）
    */
-  private _estimateSizeMB(book: EpubBook): number {
+  private _estimateSizeMB(book: MobiBook): number {
     const sections = Array.isArray(book.sections) ? book.sections.length : 1;
-    const base = 4;
-    const perSection = 0.04;
+    const base = 6; // MOBI 解析器基础开销稍大于 EPUB
+    const perSection = 0.05;
     return base + sections * perSection;
   }
 
@@ -105,7 +102,7 @@ class EpubPreloader {
             if (this._currentMemoryMB < 0) {
               this._currentMemoryMB = 0;
             }
-            logError(`[EpubPreloader] 容量淘汰预加载: ${entry.filePath}`).catch(() => {});
+            logError(`[MobiPreloader] 容量淘汰预加载: ${entry.filePath}`).catch(() => {});
           },
         });
         if (!removed) {
@@ -117,7 +114,7 @@ class EpubPreloader {
 
   /**
    * 触发预加载（不等待结果）
-   * @param filePath - EPUB 文件路径
+   * @param filePath - MOBI 文件路径
    */
   preload(filePath: string): void {
     const bookId = generateQuickBookId(filePath);
@@ -129,7 +126,7 @@ class EpubPreloader {
     }
 
     // 检查元数据缓存是否存在，如果存在则跳过预加载
-    // 因为 EpubRenderer.loadDocument 会直接从元数据缓存启动
+    // 因为 MobiRenderer.loadDocument 会直接从元数据缓存启动
     this._checkMetadataCacheAndPreload(filePath, bookId);
   }
 
@@ -139,12 +136,12 @@ class EpubPreloader {
   private async _checkMetadataCacheAndPreload(filePath: string, bookId: string): Promise<void> {
     try {
       // 动态导入避免循环依赖
-      const { epubCacheService } = await import('./epubCacheService');
-      const metadata = await epubCacheService.getMetadata(bookId);
-      
+      const { mobiCacheService } = await import('./mobiCacheService');
+      const metadata = await mobiCacheService.getMetadata(bookId);
+
       if (metadata) {
         // 元数据缓存存在，跳过预加载
-        logError(`[EpubPreloader] 元数据缓存命中，跳过预加载: ${filePath}`).catch(() => {});
+        logError(`[MobiPreloader] 元数据缓存命中，跳过预加载: ${filePath}`).catch(() => {});
         return;
       }
     } catch {
@@ -178,7 +175,7 @@ class EpubPreloader {
       promise: loadPromise,
       createdAt,
       lastAccessTime: createdAt,
-      estimatedSizeMB: 8,
+      estimatedSizeMB: 10, // 初始估计值
     };
 
     this._currentMemoryMB += entry.estimatedSizeMB;
@@ -197,15 +194,15 @@ class EpubPreloader {
       }
     });
 
-    logError(`[EpubPreloader] 开始预加载: ${filePath}`).catch(() => {});
+    logError(`[MobiPreloader] 开始预加载: ${filePath}`).catch(() => {});
   }
 
   /**
    * 获取预加载的书籍（如果有）
-   * @param filePath - EPUB 文件路径
+   * @param filePath - MOBI 文件路径
    * @returns 预加载的书籍对象，或 null
    */
-  async get(filePath: string): Promise<EpubBook | null> {
+  async get(filePath: string): Promise<MobiBook | null> {
     const bookId = generateQuickBookId(filePath);
     const entry = this._cache.get(bookId);
     if (!entry) {
@@ -218,7 +215,7 @@ class EpubPreloader {
       this._cache.delete(bookId);
       this._cache.set(bookId, entry);
 
-      logError(`[EpubPreloader] 命中预加载缓存: ${filePath}`).catch(() => {});
+      logError(`[MobiPreloader] 命中预加载缓存: ${filePath}`).catch(() => {});
       return book;
     } catch (e) {
       // 加载失败，清理缓存
@@ -226,14 +223,14 @@ class EpubPreloader {
       if (stored) {
         this._cache.delete(bookId);
       }
-      logError(`[EpubPreloader] 预加载失败: ${e}`).catch(() => {});
+      logError(`[MobiPreloader] 预加载失败: ${e}`).catch(() => {});
       return null;
     }
   }
 
   /**
    * 检查是否有预加载缓存（不等待）
-   * @param filePath - EPUB 文件路径
+   * @param filePath - MOBI 文件路径
    */
   has(filePath: string): boolean {
     const bookId = generateQuickBookId(filePath);
@@ -257,7 +254,7 @@ class EpubPreloader {
 
   /**
    * 清除指定文件的预加载缓存
-   * @param filePath - EPUB 文件路径
+   * @param filePath - MOBI 文件路径
    */
   clear(filePath: string): void {
     const bookId = generateQuickBookId(filePath);
@@ -279,35 +276,53 @@ class EpubPreloader {
   }
 
   /**
+   * 从文件路径提取文件名
+   */
+  private _extractFileName(filePath: string): string {
+    const parts = filePath.replace(/\\/g, '/').split('/');
+    const fileName = parts[parts.length - 1];
+    return fileName.replace(/\.(mobi|azw3|azw)$/i, '');
+  }
+
+  /**
    * 内部加载方法
    */
-  private async _loadBook(filePath: string): Promise<EpubBook> {
+  private async _loadBook(filePath: string): Promise<MobiBook> {
     // 通过 Tauri 读取文件
     const invoke = await getInvoke();
-    const bytes = await invoke('read_file_bytes', { path: filePath });
+    const bytes = await invoke('read_file_bytes', { path: filePath }) as number[];
     const arrayBuffer = new Uint8Array(bytes).buffer;
 
-    // 创建 File 对象
-    const fileName = this._loaderHook.extractFileName(filePath);
-    const file = new File([arrayBuffer], fileName + '.epub', {
-      type: 'application/epub+zip',
+    // 动态导入 foliate-js 的 mobi 模块
+    // @ts-ignore - foliate-js
+    const mobiModule: any = await import('../../../lib/foliate-js/mobi.js');
+
+    // 导入 fflate 用于解压缩
+    // @ts-ignore
+    const { unzlibSync } = await import('fflate');
+
+    // 创建 MOBI 解析器并打开文件
+    const mobi = new mobiModule.MOBI({ unzlib: unzlibSync });
+    const fileName = this._extractFileName(filePath);
+    const file = new File([arrayBuffer], fileName + '.mobi', {
+      type: 'application/x-mobipocket-ebook',
     });
 
-    // 解析 EPUB
-    const book = await this._loaderHook.createBookFromFile(file);
-    
-    logError(`[EpubPreloader] 预加载完成: ${filePath}`).catch(() => {});
+    const book = await mobi.open(file) as MobiBook;
+
+    logError(`[MobiPreloader] 预加载完成: ${filePath}`).catch(() => {});
     return book;
   }
 }
 
 /** 导出单例实例 */
-export const epubPreloader = new EpubPreloader();
+export const mobiPreloader = new MobiPreloader();
 
 /**
- * 判断文件是否为 EPUB 格式
+ * 判断文件是否为 MOBI 格式（包含 mobi、azw3、azw）
  * @param filePath - 文件路径
  */
-export function isEpubFile(filePath: string): boolean {
-  return filePath.toLowerCase().endsWith('.epub');
+export function isMobiFile(filePath: string): boolean {
+  const lower = filePath.toLowerCase();
+  return lower.endsWith('.mobi') || lower.endsWith('.azw3') || lower.endsWith('.azw');
 }

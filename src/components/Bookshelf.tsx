@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 
 import { IBook } from "../types";
 import { epubPreloader, isEpubFile } from "../services/formats/epub/epubPreloader";
+import { mobiPreloader, isMobiFile } from "../services/formats/mobi/mobiPreloader";
 import { ensurePermissionForDeleteLocal, ensurePermissionForImport } from "../utils/storagePermission";
 import { IconDelete } from "./Icons";
 import {
@@ -139,6 +140,10 @@ export const Bookshelf: React.FC = () => {
     // EPUB 预加载：提前触发书籍加载，利用页面切换时间完成 ZIP 解析
     if (isEpubFile(book.file_path)) {
       epubPreloader.preload(book.file_path);
+    }
+    // MOBI 预加载：提前触发书籍加载，利用页面切换时间完成解析
+    if (isMobiFile(book.file_path)) {
+      mobiPreloader.preload(book.file_path);
     }
     // 后端 mark_book_opened 会自动更新 recent_order，使该书移到最前
     nav.toReader(book.id, { fromTab: activeTab });

@@ -5,6 +5,9 @@
 import { getInvoke, log, logError } from '../../../index';
 import { BookInfo, TocItem } from '../../types';
 import { MobiBook, MobiTocItem } from '../types';
+import { generateQuickBookId } from '../../../../utils/bookId';
+import { mobiCacheService } from '../mobiCacheService';
+import { mobiPreloader } from '../mobiPreloader';
 
 export interface MobiLifecycleState {
     isReady: boolean;
@@ -12,11 +15,14 @@ export interface MobiLifecycleState {
     bookInfo: BookInfo | null;
     toc: TocItem[];
     sectionCount: number;
+    bookId: string | null;
+    filePath: string | null;
 }
 
 export interface MobiLifecycleHook {
     state: MobiLifecycleState;
     loadDocument: (filePath: string) => Promise<BookInfo>;
+    ensureBookLoaded: () => Promise<void>;
     reset: () => Promise<void>;
 }
 
@@ -27,7 +33,11 @@ export function useMobiLifecycle(): MobiLifecycleHook {
         bookInfo: null,
         toc: [],
         sectionCount: 0,
+        bookId: null,
+        filePath: null,
     };
+
+    let _loadPromise: Promise<void> | null = null;
 
     /**
      * 从文件路径提取文件名
@@ -170,16 +180,16 @@ export function useMobiLifecycle(): MobiLifecycleHook {
     };
 
     /**
-     * 加载 MOBI 文档
+     * 内部加载逻辑
      */
-    const loadDocument = async (filePath: string): Promise<BookInfo> => {
-        try {
+    const _loadBook = async (filePath: string, existingBookId?: string): Promise<BookInfo> => {
+       try {
             // 通过 Tauri 读取文件内容
             const invoke = await getInvoke();
             const bytes = await invoke('read_file_bytes', { path: filePath }) as number[];
             const arrayBuffer = new Uint8Array(bytes).buffer;
 
-            // 动态导入 foliate-js 的 mobi 模块
+            // 动态导入 foiliate-js 的 mobi 模块
             // @ts-ignore - foliate-js
             const mobiModule: any = await import('../../../../lib/foliate-js/mobi.js');
 
@@ -246,25 +256,134 @@ export function useMobiLifecycle(): MobiLifecycleHook {
 
             const sectionCount = bookInfo.pageCount || 1;
 
+            // 使用传入的 existingBookId，或者生成新的 quickId (此处逻辑保持一致)
+            // 如果是 fast path 进来的，bookId 已经确定
+            // 如果是 slow path，我们也使用 quickBookId 以保持一致
+            const bookId = existingBookId || generateQuickBookId(filePath);
+            state.bookId = bookId;
+
+            // 异步保存元数据到缓存
+            mobiCacheService.saveMetadata(bookId, {
+                bookInfo,
+                toc,
+                sectionCount,
+            }).catch(err => logError('[MobiLifecycle] 保存元数据失败', err));
+
             state.isReady = true;
             state.bookInfo = bookInfo;
             state.toc = toc;
             state.sectionCount = sectionCount;
 
-            await log(`[MobiRenderer] 文档加载成功`, 'info', {
+            await log(`[MobiRenderer] 文档加载完成`, 'info', {
                 filePath,
                 tocCount: toc.length,
                 sectionsCount: book.sections?.length || 0,
+                bookId
             }).catch(() => {});
 
             return bookInfo;
         } catch (error) {
-            await logError(`[MobiRenderer] 加载失败`, {
+             await logError(`[MobiRenderer] 加载失败`, {
                 error: String(error),
                 stack: (error as Error)?.stack,
                 filePath,
             }).catch(() => {});
             throw error;
+        }
+    };
+
+    /**
+     * 加载 MOBI 文档
+     */
+    const loadDocument = async (filePath: string): Promise<BookInfo> => {
+        // 1. 生成 Quick ID
+        const bookId = generateQuickBookId(filePath);
+        state.bookId = bookId;
+        state.filePath = filePath;
+
+        // 2. 优先尝试从预加载缓存获取
+        const preloadedBook = await mobiPreloader.get(filePath);
+        if (preloadedBook) {
+            await log(`[MobiLifecycle] 命中预加载缓存: ${filePath}`, 'info').catch(() => {});
+            
+            // 使用预加载的书籍对象
+            state.book = preloadedBook;
+            
+            // 构建 toc
+            let toc = _convertToc(preloadedBook, preloadedBook.toc || []);
+            if (toc.length === 0 && preloadedBook.landmarks && preloadedBook.landmarks.length > 0) {
+                toc = preloadedBook.landmarks.map((lm, i) => ({
+                    title: lm.label || `章节 ${i + 1}`,
+                    location: lm.href || '',
+                    level: 0,
+                }));
+            }
+            if (toc.length === 0 && preloadedBook.sections && preloadedBook.sections.length > 0) {
+                toc = await _buildTocFromSections(preloadedBook);
+            }
+            
+            // 构建书籍信息
+            const metadata = preloadedBook.metadata || {};
+            const bookInfo: BookInfo = {
+                title: metadata.title || _extractFileName(filePath),
+                author: Array.isArray(metadata.author) ? metadata.author.join(', ') : undefined,
+                publisher: metadata.publisher,
+                language: metadata.language,
+                description: metadata.description,
+                pageCount: preloadedBook.sections?.filter(s => s.linear !== 'no').length || 1,
+                format: 'mobi',
+                coverImage: await _getCoverImage(preloadedBook),
+            };
+            
+            const sectionCount = bookInfo.pageCount || 1;
+            
+            state.isReady = true;
+            state.bookInfo = bookInfo;
+            state.toc = toc;
+            state.sectionCount = sectionCount;
+            
+            // 异步保存元数据到缓存
+            mobiCacheService.saveMetadata(bookId, {
+                bookInfo,
+                toc,
+                sectionCount,
+            }).catch(err => logError('[MobiLifecycle] 保存元数据失败', err));
+            
+            return bookInfo;
+        }
+
+        // 3. 检查元数据缓存 (Fast Path)
+        const metadata = await mobiCacheService.getMetadata(bookId);
+        if (metadata) {
+             await log(`[MobiLifecycle] 命中元数据缓存: ${bookId}`, 'info').catch(() => {});
+             
+             // 恢复状态
+             state.bookInfo = metadata.bookInfo;
+             state.toc = metadata.toc;
+             state.sectionCount = metadata.sectionCount;
+             state.isReady = true; // 标记就绪，此时 book 为 null
+
+             return metadata.bookInfo;
+        }
+
+        // 4. 缓存未命中，执行完整加载
+        await log(`[MobiLifecycle] 元数据未命中，执行完整加载`, 'info').catch(() => {});
+        const loadOp = _loadBook(filePath, bookId);
+        _loadPromise = loadOp.then(() => {});
+        return loadOp;
+    };
+
+    /**
+     * 确保书籍已完全加载
+     */
+    const ensureBookLoaded = async (): Promise<void> => {
+        if (state.book) return;
+        if (!_loadPromise && state.filePath && state.bookId) {
+            const loadOp = _loadBook(state.filePath, state.bookId);
+            _loadPromise = loadOp.then(() => {});
+        }
+        if (_loadPromise) {
+            await _loadPromise;
         }
     };
 
@@ -283,11 +402,15 @@ export function useMobiLifecycle(): MobiLifecycleHook {
         state.bookInfo = null;
         state.toc = [];
         state.sectionCount = 0;
+        state.bookId = null;
+        state.filePath = null;
+        _loadPromise = null;
     };
 
     return {
         state,
         loadDocument,
+        ensureBookLoaded,
         reset,
     };
 }

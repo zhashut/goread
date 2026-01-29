@@ -7,6 +7,7 @@ import { bookService } from "../services";
 import { BookCard } from "./BookCard";
 import { SearchHeader } from "./SearchHeader";
 import { epubPreloader, isEpubFile } from "../services/formats/epub/epubPreloader";
+import { mobiPreloader, isMobiFile } from "../services/formats/mobi/mobiPreloader";
 
 const EmptyState: React.FC = () => {
   const { t } = useTranslation('search');
@@ -168,6 +169,10 @@ export const Search: React.FC = () => {
                   // EPUB 预加载：提前触发书籍加载，利用页面切换时间完成 ZIP 解析
                   if (isEpubFile(b.file_path)) {
                     epubPreloader.preload(b.file_path);
+                  }
+                  // MOBI 预加载：提前触发书籍加载，利用页面切换时间完成解析
+                  if (isMobiFile(b.file_path)) {
+                    mobiPreloader.preload(b.file_path);
                   }
                   nav.toReader(b.id);
                 }}

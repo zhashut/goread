@@ -7,8 +7,8 @@ import { MobiBook } from '../types';
 import { MobiRenderState } from './useMobiRender';
 
 export interface MobiNavigationContext {
-    book: MobiBook | null;
     getRenderState: () => MobiRenderState;
+    book: MobiBook | null;
 }
 
 export interface MobiNavigationHook {
@@ -66,19 +66,16 @@ export function useMobiNavigation(context: MobiNavigationContext): MobiNavigatio
      * 跳转到指定页面 (章节)
      */
     const goToPage = async (page: number): Promise<void> => {
-        const book = context.book;
         const { scrollContainer, shadowRoot } = getRenderState();
-        if (!scrollContainer || !shadowRoot || !book) return;
+        if (!scrollContainer || !shadowRoot) return;
 
-        const pageCount = book.sections?.filter(s => s.linear !== 'no').length || 1;
-        // page 是从 1 开始的索引
-        const sectionIndex = Math.max(1, Math.min(page, pageCount));
-
-        // 查找章节元素
         const bodyEl = shadowRoot.querySelector('.mobi-body');
         if (!bodyEl) return;
 
         const sections = Array.from(bodyEl.querySelectorAll('.mobi-section')) as HTMLElement[];
+        const pageCount = sections.length || 1;
+        // page 是从 1 开始的索引
+        const sectionIndex = Math.max(1, Math.min(page, pageCount));
         const targetSection = sections[sectionIndex - 1]; // 0 为起始索引
 
         if (targetSection) {
@@ -90,10 +87,9 @@ export function useMobiNavigation(context: MobiNavigationContext): MobiNavigatio
      * 滚动到指定锚点（支持 filepos:、kindle:pos: 和 section: 格式）
      */
     const scrollToAnchor = async (anchor: string): Promise<void> => {
-        const book = context.book;
         const { shadowRoot } = getRenderState();
-        if (!book || !shadowRoot) {
-            await log('[MobiRenderer] scrollToAnchor: book 或 shadowRoot 未初始化', 'warn').catch(() => { });
+        if (!shadowRoot) {
+            await log('[MobiRenderer] scrollToAnchor: shadowRoot 未初始化', 'warn').catch(() => { });
             return;
         }
 
@@ -129,6 +125,12 @@ export function useMobiNavigation(context: MobiNavigationContext): MobiNavigatio
                     return;
                 }
                 await log(`[MobiRenderer] 未找到 section ${sectionId}`, 'warn').catch(() => { });
+                return;
+            }
+
+            const book = context.book;
+            if (!book) {
+                await _scrollToAnchorDirect(anchor);
                 return;
             }
 

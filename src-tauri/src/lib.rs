@@ -8,6 +8,7 @@ mod models;
 mod pdf;
 mod pdf_commands;
 mod txt_commands;
+mod mobi_commands;
 
 // 导入所有命令
 use commands::{
@@ -85,6 +86,7 @@ use html_commands::*;
 use markdown_commands::*;
 use pdf_commands::*;
 use txt_commands::*;
+use mobi_commands::*;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
 use sqlx::SqlitePool;
 use std::str::FromStr;
@@ -143,6 +145,10 @@ pub fn run() {
                 // 初始化EPUB缓存管理器
                 app.manage(epub_commands::EpubCacheState::new(Mutex::new(
                     formats::epub::EpubCacheManager::new(),
+                )));
+                // 初始化MOBI缓存管理器
+                app.manage(mobi_commands::MobiCacheState::new(Mutex::new(
+                    formats::mobi::cache::MobiCacheManager::new(),
                 )));
 
                 if let Ok(res_dir) = app.path().resource_dir() {
@@ -277,7 +283,18 @@ pub fn run() {
             rebuild_pdf_cover,
             rebuild_epub_cover,
             rebuild_mobi_cover,
-            clear_book_cover
+            clear_book_cover,
+            // MOBI cache commands
+            mobi_save_section,
+            mobi_load_section,
+            mobi_save_resource,
+            mobi_load_resource,
+            mobi_set_cache_expiry,
+            mobi_clear_book_cache,
+            mobi_cleanup_expired,
+            mobi_get_cache_stats,
+            mobi_save_metadata,
+            mobi_load_metadata
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,23 +1,23 @@
 /**
- * EPUB 资源缓存管理器
+ * MOBI 资源缓存管理器
  * 使用引用计数 + LRU 混合策略管理二进制资源缓存
  */
 
 import type {
-  EpubResourceCacheEntry,
-  IEpubResourceCache,
+  MobiResourceCacheEntry,
+  IMobiResourceCache,
 } from './types';
 import type { BookPageCacheStats } from '../../types';
 import { logError } from '../../../index';
 import { isIdleExpired, evictOldestEntry } from '../../../../utils/lruCacheUtils';
 
 /**
- * EPUB 资源缓存管理器
- * 存储 EPUB 内的二进制资源（图片、字体等），支持跨章节复用
+ * MOBI 资源缓存管理器
+ * 存储 MOBI 内的二进制资源（图片、字体等），支持跨章节复用
  */
-export class EpubResourceCacheManager implements IEpubResourceCache {
+export class MobiResourceCacheManager implements IMobiResourceCache {
   /** 缓存容器 */
-  private cache: Map<string, EpubResourceCacheEntry>;
+  private cache: Map<string, MobiResourceCacheEntry>;
   /** 最大内存占用（MB） */
   private maxMemoryMB: number;
   /** 当前内存占用（MB） */
@@ -35,8 +35,8 @@ export class EpubResourceCacheManager implements IEpubResourceCache {
   /**
    * 生成缓存键
    */
-  private getCacheKey(bookId: string, resourcePath: string): string {
-    return `${bookId}:${resourcePath}`;
+  private getCacheKey(bookId: string, resourceId: string): string {
+    return `${bookId}:${resourceId}`;
   }
 
   /**
@@ -57,7 +57,7 @@ export class EpubResourceCacheManager implements IEpubResourceCache {
         if (this.currentMemoryMB < 0) {
           this.currentMemoryMB = 0;
         }
-        logError(`[EpubResourceCache] 淘汰资源: ${String(key)}`).catch(() => {});
+        logError(`[MobiResourceCache] 淘汰资源: ${String(key)}`).catch(() => {});
       },
     });
   }
@@ -72,8 +72,8 @@ export class EpubResourceCacheManager implements IEpubResourceCache {
   /**
    * 获取资源数据
    */
-  get(bookId: string, resourcePath: string): ArrayBuffer | null {
-    const key = this.getCacheKey(bookId, resourcePath);
+  get(bookId: string, resourceId: string): ArrayBuffer | null {
+    const key = this.getCacheKey(bookId, resourceId);
     const entry = this.cache.get(key);
 
     if (!entry) return null;
@@ -98,12 +98,12 @@ export class EpubResourceCacheManager implements IEpubResourceCache {
   /**
    * 写入资源数据
    */
-  set(bookId: string, resourcePath: string, data: ArrayBuffer, mimeType: string): void {
-    const key = this.getCacheKey(bookId, resourcePath);
+  set(bookId: string, resourceId: string, data: ArrayBuffer, mimeType: string): void {
+    const key = this.getCacheKey(bookId, resourceId);
 
     // 如果已存在，仅增加引用计数
     if (this.cache.has(key)) {
-      this.addRef(bookId, resourcePath);
+      this.addRef(bookId, resourceId);
       return;
     }
 
@@ -118,9 +118,9 @@ export class EpubResourceCacheManager implements IEpubResourceCache {
     }
 
     const now = Date.now();
-    const entry: EpubResourceCacheEntry = {
+    const entry: MobiResourceCacheEntry = {
       bookId,
-      resourcePath,
+      resourceId,
       data,
       mimeType,
       sizeBytes: data.byteLength,
@@ -136,8 +136,8 @@ export class EpubResourceCacheManager implements IEpubResourceCache {
   /**
    * 检查资源是否已缓存
    */
-  has(bookId: string, resourcePath: string): boolean {
-    const key = this.getCacheKey(bookId, resourcePath);
+  has(bookId: string, resourceId: string): boolean {
+    const key = this.getCacheKey(bookId, resourceId);
     const entry = this.cache.get(key);
     if (!entry) return false;
 
@@ -159,8 +159,8 @@ export class EpubResourceCacheManager implements IEpubResourceCache {
   /**
    * 增加资源引用计数
    */
-  addRef(bookId: string, resourcePath: string): void {
-    const key = this.getCacheKey(bookId, resourcePath);
+  addRef(bookId: string, resourceId: string): void {
+    const key = this.getCacheKey(bookId, resourceId);
     const entry = this.cache.get(key);
     if (entry) {
       entry.refCount++;
@@ -173,8 +173,8 @@ export class EpubResourceCacheManager implements IEpubResourceCache {
   /**
    * 减少资源引用计数
    */
-  release(bookId: string, resourcePath: string): void {
-    const key = this.getCacheKey(bookId, resourcePath);
+  release(bookId: string, resourceId: string): void {
+    const key = this.getCacheKey(bookId, resourceId);
     const entry = this.cache.get(key);
     if (entry && entry.refCount > 0) {
       entry.refCount--;
@@ -196,7 +196,7 @@ export class EpubResourceCacheManager implements IEpubResourceCache {
     });
 
     keysToDelete.forEach((key) => this.cache.delete(key));
-    logError(`[EpubResourceCache] 清空书籍资源: ${bookId}, 删除 ${keysToDelete.length} 个资源`).catch(() => {});
+    logError(`[MobiResourceCache] 清空书籍资源: ${bookId}, 删除 ${keysToDelete.length} 个资源`).catch(() => {});
   }
 
   /**
@@ -205,7 +205,7 @@ export class EpubResourceCacheManager implements IEpubResourceCache {
   clearAll(): void {
     this.cache.clear();
     this.currentMemoryMB = 0;
-    logError('[EpubResourceCache] 清空所有资源缓存').catch(() => {});
+    logError('[MobiResourceCache] 清空所有资源缓存').catch(() => {});
   }
 
   /**
@@ -223,8 +223,8 @@ export class EpubResourceCacheManager implements IEpubResourceCache {
   /**
    * 获取资源的 MIME 类型
    */
-  getMimeType(bookId: string, resourcePath: string): string | null {
-    const key = this.getCacheKey(bookId, resourcePath);
+  getMimeType(bookId: string, resourceId: string): string | null {
+    const key = this.getCacheKey(bookId, resourceId);
     const entry = this.cache.get(key);
     return entry?.mimeType ?? null;
   }

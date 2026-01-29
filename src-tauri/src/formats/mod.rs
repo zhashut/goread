@@ -7,6 +7,7 @@ pub mod epub;
 pub mod html;
 pub mod markdown;
 pub mod txt;
+pub mod mobi;
 
 /// 通用异步返回类型，统一封装书籍渲染相关的异步接口
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;

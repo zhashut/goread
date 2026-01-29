@@ -6,7 +6,7 @@
 import { BookInfo, TocItem } from '../../types';
 import { logError } from '../../../index';
 import { EpubBook, useEpubLoader } from './useEpubLoader';
-import { generateQuickBookId } from '../cache';
+import { generateQuickBookId } from '../../../../utils/bookId';
 import { epubCacheService } from '../epubCacheService';
 import { epubPreloader } from '../epubPreloader';
 

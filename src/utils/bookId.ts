@@ -1,23 +1,33 @@
 /**
- * EPUB BookId 生成工具
+ * 通用 BookId 生成工具
  * 基于书籍元数据和文件内容生成唯一标识
  */
 
-import { logError } from '../../../index';
+import { logError } from '../services';
 
 /**
  * 计算 ArrayBuffer 的 SHA-256 摘要
  * @returns 十六进制字符串
  */
-async function sha256(buffer: ArrayBuffer): Promise<string> {
+export async function sha256(buffer: ArrayBuffer): Promise<string> {
   const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 /**
- * 从 EPUB 元数据中提取逻辑 ID
- * 优先使用 dc:identifier，回退到 title
+ * 清理 ID 中的特殊字符
+ */
+export function sanitizeId(id: string): string {
+  return id
+    .replace(/[#:]/g, '_') // 替换可能冲突的字符
+    .replace(/\s+/g, '_') // 空白替换为下划线
+    .substring(0, 64); // 限制长度
+}
+
+/**
+ * 从元数据中提取逻辑 ID
+ * 优先使用 identifier，回退到 title
  */
 export function extractLogicalId(metadata: {
   title?: string;
@@ -39,20 +49,10 @@ export function extractLogicalId(metadata: {
 }
 
 /**
- * 清理 ID 中的特殊字符
- */
-function sanitizeId(id: string): string {
-  return id
-    .replace(/[#:]/g, '_') // 替换可能冲突的字符
-    .replace(/\s+/g, '_') // 空白替换为下划线
-    .substring(0, 64); // 限制长度
-}
-
-/**
- * 生成 EPUB 书籍的唯一标识
+ * 生成书籍的唯一标识
  * 格式：逻辑ID#版本号（版本号为文件内容摘要的前 16 位）
  *
- * @param metadata EPUB 元数据
+ * @param metadata 元数据
  * @param fileBuffer 文件内容的 ArrayBuffer（可选，用于生成版本号）
  * @returns bookId 字符串
  */
@@ -84,19 +84,6 @@ export async function generateBookId(
 }
 
 /**
- * 从文件路径生成简化的 bookId（用于快速生成临时 ID）
- * 注意：此方法不考虑文件内容变化，仅用于临时场景
- */
-export function generateQuickBookId(filePath: string): string {
-  const parts = filePath.replace(/\\/g, '/').split('/');
-  const fileName = parts[parts.length - 1] || 'unknown';
-  const name = fileName.replace(/\.[^.]+$/, '');
-  const sanitized = sanitizeId(name);
-  const pathHash = simpleHash(filePath).toString(16).padStart(8, '0');
-  return `${sanitized}#${pathHash}`;
-}
-
-/**
  * 简单字符串哈希（djb2 算法）
  */
 function simpleHash(str: string): number {
@@ -106,4 +93,18 @@ function simpleHash(str: string): number {
     hash = hash & hash; // 转为 32 位整数
   }
   return Math.abs(hash);
+}
+
+/**
+ * 从文件路径生成简化的 bookId（用于快速生成临时 ID）
+ * 注意：此方法不考虑文件内容变化，仅用于临时场景
+ */
+export function generateQuickBookId(filePath: string): string {
+  const parts = filePath.replace(/\\/g, '/').split('/');
+  const fileName = parts[parts.length - 1] || 'unknown';
+  // 使用通用的后缀去除逻辑
+  const name = fileName.replace(/\.[^.]+$/, '');
+  const sanitized = sanitizeId(name);
+  const pathHash = simpleHash(filePath).toString(16).padStart(8, '0');
+  return `${sanitized}#${pathHash}`;
 }
