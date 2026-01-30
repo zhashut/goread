@@ -85,12 +85,13 @@ class ExternalFileOpenBridge {
             }
         }
         
-        // 回退到常见格式的硬编码映射
         switch ext {
         case "pdf":
             return "application/pdf"
         case "epub":
             return "application/epub+zip"
+        case "mobi":
+            return "application/x-mobipocket-ebook"
         case "md", "markdown":
             return "text/markdown"
         case "html", "htm":
