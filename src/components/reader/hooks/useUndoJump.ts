@@ -26,9 +26,9 @@ export const useUndoJump = ({ navigator }: UseUndoJumpProps) => {
     }
   }, []);
 
-  const handleJump = useCallback((fromProgress: number, toPage: number) => {
-    // 若跳转目标页与当前页相同（整数部分），则忽略
-    if (Math.floor(fromProgress) === toPage) return;
+  const handleJump = useCallback((fromProgress: number, toPage: number, forceRecord?: boolean) => {
+    // 若跳转目标页与当前页相同（整数部分）且非强制记录，则忽略
+    if (!forceRecord && Math.floor(fromProgress) === toPage) return;
 
     // 清理旧的定时器
     if (timerRef.current) {

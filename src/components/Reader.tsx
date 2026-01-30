@@ -662,27 +662,29 @@ export const Reader: React.FC = () => {
         }}
         onGoToPage={(page, anchor) => {
           const isEpub = book?.file_path && getBookFormat(book.file_path) === 'epub';
-          const isMobiFormat = book?.file_path && getBookFormat(book.file_path) === 'mobi';
-          const isHtmlFormat = book?.file_path && getBookFormat(book.file_path) === 'html';
-          const isTxtFormat = book?.file_path && getBookFormat(book.file_path) === 'txt';
           
-          // HTML/Markdown/TXT 始终使用精确进度，EPUB/MOBI 仅纵向模式使用精确进度
+          // 所有格式都尝试获取精确进度，用于撤回跳转功能
           let fromProgress = currentPage;
           if (rendererRef.current) {
             const renderer = rendererRef.current as any;
-            if (isHtmlFormat || isMarkdown || isTxtFormat || ((isEpub || isMobiFormat) && readingMode === 'vertical')) {
-              fromProgress = renderer.getPreciseProgress?.() ?? currentPage;
+            if (typeof renderer.getPreciseProgress === 'function') {
+              fromProgress = renderer.getPreciseProgress() ?? currentPage;
             }
           }
-          undoJump.handleJump(fromProgress, page ?? currentPage);
+          
+          // 计算目标位置：优先使用 page 参数，否则使用当前页（anchor 跳转后会自动更新）
+          const targetPage = typeof page === 'number' ? page : currentPage;
           
           if (anchor && isDomRender && rendererRef.current) {
+            // 锚点跳转强制记录撤回状态（即使页码相同，滚动位置也会改变）
+            undoJump.handleJump(fromProgress, targetPage, true);
             if (isEpub) {
               (rendererRef.current as any).goToHref?.(anchor);
             } else {
               (rendererRef.current as any).scrollToAnchor?.(anchor);
             }
           } else if (typeof page === 'number') {
+            undoJump.handleJump(fromProgress, page);
             navigation.goToPage(page);
           }
           setTocOverlayOpen(false);
@@ -739,19 +741,12 @@ export const Reader: React.FC = () => {
           verticalScroll.lastSeekTsRef.current = Date.now();
         }}
         onSeekEnd={async (v) => {
-          // 获取当前精确进度
+          // 所有格式统一获取精确进度，用于撤回跳转功能
           let fromProgress = currentPage;
-          const isMarkdownFormat = bookFilePath && getBookFormat(bookFilePath) === 'markdown';
-          const isEpubFormat = bookFilePath && getBookFormat(bookFilePath) === 'epub';
-          const isMobiFormat = bookFilePath && getBookFormat(bookFilePath) === 'mobi';
-          const isHtmlFormat = bookFilePath && getBookFormat(bookFilePath) === 'html';
-          const isTxtFormat = bookFilePath && getBookFormat(bookFilePath) === 'txt';
-          
-          // HTML/Markdown/TXT 始终使用精确进度，EPUB/MOBI 仅纵向模式使用精确进度
           if (rendererRef.current) {
             const renderer = rendererRef.current as any;
-            if (isHtmlFormat || isMarkdownFormat || isTxtFormat || ((isEpubFormat || isMobiFormat) && readingMode === 'vertical')) {
-              fromProgress = renderer.getPreciseProgress?.() ?? currentPage;
+            if (typeof renderer.getPreciseProgress === 'function') {
+              fromProgress = renderer.getPreciseProgress() ?? currentPage;
             }
           }
           undoJump.handleJump(fromProgress, v);
