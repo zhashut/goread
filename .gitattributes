@@ -5,3 +5,4 @@
 *.ico filter=lfs diff=lfs merge=binary -text
 *.png filter=lfs diff=lfs merge=binary -text
 *.a filter=lfs diff=lfs merge=binary -text
+*.so filter=lfs diff=lfs merge=binary -text
