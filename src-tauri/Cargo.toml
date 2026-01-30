@@ -45,6 +45,7 @@ moka = { version = "0.12", features = ["future"] }
 chardetng = "0.1"
 encoding_rs = "0.8"
 regex = "1"
+once_cell = "1.19"
 
 [profile.dev]
 incremental = true # 以较小的步骤编译您的二进制文件。

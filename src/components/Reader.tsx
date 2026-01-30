@@ -200,6 +200,9 @@ export const Reader: React.FC = () => {
     domContainerRef: domRenderer.domContainerRef,
     options: settingsWithTheme,
     readingMode,
+    setToc: tocData.setToc,
+    toc: tocData.toc,
+    setActiveNodeSignature: tocData.setActiveNodeSignature,
   });
 
 

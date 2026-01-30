@@ -1,8 +1,10 @@
 import { useEffect, useRef } from 'react';
 import { TxtRenderer } from '../../../services/formats/txt/TxtRenderer';
-import { IBookRenderer, RenderOptions } from '../../../services/formats';
+import { IBookRenderer, RenderOptions, TocItem } from '../../../services/formats';
 import { bookService } from '../../../services';
 import { useReaderState } from './useReaderState';
+import { TocNode } from '../types';
+import { findActiveNodeSignature } from './useToc';
 
 /**
  * TXT 专用分页 Hook
@@ -15,6 +17,12 @@ export type TxtPagingProps = {
   domContainerRef: React.RefObject<HTMLDivElement>;
   options?: RenderOptions;
   readingMode?: 'horizontal' | 'vertical';
+  /** 目录更新回调，分页完成后触发 */
+  setToc?: (toc: TocNode[]) => void;
+  /** 目录数据，用于计算当前章节高亮 */
+  toc?: TocNode[];
+  /** 设置当前激活章节签名 */
+  setActiveNodeSignature?: (sig: string | undefined) => void;
 };
 
 export const useTxtPaging = ({
@@ -23,6 +31,9 @@ export const useTxtPaging = ({
   domContainerRef,
   options,
   readingMode = 'horizontal',
+  setToc,
+  toc,
+  setActiveNodeSignature,
 }: TxtPagingProps) => {
   const {
     book,
@@ -60,6 +71,17 @@ export const useTxtPaging = ({
     }
   }, [readingMode]);
 
+  // TXT 格式目录章节高亮：当页码或目录变化时更新激活章节
+  useEffect(() => {
+    // 仅对 TXT 格式生效，避免影响其他格式的目录高亮逻辑
+    const renderer = rendererRef.current;
+    if (!isTxtRenderer(renderer)) return;
+    
+    if (!setActiveNodeSignature || !toc || toc.length === 0) return;
+    const sig = findActiveNodeSignature(currentPage, 1.0, true, toc);
+    setActiveNodeSignature(sig || undefined);
+  }, [currentPage, toc, setActiveNodeSignature, rendererRef]);
+
   // 分页初始化
   useEffect(() => {
     if (loading || (!book && !isExternal)) return;
@@ -88,6 +110,21 @@ export const useTxtPaging = ({
       initializedRef.current = true;
 
       const txtRenderer = renderer as TxtRenderer;
+
+      // 注册目录更新回调，分页完成后将字符偏移量转换为真实页码
+      if (setToc) {
+        txtRenderer.onTocUpdated = (updatedToc: TocItem[]) => {
+          const toTocNode = (items: TocItem[]): TocNode[] => {
+            return items.map((item) => ({
+              title: item.title,
+              page: typeof item.location === 'number' ? item.location : undefined,
+              children: item.children ? toTocNode(item.children) : [],
+              expanded: false,
+            }));
+          };
+          setToc(toTocNode(updatedToc));
+        };
+      }
 
       try {
         await txtRenderer.ensurePagination(container!, options);
@@ -229,6 +266,37 @@ export const useTxtPaging = ({
         if (viewportHeight <= 0) return;
 
         const scrollTop = container.scrollTop;
+        const scrollHeight = container.scrollHeight;
+        const maxScrollTop = Math.max(0, scrollHeight - viewportHeight);
+
+        // 触底检测：如果滚动到底部，直接设为最后一页
+        const isAtBottom = maxScrollTop > 0 && scrollTop >= maxScrollTop - 2; // 2px 容差
+        if (isAtBottom) {
+          const total = totalPages > 0 ? totalPages : renderer.getPageCount();
+          const precisePage = total;
+          renderer.updatePreciseProgress(precisePage);
+
+          if (precisePage !== lastPageRef.current) {
+            lastPageRef.current = precisePage;
+            setCurrentPage(precisePage);
+          }
+
+          if (latestPreciseProgressRef) {
+            latestPreciseProgressRef.current = precisePage;
+          }
+
+          if (!isExternal && book) {
+            const now = Date.now();
+            const lastPrecise = lastSavedPreciseRef.current;
+            const lastTime = lastSaveTimeRef.current;
+            if (lastPrecise === null || Math.abs(precisePage - lastPrecise) >= 0.1 || now - lastTime >= 3000) {
+              lastSavedPreciseRef.current = precisePage;
+              lastSaveTimeRef.current = now;
+              bookService.updateBookProgress(book.id, precisePage).catch(() => {});
+            }
+          }
+          return;
+        }
 
         // 基于 pageWrapper 锚点计算精确进度
         const pageWrappers = container.querySelectorAll('[data-page-index]');

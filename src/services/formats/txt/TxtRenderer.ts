@@ -69,6 +69,9 @@ export class TxtRenderer implements IBookRenderer {
   // 精确进度（浮点数），用于撤回跳转等场景的精确定位
   private _currentPreciseProgress: number = 1;
 
+  // 目录更新回调，分页完成后触发，用于通知 UI 层刷新目录数据
+  onTocUpdated?: (toc: TocItem[]) => void;
+
   constructor() {
     this._core = useTxtRendererCore();
   }
@@ -358,6 +361,8 @@ export class TxtRenderer implements IBookRenderer {
 
     if (this._pages.length === 0) {
       await this._calculatePages(container, options);
+      // 分页完成后，通知 UI 层更新目录（此时目录页码已从字符偏移量转换为真实页码）
+      this.onTocUpdated?.(this._toc);
     }
   }
 

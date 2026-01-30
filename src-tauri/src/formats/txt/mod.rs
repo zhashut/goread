@@ -1,12 +1,14 @@
 //! TXT 格式引擎
 //! 负责文件读取、编码检测和章节识别
 
+mod toc_parser;
+
 use chardetng::EncodingDetector;
-use regex::Regex;
 use std::fs;
 use std::path::Path;
 
 use super::{BookError, BookErrorCode, BookFormat, BookMetadata, TocItem, TocLocation};
+use toc_parser::TocParser;
 
 /// TXT 引擎
 pub struct TxtEngine {
@@ -160,131 +162,9 @@ impl TxtEngine {
 
     /// 章节识别，生成目录
     pub fn get_toc(&self) -> Vec<TocItem> {
-        let mut toc = Vec::new();
-
-        // 中文章节正则模式
-        let chinese_chapter = Regex::new(
-            r"^第[零一二三四五六七八九十百千万0-9]+[章节回卷集部篇]\s*.+"
-        ).ok();
-        let chinese_volume = Regex::new(
-            r"^(正文\s*)?(卷[一二三四五六七八九十百千万0-9]+)\s*.+"
-        ).ok();
-        let chinese_prologue = Regex::new(
-            r"^(楔子|序章|序言|序幕|尾声|后记|引子|番外)\s*$"
-        ).ok();
-
-        // 英文章节正则模式
-        let english_chapter = Regex::new(
-            r"(?i)^(Chapter|CHAPTER)\s+(\d+|[IVXLCM]+)"
-        ).ok();
-        let english_section = Regex::new(
-            r"(?i)^(Section|Part)\s+(\d+|[IVXLCM]+)"
-        ).ok();
-
-        let mut char_offset = 0usize;
-
-        for (line_num, line) in self.lines.iter().enumerate() {
-            let trimmed = line.trim();
-
-            // 跳过空行
-            if trimmed.is_empty() {
-                char_offset += line.len() + 1; // +1 for newline
-                continue;
-            }
-
-            let mut matched = false;
-            let mut title = String::new();
-            let mut level = 1u32;
-
-            // 中文章节匹配
-            if let Some(ref re) = chinese_chapter {
-                if re.is_match(trimmed) {
-                    matched = true;
-                    title = trimmed.to_string();
-                    level = 1;
-                }
-            }
-            if !matched {
-                if let Some(ref re) = chinese_volume {
-                    if re.is_match(trimmed) {
-                        matched = true;
-                        title = trimmed.to_string();
-                        level = 0;
-                    }
-                }
-            }
-            if !matched {
-                if let Some(ref re) = chinese_prologue {
-                    if re.is_match(trimmed) {
-                        matched = true;
-                        title = trimmed.to_string();
-                        level = 0;
-                    }
-                }
-            }
-
-            // 英文章节匹配
-            if !matched {
-                if let Some(ref re) = english_chapter {
-                    if re.is_match(trimmed) {
-                        matched = true;
-                        title = trimmed.to_string();
-                        level = 1;
-                    }
-                }
-            }
-            if !matched {
-                if let Some(ref re) = english_section {
-                    if re.is_match(trimmed) {
-                        matched = true;
-                        title = trimmed.to_string();
-                        level = 0;
-                    }
-                }
-            }
-
-            if matched {
-                toc.push(TocItem {
-                    title,
-                    location: TocLocation::Page(char_offset as u32),
-                    level,
-                    children: vec![],
-                });
-            }
-
-            char_offset += line.len() + 1;
-        }
-
-        // 兜底策略：如果识别的章节太少，按固定行数分段
-        if toc.len() < 3 && self.lines.len() > 100 {
-            toc.clear();
-            let segment_size = 300; // 每 300 行一个分段
-            let mut offset = 0usize;
-            let mut segment_num = 1;
-
-            for (i, line) in self.lines.iter().enumerate() {
-                if i > 0 && i % segment_size == 0 {
-                    toc.push(TocItem {
-                        title: format!("第 {} 部分", segment_num),
-                        location: TocLocation::Page(offset as u32),
-                        level: 1,
-                        children: vec![],
-                    });
-                    segment_num += 1;
-                }
-                offset += line.len() + 1;
-            }
-
-            // 添加开头
-            if toc.is_empty() || toc[0].location != TocLocation::Page(0) {
-                toc.insert(0, TocItem {
-                    title: "开始".to_string(),
-                    location: TocLocation::Page(0),
-                    level: 1,
-                    children: vec![],
-                });
-            }
-        }
+        // 使用新的 TOC 解析器
+        let parser = TocParser::new();
+        let mut toc = parser.parse(&self.content, &self.lines);
 
         // 如果仍然没有目录，创建一个默认条目
         if toc.is_empty() {
@@ -326,5 +206,61 @@ mod tests {
         assert_eq!(toc.len(), 2);
         assert_eq!(toc[0].title, "第一章 开始");
         assert_eq!(toc[1].title, "第二章 继续");
+    }
+
+    #[test]
+    fn test_chapter_with_colon() {
+        let content = "第一章：开始\n这是正文内容\n第二章：继续\n更多内容";
+        let engine = TxtEngine {
+            content: content.to_string(),
+            encoding: "UTF-8".to_string(),
+            file_path: "/test/novel.txt".to_string(),
+            lines: content.lines().map(|s| s.to_string()).collect(),
+        };
+        let toc = engine.get_toc();
+        assert!(toc.len() >= 2, "Should detect chapters with colon");
+    }
+
+    #[test]
+    fn test_bracketed_chapter() {
+        let content = "【第一章】开始\n这是正文内容\n【第二章】继续\n更多内容";
+        let engine = TxtEngine {
+            content: content.to_string(),
+            encoding: "UTF-8".to_string(),
+            file_path: "/test/novel.txt".to_string(),
+            lines: content.lines().map(|s| s.to_string()).collect(),
+        };
+        let toc = engine.get_toc();
+        assert!(toc.len() >= 2, "Should detect bracketed chapters");
+    }
+
+    #[test]
+    fn test_volume_and_chapter() {
+        let content = "卷一 风起云涌\n第一章 少年\n正文内容\n第二章 启程\n更多内容";
+        let engine = TxtEngine {
+            content: content.to_string(),
+            encoding: "UTF-8".to_string(),
+            file_path: "/test/novel.txt".to_string(),
+            lines: content.lines().map(|s| s.to_string()).collect(),
+        };
+        let toc = engine.get_toc();
+        assert!(!toc.is_empty(), "Should detect volume and chapters");
+        // 验证层级结构
+        if let Some(first) = toc.first() {
+            assert_eq!(first.level, 0, "Volume should be level 0");
+        }
+    }
+
+    #[test]
+    fn test_english_chapter() {
+        let content = "Chapter 1 The Beginning\nSome content here.\nChapter 2 The Journey\nMore content.";
+        let engine = TxtEngine {
+            content: content.to_string(),
+            encoding: "UTF-8".to_string(),
+            file_path: "/test/novel.txt".to_string(),
+            lines: content.lines().map(|s| s.to_string()).collect(),
+        };
+        let toc = engine.get_toc();
+        assert!(toc.len() >= 2, "Should detect English chapters");
     }
 }

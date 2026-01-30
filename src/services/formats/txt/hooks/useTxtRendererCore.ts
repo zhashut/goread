@@ -85,120 +85,121 @@ function createParagraphElement(
   return p;
 }
 
-function splitIntoParagraphsWithOffsets(content: string): ParagraphInfo[] {
-  const paragraphs: ParagraphInfo[] = [];
-  const lines = content.split('\n');
-  let currentParagraphLines: string[] = [];
-  let paragraphStart = 0;
+/**
+ * 计算字符串的 UTF-8 字节长度
+ * 与后端 Rust 的 String::len() 保持一致
+ */
+function getByteLength(str: string): number {
+  return new TextEncoder().encode(str).length;
+}
+
+/**
+ * 将内容按行分割，每行作为独立段落
+ * 统一处理方式，避免空行检测的复杂逻辑
+ * 注意：偏移量使用字节长度，与后端 Rust 计算方式保持一致
+ */
+function splitContentIntoLines(content: string): ParagraphInfo[] {
+  const lines: ParagraphInfo[] = [];
+  const rawLines = content.split('\n');
   let currentOffset = 0;
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const lineLength = line.length;
-    const isSeparator = i < lines.length - 1 ? 1 : 0;
+  for (let i = 0; i < rawLines.length; i++) {
+    const line = rawLines[i];
+    // 使用字节长度，与后端 Rust 的 String::len() 一致
+    const lineByteLength = getByteLength(line);
+    // 换行符占 1 字节（最后一行没有换行符）
+    const separatorLength = i < rawLines.length - 1 ? 1 : 0;
 
-    if (line.trim() === '') {
-      if (currentParagraphLines.length > 0) {
-        const text = currentParagraphLines.join('\n');
-        paragraphs.push({
-          text,
-          startOffset: paragraphStart,
-          endOffset: currentOffset,
-        });
-        currentParagraphLines = [];
-      }
-      currentOffset += lineLength + isSeparator;
-      paragraphStart = currentOffset;
-    } else {
-      currentParagraphLines.push(line);
-      currentOffset += lineLength + isSeparator;
-    }
-  }
-
-  if (currentParagraphLines.length > 0) {
-    const text = currentParagraphLines.join('\n');
-    paragraphs.push({
-      text,
-      startOffset: paragraphStart,
-      endOffset: content.length,
-    });
-  }
-
-  return paragraphs;
-}
-
-function splitLongParagraphWithOffsets(
-  para: ParagraphInfo,
-  measureContainer: HTMLElement,
-  maxHeight: number
-): Array<{ text: string; startOffset: number; endOffset: number; isFullPage: boolean }> {
-  const chunks: Array<{ text: string; startOffset: number; endOffset: number; isFullPage: boolean }> = [];
-  let remaining = para.text;
-  let currentOffset = para.startOffset;
-
-  while (remaining.length > 0) {
-    let low = 1;
-    let high = remaining.length;
-    let best = 1;
-
-    while (low <= high) {
-      const mid = Math.floor((low + high) / 2);
-      const testText = remaining.slice(0, mid);
-
-      measureContainer.innerHTML = '';
-      const p = document.createElement('p');
-      p.style.cssText = 'margin: 0 0 0.8em 0; text-indent: 2em;';
-      p.textContent = testText;
-      measureContainer.appendChild(p);
-
-      if (measureContainer.scrollHeight <= maxHeight) {
-        best = mid;
-        low = mid + 1;
-      } else {
-        high = mid - 1;
-      }
+    // 只保留有内容的行，但偏移量始终累加（与后端保持一致）
+    if (line.trim().length > 0) {
+      lines.push({
+        text: line,
+        startOffset: currentOffset,
+        endOffset: currentOffset + lineByteLength,
+      });
     }
 
-    const chunkText = remaining.slice(0, best);
-    const chunkEndOffset = currentOffset + chunkText.length;
-    remaining = remaining.slice(best);
-
-    chunks.push({
-      text: chunkText,
-      startOffset: currentOffset,
-      endOffset: chunkEndOffset,
-      isFullPage: remaining.length > 0,
-    });
-
-    currentOffset = chunkEndOffset;
+    // 无论是否为空行，偏移量都要累加（使用字节长度）
+    currentOffset += lineByteLength + separatorLength;
   }
 
-  return chunks;
+  return lines;
 }
 
+/**
+ * 更新目录页码：将字符偏移量转换为页码
+ * 使用二分查找提高效率
+ */
 function updateTocPageNumbers(toc: TocItem[], pages: PageRange[]): TocItem[] {
+  if (pages.length === 0) return toc;
+
+  /**
+   * 二分查找：找到包含指定字符偏移量的页码
+   * 章节偏移量应该归属于包含该偏移量的页，或者该偏移量之后最近的页
+   */
+  const findPageForOffset = (charOffset: number): number => {
+    // 边界检查：偏移量在第一页之前
+    if (charOffset < pages[0].startOffset) {
+      return 1;
+    }
+    // 边界检查：偏移量在最后一页之后
+    if (charOffset > pages[pages.length - 1].endOffset) {
+      return pages.length;
+    }
+
+    // 二分查找：找到第一个 startOffset >= charOffset 的页
+    let left = 0;
+    let right = pages.length - 1;
+    let result = 0;
+    
+    while (left <= right) {
+      const mid = Math.floor((left + right) / 2);
+      const page = pages[mid];
+      
+      // 精确匹配：偏移量在当前页范围内
+      if (charOffset >= page.startOffset && charOffset <= page.endOffset) {
+        return mid + 1;
+      }
+      
+      if (charOffset < page.startOffset) {
+        // 章节在当前页之前，记录当前页为候选，继续向左搜索
+        result = mid;
+        right = mid - 1;
+      } else {
+        // charOffset > page.endOffset
+        // 章节在当前页之后，向右搜索
+        left = mid + 1;
+      }
+    }
+    
+    // 返回章节所在的页：
+    // 如果 charOffset 在两页之间的空隙，归属于下一页（即 result）
+    // 因为章节标题应该显示在其内容开始的那一页
+    return result + 1;
+  };
+
   const updated: TocItem[] = [];
   for (const item of toc) {
+    const charOffset = item.location as number;
+    const pageNum = findPageForOffset(charOffset);
+
     const cloned: TocItem = {
       title: item.title,
-      location: item.location,
+      location: pageNum,
       level: item.level,
       children: item.children ? updateTocPageNumbers(item.children, pages) : undefined,
     };
-    const charOffset = cloned.location as number;
-    for (let i = 0; i < pages.length; i++) {
-      const page = pages[i];
-      if (charOffset >= page.startOffset && charOffset < page.endOffset) {
-        cloned.location = i + 1;
-        break;
-      }
-    }
+
     updated.push(cloned);
   }
   return updated;
 }
 
 export function useTxtRendererCore(): TxtRendererCore {
+  /**
+   * 核心分页算法：逐行填充
+   * 每行独立测量高度，累积到页面容量后开启新页
+   */
   const calculatePages = async (
     content: string,
     toc: TocItem[],
@@ -210,13 +211,13 @@ export function useTxtRendererCore(): TxtRendererCore {
     const containerHeight = container.clientHeight || window.innerHeight;
     const containerWidth = container.clientWidth || window.innerWidth;
 
+    // 创建测量容器
     const measureContainer = document.createElement('div');
     measureContainer.style.cssText = `
       position: absolute;
       left: -99999px;
       visibility: hidden;
       width: ${containerWidth}px;
-      height: ${containerHeight}px;
       font-size: ${fontSize}px;
       line-height: ${lineHeight};
       font-family: ${options?.fontFamily || 'system-ui, sans-serif'};
@@ -224,93 +225,64 @@ export function useTxtRendererCore(): TxtRendererCore {
       box-sizing: border-box;
       white-space: pre-wrap;
       word-break: break-word;
-      overflow: hidden;
     `;
     document.body.appendChild(measureContainer);
 
     const pages: PageRange[] = [];
+    // 可用高度（扣除 padding）
+    const availableHeight = containerHeight - 32;
 
     try {
-      const paragraphs = splitIntoParagraphsWithOffsets(content);
+      const lines = splitContentIntoLines(content);
 
-      let currentPageStartOffset = 0;
-      let currentPageParagraphs: ParagraphInfo[] = [];
+      if (lines.length === 0) {
+        // 空内容时返回单页
+        pages.push({ index: 0, startOffset: 0, endOffset: content.length });
+        return { pages, toc };
+      }
 
-      for (let i = 0; i < paragraphs.length; i++) {
-        const para = paragraphs[i];
+      let currentPageStartOffset = lines[0].startOffset;
+      let currentHeight = 0;
 
-        const testP = document.createElement('p');
-        testP.style.cssText = 'margin: 0 0 0.8em 0; text-indent: 2em;';
-        testP.textContent = para.text;
-        measureContainer.appendChild(testP);
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
 
-        if (measureContainer.scrollHeight > containerHeight) {
-          measureContainer.removeChild(testP);
+        // 测量当前行高度
+        measureContainer.innerHTML = '';
+        const p = document.createElement('p');
+        p.style.cssText = 'margin: 0 0 0.8em 0; text-indent: 2em; white-space: pre-wrap; word-break: break-word;';
+        p.textContent = line.text;
+        measureContainer.appendChild(p);
+        const lineRenderHeight = measureContainer.scrollHeight;
 
-          if (currentPageParagraphs.length > 0) {
-            const lastPara = currentPageParagraphs[currentPageParagraphs.length - 1];
-            pages.push({
-              index: pages.length,
-              startOffset: currentPageStartOffset,
-              endOffset: lastPara.endOffset,
-            });
-            currentPageStartOffset = para.startOffset;
-            currentPageParagraphs = [];
-            measureContainer.innerHTML = '';
-          }
+        // 判断是否需要换页
+        if (currentHeight + lineRenderHeight > availableHeight && currentHeight > 0) {
+          // 当前页满了，保存当前页
+          const prevLine = lines[i - 1];
+          pages.push({
+            index: pages.length,
+            startOffset: currentPageStartOffset,
+            endOffset: prevLine.endOffset,
+          });
 
-          if (para.text.length > 0) {
-            const chunks = splitLongParagraphWithOffsets(para, measureContainer, containerHeight);
-
-            for (const chunk of chunks) {
-              if (chunk.isFullPage) {
-                pages.push({
-                  index: pages.length,
-                  startOffset: chunk.startOffset,
-                  endOffset: chunk.endOffset,
-                });
-                currentPageStartOffset = chunk.endOffset;
-              } else {
-                const p = document.createElement('p');
-                p.style.cssText = 'margin: 0 0 0.8em 0; text-indent: 2em;';
-                p.textContent = chunk.text;
-                measureContainer.appendChild(p);
-                currentPageParagraphs.push({
-                  text: chunk.text,
-                  startOffset: chunk.startOffset,
-                  endOffset: chunk.endOffset,
-                });
-              }
-            }
-          }
+          // 开始新页
+          currentPageStartOffset = line.startOffset;
+          currentHeight = lineRenderHeight;
         } else {
-          currentPageParagraphs.push(para);
+          // 累加高度
+          currentHeight += lineRenderHeight;
         }
       }
 
-      if (currentPageParagraphs.length > 0) {
-        const lastPara = currentPageParagraphs[currentPageParagraphs.length - 1];
-        pages.push({
-          index: pages.length,
-          startOffset: currentPageStartOffset,
-          endOffset: lastPara.endOffset,
-        });
-      } else if (currentPageStartOffset < content.length) {
-        pages.push({
-          index: pages.length,
-          startOffset: currentPageStartOffset,
-          endOffset: content.length,
-        });
-      }
+      // 保存最后一页
+      const lastLine = lines[lines.length - 1];
+      pages.push({
+        index: pages.length,
+        startOffset: currentPageStartOffset,
+        endOffset: lastLine.endOffset,
+      });
 
-      if (pages.length === 0) {
-        pages.push({
-          index: 0,
-          startOffset: 0,
-          endOffset: content.length,
-        });
-      }
-
+      // 更新目录页码
       const updatedToc = updateTocPageNumbers(toc, pages);
       return { pages, toc: updatedToc };
     } finally {
@@ -326,17 +298,16 @@ export function useTxtRendererCore(): TxtRendererCore {
   ): void => {
     applyContainerStyles(container, options, isVertical);
     container.innerHTML = '';
-    const paragraphs = splitIntoParagraphsWithOffsets(content);
+    const lines = splitContentIntoLines(content);
 
-    for (const para of paragraphs) {
-      const p = createParagraphElement(para.text, isVertical);
+    for (const line of lines) {
+      const p = createParagraphElement(line.text, isVertical);
       container.appendChild(p);
     }
   };
 
   /**
    * 创建页面 wrapper 容器
-   * 用于精确定位，添加 data-page-index 属性标识页码
    */
   const createPageWrapper = (pageIndex: number): HTMLDivElement => {
     const wrapper = document.createElement('div');
@@ -344,6 +315,10 @@ export function useTxtRendererCore(): TxtRendererCore {
     return wrapper;
   };
 
+  /**
+   * 带分页分隔符的内容渲染
+   * 核心逻辑：遍历行，根据行的 offset 判断是否跨页，仅在真正跨页时插入分隔符
+   */
   const renderContentWithPageDividers = (
     container: HTMLElement,
     content: string,
@@ -352,24 +327,21 @@ export function useTxtRendererCore(): TxtRendererCore {
   ): void => {
     applyContainerStyles(container, options, true);
     container.innerHTML = '';
-    const paragraphs = splitIntoParagraphsWithOffsets(content);
 
-    // 无分页时，所有内容放入一个 wrapper
-    if (pages.length === 0) {
+    const lines = splitContentIntoLines(content);
+
+    // 无分页或无内容时，直接渲染所有行
+    if (pages.length === 0 || lines.length === 0) {
       const wrapper = createPageWrapper(0);
-      for (const para of paragraphs) {
-        const p = createParagraphElement(para.text, true);
+      for (const line of lines) {
+        const p = createParagraphElement(line.text, true);
         wrapper.appendChild(p);
       }
       container.appendChild(wrapper);
       return;
     }
 
-    let pageIndex = 0;
-    let currentPage = pages[pageIndex];
-    let currentWrapper = createPageWrapper(pageIndex);
-    container.appendChild(currentWrapper);
-
+    // 样式参数
     const fontSize = options?.fontSize || 16;
     const theme = options?.theme || 'light';
     const pageGap = options?.pageGap ?? 4;
@@ -379,27 +351,32 @@ export function useTxtRendererCore(): TxtRendererCore {
     const dividerMarginBottom = dividerMarginTop;
     const dividerColor = theme === 'dark' ? '#ffffff' : '#000000';
 
-    for (const para of paragraphs) {
-      const p = createParagraphElement(para.text, true);
-      currentWrapper.appendChild(p);
+    let pageIndex = 0;
+    let currentWrapper = createPageWrapper(pageIndex);
+    container.appendChild(currentWrapper);
 
-      // 检查是否需要插入分隔符并开始新页面
-      while (pageIndex < pages.length - 1 && para.endOffset >= currentPage.endOffset) {
-        // 插入分隔符
+    for (const line of lines) {
+      // 检查当前行属于哪一页
+      while (pageIndex < pages.length - 1 && line.startOffset >= pages[pageIndex].endOffset) {
+        // 当前行已超出当前页范围，插入分隔符并开始新页
         const divider = document.createElement('div');
-        divider.style.height = `${bandHeight}px`;
-        divider.style.width = '100%';
-        divider.style.backgroundColor = dividerColor;
-        divider.style.marginTop = `${dividerMarginTop}px`;
-        divider.style.marginBottom = `${dividerMarginBottom}px`;
+        divider.style.cssText = `
+          height: ${bandHeight}px;
+          width: 100%;
+          background-color: ${dividerColor};
+          margin-top: ${dividerMarginTop}px;
+          margin-bottom: ${dividerMarginBottom}px;
+        `;
         container.appendChild(divider);
 
-        // 开始新页面
-        pageIndex += 1;
-        currentPage = pages[pageIndex];
+        pageIndex++;
         currentWrapper = createPageWrapper(pageIndex);
         container.appendChild(currentWrapper);
       }
+
+      // 将行添加到当前页
+      const p = createParagraphElement(line.text, true);
+      currentWrapper.appendChild(p);
     }
   };
 
@@ -409,4 +386,3 @@ export function useTxtRendererCore(): TxtRendererCore {
     renderContentWithPageDividers,
   };
 }
-

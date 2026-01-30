@@ -13,6 +13,7 @@ dependencies = [
  "futures",
  "image 0.24.9",
  "moka",
+ "once_cell",
  "pdfium-render",
  "regex",
  "serde",
