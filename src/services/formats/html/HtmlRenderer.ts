@@ -8,12 +8,7 @@ import {
   SearchResult,
 } from '../types';
 import { registerRenderer } from '../registry';
-
-/** Get Tauri invoke function */
-async function getInvoke() {
-  const { invoke } = await import('@tauri-apps/api/core');
-  return invoke;
-}
+import { getInvoke } from '../../index';
 
 export class HtmlRenderer implements IBookRenderer {
   readonly format: BookFormat = 'html';

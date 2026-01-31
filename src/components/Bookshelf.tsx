@@ -1,12 +1,7 @@
-import React, {
-  useEffect,
-} from "react";
+import React from "react";
 import { useTranslation } from "react-i18next";
 
-import { IBook } from "../types";
-import { epubPreloader, isEpubFile } from "../services/formats/epub/epubPreloader";
-import { mobiPreloader, isMobiFile } from "../services/formats/mobi/mobiPreloader";
-import { ensurePermissionForDeleteLocal, ensurePermissionForImport } from "../utils/storagePermission";
+import { ensurePermissionForImport } from "../utils/storagePermission";
 import { IconDelete } from "./Icons";
 import {
   GROUP_NAME_FONT_SIZE,
@@ -24,8 +19,7 @@ import {
   GROUP_GRID_GAP,
 } from "../constants/ui";
 import { Toast } from "./Toast";
-import { bookService, groupService, logError } from "../services";
-import { cacheConfigService } from "../services/cacheConfigService";
+import { Loading } from "./Loading";
 import { BookCard } from "./BookCard";
 import { DndContext, closestCenter } from "@dnd-kit/core";
 import { SortableContext, rectSortingStrategy } from "@dnd-kit/sortable";
@@ -49,6 +43,8 @@ import {
   useGroupOverlay,
   useSelectionMode,
   useDragSort,
+  useBookActions,
+  useBookshelfLifecycle,
 } from "./bookshelf/hooks";
 
 export const Bookshelf: React.FC = () => {
@@ -116,130 +112,38 @@ export const Bookshelf: React.FC = () => {
     swipeTouchEnd,
   } = dragSort;
 
-  // 7. Toast
+  // 6. Toast
   const toast = useToast();
   const { toastMsg, setToastMsg } = toast;
 
-  // 初始加载
-  useEffect(() => {
-    const init = async () => {
-      setLoading(true);
-      await loadBooks();
-      await loadGroups();
-      setLoading(false);
-    };
-    init();
-  }, []);
+  // 7. 动作处理
+  const { handleBookClick, handleDeleteBook, confirmDelete } = useBookActions({
+    nav,
+    activeTab,
+    selectionMode,
+    toggleBookSelection,
+    setSelectedBookIds,
+    setConfirmOpen,
+    selectedBookIds,
+    selectedGroupIds,
+    loadBooks,
+    loadGroups,
+    exitSelection,
+  });
 
-  // 事件处理函数
-  const handleBookClick = (book: IBook) => {
-    if (selectionMode) {
-      toggleBookSelection(book.id);
-      return;
-    }
-    // EPUB 预加载：提前触发书籍加载，利用页面切换时间完成 ZIP 解析
-    if (isEpubFile(book.file_path)) {
-      epubPreloader.preload(book.file_path);
-    }
-    // MOBI 预加载：提前触发书籍加载，利用页面切换时间完成解析
-    if (isMobiFile(book.file_path)) {
-      mobiPreloader.preload(book.file_path);
-    }
-    // 后端 mark_book_opened 会自动更新 recent_order，使该书移到最前
-    nav.toReader(book.id, { fromTab: activeTab });
-  };
-
-  const handleDeleteBook = async (book: IBook) => {
-    if (selectionMode) {
-      // 在选择模式下使用顶部删除入口
-      setSelectedBookIds((prev) => new Set([...prev, book.id]));
-      setConfirmOpen(true);
-      return;
-    }
-    try {
-      if (activeTab === "recent") {
-        let ok: boolean = false;
-        try {
-          const { confirm } = await import("@tauri-apps/plugin-dialog");
-          ok = await confirm(`仅从"最近"中移除该书籍？不会删除书籍`, {
-            title: "goread",
-          });
-        } catch {
-          ok = window.confirm(`仅从"最近"中移除该书籍？不会删除书籍`);
-        }
-        if (!ok) return;
-        await bookService.clearRecent(book.id);
-        await loadBooks();
-      } else {
-        let ok: boolean = false;
-        try {
-          const { confirm } = await import("@tauri-apps/plugin-dialog");
-          ok = await confirm(`确认删除该书籍及其书签?`, { title: "goread" });
-        } catch {
-          ok = window.confirm("确认删除该书籍及其书签?");
-        }
-        if (!ok) return;
-        await bookService.deleteBook(book.id);
-        // 清理 EPUB 相关缓存（预加载、内存、磁盘）
-        cacheConfigService.clearCache(book.file_path).catch((err) => {
-          logError(`[Bookshelf] 删除书籍后清理缓存失败: ${err}`).catch(() => {});
-        });
-        await Promise.all([loadBooks(), loadGroups()]);
-      }
-    } catch (error: any) {
-      const msg =
-        typeof error?.message === "string" ? error.message : String(error);
-      alert(t('deleteBookFailedWithReason', { reason: msg }));
-    }
-  };
-
-  const confirmDelete = async (deleteLocal?: boolean) => {
-    try {
-      // 如果要删除本地文件，先检查权限
-      let actualDeleteLocal = deleteLocal;
-      if (deleteLocal && activeTab !== "recent") {
-        const { allowed, downgrade } = await ensurePermissionForDeleteLocal();
-        if (!allowed) {
-          return; // 用户取消操作
-        }
-        if (downgrade) {
-          actualDeleteLocal = false; // 降级为不删除本地文件
-        }
-      }
-
-      if (activeTab === "recent") {
-        const ids = Array.from(selectedBookIds);
-        for (const id of ids) {
-          await bookService.clearRecent(id);
-        }
-        await loadBooks();
-      } else {
-        const ids = Array.from(selectedGroupIds);
-        for (const gid of ids) {
-          await groupService.deleteGroup(gid, !!actualDeleteLocal);
-        }
-        await Promise.all([loadGroups(), loadBooks()]);
-      }
-      exitSelection();
-    } catch (err) {
-      alert(t('deleteFailed'));
-    }
-  };
+  // 8. 生命周期 (初始加载)
+  useBookshelfLifecycle(loadBooks, loadGroups, setLoading);
 
   if (loading) {
     return (
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          height: "100vh",
-          fontSize: "16px",
-          color: "#666",
-        }}
-      >
-        {tCommon('loading')}
-      </div>
+      <Loading
+        visible
+        overlay={false}
+        text={tCommon('loading')}
+        showSpinner={false}
+        textStyle={{ fontSize: 16 }}
+        style={{ height: '100vh' }}
+      />
     );
   }
 

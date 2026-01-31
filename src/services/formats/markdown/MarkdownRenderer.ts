@@ -14,13 +14,7 @@ import {
   RendererCapabilities,
 } from '../types';
 import { registerRenderer } from '../registry';
-import { logError } from '../../index';
-
-/** 获取 Tauri invoke 函数 */
-async function getInvoke() {
-  const { invoke } = await import('@tauri-apps/api/core');
-  return invoke;
-}
+import { logError, getInvoke } from '../../index';
 
 /** 后端目录项格式（使用 serde untagged，location 直接是 string 或 number） */
 interface BackendTocItem {

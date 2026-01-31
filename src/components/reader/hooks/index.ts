@@ -22,5 +22,7 @@ export * from "./useReaderTheme";
 export * from "./useUndoJump";
 export * from "./useBookReadingMode";
 export * from "./useTxtPaging";
+export * from "./useBookFormatHelper";
+export * from "./useReaderClick";
 
 

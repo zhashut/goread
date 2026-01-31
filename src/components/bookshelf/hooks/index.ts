@@ -6,3 +6,5 @@ export * from "./useGroupOverlay";
 export * from "./useImportProgress";
 export * from "./useSelectionMode";
 export * from "./useDragSort";
+export * from "./useBookActions";
+export * from "./useBookshelfLifecycle";

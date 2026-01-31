@@ -1,6 +1,7 @@
 import React, { useMemo, useRef, useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { FileRow } from "./FileRow";
+import { Loading } from "./Loading";
 import { useSearchParams } from "react-router-dom";
 import { useAppNav } from "../router/useAppNav";
 import { FileEntry, ScanResultItem } from "../types";
@@ -957,17 +958,14 @@ const Tabs: React.FC = () => {
             <ScanList />
           )
         ) : browseLoading && browseStack.length === 0 ? (
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              height: "100%",
-              color: "#999",
-            }}
-          >
-            {tc('loading')}
-          </div>
+          <Loading
+            visible
+            overlay={false}
+            text={tc('loading')}
+            showSpinner={false}
+            style={{ height: '100%' }}
+            textStyle={{ color: '#999' }}
+          />
           ) : (
             <BrowseList />
           )}

@@ -30,6 +30,21 @@ interface LoadingProps {
    * @default 2000
    */
   zIndex?: number;
+  /**
+   * 是否显示加载转圈
+   * @default true
+   */
+  showSpinner?: boolean;
+  /**
+   * 自定义容器样式
+   */
+  style?: React.CSSProperties;
+  /**
+   * 自定义类名
+   */
+  className?: string;
+  overlayStyle?: React.CSSProperties;
+  textStyle?: React.CSSProperties;
 }
 
 export const Loading: React.FC<LoadingProps> = ({
@@ -40,35 +55,45 @@ export const Loading: React.FC<LoadingProps> = ({
   overlay = true,
   overlayColor = 'rgba(255, 255, 255, 0.8)',
   zIndex = 2000,
+  showSpinner = true,
+  style,
+  className,
+  overlayStyle,
+  textStyle,
 }) => {
   if (!visible) return null;
 
   const content = (
     <div
+      className={className}
       style={{
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
+        ...style,
       }}
     >
-      <div
-        className="loading-spinner"
-        style={{
-          width: size,
-          height: size,
-          border: `3px solid ${color}33`, // 20% opacity for track
-          borderTopColor: color,
-          borderRadius: '50%',
-        }}
-      />
+      {showSpinner && (
+        <div
+          className="loading-spinner"
+          style={{
+            width: size,
+            height: size,
+            border: `3px solid ${color}33`, // 20% opacity for track
+            borderTopColor: color,
+            borderRadius: '50%',
+          }}
+        />
+      )}
       {text && (
         <div
           style={{
-            marginTop: 12,
+            marginTop: showSpinner ? 12 : 0,
             color: '#666',
             fontSize: 14,
             fontWeight: 500,
+            ...textStyle,
           }}
         >
           {text}
@@ -101,6 +126,7 @@ export const Loading: React.FC<LoadingProps> = ({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
+          ...overlayStyle,
         }}
         onClick={(e) => e.stopPropagation()} // 阻止点击穿透
       >

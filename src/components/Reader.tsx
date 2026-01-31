@@ -1,4 +1,4 @@
-import React, { useRef, useState, useMemo } from "react";
+import React, { useRef, useState } from "react";
 import { useParams, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { TopBar } from "./reader/TopBar";
@@ -8,6 +8,7 @@ import { ModeOverlay } from "./reader/ModeOverlay";
 import { MoreDrawer } from "./reader/MoreDrawer";
 import { CropOverlay } from "./reader/CropOverlay";
 import { Toast } from "./Toast";
+import { Loading } from "./Loading";
 import { ExternalFileOpenPayload } from "../types";
 import { IBookRenderer, getBookFormat } from "../services/formats";
 import {
@@ -44,6 +45,8 @@ import {
   useUndoJump,
   useBookReadingMode,
   useTxtPaging,
+  useBookFormatHelper,
+  useReaderClick,
 } from "./reader/hooks";
 
 import { UndoJumpIcon } from "./covers/UndoJumpIcon";
@@ -110,29 +113,8 @@ export const Reader: React.FC = () => {
     setBook,
   });
 
-  const bookFilePath = useMemo(() => {
-    return (isExternal ? externalPath : book?.file_path) || null;
-  }, [isExternal, externalPath, book?.file_path]);
-
-  const isEpubDom = useMemo(() => {
-    if (!bookFilePath) return false;
-    return getBookFormat(bookFilePath) === "epub";
-  }, [bookFilePath]);
-
-  const isMobi = useMemo(() => {
-    if (!bookFilePath) return false;
-    return getBookFormat(bookFilePath) === "mobi";
-  }, [bookFilePath]);
-
-  const isMarkdown = useMemo(() => {
-    if (!bookFilePath) return false;
-    return getBookFormat(bookFilePath) === "markdown";
-  }, [bookFilePath]);
-
-  const isHtml = useMemo(() => {
-    if (!bookFilePath) return false;
-    return getBookFormat(bookFilePath) === "html";
-  }, [bookFilePath]);
+  const { isEpubDom, isMobi, isMarkdown, isHtml } =
+    useBookFormatHelper(book, isExternal, externalPath || undefined);
 
   const { markReadingActive } = useReadingSession(book, isExternal);
 
@@ -341,26 +323,34 @@ export const Reader: React.FC = () => {
     }
   });
 
+  const { handleMainViewClick } = useReaderClick({
+    readingMode,
+    clickTurnPage: settings.clickTurnPage,
+    onPrevPage: navigation.prevPage,
+    onNextPage: navigation.nextPage,
+    autoScroll: autoScrollData.autoScroll,
+    setAutoScroll: autoScrollData.setAutoScroll,
+    toggleUi: () => setUiVisible((v) => !v),
+  });
+
   const showModeSwitchLoading =
     isEpubDom && readingMode === "horizontal" && !contentReady && !loading;
 
   // 加载状态
   if (loading) {
     return (
-      <div
+      <Loading
+        visible
+        overlay={false}
+        text={tCommon('loading')}
+        showSpinner={false}
         className="reader-fullheight"
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontSize: "16px",
-          color: "#666",
-        }}
-      >
-        {tCommon('loading')}
-      </div>
+        textStyle={{ fontSize: 16 }}
+      />
     );
   }
+
+
 
   return (
     <div
@@ -382,47 +372,7 @@ export const Reader: React.FC = () => {
         }}
       >
         <div
-          onClick={(e) => {
-            // 忽略交互性元素点击，避免拦截链接跳转或文本选择
-            const target = e.target as HTMLElement;
-            if (
-              target.tagName === 'A' ||
-              target.tagName === 'BUTTON' ||
-              target.tagName === 'INPUT' ||
-              target.tagName === 'TEXTAREA' ||
-              target.isContentEditable ||
-              target.closest('a') ||
-              target.closest('button')
-            ) {
-              return;
-            }
-
-            const rect = e.currentTarget.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-
-            // 所有格式统一走 App 控件的点击翻页逻辑
-            if (readingMode === "horizontal") {
-              if (x < rect.width * 0.3) {
-                if (settings.clickTurnPage) navigation.prevPage();
-              } else if (x > rect.width * 0.7) {
-                if (settings.clickTurnPage) navigation.nextPage();
-              } else {
-                // 中间点击：自动滚动时仅停止，不弹出扩展器；非自动滚动时切换UI显隐
-                if (autoScrollData.autoScroll) {
-                  autoScrollData.setAutoScroll(false);
-                } else {
-                  setUiVisible(v => !v);
-                }
-              }
-            } else {
-              // 纵向模式：自动滚动时仅停止，不弹出扩展器；非自动滚动时切换UI显隐
-              if (autoScrollData.autoScroll) {
-                autoScrollData.setAutoScroll(false);
-              } else {
-                setUiVisible(v => !v);
-              }
-            }
-          }}
+          onClick={handleMainViewClick}
           className="no-scrollbar"
           style={{
             flex: 1,
@@ -526,21 +476,15 @@ export const Reader: React.FC = () => {
       </div>
 
       {showModeSwitchLoading && (
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: "16px",
-            color: "#666",
-            backgroundColor: effectiveTheme === 'dark' ? "#000000" : "#ffffff",
-            zIndex: 999,
-          }}
-        >
-          {tCommon('loading')}
-        </div>
+        <Loading
+          visible
+          text={tCommon('loading')}
+          showSpinner={false}
+          textStyle={{ fontSize: 16 }}
+          overlayColor={effectiveTheme === 'dark' ? "#000000" : "#ffffff"}
+          zIndex={999}
+          overlayStyle={{ position: 'absolute', inset: 0 }}
+        />
       )}
 
       <TopBar

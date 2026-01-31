@@ -4,17 +4,11 @@
  */
 
 import { BookInfo, TocItem } from '../../types';
-import { logError } from '../../../index';
+import { logError, getInvoke } from '../../../index';
 import { EpubBook, useEpubLoader } from './useEpubLoader';
 import { generateQuickBookId } from '../../../../utils/bookId';
 import { epubCacheService } from '../epubCacheService';
 import { epubPreloader } from '../epubPreloader';
-
-/** 获取 Tauri invoke 函数 */
-async function getInvoke() {
-  const { invoke } = await import('@tauri-apps/api/core');
-  return invoke;
-}
 
 /** 生命周期状态接口 */
 export interface EpubLifecycleState {
