@@ -25,7 +25,11 @@ echo -e "${GREEN}========================================${NC}"
 
 # 获取最新的 git tag
 get_latest_tag() {
-    git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0"
+    # 同步远程 tags
+    git fetch --tags --quiet 2>/dev/null
+    # 按版本号排序获取最新 tag
+    local latest=$(git tag --sort=-v:refname | head -1)
+    echo "${latest:-v0.0.0}"
 }
 
 # 递增版本号 (patch 版本 +1)
