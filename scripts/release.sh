@@ -68,16 +68,19 @@ update_version_files() {
         sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"$version\"/" package.json
         sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"$version\"/" src-tauri/tauri.conf.json
         sed -i '' "s/^version = \"[^\"]*\"/version = \"$version\"/" src-tauri/Cargo.toml
+        sed -i '' '/\[\[package\]\]/,/^\[/ { /name = "GoRead"/,/^\[/ { s/^version = "[^"]*"/version = "'"$version"'"/ } }' src-tauri/Cargo.lock
     else
         # Linux/Git Bash
         sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$version\"/" package.json
         sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$version\"/" src-tauri/tauri.conf.json
         sed -i "s/^version = \"[^\"]*\"/version = \"$version\"/" src-tauri/Cargo.toml
+        sed -i '/\[\[package\]\]/,/^\[/ { /name = "GoRead"/,/^\[/ { s/^version = "[^"]*"/version = "'"$version"'"/ } }' src-tauri/Cargo.lock
     fi
     
     echo -e "${GREEN}✓ package.json${NC}"
     echo -e "${GREEN}✓ src-tauri/tauri.conf.json${NC}"
     echo -e "${GREEN}✓ src-tauri/Cargo.toml${NC}"
+    echo -e "${GREEN}✓ src-tauri/Cargo.lock${NC}"
 }
 
 # 主逻辑
@@ -126,7 +129,7 @@ main() {
     
     # Git 操作
     echo -e "${YELLOW}正在提交更改...${NC}"
-    git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml
+    git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
     git commit -m "chore(release): release version v$NEW_VERSION"
     
     echo -e "${YELLOW}正在创建 tag...${NC}"
