@@ -3,7 +3,7 @@
  * 提供与书籍封面相关的服务接口和实现
  */
 
-import { getInvoke } from './index';
+import { getInvoke } from './commonService';
 
 // 需要重建封面的书籍信息
 export interface BookNeedingCoverRebuild {

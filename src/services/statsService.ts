@@ -1,5 +1,5 @@
 import { IStatsSummary, IDailyStats, IRangeStats, IBookReadingStats } from '../types';
-import { getInvoke } from './index';
+import { getInvoke } from './commonService';
 
 // 统计服务接口
 export interface IStatsService {
