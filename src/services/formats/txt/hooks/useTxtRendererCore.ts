@@ -360,12 +360,14 @@ export function useTxtRendererCore(): TxtRendererCore {
       while (pageIndex < pages.length - 1 && line.startOffset >= pages[pageIndex].endOffset) {
         // 当前行已超出当前页范围，插入分隔符并开始新页
         const divider = document.createElement('div');
+        divider.className = 'txt-page-divider';
         divider.style.cssText = `
           height: ${bandHeight}px;
           width: 100%;
           background-color: ${dividerColor};
           margin-top: ${dividerMarginTop}px;
           margin-bottom: ${dividerMarginBottom}px;
+          display: ${options?.hideDivider ? 'none' : 'block'};
         `;
         container.appendChild(divider);
 

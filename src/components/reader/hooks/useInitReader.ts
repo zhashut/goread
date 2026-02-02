@@ -294,6 +294,7 @@ export const useInitReader = ({
                         readingMode: readingMode,
                         theme: currentTheme,
                         pageGap: settings.pageGap,
+                        hideDivider: settings.hideDivider,
                     });
                     log("[Reader] DOM 渲染完成");
                     if (!(renderer instanceof MobiRenderer)) {

@@ -45,6 +45,7 @@ export class MobiRenderer implements IBookRenderer {
   private _themeHook: MobiThemeHook;
   private _renderHook: MobiRenderHook | null = null;
   private _navigationHook: MobiNavigationHook | null = null;
+  private _currentHideDivider: boolean = false;
 
   // Blob URL 管理
   // 资源清理主要由 Hooks 处理，此处保留扩展能力
@@ -144,7 +145,15 @@ export class MobiRenderer implements IBookRenderer {
         // Usually loadDocument is called first.
         throw new Error('Render hook not initialized');
     }
-    return this._renderHook.renderPage(page, container, options);
+    const finalOptions = options ? { ...options } : undefined;
+    if (finalOptions) {
+      if (typeof finalOptions.hideDivider === 'boolean') {
+        this._currentHideDivider = finalOptions.hideDivider;
+      } else {
+        finalOptions.hideDivider = this._currentHideDivider;
+      }
+    }
+    return this._renderHook.renderPage(page, container, finalOptions);
   }
 
   /**
@@ -216,6 +225,13 @@ export class MobiRenderer implements IBookRenderer {
     this._renderHook = null;
     this._navigationHook = null;
     // _themeHook is stateless
+  }
+
+  updateDividerVisibility(hidden: boolean): void {
+    this._currentHideDivider = hidden;
+    if (this._renderHook) {
+      this._renderHook.updateDividerVisibility(hidden);
+    }
   }
 
   /** 页面变化回调 */

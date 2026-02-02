@@ -78,6 +78,7 @@ use commands::{
     update_book_reading_mode,
     update_book_theme,
     update_book_total_pages,
+    update_book_hide_divider,
     update_books_last_read_time,
     update_group,
 };
@@ -181,6 +182,7 @@ pub fn run() {
             update_book_reading_mode,
             update_book_theme,
             update_book_total_pages,
+            update_book_hide_divider,
             mark_book_opened,
             clear_recent_read_record,
             delete_book,

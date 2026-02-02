@@ -6,6 +6,7 @@ import { BottomBar } from "./reader/BottomBar";
 import { TocOverlay } from "./reader/TocOverlay";
 import { ModeOverlay } from "./reader/ModeOverlay";
 import { MoreDrawer } from "./reader/MoreDrawer";
+import { PageDivider } from "./reader/PageDivider";
 import { CropOverlay } from "./reader/CropOverlay";
 import { Toast } from "./Toast";
 import { Loading } from "./Loading";
@@ -47,6 +48,8 @@ import {
   useTxtPaging,
   useBookFormatHelper,
   useReaderClick,
+  useBookPageDivider,
+  useDividerVisibility,
 } from "./reader/hooks";
 
 import { UndoJumpIcon } from "./covers/UndoJumpIcon";
@@ -137,6 +140,7 @@ export const Reader: React.FC = () => {
   // 4. 数据 Hooks (TOC, Bookmarks)
   const tocData = useToc(currentPage, readingMode, isDomRender);
   const bookmarkData = useBookmarks(book, isExternal);
+  const { hideDivider, setHideDivider } = useBookPageDivider(book);
 
   // 6. 核心逻辑 Hooks
   // 页面渲染器
@@ -149,7 +153,7 @@ export const Reader: React.FC = () => {
     isExternal,
     externalPath,
     book,
-    settings: settingsWithTheme,
+    settings: { ...settingsWithTheme, hideDivider },
     readingMode,
     totalPages,
   });
@@ -180,7 +184,7 @@ export const Reader: React.FC = () => {
     readerState,
     rendererRef,
     domContainerRef: domRenderer.domContainerRef,
-    options: settingsWithTheme,
+    options: { ...settingsWithTheme, hideDivider },
     readingMode,
     setToc: tocData.setToc,
     toc: tocData.toc,
@@ -221,7 +225,7 @@ export const Reader: React.FC = () => {
       setToc: tocData.setToc,
       markReadingActive
     },
-    data: { readingMode, settings: settingsWithTheme, toc: tocData.toc }
+    data: { readingMode, settings: { ...settingsWithTheme, hideDivider }, toc: tocData.toc }
   });
 
   // 模式切换缓存清理
@@ -240,6 +244,13 @@ export const Reader: React.FC = () => {
   // 页码同步
   usePageSync(currentPage, readerState.currentPageRef);
 
+  // 分隔线可见性动态更新
+  useDividerVisibility({
+    rendererRef,
+    hideDivider,
+    isDomRender,
+    loading,
+  });
 
   // 自动标记已读
   useAutoMark({
@@ -440,12 +451,10 @@ export const Reader: React.FC = () => {
                 return (
                   <React.Fragment key={`${bookId}-${p}`}>
                     {p > 1 && (
-                      <div
-                        style={{
-                          height: `${dividerBandHeight}px`,
-                          backgroundColor: effectiveTheme === "dark" ? "#ffffff" : "#000000",
-                          width: "100%",
-                        }}
+                      <PageDivider
+                        height={dividerBandHeight}
+                        color={effectiveTheme === "dark" ? "#ffffff" : "#000000"}
+                        hidden={hideDivider}
                       />
                     )}
                     <canvas
@@ -729,6 +738,8 @@ export const Reader: React.FC = () => {
           setMoreDrawerOpen(false);
           nav.toSettings();
         }}
+        hideDivider={hideDivider}
+        onToggleHideDivider={() => setHideDivider(!hideDivider)}
       />
 
       <CropOverlay

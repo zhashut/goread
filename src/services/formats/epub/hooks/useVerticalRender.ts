@@ -16,6 +16,7 @@ import {
   getMimeType,
 } from '../cache';
 import { epubCacheService } from '../epubCacheService';
+import { createDividerEl, toggleDividerVisibility, updateDividerStyle } from '../../../../components/reader/PageDivider';
 
 /** 纵向渲染上下文 */
 export interface VerticalRenderContext {
@@ -74,6 +75,8 @@ export interface VerticalRenderHook {
   goToPage: (page: number) => Promise<void>;
   /** 更新章节间距 */
   updatePageGap: (pageGap: number) => void;
+  /** 更新分隔线可见性 */
+  updateDividerVisibility: (hidden: boolean) => void;
   /** 清理资源 */
   cleanup: () => void;
   /** 设置导航 hook（在初始化后设置，解决循环依赖） */
@@ -642,12 +645,35 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
 
   /**
    * 更新章节间距
-   * 注意：外层 EpubRenderer.updatePageGap 已做重复值检查，这里直接执行 DOM 更新
    */
   const updatePageGap = (pageGap: number): void => {
+    const bandHeight = pageGap * 2 + 1;
     state.dividerElements.forEach((divider) => {
-      const bandHeight = pageGap * 2 + 1;
       divider.style.height = `${bandHeight}px`;
+    });
+  };
+
+  /**
+   * 更新分隔线可见性
+   */
+  const updateDividerVisibilityFn = (hidden: boolean): void => {
+    logError(`[EpubRenderer] 更新分隔线可见性: hidden=${hidden}, count=${state.dividerElements.length}`).catch(() => {});
+    const theme = context.currentTheme || 'light';
+    const pageGap = context.currentPageGap ?? 4;
+    const bandHeight = pageGap * 2 + 1;
+    const isDark = theme === 'dark';
+    const dividerColor = isDark ? '#ffffff' : '#000000';
+
+    state.dividerElements.forEach((divider) => {
+      if (hidden) {
+        toggleDividerVisibility(divider as HTMLDivElement, true);
+      } else {
+        updateDividerStyle(divider as HTMLDivElement, {
+          height: bandHeight,
+          color: dividerColor,
+          hidden: false,
+        });
+      }
     });
   };
 
@@ -703,14 +729,12 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
 
     for (let i = 0; i < sectionCount; i++) {
       if (i > 0) {
-        const divider = document.createElement('div');
-        divider.className = 'epub-section-divider';
-        divider.style.cssText = `
-          height: ${dividerBandHeight}px;
-          background-color: ${dividerColor};
-          margin: 0;
-          width: 100%;
-        `;
+        const divider = createDividerEl({
+            height: dividerBandHeight,
+            color: dividerColor,
+            hidden: options?.hideDivider ?? false
+        });
+        divider.classList.add('epub-section-divider');
         container.appendChild(divider);
         state.dividerElements.push(divider);
       }
@@ -727,6 +751,13 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
 
       container.appendChild(wrapper);
       state.sectionContainers.set(i, wrapper);
+    }
+    
+    logError(`[EpubRenderer] 渲染完成，创建了 ${state.dividerElements.length} 个分隔线`).catch(() => {});
+
+    // 初始化时应用当前的 hideDivider 状态
+    if (typeof options?.hideDivider === 'boolean') {
+        updateDividerVisibilityFn(options.hideDivider);
     }
 
     // 设置滚动监听，用于更新目录高亮和进度
@@ -948,5 +979,6 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
     cleanup,
     setNavigationHook,
     preloadSectionsOffscreen,
+    updateDividerVisibility: updateDividerVisibilityFn,
   };
 }

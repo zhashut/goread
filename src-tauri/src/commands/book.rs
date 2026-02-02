@@ -147,6 +147,11 @@ pub async fn init_database(db: DbState<'_>) -> Result<(), Error> {
         .execute(&*pool)
         .await;
 
+    // 隐藏页分隔线字段迁移
+    let _ = sqlx::query("ALTER TABLE books ADD COLUMN hide_divider INTEGER DEFAULT 0")
+        .execute(&*pool)
+        .await;
+
     let _ = sqlx::query(
         "UPDATE books SET precise_progress = current_page WHERE precise_progress IS NULL",
     )
@@ -417,6 +422,23 @@ pub async fn update_book_reading_mode(
 
     sqlx::query("UPDATE books SET reading_mode = ? WHERE id = ?")
         .bind(reading_mode.as_deref())
+        .bind(id)
+        .execute(&*pool)
+        .await?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn update_book_hide_divider(
+    id: i64,
+    hide: bool,
+    db: DbState<'_>,
+) -> Result<(), Error> {
+    let pool = db.lock().await;
+
+    sqlx::query("UPDATE books SET hide_divider = ? WHERE id = ?")
+        .bind(hide)
         .bind(id)
         .execute(&*pool)
         .await?;

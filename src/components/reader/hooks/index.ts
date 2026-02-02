@@ -24,5 +24,7 @@ export * from "./useBookReadingMode";
 export * from "./useTxtPaging";
 export * from "./useBookFormatHelper";
 export * from "./useReaderClick";
+export * from "./useBookPageDivider";
+export * from "./useDividerVisibility";
 
 

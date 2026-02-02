@@ -35,6 +35,7 @@ export interface MobiRenderHook {
     state: MobiRenderState;
     renderPage: (page: number, container: HTMLElement, options?: RenderOptions) => Promise<void>;
     reset: () => void;
+    updateDividerVisibility: (hidden: boolean) => void;
 }
 
 export function useMobiRender(context: MobiRenderContext): MobiRenderHook {
@@ -630,6 +631,7 @@ export function useMobiRender(context: MobiRenderContext): MobiRenderHook {
         width: calc(100% + 48px);
         margin-left: -24px;
         margin-right: -24px;
+        display: ${options?.hideDivider ? 'none' : 'block'};
       }
       img {
         max-width: 100%;
@@ -730,6 +732,15 @@ export function useMobiRender(context: MobiRenderContext): MobiRenderHook {
         });
     };
 
+    const updateDividerVisibility = (hidden: boolean) => {
+        const shadowRoot = state.shadowRoot;
+        if (!shadowRoot) return;
+        const dividers = shadowRoot.querySelectorAll('.mobi-divider') as NodeListOf<HTMLElement>;
+        dividers.forEach(divider => {
+            divider.style.display = hidden ? 'none' : 'block';
+        });
+    };
+
     const reset = () => {
         // 清理 Blob URLs
         blobUrls.forEach(url => {
@@ -750,5 +761,6 @@ export function useMobiRender(context: MobiRenderContext): MobiRenderHook {
         state,
         renderPage,
         reset,
+        updateDividerVisibility,
     };
 }

@@ -54,6 +54,8 @@ export interface RenderOptions {
   readingMode?: 'horizontal' | 'vertical';
   /** 页面间隙（纵向模式下的页面/章节间距，单位：px） */
   pageGap?: number;
+  /** 是否隐藏页分隔线 */
+  hideDivider?: boolean;
 }
 
 /** 搜索结果 */

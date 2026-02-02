@@ -8,6 +8,8 @@ interface MoreDrawerProps {
   onClose: () => void;
   onCapture: () => void;
   onSettings: () => void;
+  hideDivider: boolean;
+  onToggleHideDivider: () => void;
 }
 
 export const MoreDrawer: React.FC<MoreDrawerProps> = ({
@@ -15,6 +17,8 @@ export const MoreDrawer: React.FC<MoreDrawerProps> = ({
   onClose,
   onCapture,
   onSettings,
+  hideDivider,
+  onToggleHideDivider,
 }: MoreDrawerProps) => {
   const { t } = useTranslation('reader');
 
@@ -74,6 +78,61 @@ export const MoreDrawer: React.FC<MoreDrawerProps> = ({
             📷
           </div>
           <span style={{ fontSize: "16px" }}>{t('exportImage')}</span>
+        </div>
+
+        <div
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleHideDivider();
+          }}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            padding: "16px 24px",
+            cursor: "pointer",
+            color: "#fff",
+            justifyContent: "space-between",
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "#2a2a2a")}
+          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
+        >
+          <div style={{ display: "flex", alignItems: "center" }}>
+            <div
+              style={{
+                fontSize: "20px",
+                marginRight: "16px",
+                width: "24px",
+                textAlign: "center",
+              }}
+            >
+              👁️
+            </div>
+            <span style={{ fontSize: "16px" }}>{t('hidePageDivider')}</span>
+          </div>
+          <div
+            style={{
+              width: "40px",
+              height: "24px",
+              backgroundColor: hideDivider ? "#e53935" : "#3e3e3e",
+              borderRadius: "12px",
+              position: "relative",
+              transition: "background-color 0.2s",
+            }}
+          >
+            <div
+              style={{
+                width: "20px",
+                height: "20px",
+                backgroundColor: "#fff",
+                borderRadius: "50%",
+                position: "absolute",
+                top: "2px",
+                left: hideDivider ? "18px" : "2px",
+                transition: "left 0.2s, background-color 0.2s",
+                boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
+              }}
+            />
+          </div>
         </div>
 
         <div

@@ -22,6 +22,7 @@ export interface IBookService {
   reorderRecentBooks(orderedIds: number[]): Promise<void>;
   updateBookTheme(id: number, theme: ReaderTheme | null): Promise<void>;
   updateBookReadingMode(id: number, readingMode: 'horizontal' | 'vertical' | null): Promise<void>;
+  updateBookHideDivider(id: number, hide: boolean): Promise<void>;
   resetAllBookThemes(): Promise<void>;
 }
 
@@ -100,6 +101,11 @@ export class TauriBookService implements IBookService {
   async updateBookReadingMode(id: number, readingMode: 'horizontal' | 'vertical' | null): Promise<void> {
     const invoke = await getInvoke();
     await invoke('update_book_reading_mode', { id, readingMode });
+  }
+
+  async updateBookHideDivider(id: number, hide: boolean): Promise<void> {
+    const invoke = await getInvoke();
+    await invoke('update_book_hide_divider', { id, hide });
   }
 
   async resetAllBookThemes(): Promise<void> {

@@ -60,6 +60,7 @@ export class EpubRenderer implements IBookRenderer {
   private _expectedReadingMode: 'horizontal' | 'vertical' | null = null;
   private _currentTheme: ReaderTheme = 'light';
   private _currentPageGap: number = 4;
+  private _currentHideDivider: boolean = false;
   
   // 缓存管理器
   private _sectionCache: IEpubSectionCache | null = null;
@@ -260,22 +261,45 @@ export class EpubRenderer implements IBookRenderer {
     options?: RenderOptions
   ): Promise<void> {
     const readingMode = options?.readingMode || 'horizontal';
-    
-    // 更新主题和容器记录
     const theme = options?.theme || this._currentTheme || 'light';
+    const hideDividerFromOptions =
+      typeof options?.hideDivider === 'boolean' ? options.hideDivider : undefined;
+    
+    // 在更新状态前检测主题是否变化
+    const isThemeChange = options?.theme && options.theme !== this._currentTheme;
+    
     this._currentTheme = theme as ReaderTheme;
+    if (hideDividerFromOptions !== undefined) {
+      this._currentHideDivider = hideDividerFromOptions;
+    }
     this._currentContainer = container;
     this._readingMode = readingMode;
 
     if (readingMode === 'vertical') {
       if (!this._verticalRenderHook) {
-         // Should not happen if loaded
          if (!this.isReady) throw new Error('Document not loaded');
-         this._initHooks(); // Defensive
+         this._initHooks();
       }
+
+      // 非主题变更时仅更新样式
+      if (
+        this._currentContainer === container && 
+        this._verticalRenderHook?.state.verticalContinuousMode &&
+        !isThemeChange
+      ) {
+         if (options?.pageGap !== undefined) {
+             this.updatePageGap(options.pageGap);
+         }
+         if (hideDividerFromOptions !== undefined) {
+             this._verticalRenderHook?.updateDividerVisibility(this._currentHideDivider);
+         }
+         return;
+      }
+
       return this._verticalRenderHook!.renderVerticalContinuous(container, {
         ...options,
         theme,
+        hideDivider: this._currentHideDivider,
       });
     }
     
@@ -300,12 +324,26 @@ export class EpubRenderer implements IBookRenderer {
      const theme = options?.theme || this._currentTheme || 'light';
      this._currentTheme = theme as ReaderTheme;
      this._currentPageGap = options?.pageGap ?? this._currentPageGap;
+     if (typeof options?.hideDivider === 'boolean') {
+       this._currentHideDivider = options.hideDivider;
+     }
 
      await this._verticalRenderHook.renderVerticalContinuous(container, {
        ...options,
        theme,
-       pageGap: this._currentPageGap
+       pageGap: this._currentPageGap,
+       hideDivider: this._currentHideDivider,
      });
+  }
+
+   /**
+   * 动态更新分隔线可见性 (纵向模式)
+   */
+  updateDividerVisibility(hidden: boolean): void {
+    this._currentHideDivider = hidden;
+    if (this._verticalRenderHook) {
+      this._verticalRenderHook.updateDividerVisibility(hidden);
+    }
   }
 
   /**
@@ -329,11 +367,6 @@ export class EpubRenderer implements IBookRenderer {
   async goToHref(href: string): Promise<void> {
     // 纵向连续模式下，根据 href 找到对应章节并跳转
     if (this._readingMode === 'vertical' && this._verticalRenderHook?.state.verticalContinuousMode) {
-       // Logic moved here or stay? Vertical hook doesn't have goToHref? 
-       // Check `useVerticalRender.ts`. It has `goToPage`.
-       // Logic to find page by href was in EpubRenderer. I should preserve it or move to hook?
-       // Ideally move to hook. But `useVerticalRender` doesn't have it currently.
-       // I can keep it here using lifecycle book.
        const book = this._lifecycleHook.state.book as any; // Cast for sections access
        if (!book) return;
 
