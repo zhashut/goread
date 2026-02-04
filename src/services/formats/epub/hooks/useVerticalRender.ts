@@ -220,6 +220,43 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
   };
 
   /**
+   * 按需插入分隔线
+   * 仅在章节渲染成功后调用，确保分隔线在内容之后出现
+   */
+  const ensureDividerForSection = (index: number, options?: RenderOptions): void => {
+    // 第一个章节前面不需要分隔线
+    if (index <= 0) return;
+
+    const wrapper = state.sectionContainers.get(index);
+    if (!wrapper || !wrapper.parentElement) return;
+
+    // 检查前面是否已有分隔线
+    const prevSibling = wrapper.previousElementSibling as HTMLElement | null;
+    if (prevSibling && prevSibling.classList.contains('epub-section-divider')) {
+      return;
+    }
+
+    // 计算分隔线样式参数
+    const theme = options?.theme || context.currentTheme || 'light';
+    const pageGap = options?.pageGap ?? context.currentPageGap;
+    const bandHeight = pageGap * 2 + 1;
+    const isDark = theme === 'dark';
+    const dividerColor = isDark ? '#ffffff' : '#000000';
+
+    // 创建分隔线
+    const divider = createDividerEl({
+      height: bandHeight,
+      color: dividerColor,
+      hidden: options?.hideDivider ?? false
+    });
+    divider.classList.add('epub-section-divider');
+
+    // 插入到章节容器之前
+    wrapper.parentElement.insertBefore(divider, wrapper);
+    state.dividerElements.push(divider);
+  };
+
+  /**
    * 渲染单个章节
    */
   const renderSection = async (index: number, options?: RenderOptions): Promise<void> => {
@@ -340,6 +377,9 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
             navigationHook.setupLinkHandlers(content, index);
           }
 
+          // 按需插入分隔线（仅在章节渲染成功后创建）
+          ensureDividerForSection(index, options);
+
           // 标记已渲染
           state.renderedSections.add(index);
           wrapper.dataset.rendered = 'true';
@@ -437,6 +477,9 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
       if (navigationHook) {
         navigationHook.setupLinkHandlers(content, index);
       }
+
+      // 按需插入分隔线（仅在章节渲染成功后创建）
+      ensureDividerForSection(index, options);
 
       // 标记已渲染
       state.renderedSections.add(index);
@@ -722,24 +765,9 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
     // 同步最新的主题和页间距到上下文，确保后续渲染保持一致
     context.currentTheme = theme;
     context.currentPageGap = pageGap;
-    const dividerBandHeight = pageGap * 2 + 1;    
-    // 获取分隔线颜色
-    const isDark = theme === 'dark';
-    const dividerColor = isDark ? '#ffffff' : '#000000';
 
+    // 只创建章节容器，分隔线在 renderSection 中按需插入
     for (let i = 0; i < sectionCount; i++) {
-      if (i > 0) {
-        const divider = createDividerEl({
-            height: dividerBandHeight,
-            color: dividerColor,
-            hidden: options?.hideDivider ?? false
-        });
-        divider.classList.add('epub-section-divider');
-        container.appendChild(divider);
-        state.dividerElements.push(divider);
-      }
-
-      // 创建章节容器
       const wrapper = document.createElement('div');
       wrapper.className = 'epub-section-wrapper';
       wrapper.dataset.sectionIndex = String(i);
