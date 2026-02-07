@@ -1,8 +1,28 @@
-import { bookService, groupService } from "./index";
+import { bookService, groupService, getInvoke, log, logError } from "./index";
 import { pathToTitle, waitNextFrame } from "./importUtils";
 import { getBookFormat, BookFormat } from "./formats";
 import { resolveLocalPathFromUri } from "./resolveLocalPath";
+import { generateQuickBookId } from "./formats/epub/cache";
 import { parseCoverImage, migrateBookCover } from "../utils/coverUtils";
+
+// 移动端检测
+const isMobilePlatform = (): boolean => {
+  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+};
+
+// 大文件阈值（100MB），超过此大小在移动端需要更激进的内存清理
+const LARGE_FILE_THRESHOLD_BYTES = 100 * 1024 * 1024;
+
+// 移动端导入延迟（毫秒），给 GC 时间回收内存
+const MOBILE_IMPORT_DELAY_MS = 500;
+const MOBILE_LARGE_FILE_DELAY_MS = 800;
+
+// EPUB 文件大小限制（MB），超过此大小需要使用流式读取或提示用户
+const MAX_EPUB_SIZE_MB = 200;
+const MAX_EPUB_SIZE_BYTES = MAX_EPUB_SIZE_MB * 1024 * 1024;
+
+// EPUB Rust 引擎开关（后续可接入配置）
+const enableRustEpubEngine = true;
 
 // 格式特定的导入结果
 interface ImportResult {
@@ -98,7 +118,7 @@ async function importHtmlBook(filePath: string, invoke: any, logError: any): Pro
 }
 
 // MOBI 格式导入
-async function importMobiBook(filePath: string, _invoke: any, logError: any): Promise<ImportResult> {
+async function importMobiBook(filePath: string, _invoke: any, logError: any, options?: { skipPreloaderCache?: boolean }): Promise<ImportResult> {
   let info: any = null;
   let coverImage: string | undefined = undefined;
   let totalPages = 1;
@@ -107,7 +127,9 @@ async function importMobiBook(filePath: string, _invoke: any, logError: any): Pr
     // 动态导入 MobiRenderer 避免循环依赖
     const { MobiRenderer } = await import('./formats/mobi/MobiRenderer');
     const renderer = new MobiRenderer();
-    const bookInfo = await renderer.loadDocument(filePath);
+    const bookInfo = await renderer.loadDocument(filePath, {
+      skipPreloaderCache: options?.skipPreloaderCache,
+    });
     
     info = {
       title: bookInfo.title,
@@ -131,64 +153,74 @@ async function importMobiBook(filePath: string, _invoke: any, logError: any): Pr
   return { info, coverImage, totalPages };
 }
 
-// EPUB 格式导入
-async function importEpubBook(filePath: string, _invoke: any, logError: any): Promise<ImportResult> {
+async function importEpubBook(filePath: string, _invoke: any, _logError: any, _options?: { skipPreloaderCache?: boolean }): Promise<ImportResult> {
   let info: any = null;
   let coverImage: string | undefined = undefined;
   let totalPages = 1;
 
   try {
-    // 动态导入 EpubRenderer 避免循环依赖
-    const { EpubRenderer } = await import('./formats/epub/EpubRenderer');
-    const renderer = new EpubRenderer();
-    const bookInfo = await renderer.loadDocument(filePath);
-    
-    info = {
-      title: bookInfo.title,
-      author: bookInfo.author,
-    };
-    
-    // 封面图片格式: "data:image/...;base64,xxxxx"
-    // 直接传完整 data URL，后端会正确识别并落盘
-    // 避免提取纯 Base64 后因长度过短被误识别为路径
-    if (bookInfo.coverImage && bookInfo.coverImage.startsWith('data:')) {
-      coverImage = bookInfo.coverImage;
-    } else {
-      // 命中元数据缓存时 coverImage 可能为空，需要手动获取
-      try {
-        const { useEpubLoader } = await import('./formats/epub/hooks/useEpubLoader');
-        const loaderHook = useEpubLoader();
-        const lifecycleHook = (renderer as any)._lifecycleHook;
-        
-        // 确保书籍加载完成（命中缓存时是后台加载）
-        if (lifecycleHook?.ensureBookLoaded) {
-          await lifecycleHook.ensureBookLoaded();
-        }
-        
-        if (lifecycleHook?.state?.book) {
-          const cover = await loaderHook.getCoverImage(lifecycleHook.state.book);
-          if (cover && cover.startsWith('data:')) {
-            coverImage = cover;
-          }
-        }
-      } catch (e) {
-        await logError('EPUB 封面获取失败', { error: String(e), filePath });
-      }
-    }
-    
-    totalPages = bookInfo.pageCount || 1;
-
-    // 预热前 1-3 个章节到缓存，加速首次打开
+    const invoke = await getInvoke();
     try {
-      const preloadEnd = Math.min(3, totalPages) - 1;
-      if (preloadEnd >= 0) {
-        await renderer.preloadSections(0, preloadEnd);
+      const stats = await invoke<{ size: number }>('get_file_stats', { path: filePath });
+      const sizeMB = stats.size / (1024 * 1024);
+      if (stats.size > MAX_EPUB_SIZE_BYTES) {
+        await log(`[EPUB Import] 文件较大 (${sizeMB.toFixed(0)}MB)，可能需要较长时间`, 'warn', { filePath, sizeMB });
+      } else {
+        await log('[EPUB Import] 开始导入 EPUB 文件', 'info', { filePath, sizeMB });
       }
-    } catch (preloadErr) {
-      await logError('EPUB 导入预热失败', { error: String(preloadErr), filePath });
+    } catch {
+      // 获取大小失败，继续导入
     }
 
-    await renderer.close();
+    if (enableRustEpubEngine) {
+      try {
+        await log('[EPUB Import] 调用 epub_prepare_book 开始', 'info', { filePath });
+
+        const result = await invoke<{
+          book_info: {
+            title?: string | null;
+            author?: string | null;
+            description?: string | null;
+            publisher?: string | null;
+            language?: string | null;
+            page_count: number;
+            format: string;
+            cover_image?: string | null;
+          };
+          toc: any[];
+          section_count: number;
+        }>('epub_prepare_book', {
+          filePath,
+          bookId: generateQuickBookId(filePath),
+        });
+
+        const bookInfo = result?.book_info;
+
+        info = {
+          title: bookInfo?.title ?? pathToTitle(filePath),
+          author: bookInfo?.author ?? undefined,
+        };
+
+        if (bookInfo?.cover_image && bookInfo.cover_image.startsWith('data:')) {
+          coverImage = bookInfo.cover_image;
+        }
+
+        totalPages = Math.max(1, Number(bookInfo?.page_count ?? result?.section_count ?? 1));
+
+        await log('[EPUB Import] epub_prepare_book 成功', 'info', {
+          filePath,
+          sectionCount: result?.section_count ?? null,
+          pageCount: bookInfo?.page_count ?? null,
+        });
+
+        return { info, coverImage, totalPages };
+      } catch (e) {
+        await logError('[EPUB Import] Rust epub_prepare_book failed', {
+          error: String(e),
+          filePath,
+        });
+      }
+    }
   } catch (err) {
     await logError('EPUB import failed', { error: String(err), filePath });
   }
@@ -218,7 +250,8 @@ async function importByFormat(
   filePath: string,
   format: BookFormat,
   invoke: any,
-  logError: any
+  logError: any,
+  options?: { skipPreloaderCache?: boolean }
 ): Promise<ImportResult> {
   switch (format) {
     case 'pdf':
@@ -228,9 +261,9 @@ async function importByFormat(
     case 'html':
       return await importHtmlBook(filePath, invoke, logError);
     case 'epub':
-      return await importEpubBook(filePath, invoke, logError);
+      return await importEpubBook(filePath, invoke, logError, options);
     case 'mobi':
-      return await importMobiBook(filePath, invoke, logError);
+      return await importMobiBook(filePath, invoke, logError, options);
     case 'txt':
       return await importTxtBook(filePath, invoke, logError);
     default:
@@ -240,6 +273,36 @@ async function importByFormat(
 }
 
 // 运行导入到已存在分组，并同步导入进度到 UI（标题/进度）
+// 分批导入配置：每批处理书籍数量和批次间延迟时间
+const BATCH_SIZE = 5;
+const BATCH_DELAY_MS = 500;
+
+/**
+ * 强制触发垃圾回收
+ * 通过让出多帧给 GC 时间，移动端需要更长的等待
+ */
+async function forceGarbageCollection(isLargeFile: boolean): Promise<void> {
+  // 让出多帧，给 GC 时间回收
+  const frameCount = isLargeFile ? 5 : 3;
+  for (let i = 0; i < frameCount; i++) {
+    await new Promise(r => setTimeout(r, 50));
+    await waitNextFrame();
+  }
+}
+
+/**
+ * 检测文件大小是否为大文件
+ */
+async function isLargeFile(filePath: string): Promise<boolean> {
+  try {
+    const invoke = await getInvoke();
+    const stats = await invoke<{ size: number }>('get_file_stats', { path: filePath });
+    return stats.size > LARGE_FILE_THRESHOLD_BYTES;
+  } catch {
+    return false;
+  }
+}
+
 export const importPathsToExistingGroup = async (
   paths: string[],
   groupId: number
@@ -262,9 +325,20 @@ export const importPathsToExistingGroup = async (
     once: false,
   });
 
+  const isMobile = isMobilePlatform();
+
   for (let i = 0; i < paths.length; i++) {
     if (cancelled) break;
+
+    // 分批处理：每批结束后等待一段时间，让 GC 有机会回收内存
+    if (i > 0 && i % BATCH_SIZE === 0) {
+      await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
+    }
+
     const filePath = await resolveLocalPathFromUri(paths[i]);
+
+    // 移动端大文件检测，用于后续内存清理策略
+    const largeFile = isMobile ? await isLargeFile(filePath) : false;
 
     // 在处理前同步当前书籍标题到抽屉，current 保持为 i
     {
@@ -278,8 +352,7 @@ export const importPathsToExistingGroup = async (
       await waitNextFrame();
     }
 
-    const invoke = await import("../services/index").then(m => m.getInvoke());
-    const { logError } = await import('./index');
+    const invoke = await getInvoke();
 
     // Detect format and import accordingly
     const format = getBookFormat(filePath);
@@ -287,7 +360,19 @@ export const importPathsToExistingGroup = async (
       await logError('Unsupported file format, skipping', { filePath });
       continue;
     }
-    const { coverImage, totalPages } = await importByFormat(filePath, format, invoke, logError);
+    
+    await log('[Import] 开始导入书籍', 'info', {
+      index: i + 1,
+      total,
+      filePath,
+      format,
+    });
+    
+    // 大文件且是 EPUB/MOBI 格式时，跳过预加载缓存存储，避免内存累积
+    const skipCache = largeFile && (format === 'epub' || format === 'mobi');
+    const { coverImage, totalPages } = await importByFormat(filePath, format, invoke, logError, {
+      skipPreloaderCache: skipCache,
+    });
 
     const title = pathToTitle(filePath) || "Unknown";
     const saved = await bookService.addBook(
@@ -312,6 +397,14 @@ export const importPathsToExistingGroup = async (
 
     await groupService.moveBookToGroup(saved.id, groupId);
 
+    await log('[Import] 导入书籍完成', 'info', {
+      index: i + 1,
+      total,
+      filePath,
+      bookId: saved.id,
+      format,
+    });
+
     // 完成一册后同步进度与标题
     window.dispatchEvent(
       new CustomEvent("goread:import:progress", {
@@ -319,6 +412,15 @@ export const importPathsToExistingGroup = async (
       })
     );
     await waitNextFrame();
+
+    // 增强 GC 时机 - 每本书导入后强制清理内存
+    // 移动端串行化 - 大文件导入后增加额外延迟
+    if (isMobile) {
+      await forceGarbageCollection(largeFile);
+      const delayMs = largeFile ? MOBILE_LARGE_FILE_DELAY_MS : MOBILE_IMPORT_DELAY_MS;
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+      await logError(`[Import] 移动端内存清理完成，延迟 ${delayMs}ms`);
+    }
   }
 
   window.removeEventListener("goread:import:cancel", cancelHandler as any);

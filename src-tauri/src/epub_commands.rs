@@ -1,12 +1,24 @@
-//! EPUB 相关的 Tauri 命令
-use crate::formats::epub::{EpubCacheManager, BookInfo, TocItem, MetadataCacheEntry, SectionCacheData};
+use crate::formats::epub::{
+    BookInfo, EpubCacheManager, EpubInspectResult, MetadataCacheEntry, SectionCacheData, TocItem,
+};
+use crate::formats::epub::engine::{inspect_epub, prepare_book, EpubPreparedBook};
+use serde::Serialize;
 use serde_json::Value;
 use std::sync::Arc;
 use tauri::State;
 use tokio::sync::Mutex;
+use tokio::task;
 
 /// EPUB 缓存管理器状态
 pub type EpubCacheState = Arc<Mutex<EpubCacheManager>>;
+
+#[derive(Debug, Serialize)]
+pub struct EpubPrepareResult {
+    pub book_info: BookInfo,
+    pub toc: Vec<TocItem>,
+    pub section_count: u32,
+    pub spine: Vec<String>,
+}
 
 /// 保存章节缓存到磁盘（包含完整的样式和资源引用信息）
 #[tauri::command]
@@ -142,6 +154,7 @@ pub async fn epub_save_metadata(
     book_info: Value,
     toc: Value,
     section_count: u32,
+    spine: Vec<String>,
     state: State<'_, EpubCacheState>,
 ) -> Result<bool, String> {
     let manager = state.lock().await;
@@ -165,7 +178,7 @@ pub async fn epub_save_metadata(
     };
 
     manager
-        .save_metadata(&book_id, book_info, toc, section_count)
+        .save_metadata(&book_id, book_info, toc, section_count, spine)
         .await?;
     
     println!("[backend] EPUB 元数据保存成功: {}", book_id);
@@ -180,4 +193,67 @@ pub async fn epub_load_metadata(
 ) -> Result<Option<MetadataCacheEntry>, String> {
     let manager = state.lock().await;
     manager.load_metadata(&book_id).await
+}
+
+#[tauri::command]
+pub async fn epub_inspect(file_path: String) -> Result<EpubInspectResult, String> {
+    task::spawn_blocking(move || inspect_epub(&file_path))
+        .await
+        .map_err(|e| format!("EPUB 解析任务失败: {}", e))?
+}
+
+#[tauri::command]
+pub async fn epub_prepare_book(
+    file_path: String,
+    book_id: String,
+    state: State<'_, EpubCacheState>,
+) -> Result<EpubPrepareResult, String> {
+    let prepared: EpubPreparedBook = task::spawn_blocking(move || prepare_book(&file_path))
+        .await
+        .map_err(|e| format!("EPUB 解析任务失败: {}", e))??;
+
+    let manager = state.lock().await;
+
+    manager
+        .clear_book_cache(&book_id)
+        .await
+        .map_err(|e| format!("清理旧缓存失败: {}", e))?;
+
+    for section in prepared.sections {
+        manager
+            .save_section(
+                &book_id,
+                section.index,
+                &section.html,
+                section.styles,
+                section.resource_refs,
+            )
+            .await
+            .map_err(|e| format!("保存章节缓存失败: {}", e))?;
+    }
+
+    for res in prepared.resources {
+        manager
+            .save_resource(&book_id, &res.path, &res.data, &res.mime_type)
+            .await
+            .map_err(|e| format!("保存资源缓存失败: {}", e))?;
+    }
+
+    manager
+        .save_metadata(
+            &book_id,
+            prepared.book_info.clone(),
+            prepared.toc.clone(),
+            prepared.section_count,
+            prepared.spine.clone(),
+        )
+        .await
+        .map_err(|e| format!("保存元数据失败: {}", e))?;
+
+    Ok(EpubPrepareResult {
+        book_info: prepared.book_info,
+        toc: prepared.toc,
+        section_count: prepared.section_count,
+        spine: prepared.spine,
+    })
 }

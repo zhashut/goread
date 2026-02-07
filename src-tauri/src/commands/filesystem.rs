@@ -889,3 +889,102 @@ pub async fn save_image_to_gallery(
         }
     }
 }
+
+/// 获取文件状态信息
+#[tauri::command]
+pub async fn get_file_stats(path: String) -> Result<FileStats, String> {
+    let file_path = PathBuf::from(&path);
+    
+    if !file_path.exists() {
+        return Err(format!("文件不存在: {}", path));
+    }
+    
+    let metadata = tokio::fs::metadata(&file_path)
+        .await
+        .map_err(|e| format!("获取文件信息失败: {}", e))?;
+    
+    Ok(FileStats {
+        size: metadata.len(),
+        is_file: metadata.is_file(),
+        is_dir: metadata.is_dir(),
+    })
+}
+
+#[derive(serde::Serialize)]
+pub struct FileStats {
+    pub size: u64,
+    pub is_file: bool,
+    pub is_dir: bool,
+}
+
+/// 以 Base64 编码读取文件（优化内存占用）
+/// 用于 EPUB 等大文件读取场景，避免 number[] 在 JS 中占用过多内存
+#[tauri::command]
+pub async fn read_file_base64(path: String) -> Result<String, String> {
+    use base64::{Engine as _, engine::general_purpose};
+    
+    let file_path = PathBuf::from(&path);
+
+    if !file_path.exists() {
+        return Err(format!("文件不存在: {}", path));
+    }
+
+    if !file_path.is_file() {
+        return Err(format!("路径不是文件: {}", path));
+    }
+
+    let bytes = tokio::fs::read(&file_path)
+        .await
+        .map_err(|e| format!("读取文件失败: {}", e))?;
+    
+    Ok(general_purpose::STANDARD.encode(&bytes))
+}
+
+/// 分块流式读取文件
+/// 通过 Channel 分块发送 Base64 编码的数据，避免一次性加载整个文件
+#[tauri::command]
+pub async fn read_file_chunked(
+    path: String,
+    chunk_size: Option<usize>,
+    on_chunk: tauri::ipc::Channel<String>,
+) -> Result<u64, String> {
+    use base64::{Engine as _, engine::general_purpose};
+    use tokio::io::AsyncReadExt;
+    
+    let file_path = PathBuf::from(&path);
+    
+    if !file_path.exists() {
+        return Err(format!("文件不存在: {}", path));
+    }
+    
+    if !file_path.is_file() {
+        return Err(format!("路径不是文件: {}", path));
+    }
+    
+    let mut file = tokio::fs::File::open(&file_path)
+        .await
+        .map_err(|e| format!("打开文件失败: {}", e))?;
+    
+    // 默认 1MB 块大小
+    let chunk_size = chunk_size.unwrap_or(1024 * 1024);
+    let mut buffer = vec![0u8; chunk_size];
+    let mut total_bytes: u64 = 0;
+    
+    loop {
+        let bytes_read = file.read(&mut buffer)
+            .await
+            .map_err(|e| format!("读取文件失败: {}", e))?;
+        
+        if bytes_read == 0 {
+            break;
+        }
+        
+        total_bytes += bytes_read as u64;
+        let base64_chunk = general_purpose::STANDARD.encode(&buffer[..bytes_read]);
+        
+        on_chunk.send(base64_chunk)
+            .map_err(|e| format!("发送数据块失败: {}", e))?;
+    }
+    
+    Ok(total_bytes)
+}

@@ -102,18 +102,39 @@ export const useInitReader = ({
 
         const filePathForEpub = isExternal ? externalPath : book?.file_path;
         const isEpub = filePathForEpub && getBookFormat(filePathForEpub) === "epub";
-        
-        // 如果是 EPUB 且已渲染，仅当主题或阅读模式未变化时才跳过
-        // 模式变化时必须重新调用 renderPage 以切换视图
+
+        // EPUB 跳过渲染条件：已渲染且主题和模式都未变化
+        // 主题或模式变化时必须重新调用 renderPage
         if (isEpub && epubRenderedRef.current && !themeChanged && !modeChanged) {
             log(
-                `[Reader] EPUB 已渲染，跳过重复渲染（模式切换由 setReadingMode 处理）`
+                `[Reader] EPUB 跳过重复渲染：主题未变=${!themeChanged}, 模式未变=${!modeChanged}`
             );
             return;
         }
 
+        // 主题或模式变化时记录日志
+        if (isEpub && epubRenderedRef.current && (themeChanged || modeChanged)) {
+            log(
+                `[Reader] EPUB 需要重渲染：主题变化=${themeChanged}, 模式变化=${modeChanged}`
+            );
+        }
+
         // 使用 currentPageRef 而不是 currentPage state，避免依赖循环
         let pageToRender: number = readerState.currentPageRef.current;
+
+        // 尝试获取更精确的进度
+        // 1. 如果有最近的精确阅读进度（通常在阅读过程中产生），优先使用
+        if (readerState.latestPreciseProgressRef.current != null) {
+            pageToRender = readerState.latestPreciseProgressRef.current;
+        } 
+        // 2. 如果没有最近进度，但有打开时的存档进度，且与当前页码匹配（整数部分一致），则使用存档进度
+        // 这主要用于刚打开书籍时的初始渲染，确保精确恢复位置
+        else {
+            const saved = readerState.savedPageAtOpenRef.current;
+            if (saved && Math.floor(saved) === pageToRender) {
+                pageToRender = saved;
+            }
+        }
 
         log(
             `[Reader] 开始首次渲染，模式: ${readingMode}, DOM渲染: ${isDomRender}, 当前页: ${pageToRender}`

@@ -21,6 +21,7 @@ export interface EpubMetadataCacheEntry {
   bookInfo: BookInfo;
   toc: TocItem[];
   sectionCount: number;
+  spine: string[];
   lastAccessTime: number;
 }
 
@@ -39,6 +40,7 @@ interface BackendMetadataEntry {
   };
   toc: BackendTocItem[];
   section_count: number;
+  spine: string[];
   last_access_time: number;
 }
 
@@ -124,7 +126,7 @@ class EpubCacheService {
         styles: string[];
         resource_refs: string[];
       }
-      
+
       const result = await invoke<BackendSectionData | null>('epub_load_section', {
         bookId,
         sectionIndex,
@@ -169,7 +171,7 @@ class EpubCacheService {
         styles: entry.rawStyles ?? [],
         resourceRefs: entry.resourceRefs ?? [],
       };
-      logError('[EpubCacheService] 准备保存章节，参数键:', Object.keys(params).join(', ')).catch(() => {});
+      logError('[EpubCacheService] 准备保存章节，参数键:', Object.keys(params).join(', ')).catch(() => { });
       await invoke('epub_save_section', params);
     } catch (e) {
       logError('[EpubCacheService] 保存章节到后端失败', {
@@ -177,7 +179,7 @@ class EpubCacheService {
         stack: (e as Error)?.stack,
         bookId: entry.bookId,
         sectionIndex: entry.sectionIndex,
-      }).catch(() => {});
+      }).catch(() => { });
     }
   }
 
@@ -235,7 +237,7 @@ class EpubCacheService {
         stack: (e as Error)?.stack,
         bookId: entry.bookId,
         resourcePath: entry.resourcePath,
-      }).catch(() => {});
+      }).catch(() => { });
     }
   }
 
@@ -281,6 +283,7 @@ class EpubCacheService {
         },
         toc: result.toc?.map(item => this._convertTocItem(item)) ?? [],
         sectionCount: result.section_count,
+        spine: result.spine ?? [],
         lastAccessTime: result.last_access_time,
       };
     } catch {
@@ -330,15 +333,16 @@ class EpubCacheService {
         bookInfo,
         toc,
         sectionCount: entry.sectionCount,
+        spine: entry.spine,
       };
-      logError('[EpubCacheService] 准备保存元数据，参数键:', Object.keys(metaParams).join(', ')).catch(() => {});
+      logError('[EpubCacheService] 准备保存元数据，参数键:', Object.keys(metaParams).join(', ')).catch(() => { });
       await invoke('epub_save_metadata', metaParams);
     } catch (e) {
       logError('[EpubCacheService] 保存元数据到后端失败', {
         error: String(e),
         stack: (e as Error)?.stack,
         bookId,
-      }).catch(() => {});
+      }).catch(() => { });
     }
   }
 
@@ -356,7 +360,7 @@ class EpubCacheService {
         error: String(e),
         stack: (e as Error)?.stack,
         bookId,
-      }).catch(() => {});
+      }).catch(() => { });
     }
   }
 
@@ -366,7 +370,7 @@ class EpubCacheService {
   async clearAllFromDB(): Promise<void> {
     // 通过设置有效期为 -1 天来清理所有缓存
     // 注意：后端没有 clear_all 命令，这里只是触发过期清理
-    logError('[EpubCacheService] 清空所有缓存').catch(() => {});
+    logError('[EpubCacheService] 清空所有缓存').catch(() => { });
   }
 
   /**
@@ -376,7 +380,7 @@ class EpubCacheService {
     try {
       const cleaned = await invoke<number>('epub_cleanup_expired');
       if (cleaned > 0) {
-        logError(`[EpubCacheService] 后端清理过期缓存 ${cleaned} 条`).catch(() => {});
+        logError(`[EpubCacheService] 后端清理过期缓存 ${cleaned} 条`).catch(() => { });
       }
     } catch {
       // 静默失败
@@ -415,13 +419,13 @@ class EpubCacheService {
     // 通知后端更新配置并清理过期缓存（后端会同时处理章节、资源、元数据）
     try {
       await invoke('epub_set_cache_expiry', { days: newDays });
-      logError(`[EpubCacheService] 配置变更：${newDays === 0 ? '不限' : newDays + '天'}`).catch(() => {});
+      logError(`[EpubCacheService] 配置变更：${newDays === 0 ? '不限' : newDays + '天'}`).catch(() => { });
     } catch (e) {
       logError('[EpubCacheService] 设置缓存有效期失败', {
         error: String(e),
         stack: (e as Error)?.stack,
         days: newDays,
-      }).catch(() => {});
+      }).catch(() => { });
     }
   }
 

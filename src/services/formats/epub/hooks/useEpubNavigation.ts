@@ -3,15 +3,16 @@
  * 处理 EPUB 内部链接的点击和跳转
  */
 
-import { EpubBook } from './useEpubLoader';
+import { TocItem } from '../../types';
 
 /** 导航上下文 */
 export interface NavigationContext {
-  book: EpubBook | null;
   /** 动态获取滚动容器的函数，解决初始化时引用为 null 的问题 */
   getScrollContainer: () => HTMLElement | null;
   sectionContainers: Map<number, HTMLElement>;
   goToPage: (page: number) => Promise<void>;
+  toc?: TocItem[];
+  sectionCount?: number;
 }
 
 /** 导航 Hook 返回接口 */
@@ -65,26 +66,58 @@ export function useEpubNavigation(context: NavigationContext): EpubNavigationHoo
    * 导航到指定 href（跨章节）
    */
   const navigateToHref = (href: string): void => {
-    // 解析 href，找到对应的章节
-    const [path, anchor] = href.split('#');
+    const toc = context.toc;
+    const sectionCount = context.sectionCount || 0;
+    if (!toc || toc.length === 0 || sectionCount <= 0) {
+      return;
+    }
 
-    // 查找匹配的章节
-    if (context.book) {
-      const sectionIndex = context.book.sections.findIndex((section: any) => {
-        return section.id === path || section.id.endsWith(path);
-      });
+    const [_, anchor] = href.split('#');
 
-      if (sectionIndex >= 0) {
-        // 跳转到目标章节
-        goToPage(sectionIndex + 1).then(() => {
-          // 如果有锚点，滚动到锚点
-          if (anchor) {
-            setTimeout(() => {
-              scrollToAnchor(anchor, sectionIndex);
-            }, 300);
-          }
-        });
+    const normalizeHref = (h: string) => h?.split('#')[0] || '';
+    const hrefBase = normalizeHref(href);
+
+    const flat: TocItem[] = [];
+    const walk = (items: TocItem[]) => {
+      for (const item of items) {
+        flat.push(item);
+        if (item.children && item.children.length > 0) {
+          walk(item.children);
+        }
       }
+    };
+
+    walk(toc);
+
+    let sectionIndex = -1;
+    const normalizedHref = hrefBase || href;
+
+    sectionIndex = flat.findIndex((item) => {
+      const loc = item.location;
+      if (typeof loc !== 'string' || !loc) return false;
+      const locBase = normalizeHref(loc);
+      return (
+        loc === href ||
+        (normalizedHref && locBase === normalizedHref) ||
+        loc.endsWith(href) ||
+        (normalizedHref && locBase.endsWith(normalizedHref))
+      );
+    });
+
+    if (sectionIndex >= 0 && sectionCount > 0) {
+      if (sectionIndex >= sectionCount) {
+        sectionIndex = sectionCount - 1;
+      }
+    }
+
+    if (sectionIndex >= 0) {
+      goToPage(sectionIndex + 1).then(() => {
+        if (anchor) {
+          setTimeout(() => {
+            scrollToAnchor(anchor, sectionIndex);
+          }, 300);
+        }
+      });
     }
   };
 

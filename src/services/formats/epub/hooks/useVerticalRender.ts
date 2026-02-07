@@ -3,27 +3,27 @@
  * 实现纵向连续阅读模式的完整逻辑
  */
 
-import { RenderOptions, ReaderTheme } from '../../types';
+import { RenderOptions, ReaderTheme, TocItem } from '../../types';
 import { logError } from '../../../index';
-import { EpubBook } from './useEpubLoader';
 import { EpubResourceHook } from './useEpubResource';
 import { EpubThemeHook } from './useEpubTheme';
 import { EpubNavigationHook } from './useEpubNavigation';
 import {
   type IEpubSectionCache,
   type IEpubResourceCache,
-  type EpubSectionCacheEntry,
   getMimeType,
 } from '../cache';
 import { epubCacheService } from '../epubCacheService';
 import { createDividerEl, toggleDividerVisibility, updateDividerStyle } from '../../../../components/reader/PageDivider';
+import { getTocHrefForSection } from './tocMapping';
 
 /** 纵向渲染上下文 */
 export interface VerticalRenderContext {
-  book: EpubBook | null;
   sectionCount: number;
   currentTheme: ReaderTheme;
   currentPageGap: number;
+  toc?: TocItem[];
+  spine?: string[];
   onPageChange?: (page: number) => void;
   onTocChange?: (href: string) => void;
   onScrollActivity?: () => void;
@@ -39,8 +39,6 @@ export interface VerticalRenderContext {
   sectionCache?: IEpubSectionCache;
   /** 资源缓存管理器 */
   resourceCache?: IEpubResourceCache;
-  /** 确保书籍已加载（用于懒加载模式） */
-  ensureBookLoaded?: () => Promise<void>;
 }
 
 /** 纵向渲染状态 */
@@ -48,6 +46,8 @@ export interface VerticalRenderState {
   verticalContinuousMode: boolean;
   sectionContainers: Map<number, HTMLElement>;
   renderedSections: Set<number>;
+  /** 正在渲染中的章节索引，用于防止并发渲染 */
+  renderingInProgress: Set<number>;
   scrollContainer: HTMLElement | null;
   dividerElements: HTMLElement[];
   isNavigating: boolean;
@@ -97,6 +97,7 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
     verticalContinuousMode: false,
     sectionContainers: new Map(),
     renderedSections: new Set(),
+    renderingInProgress: new Set(),
     scrollContainer: null,
     dividerElements: [],
     isNavigating: false,
@@ -188,11 +189,10 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
         context.onPageChange(preciseProgress);
       }
 
-      // 更新目录高亮（通过 href）
-      if (context.onTocChange && context.book) {
-        const section = context.book.sections[currentSectionIndex];
-        if (section && section.id) {
-          context.onTocChange(section.id);
+      if (context.onTocChange) {
+        const tocHref = getTocHrefForSection(currentSectionIndex, context.toc, context.spine);
+        if (tocHref) {
+          context.onTocChange(tocHref);
         }
       }
     }
@@ -217,6 +217,7 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
     };
 
     container.addEventListener('scroll', handleScroll, { passive: true });
+    (container as any)._verticalScrollHandler = handleScroll;
   };
 
   /**
@@ -259,8 +260,18 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
   /**
    * 渲染单个章节
    */
+  /**
+   * 渲染单个章节
+   * 使用 renderingInProgress 防止并发渲染同一章节
+   */
   const renderSection = async (index: number, options?: RenderOptions): Promise<void> => {
+    // 幂等性检查：已渲染的章节跳过
     if (state.renderedSections.has(index)) {
+      return;
+    }
+
+    // 并发控制：正在渲染中的章节跳过
+    if (state.renderingInProgress.has(index)) {
       return;
     }
 
@@ -268,6 +279,9 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
     if (!wrapper) {
       return;
     }
+
+    // 标记渲染开始
+    state.renderingInProgress.add(index);
 
     const { bookId, sectionCache, resourceCache } = context;
 
@@ -282,7 +296,6 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
           if (cacheEntry) {
             // 加载到内存缓存
             sectionCache.setSection(cacheEntry);
-            logError(`[EpubRenderer] 从后端磁盘恢复章节 ${index + 1} 到内存`).catch(() => {});
           }
         } catch {
           // 后端加载失败，继续常规渲染
@@ -290,7 +303,6 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
       }
 
       if (cacheEntry) {
-        logError(`[EpubRenderer] 从缓存加载章节 ${index + 1}`).catch(() => {});
 
         try {
           // 使用 shadow DOM 隔离样式（复用已存在的 Shadow Root 或创建新的）
@@ -327,7 +339,6 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
                   // 恢复到内存缓存
                   resourceCache.set(bookId, ref, dbEntry.data, dbEntry.mimeType);
                   data = dbEntry.data;
-                  logError(`[EpubRenderer] 从 IndexedDB 恢复资源: ${ref}`).catch(() => {});
                 }
               } catch {
                 // IndexedDB 加载失败，继续尝试网络加载
@@ -349,7 +360,7 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
                     mimeType,
                     sizeBytes: data.byteLength,
                     lastAccessTime: Date.now(),
-                  }).catch(() => {});
+                  }).catch(() => { });
                 }
               } catch {
                 // 网络加载失败
@@ -380,189 +391,20 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
           // 按需插入分隔线（仅在章节渲染成功后创建）
           ensureDividerForSection(index, options);
 
-          // 标记已渲染
           state.renderedSections.add(index);
+          state.renderingInProgress.delete(index);
           wrapper.dataset.rendered = 'true';
-
-          logError(`[EpubRenderer] 章节 ${index + 1} 从缓存加载完成`).catch(() => {});
           return;
         } catch (e) {
-          logError(`[EpubRenderer] 从缓存恢复章节 ${index + 1} 失败，回退到解析`, {
-            error: String(e),
-            stack: (e as Error)?.stack,
-            bookId,
-            sectionIndex: index,
-            phase: 'reading',
-            step: 'restoreFromSectionCache',
-          }).catch(() => {});
+          // 渲染失败时清除渲染中状态
+          state.renderingInProgress.delete(index);
         }
       }
     }
 
-    // 缓存未命中，按原逻辑解析
-    logError(`[EpubRenderer] 开始解析渲染章节 ${index + 1}`).catch(() => {});
-
-    // 如果书籍对象不可用且支持懒加载，尝试等待
-    if (!context.book && context.ensureBookLoaded) {
-      try {
-        logError(`[EpubRenderer] 章节 ${index + 1} 等待书籍加载...`).catch(() => {});
-        await context.ensureBookLoaded();
-      } catch (e) {
-        logError(`[EpubRenderer] 等待书籍加载失败`, {
-          error: String(e),
-          stack: (e as Error)?.stack,
-          bookId,
-          sectionIndex: index,
-          step: 'ensureBookLoaded',
-        }).catch(() => {});
-      }
-    }
-
-    const currentBook = context.book;
-    if (!currentBook) {
-      logError(`[EpubRenderer] 章节 ${index + 1} 渲染失败: 书籍未就绪`).catch(() => {});
-      return;
-    }
-
-    try {
-      const section = currentBook.sections[index];
-      if (!section || !section.createDocument) {
-        logError(`[EpubRenderer] 章节 ${index + 1} 无效`).catch(() => {});
-        return;
-      }
-
-      const doc = await section.createDocument();
-
-      // 创建临时容器，在注入 Shadow DOM 之前处理资源路径
-      const tempContent = document.createElement('div');
-      tempContent.innerHTML = doc.body.innerHTML;
-
-      // 收集资源引用（在修复路径之前）
-      const resourceRefs = resourceHook.collectResourceRefs(tempContent, section);
-
-      // 加载原文档样式
-      const originalStyles = await resourceHook.loadAndProcessStyles(doc, section);
-
-      // 在原始文档上下文中解析资源路径
-      await resourceHook.fixResourcePaths(tempContent, section);
-
-      // 使用 shadow DOM 隔离样式（复用已存在的 Shadow Root 或创建新的）
-      let shadow = wrapper.shadowRoot;
-      if (shadow) {
-        // 清空已存在的 Shadow Root 内容
-        shadow.innerHTML = '';
-      } else {
-        shadow = wrapper.attachShadow({ mode: 'open' });
-      }
-
-      // 注入主题样式
-      const style = document.createElement('style');
-      style.textContent = themeHook.getThemeStyles(options);
-      shadow.appendChild(style);
-
-      // 注入原文档样式（包括外部 CSS）
-      if (originalStyles) {
-        const originalStyleEl = document.createElement('style');
-        originalStyleEl.textContent = originalStyles;
-        shadow.appendChild(originalStyleEl);
-      }
-
-      // 注入已处理的内容
-      const content = document.createElement('div');
-      content.className = 'epub-section-content';
-      content.innerHTML = tempContent.innerHTML;
-      shadow.appendChild(content);
-
-      // 处理链接点击事件
-      if (navigationHook) {
-        navigationHook.setupLinkHandlers(content, index);
-      }
-
-      // 按需插入分隔线（仅在章节渲染成功后创建）
-      ensureDividerForSection(index, options);
-
-      // 标记已渲染
-      state.renderedSections.add(index);
-      wrapper.dataset.rendered = 'true';
-
-      // 写入缓存（异步执行，不阻塞渲染）
-      if (bookId && sectionCache && resourceCache) {
-        (async () => {
-          try {
-            // 将 HTML 中的资源路径替换为占位符
-            const normalizedHtml = resourceHook.normalizeHtmlResources(
-              doc.body.innerHTML,
-              resourceRefs,
-              section
-            );
-
-            // 缓存资源数据（内存 + IndexedDB 双写）
-            for (const ref of resourceRefs) {
-              if (!resourceCache.has(bookId, ref)) {
-                const data = await resourceHook.loadResourceData(ref);
-                if (data) {
-                  const mimeType = getMimeType(ref);
-                  resourceCache.set(bookId, ref, data, mimeType);
-                  // 同时写入 IndexedDB 持久化
-                  epubCacheService.saveResourceToDB({
-                    bookId,
-                    resourcePath: ref,
-                    data,
-                    mimeType,
-                    sizeBytes: data.byteLength,
-                    lastAccessTime: Date.now(),
-                  }).catch(() => {});
-                }
-              } else {
-                resourceCache.addRef(bookId, ref);
-              }
-            }
-
-            // 构建缓存条目
-            const cacheEntry: EpubSectionCacheEntry = {
-              bookId,
-              sectionIndex: index,
-              rawHtml: normalizedHtml,
-              rawStyles: originalStyles ? [originalStyles] : [],
-              resourceRefs,
-              meta: {
-                sizeBytes: 0,
-                createdAt: Date.now(),
-                lastAccessTime: Date.now(),
-                sectionId: section.id || null,
-              },
-            };
-
-            // 写入内存缓存
-            sectionCache.setSection(cacheEntry);
-            
-            // 同时写入 IndexedDB 持久化（异步，不阻塞）
-            epubCacheService.saveSectionToDB(cacheEntry).catch(() => {});
-            
-            logError(`[EpubRenderer] 章节 ${index + 1} 已写入缓存`).catch(() => {});
-          } catch (e) {
-            logError(`[EpubRenderer] 写入章节 ${index + 1} 缓存失败`, {
-              error: String(e),
-              stack: (e as Error)?.stack,
-              bookId,
-              sectionIndex: index,
-              step: 'writeCache',
-            }).catch(() => {});
-          }
-        })();
-      }
-
-      logError(`[EpubRenderer] 章节 ${index + 1} 渲染完成`).catch(() => {});
-    } catch (e) {
-      logError(`[EpubRenderer] 渲染章节 ${index + 1} 失败`, {
-        error: String(e),
-        stack: (e as Error)?.stack,
-        bookId,
-        sectionIndex: index,
-        phase: 'reading',
-        step: 'renderSection',
-      }).catch(() => {});
-    }
+    // 缓存未命中，纵向模式要求章节必须在后端缓存中
+    state.renderingInProgress.delete(index);
+    return;
   };
 
   /**
@@ -581,24 +423,18 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
 
             if (index >= 0 && !state.renderedSections.has(index)) {
               // 渲染当前章节
-              renderSection(index, options).catch(async (e) => {
-                await logError('渲染章节失败', { error: String(e), sectionIndex: index });
-              });
+              renderSection(index, options).catch(() => { });
 
               // 预加载相邻章节
               const prevIndex = index - 1;
               const nextIndex = index + 1;
 
               if (prevIndex >= 0 && !state.renderedSections.has(prevIndex)) {
-                renderSection(prevIndex, options).catch(async (e) => {
-                  await logError('渲染章节失败', { error: String(e), sectionIndex: prevIndex });
-                });
+                renderSection(prevIndex, options).catch(() => { });
               }
 
               if (nextIndex < sectionCount && !state.renderedSections.has(nextIndex)) {
-                renderSection(nextIndex, options).catch(async (e) => {
-                  await logError('渲染章节失败', { error: String(e), sectionIndex: nextIndex });
-                });
+                renderSection(nextIndex, options).catch(() => { });
               }
             }
           }
@@ -628,19 +464,19 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
 
     // 渲染当前章节
     if (!state.renderedSections.has(sectionIndex)) {
-      renderSection(sectionIndex, renderOptions).catch(() => {});
+      renderSection(sectionIndex, renderOptions).catch(() => { });
     }
 
     // 渲染前一章节
     const prevIndex = sectionIndex - 1;
     if (prevIndex >= 0 && !state.renderedSections.has(prevIndex)) {
-      renderSection(prevIndex, renderOptions).catch(() => {});
+      renderSection(prevIndex, renderOptions).catch(() => { });
     }
 
     // 渲染后一章节
     const nextIndex = sectionIndex + 1;
     if (nextIndex < sectionCount && !state.renderedSections.has(nextIndex)) {
-      renderSection(nextIndex, renderOptions).catch(() => {});
+      renderSection(nextIndex, renderOptions).catch(() => { });
     }
   };
 
@@ -652,7 +488,7 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
     // 提取整数页码和章节内偏移
     const intPage = Math.floor(page);
     const offsetRatio = page - intPage;
-    
+
     if (intPage < 1 || intPage > sectionCount) return;
 
     const targetWrapper = state.sectionContainers.get(intPage - 1);
@@ -661,14 +497,14 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
 
       // 使用立即滚动代替平滑滚动，避免中间章节被渲染
       targetWrapper.scrollIntoView({ behavior: 'auto', block: 'start' });
-      
+
       // 应用章节内偏移
       if (offsetRatio > 0 && state.scrollContainer) {
         const sectionHeight = targetWrapper.scrollHeight;
         const offsetPx = sectionHeight * offsetRatio;
         state.scrollContainer.scrollTop += offsetPx;
       }
-      
+
       state.currentPage = intPage;
       state.currentPreciseProgress = page;
 
@@ -700,7 +536,6 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
    * 更新分隔线可见性
    */
   const updateDividerVisibilityFn = (hidden: boolean): void => {
-    logError(`[EpubRenderer] 更新分隔线可见性: hidden=${hidden}, count=${state.dividerElements.length}`).catch(() => {});
     const theme = context.currentTheme || 'light';
     const pageGap = context.currentPageGap ?? 4;
     const bandHeight = pageGap * 2 + 1;
@@ -727,7 +562,6 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
     container: HTMLElement,
     options?: RenderOptions
   ): Promise<void> => {
-    logError('[EpubRenderer] 开始纵向连续渲染模式').catch(() => {});
 
     // 清理之前的资源
     resourceHook.clearBlobUrls();
@@ -761,7 +595,7 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
 
     const theme = options?.theme || context.currentTheme || 'light';
     const pageGap = options?.pageGap ?? context.currentPageGap;
-      
+
     // 同步最新的主题和页间距到上下文，确保后续渲染保持一致
     context.currentTheme = theme;
     context.currentPageGap = pageGap;
@@ -780,12 +614,10 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
       container.appendChild(wrapper);
       state.sectionContainers.set(i, wrapper);
     }
-    
-    logError(`[EpubRenderer] 渲染完成，创建了 ${state.dividerElements.length} 个分隔线`).catch(() => {});
 
     // 初始化时应用当前的 hideDivider 状态
     if (typeof options?.hideDivider === 'boolean') {
-        updateDividerVisibilityFn(options.hideDivider);
+      updateDividerVisibilityFn(options.hideDivider);
     }
 
     // 设置滚动监听，用于更新目录高亮和进度
@@ -827,19 +659,18 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
     // 相邻章节异步渲染，不阻塞首屏显示
     const currentSectionIndex = sectionsToRender[0]; // 当前章节索引
     const neighborSections = sectionsToRender.slice(1); // 相邻章节
-    
+
     // 渲染当前章节
     await renderSection(currentSectionIndex, options);
-    
+
     // 当前章节渲染完成，立即触发首屏回调
     if (context.onFirstScreenReady) {
       context.onFirstScreenReady();
-      logError('[EpubRenderer] 首屏渲染完成，触发回调').catch(() => {});
     }
-    
+
     // 相邻章节异步渲染，不阻塞
     for (const index of neighborSections) {
-      renderSection(index, options).catch(() => {});
+      renderSection(index, options).catch(() => { });
     }
 
     // 滚动到当前章节并恢复精确偏移位置
@@ -873,14 +704,8 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
     (async () => {
       // 等待 DOM 更新完成
       await new Promise(resolve => requestAnimationFrame(resolve));
-      // 确保书籍已加载（懒加载场景）
-      if (!context.book && context.ensureBookLoaded) {
-        await context.ensureBookLoaded();
-      }
       updateScrollProgress();
     })();
-
-    logError('[EpubRenderer] 纵向连续渲染模式初始化完成').catch(() => { });
   };
 
   /**
@@ -890,21 +715,33 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
     if (sectionObserver) {
       try {
         sectionObserver.disconnect();
-      } catch {}
+      } catch { }
       sectionObserver = null;
     }
 
     if (state.scrollRafId !== null) {
       try {
         cancelAnimationFrame(state.scrollRafId);
-      } catch {}
+      } catch { }
       state.scrollRafId = null;
     }
 
-    state.scrollContainer = null;
+    if (state.scrollContainer) {
+      try {
+        if ((state.scrollContainer as any)._verticalScrollHandler) {
+          state.scrollContainer.removeEventListener('scroll', (state.scrollContainer as any)._verticalScrollHandler);
+          delete (state.scrollContainer as any)._verticalScrollHandler;
+        }
+        state.scrollContainer.innerHTML = '';
+        state.scrollContainer.removeAttribute('style'); // 清除样式
+      } catch { }
+      state.scrollContainer = null;
+    }
+
     state.verticalContinuousMode = false;
     state.sectionContainers.clear();
     state.renderedSections.clear();
+    state.renderingInProgress.clear();
     state.dividerElements = [];
   };
 
@@ -920,18 +757,16 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
       throw new Error('缓存服务未初始化');
     }
 
-    logError(`[EPUB预热] 开始预热 ${indices.length} 个章节: ${indices.join(', ')}`).catch(() => {});
-
     // 创建离屏容器（不插入 DOM 树，避免影响页面）
     const offscreenContainer = document.createElement('div');
     offscreenContainer.style.cssText = `
-      position: absolute;
-      left: -10000px;
-      top: -10000px;
-      width: 800px;
-      height: 600px;
-      visibility: hidden;
-      pointer-events: none;
+    position: absolute;
+    left: -10000px;
+    top: -10000px;
+    width: 800px;
+    height: 600px;
+    visibility: hidden;
+    pointer - events: none;
     `;
     document.body.appendChild(offscreenContainer);
 
@@ -949,7 +784,7 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
         // 跳过已缓存的章节
         const cached = sectionCache.getSection(bookId, index);
         if (cached) {
-          logError(`[EPUB预热] 章节 ${index + 1} 已在缓存中，跳过`).catch(() => {});
+          logError(`[EPUB预热] 章节 ${index + 1} 已在缓存中，跳过`).catch(() => { });
           continue;
         }
 
@@ -970,7 +805,7 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
 
         try {
           await renderSection(index, { theme: 'light' });
-          logError(`[EPUB预热] 章节 ${index + 1} 预热完成`).catch(() => {});
+          logError(`[EPUB预热] 章节 ${index + 1} 预热完成`).catch(() => { });
         } catch (e) {
           logError(`[EPUB预热] 章节 ${index + 1} 预热失败`, {
             error: String(e),
@@ -979,11 +814,11 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
             sectionIndex: index,
             phase: 'preload',
             step: 'preloadSectionsOffscreen',
-          }).catch(() => {});
+          }).catch(() => { });
         }
       }
 
-      logError(`[EPUB预热] 预热流程完成`).catch(() => {});
+      logError(`[EPUB预热] 预热流程完成`).catch(() => { });
     } finally {
       // 清理临时容器
       offscreenContainer.remove();

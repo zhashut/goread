@@ -1,6 +1,6 @@
 /**
  * EPUB 渲染器
- * 使用 foliate-js 渲染 EPUB 电子书
+ * 使用后端 Rust 引擎和缓存渲染 EPUB 电子书
  */
 
 import {
@@ -15,7 +15,6 @@ import {
   ReaderTheme,
 } from '../types';
 import { registerRenderer } from '../registry';
-import { logError } from '../../index';
 
 // 导入 hooks
 import {
@@ -42,7 +41,7 @@ import { epubCacheService } from './epubCacheService';
 
 /**
  * EPUB 渲染器实现
- * 使用 foliate-js 的 View Web Component 进行渲染
+ * 基于后端缓存的章节数据进行渲染
  */
 export class EpubRenderer implements IBookRenderer {
   readonly format: BookFormat = 'epub';
@@ -61,7 +60,7 @@ export class EpubRenderer implements IBookRenderer {
   private _currentTheme: ReaderTheme = 'light';
   private _currentPageGap: number = 4;
   private _currentHideDivider: boolean = false;
-  
+
   // 缓存管理器
   private _sectionCache: IEpubSectionCache | null = null;
   private _resourceCache: IEpubResourceCache | null = null;
@@ -92,27 +91,27 @@ export class EpubRenderer implements IBookRenderer {
     // 创建动态上下文对象，使 hooks 可以在运行时访问最新的 book
     const { state: lifeState, ensureBookLoaded } = this._lifecycleHook;
 
-    // 资源 hook - 使用动态 book 访问
+    // 资源 hook
     const resourceContext = {
-      get book() { return lifeState.book; },
-      blobUrls: this._blobUrls, 
+      book: null, // book 属性在 resourceHook 内部通过 ensureBookLoaded 动态获取
+      bookId: lifeState.bookId,
+      blobUrls: this._blobUrls,
     };
-    // Wait, if I create a new Set here every time _initHooks is declared? 
-    // _initHooks is called once per loadDocument. That's fine.
-    
     this._resourceHook = useEpubResource(resourceContext);
 
     // 纵向渲染 hook
     // 清理旧的纵向渲染 hook
     if (this._verticalRenderHook) {
-        this._verticalRenderHook.cleanup();
-        this._verticalRenderHook = null;
+      this._verticalRenderHook.cleanup();
+      this._verticalRenderHook = null;
     }
     const verticalContext = {
-      get book() { return lifeState.book; },
+      book: null,
       get sectionCount() { return lifeState.sectionCount; },
       currentTheme: this._currentTheme,
       currentPageGap: this._currentPageGap,
+      get toc() { return lifeState.toc; },
+      get spine() { return lifeState.spine; },
       onPageChange: (page: number) => {
         // 这里的 _currentPage 仅用于对外暴露 getter，实际状态在 hook 中
         // 但为了兼容旧接口 behavior，我们需要同步 hook 状态吗？
@@ -144,7 +143,7 @@ export class EpubRenderer implements IBookRenderer {
       get bookId() { return lifeState.bookId || undefined; },
       sectionCache: this._sectionCache || undefined,
       resourceCache: this._resourceCache || undefined,
-      // 懒加载回调
+      // 懒加载回调（兼容旧接口，当前实现已不依赖前端解析）
       ensureBookLoaded: () => ensureBookLoaded(),
     };
     this._verticalRenderHook = useVerticalRender(verticalContext);
@@ -155,33 +154,34 @@ export class EpubRenderer implements IBookRenderer {
       this._horizontalRenderHook = null;
     }
 
-    // 横向渲染 hook
+    const self = this;
     const horizontalContext = {
-      get book() { return lifeState.book; },
       get bookId() { return lifeState.bookId; },
       get sectionCount() { return lifeState.sectionCount; },
       get totalPages() { return lifeState.totalPages; },
-      currentTheme: this._currentTheme,
+      get currentTheme() { return self._currentTheme; },
       themeHook: this._themeHook,
       resourceHook: this._resourceHook!,
+      get toc() { return lifeState.toc; },
+      get spine() { return lifeState.spine; },
+      sectionCache: this._sectionCache || undefined,
+      resourceCache: this._resourceCache || undefined,
       onPageChange: (page: number) => {
-         if (this.onPageChange) this.onPageChange(page);
+        if (this.onPageChange) this.onPageChange(page);
       },
       onTocChange: (href: string) => {
         if (this.onTocChange) this.onTocChange(href);
       },
-      ensureBookLoaded: () => ensureBookLoaded(),
-      get bookLoadPromise() { return null; }, // Lifecycle Hook 内部管理 Promise，暂不直接暴露
-      get isReady() { return lifeState.isReady; },
     };
     this._horizontalRenderHook = useHorizontalRender(horizontalContext);
 
-    // 导航 hook - 使用动态 book 访问
+    // 导航 hook
     const navigationContext = {
-      get book() { return lifeState.book; },
       getScrollContainer: () => this._verticalRenderHook?.state.scrollContainer ?? null,
       sectionContainers: this._verticalRenderHook!.state.sectionContainers,
       goToPage: (page: number) => this._verticalRenderHook!.goToPage(page),
+      get toc() { return lifeState.toc; },
+      get sectionCount() { return lifeState.sectionCount; },
     };
     this._navigationHook = useEpubNavigation(navigationContext);
 
@@ -202,13 +202,18 @@ export class EpubRenderer implements IBookRenderer {
 
   /**
    * 加载 EPUB 文档
+   * @param filePath 文件路径
+   * @param options 加载选项（可选，用于大文件导入等场景）
    */
-  async loadDocument(filePath: string): Promise<BookInfo> {
-    const bookInfo = await this._lifecycleHook.loadDocument(filePath, this._expectedReadingMode);
-    
+  async loadDocument(filePath: string, options?: { skipPreloaderCache?: boolean }): Promise<BookInfo> {
+    const bookInfo = await this._lifecycleHook.loadDocument(filePath, {
+      expectedReadingMode: this._expectedReadingMode,
+      skipPreloaderCache: options?.skipPreloaderCache,
+    });
+
     // 初始化 Hooks
     this._initHooks();
-    
+
     return bookInfo;
   }
 
@@ -244,10 +249,10 @@ export class EpubRenderer implements IBookRenderer {
    */
   getPreciseProgress(): number {
     if (this._readingMode === 'vertical' && this._verticalRenderHook) {
-        return this._verticalRenderHook.state.currentPreciseProgress;
+      return this._verticalRenderHook.state.currentPreciseProgress;
     }
     if (this._readingMode === 'horizontal' && this._horizontalRenderHook) {
-        return this._horizontalRenderHook.state.currentPreciseProgress;
+      return this._horizontalRenderHook.state.currentPreciseProgress;
     }
     return 1;
   }
@@ -264,10 +269,12 @@ export class EpubRenderer implements IBookRenderer {
     const theme = options?.theme || this._currentTheme || 'light';
     const hideDividerFromOptions =
       typeof options?.hideDivider === 'boolean' ? options.hideDivider : undefined;
-    
+
     // 在更新状态前检测主题是否变化
     const isThemeChange = options?.theme && options.theme !== this._currentTheme;
-    
+    // 检测阅读模式是否变化
+    const isModeChange = readingMode && readingMode !== this._readingMode;
+
     this._currentTheme = theme as ReaderTheme;
     if (hideDividerFromOptions !== undefined) {
       this._currentHideDivider = hideDividerFromOptions;
@@ -277,23 +284,24 @@ export class EpubRenderer implements IBookRenderer {
 
     if (readingMode === 'vertical') {
       if (!this._verticalRenderHook) {
-         if (!this.isReady) throw new Error('Document not loaded');
-         this._initHooks();
+        if (!this.isReady) throw new Error('Document not loaded');
+        this._initHooks();
       }
 
-      // 非主题变更时仅更新样式
+      // 已渲染且主题/模式未变化时仅更新样式，跳过完整重渲染
       if (
-        this._currentContainer === container && 
+        this._currentContainer === container &&
         this._verticalRenderHook?.state.verticalContinuousMode &&
-        !isThemeChange
+        !isThemeChange &&
+        !isModeChange
       ) {
-         if (options?.pageGap !== undefined) {
-             this.updatePageGap(options.pageGap);
-         }
-         if (hideDividerFromOptions !== undefined) {
-             this._verticalRenderHook?.updateDividerVisibility(this._currentHideDivider);
-         }
-         return;
+        if (options?.pageGap !== undefined) {
+          this.updatePageGap(options.pageGap);
+        }
+        if (hideDividerFromOptions !== undefined) {
+          this._verticalRenderHook?.updateDividerVisibility(this._currentHideDivider);
+        }
+        return;
       }
 
       return this._verticalRenderHook!.renderVerticalContinuous(container, {
@@ -302,41 +310,24 @@ export class EpubRenderer implements IBookRenderer {
         hideDivider: this._currentHideDivider,
       });
     }
-    
+
     // 横向模式
     if (!this._horizontalRenderHook) {
-        if (!this.isReady && !this._lifecycleHook.state.book) {
-             // 确保 hooks 已初始化，防止未就绪时调用报错
-             if (!this.isReady) throw new Error('文档未加载');
-             this._initHooks();
-        }
+      if (!this.isReady && !this._lifecycleHook.state.book) {
+        if (!this.isReady) throw new Error('文档未加载');
+        this._initHooks();
+      }
     }
-    
+
+
+
     return this._horizontalRenderHook!.renderHorizontal(page, container, {
-        ...options,
-        theme,
+      ...options,
+      theme,
     });
   }
 
-  async renderVerticalContinuous(container: HTMLElement, options?: RenderOptions): Promise<void> {
-     if (!this._verticalRenderHook) throw new Error('Vertical render hook not initialized');
-     
-     const theme = options?.theme || this._currentTheme || 'light';
-     this._currentTheme = theme as ReaderTheme;
-     this._currentPageGap = options?.pageGap ?? this._currentPageGap;
-     if (typeof options?.hideDivider === 'boolean') {
-       this._currentHideDivider = options.hideDivider;
-     }
-
-     await this._verticalRenderHook.renderVerticalContinuous(container, {
-       ...options,
-       theme,
-       pageGap: this._currentPageGap,
-       hideDivider: this._currentHideDivider,
-     });
-  }
-
-   /**
+  /**
    * 动态更新分隔线可见性 (纵向模式)
    */
   updateDividerVisibility(hidden: boolean): void {
@@ -356,8 +347,8 @@ export class EpubRenderer implements IBookRenderer {
     }
 
     if (this._readingMode === 'horizontal' && this._horizontalRenderHook) {
-       await this._horizontalRenderHook.goToPage(page);
-       return;
+      await this._horizontalRenderHook.goToPage(page);
+      return;
     }
   }
 
@@ -365,35 +356,71 @@ export class EpubRenderer implements IBookRenderer {
    * 跳转到目录项（href）
    */
   async goToHref(href: string): Promise<void> {
-    // 纵向连续模式下，根据 href 找到对应章节并跳转
     if (this._readingMode === 'vertical' && this._verticalRenderHook?.state.verticalContinuousMode) {
-       const book = this._lifecycleHook.state.book as any; // Cast for sections access
-       if (!book) return;
+      const lifeState = this._lifecycleHook.state;
+      const book: any = lifeState.book as any;
+      const sectionCount = lifeState.sectionCount || 0;
 
-       const normalizeHref = (h: string) => h?.split('#')[0] || '';
-       const hrefBase = normalizeHref(href);
-      
-       const findSectionIndex = (): number => {
-        return book.sections.findIndex((section: any) => {
+      const normalizeHref = (h: string) => h?.split('#')[0] || '';
+      const hrefBase = normalizeHref(href);
+
+      let sectionIndex = -1;
+
+      if (book && Array.isArray(book.sections)) {
+        sectionIndex = book.sections.findIndex((section: any) => {
           const sectionId = normalizeHref(section.id || '');
-          return section.id === href || 
-                 (hrefBase && sectionId === hrefBase) ||
-                 section.id.endsWith(href) ||
-                 (hrefBase && sectionId.endsWith(hrefBase));
+          return (
+            section.id === href ||
+            (hrefBase && sectionId === hrefBase) ||
+            section.id.endsWith(href) ||
+            (hrefBase && sectionId.endsWith(hrefBase))
+          );
         });
-       };
-       const sectionIndex = findSectionIndex();
-       if (sectionIndex >= 0) {
+      }
+
+      if (sectionIndex < 0 && Array.isArray(lifeState.toc) && lifeState.toc.length > 0 && sectionCount > 0) {
+        const flat: TocItem[] = [];
+        const walk = (items: TocItem[]) => {
+          for (const item of items) {
+            flat.push(item);
+            if (item.children && item.children.length > 0) {
+              walk(item.children);
+            }
+          }
+        };
+
+        walk(lifeState.toc);
+
+        const normalizedHref = hrefBase || href;
+
+        sectionIndex = flat.findIndex((item) => {
+          const loc = item.location;
+          if (typeof loc !== 'string' || !loc) return false;
+          const locBase = normalizeHref(loc);
+          return (
+            loc === href ||
+            (normalizedHref && locBase === normalizedHref) ||
+            loc.endsWith(href) ||
+            (normalizedHref && locBase.endsWith(normalizedHref))
+          );
+        });
+
+        if (sectionIndex >= 0 && sectionCount > 0) {
+          if (sectionIndex >= sectionCount) {
+            sectionIndex = sectionCount - 1;
+          }
+        }
+      }
+
+      if (sectionIndex >= 0) {
         await this.goToPage(sectionIndex + 1);
-       } else {
-        logError(`[EpubRenderer] 未找到匹配的章节: ${href}`).catch(() => {});
-       }
-       return;
+        return;
+      }
     }
-    
+
     // Horizontal
     if (this._horizontalRenderHook) {
-        await this._horizontalRenderHook.goToHref(href);
+      await this._horizontalRenderHook.goToHref(href);
     }
   }
 
@@ -406,9 +433,9 @@ export class EpubRenderer implements IBookRenderer {
       await this.goToPage(nextPage);
       return;
     }
-    
+
     if (this._horizontalRenderHook) {
-        await this._horizontalRenderHook.nextPage();
+      await this._horizontalRenderHook.nextPage();
     }
   }
 
@@ -421,9 +448,9 @@ export class EpubRenderer implements IBookRenderer {
       await this.goToPage(prevPage);
       return;
     }
-    
+
     if (this._horizontalRenderHook) {
-        await this._horizontalRenderHook.prevPage();
+      await this._horizontalRenderHook.prevPage();
     }
   }
 
@@ -435,36 +462,23 @@ export class EpubRenderer implements IBookRenderer {
   }
 
   /**
-   * 提取指定章节的文本
+   * 获取页面内容
    */
   async extractText(page: number): Promise<string> {
-    const book = this._lifecycleHook.state.book;
-    if (!book) return '';
-
-    const sectionIndex = page - 1;
-    if (sectionIndex < 0 || sectionIndex >= this._lifecycleHook.state.sectionCount) return '';
-
-    try {
-      const section = book.sections[sectionIndex];
-      if (section?.createDocument) {
-        const doc = await section.createDocument();
-        return doc.body?.textContent || '';
-      }
-    } catch (e) {
-      logError('[EpubRenderer] 提取文本失败', { error: String(e), page }).catch(() => {});
+    const content = await this.getPageContent(page);
+    if (content.type === 'text') {
+      return content.content || '';
     }
-
     return '';
   }
 
   /**
    * 获取页面内容
    */
-  async getPageContent(page: number, _options?: RenderOptions): Promise<PageContent> {
-    const text = await this.extractText(page);
+  async getPageContent(_page: number, _options?: RenderOptions): Promise<PageContent> {
     return {
       type: 'text',
-      content: text,
+      content: '',
     };
   }
 
@@ -472,9 +486,7 @@ export class EpubRenderer implements IBookRenderer {
    * 滚动到锚点（目录项 href）
    */
   scrollToAnchor(anchor: string): void {
-      this.goToHref(anchor).catch((e) => {
-         logError('[EpubRenderer] 滚动到锚点失败', { error: String(e), anchor }).catch(() => {});
-      });
+    this.goToHref(anchor).catch(() => { });
   }
 
   /**
@@ -482,7 +494,7 @@ export class EpubRenderer implements IBookRenderer {
    */
   getScrollContainer(): HTMLElement | null {
     if (this._readingMode === 'vertical') {
-        return this._currentContainer;
+      return this._currentContainer;
     }
     return this._currentContainer;
   }
@@ -505,7 +517,7 @@ export class EpubRenderer implements IBookRenderer {
    * 滚动到指定虚拟页
    */
   scrollToVirtualPage(page: number, _viewportHeight: number): void {
-    this.goToPage(page).catch(() => {});
+    this.goToPage(page).catch(() => { });
   }
 
   /**
@@ -525,9 +537,7 @@ export class EpubRenderer implements IBookRenderer {
       indices.push(i);
     }
 
-    await logError(`[EpubRenderer] 开始预热章节 ${validStart + 1}-${validEnd + 1}`);
     await this._verticalRenderHook.preloadSectionsOffscreen(indices);
-    await logError(`[EpubRenderer] 预热完成`);
   }
 
   /**
@@ -549,7 +559,7 @@ export class EpubRenderer implements IBookRenderer {
     this._navigationHook = null;
     this._verticalRenderHook = null;
     this._horizontalRenderHook = null;
-    
+
     this._currentPageGap = 4;
   }
 
@@ -560,7 +570,7 @@ export class EpubRenderer implements IBookRenderer {
   onFirstScreenReady?: () => void; // EPUB vertical specific
 
   getCurrentTocHref(): string | null {
-      return this._currentTocHref;
+    return this._currentTocHref;
   }
   private _currentTocHref: string | null = null;
 
@@ -573,39 +583,49 @@ export class EpubRenderer implements IBookRenderer {
 
   /**
    * 设置阅读模式
+   * 模式切换时完全重建渲染状态，确保样式正确
    */
   async setReadingMode(mode: 'horizontal' | 'vertical'): Promise<void> {
-    if (this._readingMode === mode) return;
-    
+    if (this._readingMode === mode) {
+      return;
+    }
+
     const preciseProgress = this.getPreciseProgress();
     const currentPage = this.getCurrentPage();
     const savedProgress = preciseProgress > 0 ? preciseProgress : currentPage;
     const savedPage = Math.max(1, Math.floor(savedProgress) || currentPage || 1);
-    
-    const isCurrentlyVertical = this._verticalRenderHook?.state.verticalContinuousMode;
-    
+
+    // 切换模式前，完全重置容器
+    if (this._currentContainer) {
+      // 清空内容
+      this._currentContainer.innerHTML = '';
+      // 重置滚动位置
+      this._currentContainer.scrollTop = 0;
+      // 完全清除行内样式，让新渲染器从零开始设置
+      this._currentContainer.removeAttribute('style');
+    }
+
+    // 使用 _readingMode 判断当前模式
+    const isCurrentlyVertical = this._readingMode === 'vertical';
+
     // 纵向模式转横向模式
     if (isCurrentlyVertical && mode === 'horizontal') {
       this._readingMode = mode;
-      
+
+      // 完全清理纵向渲染 hook
       this._verticalRenderHook?.cleanup();
+      this._verticalRenderHook = null;
 
       if (this._currentContainer) {
         this._currentContainer.innerHTML = '';
       }
-      
-      // 切换模式时清理并重载资源
-      if (this._lifecycleHook.state.filePath && this._lifecycleHook.state.bookId) {
-         // 强制重载
-         await this._lifecycleHook.reloadBook();
-         this._initHooks(); // 重新绑定
-      } else {
-         await this._lifecycleHook.ensureBookLoaded();
-      }
-      
+
+      // 重新初始化 hooks
+      this._initHooks();
+
       if (this._currentContainer) {
         await this.renderPage(savedPage, this._currentContainer, {
-          initialVirtualPage: savedPage,
+          initialVirtualPage: savedProgress,
           readingMode: mode,
           theme: this._currentTheme,
           pageGap: this._currentPageGap,
@@ -613,22 +633,28 @@ export class EpubRenderer implements IBookRenderer {
       }
       return;
     }
-    
+
     // 横向模式转纵向模式
     if (!isCurrentlyVertical && mode === 'vertical') {
       this._readingMode = mode;
-      
-      // 确保书籍加载完成（防止从横向加载中快速切换回纵向导致的未就绪错误）
+
+      // 确保书籍加载完成
       if (!this.isReady) {
-         await this._lifecycleHook.ensureBookLoaded();
+        await this._lifecycleHook.ensureBookLoaded();
       }
-      
-      // 清理横向渲染 hook
+
+      // 完全清理横向渲染 hook
       if (this._horizontalRenderHook) {
         this._horizontalRenderHook.destroy();
         this._horizontalRenderHook = null;
       }
 
+      // 清空容器并重新初始化 hooks
+      if (this._currentContainer) {
+        this._currentContainer.innerHTML = '';
+      }
+      this._initHooks();
+
       if (this._currentContainer) {
         await this.renderPage(savedPage, this._currentContainer, {
           initialVirtualPage: savedProgress,
@@ -639,25 +665,25 @@ export class EpubRenderer implements IBookRenderer {
       }
       return;
     }
-    
+
     // 相同模式切换或更新设置
     this._readingMode = mode;
-    
+
     // 重新渲染
-     if (this._currentContainer) {
-        await this.renderPage(savedPage, this._currentContainer, {
-          initialVirtualPage: savedProgress,
-          readingMode: mode,
-          theme: this._currentTheme,
-          pageGap: this._currentPageGap,
-        });
-      }
+    if (this._currentContainer) {
+      await this.renderPage(savedPage, this._currentContainer, {
+        initialVirtualPage: savedProgress,
+        readingMode: mode,
+        theme: this._currentTheme,
+        pageGap: this._currentPageGap,
+      });
+    }
   }
 
   scrollBy(deltaY: number): void {
     if (this._readingMode === 'vertical' && this._currentContainer) {
-       this._currentContainer.scrollBy({ top: deltaY, behavior: 'smooth' });
-       return;
+      this._currentContainer.scrollBy({ top: deltaY, behavior: 'smooth' });
+      return;
     }
     this._horizontalRenderHook?.scrollBy(deltaY);
   }

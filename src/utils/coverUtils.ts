@@ -259,25 +259,10 @@ async function renderPdfCover(filePath: string): Promise<string | null> {
 async function renderEpubCover(filePath: string): Promise<string | null> {
   try {
     const { EpubRenderer } = await import('../services/formats/epub/EpubRenderer');
-    const { useEpubLoader } = await import('../services/formats/epub/hooks/useEpubLoader');
     const renderer = new EpubRenderer();
     const bookInfo: any = await renderer.loadDocument(filePath);
 
-    let coverImage: string | undefined = bookInfo?.coverImage;
-
-    // 命中元数据缓存时，coverImage 可能为空，需要等待书籍加载完成后获取
-    if (!coverImage || typeof coverImage !== 'string') {
-      const lifecycleHook = (renderer as any)._lifecycleHook;
-      
-      if (lifecycleHook?.ensureBookLoaded) {
-        await lifecycleHook.ensureBookLoaded();
-      }
-      
-      if (lifecycleHook?.state?.book) {
-        const loaderHook = useEpubLoader();
-        coverImage = await loaderHook.getCoverImage(lifecycleHook.state.book);
-      }
-    }
+    const coverImage: string | undefined = bookInfo?.coverImage;
 
     await renderer.close().catch(() => {});
 

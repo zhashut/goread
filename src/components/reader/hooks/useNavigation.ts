@@ -158,8 +158,28 @@ export const useNavigation = ({
         ]
     );
 
-    const nextPage = useCallback(() => goToPage(currentPage + 1), [goToPage, currentPage]);
-    const prevPage = useCallback(() => goToPage(currentPage - 1), [goToPage, currentPage]);
+    const nextPage = useCallback(() => {
+        // EPUB 横向模式下，始终按章节整数跳转
+        const renderer = rendererRef.current;
+        if (readingMode === "horizontal" && renderer && renderer instanceof EpubRenderer) {
+            const next = Math.floor(currentPage) + 1;
+            goToPage(next);
+            return;
+        }
+        goToPage(currentPage + 1);
+    }, [goToPage, currentPage, readingMode, rendererRef]);
+
+    const prevPage = useCallback(() => {
+        // EPUB 横向模式下，始终按章节整数跳转
+        const renderer = rendererRef.current;
+        if (readingMode === "horizontal" && renderer && renderer instanceof EpubRenderer) {
+            // 确保跳转到上一章的开头
+            const prev = Math.floor(currentPage) - 1;
+            goToPage(prev);
+            return;
+        }
+        goToPage(currentPage - 1);
+    }, [goToPage, currentPage, readingMode, rendererRef]);
 
     const toggleFinish = useCallback(async () => {
         if (isExternal || !book) return;

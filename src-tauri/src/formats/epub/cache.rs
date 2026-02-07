@@ -123,6 +123,7 @@ pub struct MetadataCacheEntry {
     pub book_info: BookInfo,
     pub toc: Vec<TocItem>,
     pub section_count: u32,
+    pub spine: Vec<String>,
     pub last_access_time: u64,
 }
 
@@ -528,6 +529,7 @@ impl EpubCacheManager {
         book_info: BookInfo,
         toc: Vec<TocItem>,
         section_count: u32,
+        spine: Vec<String>,
     ) -> Result<(), String> {
         let book_hash = compute_book_hash(book_id);
         let cache_dir = epub_metadata_cache_dir();
@@ -542,6 +544,7 @@ impl EpubCacheManager {
             book_info,
             toc,
             section_count,
+            spine,
             last_access_time: Self::now_millis(),
         };
 

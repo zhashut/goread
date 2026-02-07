@@ -4,7 +4,6 @@
  * 利用页面切换动画的时间完成 ZIP 解析，减少横向模式的等待时间
  */
 
-import { useEpubLoader, type EpubBook } from './hooks';
 import { logError, getInvoke } from '../../index';
 import { generateQuickBookId } from './cache';
 import { evictOldestEntry } from '../../../utils/lruCacheUtils';
@@ -13,7 +12,7 @@ import { evictOldestEntry } from '../../../utils/lruCacheUtils';
 interface PreloadCacheEntry {
   bookId: string;
   filePath: string;
-  promise: Promise<EpubBook>;
+  promise: Promise<number>;
   createdAt: number;
   lastAccessTime: number;
   estimatedSizeMB: number;
@@ -26,9 +25,6 @@ interface PreloadCacheEntry {
 class EpubPreloader {
   /** 预加载缓存（bookId -> entry） */
   private _cache = new Map<string, PreloadCacheEntry>();
-  
-  /** loader hook 实例 */
-  private _loaderHook = useEpubLoader();
 
   /** 空闲过期时间（秒），0 表示不过期 */
   private _timeToIdleSecs = 0;
@@ -69,8 +65,8 @@ class EpubPreloader {
   /**
    * 估算预加载书籍的内存占用（MB）
    */
-  private _estimateSizeMB(book: EpubBook): number {
-    const sections = Array.isArray(book.sections) ? book.sections.length : 1;
+  private _estimateSizeMB(sectionCount: number): number {
+    const sections = sectionCount > 0 ? sectionCount : 1;
     const base = 4;
     const perSection = 0.04;
     return base + sections * perSection;
@@ -158,10 +154,10 @@ class EpubPreloader {
 
     // 立即开始加载，不等待结果
     const createdAt = Date.now();
-    const loadPromise = this._loadBook(filePath).then((book) => {
+    const loadPromise = this._preloadBook(filePath, bookId).then((sectionCount) => {
       const entry = this._cache.get(bookId);
       if (entry) {
-        const estimatedSizeMB = this._estimateSizeMB(book);
+        const estimatedSizeMB = this._estimateSizeMB(sectionCount);
         this._currentMemoryMB -= entry.estimatedSizeMB;
         if (this._currentMemoryMB < 0) {
           this._currentMemoryMB = 0;
@@ -169,7 +165,7 @@ class EpubPreloader {
         entry.estimatedSizeMB = estimatedSizeMB;
         this._currentMemoryMB += estimatedSizeMB;
       }
-      return book;
+      return sectionCount;
     });
 
     const entry: PreloadCacheEntry = {
@@ -198,37 +194,6 @@ class EpubPreloader {
     });
 
     logError(`[EpubPreloader] 开始预加载: ${filePath}`).catch(() => {});
-  }
-
-  /**
-   * 获取预加载的书籍（如果有）
-   * @param filePath - EPUB 文件路径
-   * @returns 预加载的书籍对象，或 null
-   */
-  async get(filePath: string): Promise<EpubBook | null> {
-    const bookId = generateQuickBookId(filePath);
-    const entry = this._cache.get(bookId);
-    if (!entry) {
-      return null;
-    }
-
-    try {
-      const book = await entry.promise;
-      entry.lastAccessTime = Date.now();
-      this._cache.delete(bookId);
-      this._cache.set(bookId, entry);
-
-      logError(`[EpubPreloader] 命中预加载缓存: ${filePath}`).catch(() => {});
-      return book;
-    } catch (e) {
-      // 加载失败，清理缓存
-      const stored = this._cache.get(bookId);
-      if (stored) {
-        this._cache.delete(bookId);
-      }
-      logError(`[EpubPreloader] 预加载失败: ${e}`).catch(() => {});
-      return null;
-    }
   }
 
   /**
@@ -279,25 +244,32 @@ class EpubPreloader {
   }
 
   /**
-   * 内部加载方法
+   * 内部预加载方法：调用后端 epub_prepare_book 预热缓存
    */
-  private async _loadBook(filePath: string): Promise<EpubBook> {
-    // 通过 Tauri 读取文件
+  private async _preloadBook(filePath: string, bookId: string): Promise<number> {
     const invoke = await getInvoke();
-    const bytes = await invoke('read_file_bytes', { path: filePath });
-    const arrayBuffer = new Uint8Array(bytes).buffer;
+    try {
+      const result = await invoke<{
+        book_info: {
+          page_count: number;
+        };
+        toc: any[];
+        section_count: number;
+      }>('epub_prepare_book', {
+        filePath,
+        bookId,
+      });
 
-    // 创建 File 对象
-    const fileName = this._loaderHook.extractFileName(filePath);
-    const file = new File([arrayBuffer], fileName + '.epub', {
-      type: 'application/epub+zip',
-    });
-
-    // 解析 EPUB
-    const book = await this._loaderHook.createBookFromFile(file);
-    
-    logError(`[EpubPreloader] 预加载完成: ${filePath}`).catch(() => {});
-    return book;
+      const sectionCount = Number(result?.section_count ?? result?.book_info?.page_count ?? 0);
+      logError(`[EpubPreloader] epub_prepare_book 预加载完成: ${filePath}`).catch(() => {});
+      return sectionCount;
+    } catch (e) {
+      logError(`[EpubPreloader] epub_prepare_book 预加载失败`, {
+        error: String(e),
+        filePath,
+      }).catch(() => {});
+      throw e;
+    }
   }
 }
 

@@ -3,11 +3,8 @@
  * 提供 EPUB 渲染器所需的各个功能模块
  */
 
-// 书籍加载 Hook
-export { useEpubLoader, type EpubBook, type EpubTocItem, type EpubLoaderHook } from './useEpubLoader';
-
 // 主题样式 Hook
-export { useEpubTheme, type FoliateView, type ThemeColors, type EpubThemeHook } from './useEpubTheme';
+export { useEpubTheme, type ThemeColors, type EpubThemeHook } from './useEpubTheme';
 
 // 资源加载 Hook
 export {

@@ -81,6 +81,9 @@ use commands::{
     update_book_hide_divider,
     update_books_last_read_time,
     update_group,
+    read_file_base64,
+    read_file_chunked,
+    get_file_stats
 };
 use epub_commands::*;
 use html_commands::*;
@@ -216,6 +219,9 @@ pub fn run() {
             batch_import_books,
             batch_get_pdf_info,
             frontend_log,
+            read_file_base64,
+            read_file_chunked,
+            get_file_stats,
             // PDF相关命令
             pdf_load_document,
             pdf_render_page,
@@ -296,7 +302,9 @@ pub fn run() {
             mobi_cleanup_expired,
             mobi_get_cache_stats,
             mobi_save_metadata,
-            mobi_load_metadata
+            mobi_load_metadata,
+            epub_inspect,
+            epub_prepare_book
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

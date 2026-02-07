@@ -41,6 +41,7 @@ export const useBookLoader = (
         bookId?: string;
         isExternal: boolean;
         externalFile?: ExternalFileEventDetail;
+        readingMode?: string;
     },
     readerState: ReaderState,
     refs: {
@@ -72,13 +73,28 @@ export const useBookLoader = (
 
     // 用于追踪当前已成功加载的书籍标识和 renderer 引用
     // 这个 ref 不会被 cleanup 清除，只在书籍标识变化时更新
-    const loadedStateRef = useRef<{key: string | undefined, renderer: IBookRenderer | null}>({key: undefined, renderer: null});
+    const loadedStateRef = useRef<{ key: string | undefined, renderer: IBookRenderer | null }>({ key: undefined, renderer: null });
+    const prevReadingModeRef = useRef<string | undefined>(params.readingMode);
 
     useEffect(() => {
         const currentKey = params.isExternal
             ? externalKey || undefined
             : params.bookId;
-        
+
+        // 检查模式变化 (仅针对 EPUB): 如果模式改变，强制不复用旧 renderer，从而触发重载
+        if (
+            loadedStateRef.current.key === currentKey &&
+            loadedStateRef.current.renderer instanceof EpubRenderer &&
+            prevReadingModeRef.current !== params.readingMode &&
+            prevReadingModeRef.current !== undefined
+        ) {
+            // 模式变化，标记为需要重新加载
+            loadedStateRef.current = { key: undefined, renderer: null };
+            // 注意：旧 renderer 会在下面的逻辑中被 rendererRef 替换或在 close() 中被清理（如果它是当前的）
+            // 但 loadedStateRef 中的引用被丢弃了，所以 createRenderer 会被再次调用
+        }
+        prevReadingModeRef.current = params.readingMode;
+
         // 如果书籍标识未变化且之前已成功加载 renderer，复用它
         if (loadedStateRef.current.key === currentKey && loadedStateRef.current.renderer) {
             // 恢复 rendererRef 引用（可能被 cleanup 清除了）
@@ -86,21 +102,21 @@ export const useBookLoader = (
             setLoading(false);
             return;
         }
-        
+
         // 如果书籍标识未变化但 renderer 正在加载中（key 已设置但 renderer 为 null），跳过
         if (loadedStateRef.current.key === currentKey && loadedStateRef.current.renderer === null) {
             return;
         }
-        
+
         // 仅在书籍标识变化时关闭旧 renderer
         if (loadedStateRef.current.key !== currentKey && loadedStateRef.current.renderer) {
             loadedStateRef.current.renderer.close();
         }
-        
+
         // 同步设置 key，标记"正在加载"状态（renderer 为 null）
         // 这样 React Strict Mode 第二次运行时会进入上面的"跳过"分支
-        loadedStateRef.current = {key: currentKey, renderer: null};
-        
+        loadedStateRef.current = { key: currentKey, renderer: null };
+
         bookIdRef.current = currentKey;
         modeVersionRef.current += 1;
 
@@ -152,7 +168,7 @@ export const useBookLoader = (
                         // 后端 mark_book_opened 会自动更新 last_read_time 和 recent_order
                         // 同时检查封面文件是否存在，返回是否需要重建
                         const needsRebuild = await bookService.markBookOpened(targetBook.id);
-                        
+
                         // 如果需要重建封面，异步触发重建（不阻塞阅读）
                         if (needsRebuild) {
                             rebuildSingleBookCover(targetBook).catch((e) => {
@@ -174,7 +190,7 @@ export const useBookLoader = (
                 const renderer = createRenderer(targetBook.file_path);
                 rendererRef.current = renderer;
                 // 保存到 loadedStateRef，用于后续复用
-                loadedStateRef.current = {key: currentKey, renderer};
+                loadedStateRef.current = { key: currentKey, renderer };
 
                 const useDom =
                     renderer.capabilities.supportsDomRender &&
@@ -252,7 +268,7 @@ export const useBookLoader = (
                 const renderer = createRenderer(filePath);
                 rendererRef.current = renderer;
                 // 保存到 loadedStateRef，用于后续复用
-                loadedStateRef.current = {key: currentKey, renderer};
+                loadedStateRef.current = { key: currentKey, renderer };
 
                 const useDom =
                     renderer.capabilities.supportsDomRender &&
@@ -311,5 +327,5 @@ export const useBookLoader = (
             // 注意：不重置 cleanupActions.resetCache()，因为 renderer 仍然有效
             // cleanupActions.resetCache();
         };
-    }, [params.bookId, params.isExternal, externalKey]);
+    }, [params.bookId, params.isExternal, externalKey, params.readingMode]);
 };

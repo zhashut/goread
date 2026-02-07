@@ -15,7 +15,7 @@ export interface EpubSectionCacheMeta {
   createdAt: number;
   /** 最近访问时间戳（ms），用于 LRU 和空闲过期 */
   lastAccessTime: number;
-  /** foliate section.id，用于 TOC/CFI 映射 */
+  /** 章节唯一标识，用于 TOC/CFI 映射 */
   sectionId: string | null;
 }
 

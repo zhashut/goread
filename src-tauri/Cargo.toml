@@ -40,6 +40,7 @@ futures = "0.3"
 sha2 = "0.10"
 pdfium-render = "0.8.36"
 moka = { version = "0.12", features = ["future"] }
+epub = "2"
 
 # Markdown/TXT encoding detection
 chardetng = "0.1"

@@ -160,7 +160,7 @@ export const Reader: React.FC = () => {
 
   // 书籍加载器
   useBookLoader(
-    { bookId, isExternal, externalFile },
+    { bookId, isExternal, externalFile, readingMode },
     readerState,
     { rendererRef, modeVersionRef, epubRenderedRef },
     tocData,
@@ -416,7 +416,7 @@ export const Reader: React.FC = () => {
                         height: "100%",
                       }
                 ),
-                overflowY: isEpubDom ? "hidden" : "auto",
+                overflowY: isEpubDom && readingMode === "horizontal" ? "hidden" : "auto",
                 backgroundColor: isEpubDom
                   ? effectiveTheme === "dark"
                     ? "#000000"
