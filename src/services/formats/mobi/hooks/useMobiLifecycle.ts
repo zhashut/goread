@@ -2,10 +2,11 @@
  * Mobi 生命周期 Hook
  * 负责文档加载、解析、TOC 构建、销毁
  */
-import { getInvoke, log, logError } from '../../../index';
+import { log, logError } from '../../../index';
 import { BookInfo, TocItem } from '../../types';
 import { MobiBook, MobiTocItem } from '../types';
 import { generateQuickBookId } from '../../../../utils/bookId';
+import { readFileChunked } from '../../../../utils/chunkedFileReader';
 import { mobiCacheService } from '../mobiCacheService';
 import { mobiPreloader } from '../mobiPreloader';
 
@@ -19,9 +20,15 @@ export interface MobiLifecycleState {
     filePath: string | null;
 }
 
+/** 加载文档选项 */
+export interface MobiLoadDocumentOptions {
+    /** 是否跳过 preloader 缓存存储（大文件导入时使用，避免内存累积） */
+    skipPreloaderCache?: boolean;
+}
+
 export interface MobiLifecycleHook {
     state: MobiLifecycleState;
-    loadDocument: (filePath: string) => Promise<BookInfo>;
+    loadDocument: (filePath: string, options?: MobiLoadDocumentOptions) => Promise<BookInfo>;
     ensureBookLoaded: () => Promise<void>;
     reset: () => Promise<void>;
 }
@@ -38,6 +45,8 @@ export function useMobiLifecycle(): MobiLifecycleHook {
     };
 
     let _loadPromise: Promise<void> | null = null;
+    // 是否跳过预加载缓存（用于大文件导入场景）
+    let _skipPreloaderCache = false;
 
     /**
      * 从文件路径提取文件名
@@ -180,14 +189,16 @@ export function useMobiLifecycle(): MobiLifecycleHook {
     };
 
     /**
-     * 内部加载逻辑
+     * 内部加载逻辑（使用分块读取避免大文件 OOM）
      */
     const _loadBook = async (filePath: string, existingBookId?: string): Promise<BookInfo> => {
-       try {
-            // 通过 Tauri 读取文件内容
-            const invoke = await getInvoke();
-            const bytes = await invoke('read_file_bytes', { path: filePath }) as number[];
-            const arrayBuffer = new Uint8Array(bytes).buffer;
+        const startTime = Date.now();
+        try {
+            // 使用分块读取大文件
+            const { arrayBuffer } = await readFileChunked({
+                filePath,
+                logPrefix: '[MobiLifecycle]',
+            });
 
             // 动态导入 foiliate-js 的 mobi 模块
             // @ts-ignore - foliate-js
@@ -281,6 +292,16 @@ export function useMobiLifecycle(): MobiLifecycleHook {
                 bookId
             }).catch(() => {});
 
+            logError(`[MobiLifecycle] 书籍加载完成，总耗时: ${Date.now() - startTime}ms，章节数: ${sectionCount}`).catch(() => { });
+
+            // 将已加载的书籍存入全局缓存，避免下次进入时重复加载
+            // 大文件导入场景跳过缓存存储，避免内存累积导致 OOM
+            if (!_skipPreloaderCache) {
+                mobiPreloader.set(filePath, state.book);
+            } else {
+                logError(`[MobiLifecycle] 跳过预加载缓存存储（大文件导入模式）`).catch(() => { });
+            }
+
             return bookInfo;
         } catch (error) {
              await logError(`[MobiRenderer] 加载失败`, {
@@ -294,8 +315,13 @@ export function useMobiLifecycle(): MobiLifecycleHook {
 
     /**
      * 加载 MOBI 文档
+     * @param filePath 文件路径
+     * @param options 加载选项
      */
-    const loadDocument = async (filePath: string): Promise<BookInfo> => {
+    const loadDocument = async (filePath: string, options?: MobiLoadDocumentOptions): Promise<BookInfo> => {
+        // 设置是否跳过缓存存储
+        _skipPreloaderCache = options?.skipPreloaderCache || false;
+        
         // 1. 生成 Quick ID
         const bookId = generateQuickBookId(filePath);
         state.bookId = bookId;

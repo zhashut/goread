@@ -104,9 +104,13 @@ export class MobiRenderer implements IBookRenderer {
 
   /**
    * 加载 MOBI 文档
+   * @param filePath 文件路径
+   * @param options 加载选项（可选，用于大文件导入等场景）
    */
-  async loadDocument(filePath: string): Promise<BookInfo> {
-    const info = await this._lifecycleHook.loadDocument(filePath);
+  async loadDocument(filePath: string, options?: { skipPreloaderCache?: boolean }): Promise<BookInfo> {
+    const info = await this._lifecycleHook.loadDocument(filePath, {
+      skipPreloaderCache: options?.skipPreloaderCache,
+    });
     this._initHooks();
     return info;
   }

@@ -291,23 +291,23 @@ class MobiCacheService {
    */
   async saveMetadata(bookId: string, entry: Omit<MobiMetadataCacheEntry, 'bookId' | 'lastAccessTime'>): Promise<void> {
     try {
-      // 处理 author 字段
-      let authorStr: string | null = null;
-      const rawAuthor = entry.bookInfo.author;
-      if (rawAuthor) {
-          authorStr = rawAuthor;
-      }
+      // 辅助函数：确保字段为字符串（处理数组和非字符串类型）
+      const ensureString = (val: unknown): string | null => {
+        if (val === null || val === undefined) return null;
+        if (Array.isArray(val)) return val.join(', ');
+        return String(val);
+      };
 
-      // 转换为后端期望的数据结构
+      // 转换为后端期望的数据结构（所有字段确保为字符串）
       const bookInfo = {
-        title: entry.bookInfo.title ?? null,
-        author: authorStr,
-        description: entry.bookInfo.description ?? null,
-        publisher: entry.bookInfo.publisher ?? null,
-        language: entry.bookInfo.language ?? null,
-        page_count: entry.bookInfo.pageCount,
+        title: ensureString(entry.bookInfo.title),
+        author: ensureString(entry.bookInfo.author),
+        description: ensureString(entry.bookInfo.description),
+        publisher: ensureString(entry.bookInfo.publisher),
+        language: ensureString(entry.bookInfo.language),
+        page_count: entry.bookInfo.pageCount ?? 1,
         format: entry.bookInfo.format ?? 'mobi',
-        cover_image: entry.bookInfo.coverImage ?? null,
+        cover_image: ensureString(entry.bookInfo.coverImage),
       };
 
       // 转换目录项为后端格式

@@ -4,9 +4,10 @@
  * 利用页面切换动画的时间完成 MOBI 解析，减少等待时间
  */
 
-import { logError, getInvoke } from '../../index';
+import { logError } from '../../index';
 import { generateQuickBookId } from '../../../utils/bookId';
 import { evictOldestEntry } from '../../../utils/lruCacheUtils';
+import { readFileChunked } from '../../../utils/chunkedFileReader';
 import { MobiBook } from './types';
 
 /** 预加载缓存条目 */
@@ -229,6 +230,38 @@ class MobiPreloader {
   }
 
   /**
+   * 将已加载的书籍存入缓存
+   * 用于懒加载完成后避免下次重复加载
+   */
+  set(filePath: string, book: MobiBook): void {
+    const bookId = generateQuickBookId(filePath);
+
+    // 如果已存在，跳过
+    if (this._cache.has(bookId)) {
+      return;
+    }
+
+    this._cleanup();
+
+    const now = Date.now();
+    const estimatedSizeMB = this._estimateSizeMB(book);
+
+    const entry: PreloadCacheEntry = {
+      bookId,
+      filePath,
+      promise: Promise.resolve(book),
+      createdAt: now,
+      lastAccessTime: now,
+      estimatedSizeMB,
+    };
+
+    this._currentMemoryMB += estimatedSizeMB;
+    this._cache.set(bookId, entry);
+
+    logError(`[MobiPreloader] 缓存已加载书籍: ${filePath} (${estimatedSizeMB.toFixed(1)}MB)`).catch(() => { });
+  }
+
+  /**
    * 检查是否有预加载缓存（不等待）
    * @param filePath - MOBI 文件路径
    */
@@ -285,13 +318,14 @@ class MobiPreloader {
   }
 
   /**
-   * 内部加载方法
+   * 内部加载方法（使用分块读取避免大文件 OOM）
    */
   private async _loadBook(filePath: string): Promise<MobiBook> {
-    // 通过 Tauri 读取文件
-    const invoke = await getInvoke();
-    const bytes = await invoke('read_file_bytes', { path: filePath }) as number[];
-    const arrayBuffer = new Uint8Array(bytes).buffer;
+    // 使用分块读取大文件
+    const { arrayBuffer } = await readFileChunked({
+      filePath,
+      logPrefix: '[MobiPreloader]',
+    });
 
     // 动态导入 foliate-js 的 mobi 模块
     // @ts-ignore - foliate-js
