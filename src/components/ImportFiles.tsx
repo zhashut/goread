@@ -533,7 +533,7 @@ export const ImportFiles: React.FC = () => {
   }, [searchParams, browseDirStack, browseStack]);
 
   const Header: React.FC = () => {
-    const browseCandidates = currentBrowse
+    const browseCandidates = filteredBrowse
       .filter(
         (it) =>
           it.type === "file" &&
