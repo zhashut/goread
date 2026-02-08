@@ -7,9 +7,24 @@ use futures::future::join_all;
 
 #[tauri::command]
 pub async fn add_group(name: String, db: DbState<'_>) -> Result<Group, Error> {
+    let trimmed = name.trim().to_string();
+    if trimmed.is_empty() {
+        return Err(Error::from("分组名称不能为空".to_string()));
+    }
+
     let pool = db.lock().await;
 
-    // 获取当前最大 sort_order
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM groups WHERE name = ? AND book_count > 0",
+    )
+    .bind(&trimmed)
+    .fetch_one(&*pool)
+    .await?;
+
+    if count > 0 {
+        return Err(Error::from("分组名称已存在".to_string()));
+    }
+
     let max_order: Option<i64> =
         sqlx::query_scalar("SELECT MAX(sort_order) FROM groups WHERE book_count > 0")
             .fetch_one(&*pool)
@@ -17,7 +32,7 @@ pub async fn add_group(name: String, db: DbState<'_>) -> Result<Group, Error> {
     let next_order = max_order.unwrap_or(0) + 1;
 
     let result = sqlx::query("INSERT INTO groups (name, sort_order) VALUES (?, ?)")
-        .bind(&name)
+        .bind(&trimmed)
         .bind(next_order)
         .execute(&*pool)
         .await?;
@@ -53,18 +68,22 @@ pub async fn update_group(group_id: i64, name: String, db: DbState<'_>) -> Resul
 
     let pool = db.lock().await;
 
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM groups WHERE name = ? AND id != ?")
-        .bind(&name)
-        .bind(group_id)
-        .fetch_one(&*pool)
-        .await?;
+    let trimmed = name.trim().to_string();
+
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM groups WHERE name = ? AND id != ? AND book_count > 0",
+    )
+    .bind(&trimmed)
+    .bind(group_id)
+    .fetch_one(&*pool)
+    .await?;
 
     if count > 0 {
         return Err(Error::from("分组名称已存在".to_string()));
     }
 
     sqlx::query("UPDATE groups SET name = ? WHERE id = ?")
-        .bind(&name)
+        .bind(&trimmed)
         .bind(group_id)
         .execute(&*pool)
         .await?;

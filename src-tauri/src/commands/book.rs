@@ -208,7 +208,6 @@ pub async fn init_database(db: DbState<'_>) -> Result<(), Error> {
         .await?;
     }
 
-    // Indexes
     sqlx::query("CREATE INDEX IF NOT EXISTS idx_books_last_read_time ON books(last_read_time)")
         .execute(&*pool)
         .await?;
@@ -241,7 +240,13 @@ pub async fn init_database(db: DbState<'_>) -> Result<(), Error> {
     )
     .execute(&*pool)
     .await?;
-    // Create default group
+
+    sqlx::query(
+        "UPDATE groups SET book_count = (SELECT COUNT(*) FROM books WHERE group_id = groups.id)",
+    )
+    .execute(&*pool)
+    .await?;
+
     sqlx::query("INSERT OR IGNORE INTO groups (id, name, book_count) VALUES (1, '默认分组', 0)")
         .execute(&*pool)
         .await?;
