@@ -257,6 +257,7 @@ pub struct BookError {
 pub enum BookErrorCode {
     FileNotFound,
     InvalidFormat,
+    InvalidParameter,
     ParseError,
     RenderError,
     PageNotFound,

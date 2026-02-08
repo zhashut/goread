@@ -17,7 +17,8 @@ export interface TxtRendererCore {
     content: string,
     toc: TocItem[],
     container: HTMLElement,
-    options?: RenderOptions
+    options?: RenderOptions,
+    config?: { updateTocPageNumbers?: boolean }
   ): Promise<{ pages: PageRange[]; toc: TocItem[] }>;
   renderContent(
     container: HTMLElement,
@@ -86,17 +87,9 @@ function createParagraphElement(
 }
 
 /**
- * 计算字符串的 UTF-8 字节长度
- * 与后端 Rust 的 String::len() 保持一致
- */
-function getByteLength(str: string): number {
-  return new TextEncoder().encode(str).length;
-}
-
-/**
  * 将内容按行分割，每行作为独立段落
  * 统一处理方式，避免空行检测的复杂逻辑
- * 注意：偏移量使用字节长度，与后端 Rust 计算方式保持一致
+ * 注意：偏移量使用 JS 字符索引（string.slice 的参数语义）
  */
 function splitContentIntoLines(content: string): ParagraphInfo[] {
   const lines: ParagraphInfo[] = [];
@@ -105,22 +98,21 @@ function splitContentIntoLines(content: string): ParagraphInfo[] {
 
   for (let i = 0; i < rawLines.length; i++) {
     const line = rawLines[i];
-    // 使用字节长度，与后端 Rust 的 String::len() 一致
-    const lineByteLength = getByteLength(line);
-    // 换行符占 1 字节（最后一行没有换行符）
+    const lineLength = line.length;
+    // 换行符占 1 个字符（最后一行没有换行符）
     const separatorLength = i < rawLines.length - 1 ? 1 : 0;
 
-    // 只保留有内容的行，但偏移量始终累加（与后端保持一致）
+    // 只保留有内容的行，但偏移量始终累加
     if (line.trim().length > 0) {
       lines.push({
         text: line,
         startOffset: currentOffset,
-        endOffset: currentOffset + lineByteLength,
+        endOffset: currentOffset + lineLength,
       });
     }
 
-    // 无论是否为空行，偏移量都要累加（使用字节长度）
-    currentOffset += lineByteLength + separatorLength;
+    // 无论是否为空行，偏移量都要累加
+    currentOffset += lineLength + separatorLength;
   }
 
   return lines;
@@ -204,7 +196,8 @@ export function useTxtRendererCore(): TxtRendererCore {
     content: string,
     toc: TocItem[],
     container: HTMLElement,
-    options?: RenderOptions
+    options?: RenderOptions,
+    config?: { updateTocPageNumbers?: boolean }
   ): Promise<{ pages: PageRange[]; toc: TocItem[] }> => {
     const fontSize = options?.fontSize || 16;
     const lineHeight = options?.lineHeight || 1.8;
@@ -283,6 +276,9 @@ export function useTxtRendererCore(): TxtRendererCore {
       });
 
       // 更新目录页码
+      if (config?.updateTocPageNumbers === false) {
+        return { pages, toc };
+      }
       const updatedToc = updateTocPageNumbers(toc, pages);
       return { pages, toc: updatedToc };
     } finally {

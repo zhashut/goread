@@ -116,7 +116,7 @@ export const Reader: React.FC = () => {
     setBook,
   });
 
-  const { isEpubDom, isMobi, isMarkdown, isHtml } =
+  const { isEpubDom, isMobi, isMarkdown, isHtml, isTxt } =
     useBookFormatHelper(book, isExternal, externalPath || undefined);
 
   const { markReadingActive } = useReadingSession(book, isExternal);
@@ -650,7 +650,7 @@ export const Reader: React.FC = () => {
       <ModeOverlay
         visible={modeOverlayOpen}
         readingMode={readingMode}
-        horizontalDisabled={isMobi || isMarkdown || isHtml}
+        horizontalDisabled={isMobi || isMarkdown || isHtml || isTxt}
         onClose={() => {
           setModeOverlayOpen(false);
           setUiVisible(false);

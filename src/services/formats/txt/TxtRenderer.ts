@@ -1,6 +1,9 @@
 /**
  * TXT 渲染器
  * 实现纯文本文件的阅读渲染与虚拟分页
+ * 支持两种模式：
+ * 1. 全量模式（默认）：一次加载全文内容
+ * 2. 章节模式：按章节懒加载，配合预加载实现流畅阅读
  */
 
 import {
@@ -13,32 +16,27 @@ import {
   RendererCapabilities,
 } from '../types';
 import { registerRenderer } from '../registry';
-import { logError, getInvoke } from '../../index';
+import { logError } from '../../index';
 import {
   useTxtRendererCore,
+  useTxtDocumentLoader,
+  useTxtProgressController,
   type PageRange,
   type TxtRendererCore,
+  type TxtChapterCacheHook,
+  type TxtDocumentLoader,
+  type TxtProgressController,
 } from './hooks';
+import { TxtBookMeta } from './txtCacheService';
 
-/** 后端目录项格式 */
-interface BackendTocItem {
-  title: string;
-  location: number;
-  level: number;
-  children: BackendTocItem[];
-}
-
-/** 后端加载结果 */
-interface TxtLoadResult {
-  content: string;
-  encoding: string;
-  title: string | null;
-  toc: BackendTocItem[];
-  metadata: {
-    title: string | null;
-    page_count: number;
-    format: string | null;
-  };
+/** 渲染器加载选项 */
+export interface TxtLoadOptions {
+  /** 使用章节加载模式（默认 false） */
+  useChapterMode?: boolean;
+  /** 跳过预加载缓存检查 */
+  skipPreloaderCache?: boolean;
+  /** 初始进度（0-1） */
+  startProgress?: number;
 }
 
 /**
@@ -66,14 +64,97 @@ export class TxtRenderer implements IBookRenderer {
   private _isVerticalMode: boolean = false;
   private _scrollHeight: number = 0;
   private _core: TxtRendererCore;
+  private _loader: TxtDocumentLoader;
+  private _progress: TxtProgressController;
   // 精确进度（浮点数），用于撤回跳转等场景的精确定位
   private _currentPreciseProgress: number = 1;
+  private _bookPreciseProgress: number = 1;
+
+  // 章节模式相关
+  private _useChapterMode: boolean = false;
+  private _chapterCache: TxtChapterCacheHook | null = null;
+  private _bookMeta: TxtBookMeta | null = null;
+  private _currentChapterIndex: number = 0;
+  private _currentHideDivider: boolean = false;
+  private _verticalPageTops: number[] = [];
+  private _verticalPageHeights: number[] = [];
 
   // 目录更新回调，分页完成后触发，用于通知 UI 层刷新目录数据
   onTocUpdated?: (toc: TocItem[]) => void;
 
   constructor() {
     this._core = useTxtRendererCore();
+    this._loader = useTxtDocumentLoader({
+      setUseChapterMode: (value) => {
+        this._useChapterMode = value;
+      },
+      getUseChapterMode: () => this._useChapterMode,
+      setContent: (value) => {
+        this._content = value;
+      },
+      setEncoding: (value) => {
+        this._encoding = value;
+      },
+      setToc: (value) => {
+        this._toc = value;
+      },
+      setIsReady: (value) => {
+        this._isReady = value;
+      },
+      setChapterCache: (value) => {
+        this._chapterCache = value;
+      },
+      getChapterCache: () => this._chapterCache,
+      setBookMeta: (value) => {
+        this._bookMeta = value;
+      },
+      getBookMeta: () => this._bookMeta,
+      setCurrentChapterIndex: (value) => {
+        this._currentChapterIndex = value;
+      },
+      getCurrentChapterIndex: () => this._currentChapterIndex,
+    });
+    this._progress = useTxtProgressController({
+      getUseChapterMode: () => this._useChapterMode,
+      getChapterCount: () => this.getChapterCount(),
+      getPageCount: () => this.getPageCount(),
+      getCurrentChapterIndex: () => this._currentChapterIndex,
+      getContainer: () => this._container,
+      isVerticalMode: () => this._isVerticalMode,
+      getScrollHeight: () => this._scrollHeight,
+      getVerticalPageTops: () => this._verticalPageTops,
+      setVerticalPageTops: (tops) => {
+        this._verticalPageTops = tops;
+      },
+      getVerticalPageHeights: () => this._verticalPageHeights,
+      setVerticalPageHeights: (heights) => {
+        this._verticalPageHeights = heights;
+      },
+      getCurrentPreciseProgress: () => this._currentPreciseProgress,
+      setCurrentPreciseProgress: (value) => {
+        this._currentPreciseProgress = value;
+      },
+      getBookPreciseProgress: () => this._bookPreciseProgress,
+      setBookPreciseProgress: (value) => {
+        this._bookPreciseProgress = value;
+      },
+      getCurrentPage: () => this._currentPage,
+      setCurrentPage: (value) => {
+        this._currentPage = value;
+      },
+      goToPage: (page) => this.goToPage(page),
+      goToChapter: (chapterIndex) => this.goToChapter(chapterIndex),
+    });
+  }
+
+  private _mergeRenderOptions(options?: RenderOptions): RenderOptions {
+    const next: RenderOptions = { ...(options || {}) };
+    if (typeof next.hideDivider === 'boolean') {
+      this._currentHideDivider = next.hideDivider;
+    } else {
+      next.hideDivider = this._currentHideDivider;
+    }
+    return next;
   }
 
   get isReady(): boolean {
@@ -81,44 +162,8 @@ export class TxtRenderer implements IBookRenderer {
   }
 
   /** 加载 TXT 文档 */
-  async loadDocument(filePath: string): Promise<BookInfo> {
-    try {
-      const invoke = await getInvoke();
-      const result: TxtLoadResult = await invoke('txt_load_document', {
-        filePath,
-      });
-
-      this._content = result.content;
-      this._encoding = result.encoding;
-      this._toc = this._convertToc(result.toc);
-      this._isReady = true;
-
-      return {
-        title: result.title || this._extractFileName(filePath),
-        pageCount: 1,
-        format: 'txt',
-      };
-    } catch (err) {
-      logError('[TxtRenderer] loadDocument failed', { error: err, filePath });
-      throw err;
-    }
-  }
-
-  /** 转换后端目录格式 */
-  private _convertToc(items: BackendTocItem[]): TocItem[] {
-    return items.map((item) => ({
-      title: item.title,
-      location: item.location,
-      level: item.level,
-      children: item.children ? this._convertToc(item.children) : undefined,
-    }));
-  }
-
-  /** 从路径提取文件名 */
-  private _extractFileName(filePath: string): string {
-    const parts = filePath.replace(/\\/g, '/').split('/');
-    const fileName = parts[parts.length - 1] || 'Unknown';
-    return fileName.replace(/\.[^/.]+$/, '');
+  async loadDocument(filePath: string, options?: TxtLoadOptions): Promise<BookInfo> {
+    return await this._loader.loadDocument(filePath, options);
   }
 
   /** 获取目录 */
@@ -138,13 +183,53 @@ export class TxtRenderer implements IBookRenderer {
 
   /** 获取精确进度（浮点数），用于撤回跳转等场景 */
   getPreciseProgress(): number {
-    return this._currentPreciseProgress;
+    return this._progress.getPreciseProgress();
   }
 
   /** 更新精确进度，由滚动监听调用 */
   updatePreciseProgress(progress: number): void {
-    const total = this.getPageCount() || 1;
-    this._currentPreciseProgress = Math.max(1, Math.min(progress, total));
+    this._progress.updatePreciseProgress(progress);
+  }
+
+  updateDividerVisibility(hidden: boolean): void {
+    this._currentHideDivider = hidden;
+    if (this._lastRenderOptions) {
+      this._lastRenderOptions = { ...this._lastRenderOptions, hideDivider: hidden };
+    }
+
+    const container = this._container;
+    if (container) {
+      const dividers = container.querySelectorAll('.txt-page-divider') as NodeListOf<HTMLElement>;
+      dividers.forEach((d) => {
+        d.style.display = hidden ? 'none' : 'block';
+      });
+      if (this._isVerticalMode) {
+        requestAnimationFrame(() => {
+          this.refreshVerticalPageMap(container);
+        });
+      }
+    }
+  }
+
+  refreshVerticalPageMap(container?: HTMLElement): void {
+    this._progress.refreshVerticalPageMap(container);
+  }
+
+  getVirtualPreciseByScrollTop(scrollTop: number): number {
+    return this._progress.getVirtualPreciseByScrollTop(scrollTop);
+  }
+
+  convertChapterPreciseToVirtualPrecise(chapterPrecise: number): number {
+    return this._progress.convertChapterPreciseToVirtualPrecise(chapterPrecise);
+  }
+
+  convertVirtualPreciseToChapterPrecise(virtualPrecise: number): number {
+    return this._progress.convertVirtualPreciseToChapterPrecise(virtualPrecise);
+  }
+
+  async jumpToPreciseProgress(progress: number): Promise<void> {
+    if (!this._isReady) return;
+    await this._progress.jumpToPreciseProgress(progress);
   }
 
   /** 跳转到指定页（横向模式，支持浮点数精确进度） */
@@ -165,6 +250,69 @@ export class TxtRenderer implements IBookRenderer {
     this.onPageChange?.(intPage);
   }
 
+  /** 跳转到指定章节（章节模式） */
+  async goToChapter(chapterIndex: number): Promise<void> {
+    if (!this._useChapterMode || !this._chapterCache || !this._bookMeta) {
+      return;
+    }
+
+    if (chapterIndex < 0 || chapterIndex >= this._bookMeta.chapters.length) {
+      return;
+    }
+
+    if (chapterIndex === this._currentChapterIndex) {
+      return;
+    }
+
+    logError(`[TxtRenderer] 跳转到章节 ${chapterIndex}`).catch(() => { });
+
+    // 加载新章节
+    const chapter = await this._chapterCache.getChapter(chapterIndex);
+    this._content = chapter.content;
+    this._currentChapterIndex = chapterIndex;
+    this._bookPreciseProgress = chapterIndex + 1;
+
+    // 清空分页缓存，需要重新计算
+    this._pages = [];
+
+    // 如果有容器，重新渲染
+    if (this._container) {
+      if (this._isVerticalMode) {
+        await this.renderFullContent(this._container, this._lastRenderOptions || {});
+      } else {
+        await this.renderPage(1, this._container, this._lastRenderOptions || {});
+      }
+    }
+
+    // 后台预加载相邻章节
+    this._chapterCache.preloadAdjacentChapters(
+      chapterIndex,
+      this._bookMeta.chapters.length
+    ).catch(() => { });
+  }
+
+  /** 获取当前章节索引 */
+  getCurrentChapterIndex(): number {
+    return this._currentChapterIndex;
+  }
+
+  /** 获取章节总数 */
+  getChapterCount(): number {
+    return this._bookMeta?.chapters.length ?? 1;
+  }
+
+  async preloadAdjacentChapters(centerIndex?: number): Promise<void> {
+    if (!this._useChapterMode || !this._chapterCache || !this._bookMeta) {
+      return;
+    }
+    const total = this._bookMeta.chapters.length;
+    const index = typeof centerIndex === 'number' ? centerIndex : this._currentChapterIndex;
+    if (index < 0 || index >= total) {
+      return;
+    }
+    await this._chapterCache.preloadAdjacentChapters(index, total);
+  }
+
   /** 渲染指定页面（横向模式） */
   async renderPage(
     page: number,
@@ -176,12 +324,13 @@ export class TxtRenderer implements IBookRenderer {
     }
 
     this._container = container;
-    this._lastRenderOptions = options || {};
+    const mergedOptions = this._mergeRenderOptions(options);
+    this._lastRenderOptions = mergedOptions;
     this._isVerticalMode = false;
 
     // 如果还没有分页，先进行分页计算
     if (this._pages.length === 0) {
-      await this._calculatePages(container, options);
+      await this._calculatePages(container, mergedOptions);
     }
 
     // 确保页码有效
@@ -193,7 +342,7 @@ export class TxtRenderer implements IBookRenderer {
     const pageContent = this._content.slice(pageInfo.startOffset, pageInfo.endOffset);
 
     // 渲染内容
-    this._renderContent(container, pageContent, options, false);
+    this._renderContent(container, pageContent, mergedOptions, false);
   }
 
   /** 渲染全部内容（纵向模式） */
@@ -203,20 +352,22 @@ export class TxtRenderer implements IBookRenderer {
     }
 
     this._container = container;
-    this._lastRenderOptions = options || {};
+    const mergedOptions = this._mergeRenderOptions(options);
+    this._lastRenderOptions = mergedOptions;
     this._isVerticalMode = true;
 
     if (this._pages.length === 0) {
-      await this._calculatePages(container, options);
+      await this._calculatePages(container, mergedOptions);
     }
 
     // 渲染全部内容
-    this._renderContent(container, this._content, options, true);
+    this._renderContent(container, this._content, mergedOptions, true);
 
     // 等待布局完成后记录滚动高度
     await new Promise<void>(resolve => {
       requestAnimationFrame(() => {
         this._scrollHeight = container.scrollHeight;
+        this.refreshVerticalPageMap(container);
         resolve();
       });
     });
@@ -224,69 +375,17 @@ export class TxtRenderer implements IBookRenderer {
 
   /** 计算虚拟页数（纵向模式） */
   calculateVirtualPages(viewportHeight: number): number {
-    if (this._scrollHeight <= 0 || viewportHeight <= 0) {
-      return 1;
-    }
-    return Math.max(1, Math.ceil(this._scrollHeight / viewportHeight));
+    return this._progress.calculateVirtualPages(viewportHeight);
   }
 
   /** 获取当前虚拟页（纵向模式） */
   getCurrentVirtualPage(scrollTop: number, viewportHeight: number): number {
-    if (viewportHeight <= 0) {
-      return 1;
-    }
-    const page = Math.floor(scrollTop / viewportHeight) + 1;
-    return Math.max(1, page);
+    return this._progress.getCurrentVirtualPage(scrollTop, viewportHeight);
   }
 
   /** 滚动到虚拟页（纵向模式，支持浮点数精确进度） */
   scrollToVirtualPage(page: number, viewportHeight: number): void {
-    // 记录精确进度
-    this._currentPreciseProgress = page;
-
-    if (!this._container || !this._isVerticalMode) {
-      // 横向模式走 goToPage
-      this.goToPage(page);
-      return;
-    }
-    const container = this._container;
-    if (viewportHeight <= 0) {
-      container.scrollTop = 0;
-      this._currentPage = 1;
-      this._currentPreciseProgress = 1;
-      return;
-    }
-
-    const totalPages = this.getPageCount() || 1;
-    const validTotalPages = Math.max(1, totalPages);
-    const clampedPage = Math.min(Math.max(1, page), validTotalPages);
-
-    // 提取整数页码和页内偏移
-    const pageIndex = Math.floor(clampedPage) - 1;  // 转为 0-based
-    const offsetRatio = Math.max(0, Math.min(1, clampedPage - Math.floor(clampedPage)));
-
-    // 查找对应的页面 wrapper
-    const pageWrapper = container.querySelector(`[data-page-index="${pageIndex}"]`) as HTMLElement;
-
-    if (pageWrapper) {
-      // 基于 wrapper 位置 + 偏移计算目标滚动位置
-      const wrapperTop = pageWrapper.offsetTop;
-      const wrapperHeight = pageWrapper.scrollHeight;
-      const targetScrollTop = wrapperTop + wrapperHeight * offsetRatio;
-      
-      container.scrollTop = targetScrollTop;
-    } else {
-      // 降级：使用原有的全局比例计算
-      const maxScrollTop = Math.max(0, container.scrollHeight - viewportHeight);
-      if (maxScrollTop > 0 && validTotalPages > 1) {
-        const ratio = (clampedPage - 1) / (validTotalPages - 1);
-        const clampedRatio = Math.max(0, Math.min(1, ratio));
-        container.scrollTop = clampedRatio * maxScrollTop;
-      }
-    }
-
-    this._currentPage = Math.floor(clampedPage);
-    this._currentPreciseProgress = clampedPage;
+    this._progress.scrollToVirtualPage(page, viewportHeight);
   }
 
   /** 计算虚拟分页 */
@@ -298,7 +397,8 @@ export class TxtRenderer implements IBookRenderer {
       this._content,
       this._toc,
       container,
-      options
+      options,
+      { updateTocPageNumbers: !this._useChapterMode }
     );
     this._pages = pages;
     this._toc = toc;
@@ -335,7 +435,7 @@ export class TxtRenderer implements IBookRenderer {
     return this._content.slice(pageInfo.startOffset, pageInfo.endOffset);
   }
 
-  /** 获取全文内容 */
+  /** 获取全文内容（章节模式下返回当前章节内容） */
   getContent(): string {
     return this._content;
   }
@@ -357,10 +457,11 @@ export class TxtRenderer implements IBookRenderer {
     }
     // 保存容器引用，确保后续 goToPage 可用
     this._container = container;
-    this._lastRenderOptions = options || {};
+    const mergedOptions = this._mergeRenderOptions(options);
+    this._lastRenderOptions = mergedOptions;
 
     if (this._pages.length === 0) {
-      await this._calculatePages(container, options);
+      await this._calculatePages(container, mergedOptions);
       // 分页完成后，通知 UI 层更新目录（此时目录页码已从字符偏移量转换为真实页码）
       this.onTocUpdated?.(this._toc);
     }
@@ -369,6 +470,19 @@ export class TxtRenderer implements IBookRenderer {
   /** 是否为纵向模式 */
   isVerticalMode(): boolean {
     return this._isVerticalMode;
+  }
+
+  /** 是否为章节加载模式 */
+  isChapterMode(): boolean {
+    return this._useChapterMode;
+  }
+
+  /** 获取缓存统计（章节模式） */
+  getCacheStats(): { cachedCount: number; memoryMB: number } | null {
+    if (!this._chapterCache) {
+      return null;
+    }
+    return this._chapterCache.getCacheStats();
   }
 
   /** 关闭并释放资源 */
@@ -384,6 +498,14 @@ export class TxtRenderer implements IBookRenderer {
     this._isVerticalMode = false;
     this._scrollHeight = 0;
     this._currentPreciseProgress = 1;
+    this._bookPreciseProgress = 1;
+    this._useChapterMode = false;
+    this._chapterCache = null;
+    this._bookMeta = null;
+    this._currentChapterIndex = 0;
+    this._currentHideDivider = false;
+    this._verticalPageTops = [];
+    this._verticalPageHeights = [];
   }
 
   /** 页面变化回调 */

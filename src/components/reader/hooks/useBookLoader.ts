@@ -15,6 +15,7 @@ import {
     isFormatSupported,
 } from "../../../services/formats";
 import { EpubRenderer } from "../../../services/formats/epub/EpubRenderer";
+import { TxtRenderer } from "../../../services/formats/txt/TxtRenderer";
 import { resolveLocalPathFromUri } from "../../../services/resolveLocalPath";
 import { useAppNav } from "../../../router/useAppNav";
 import { useReaderState } from "./useReaderState";
@@ -197,19 +198,49 @@ export const useBookLoader = (
                     !renderer.capabilities.supportsBitmap;
                 setIsDomRender(useDom);
 
-                // 在 loadDocument 之前设置期望的阅读模式
-                // 横向模式需要同步加载，纵向模式可使用懒加载
                 if (renderer instanceof EpubRenderer) {
                     const expectedMode = targetBook.reading_mode || 'vertical';
                     renderer.setExpectedReadingMode(expectedMode);
                 }
 
-                const bookInfo = await renderer.loadDocument(targetBook.file_path);
-                const pageCount = Math.max(
-                    1,
-                    bookInfo.pageCount ?? targetBook.total_pages ?? 1
-                );
+                let bookInfo;
+                let pageCount;
+                if (renderer instanceof TxtRenderer) {
+                    const initialProgress = targetBook.precise_progress ?? targetBook.current_page ?? 1;
+                    const denomBase = targetBook.total_pages || 1;
+                    const denom = Math.max(1, denomBase - 1);
+                    let startProgress = denom > 0 ? (initialProgress - 1) / denom : 0;
+                    if (startProgress < 0) startProgress = 0;
+                    if (startProgress > 1) startProgress = 1;
+                    if (targetBook.status !== 1 && startProgress >= 0.999) {
+                        startProgress = 0.95;
+                    }
+
+                    bookInfo = await renderer.loadDocument(targetBook.file_path, {
+                        useChapterMode: true,
+                        startProgress,
+                    });
+
+                    pageCount = Math.max(
+                        1,
+                        bookInfo.pageCount ?? targetBook.total_pages ?? 1
+                    );
+                } else {
+                    bookInfo = await renderer.loadDocument(targetBook.file_path);
+                    pageCount = Math.max(
+                        1,
+                        bookInfo.pageCount ?? targetBook.total_pages ?? 1
+                    );
+                }
                 setTotalPages(pageCount);
+
+                if (!params.isExternal && renderer instanceof TxtRenderer) {
+                    const oldTotalPages = targetBook.total_pages ?? 1;
+                    if (pageCount > 0 && pageCount !== oldTotalPages) {
+                        setBook({ ...targetBook, total_pages: pageCount });
+                        bookService.updateBookTotalPages(targetBook.id, pageCount).catch(() => { });
+                    }
+                }
                 setLoading(false);
 
                 Promise.resolve().then(() => {
@@ -275,12 +306,19 @@ export const useBookLoader = (
                     !renderer.capabilities.supportsBitmap;
                 setIsDomRender(useDom);
 
-                // 外部文件默认使用纵向模式，可使用懒加载
                 if (renderer instanceof EpubRenderer) {
                     renderer.setExpectedReadingMode('vertical');
                 }
 
-                const bookInfo = await renderer.loadDocument(filePath);
+                let bookInfo;
+                if (renderer instanceof TxtRenderer) {
+                    bookInfo = await renderer.loadDocument(filePath, {
+                        useChapterMode: true,
+                        startProgress: 0,
+                    });
+                } else {
+                    bookInfo = await renderer.loadDocument(filePath);
+                }
                 const pageCount = Math.max(1, bookInfo.pageCount ?? 1);
 
                 setTotalPages(pageCount);

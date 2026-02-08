@@ -16,6 +16,7 @@ import { loadGroupsWithPreviews } from "../utils/groupImport";
 import { useDndSensors, useDragGuard, isTouchDevice } from "../utils/gesture";
 import { epubPreloader, isEpubFile } from "../services/formats/epub/epubPreloader";
 import { mobiPreloader, isMobiFile } from "../services/formats/mobi/mobiPreloader";
+import { txtPreloader, isTxtFile } from "../services/formats/txt/txtPreloader";
 
 // 使用 dnd-kit 实现拖拽排序
 
@@ -78,6 +79,10 @@ export const GroupDetail: React.FC<{
     // MOBI 预加载：提前触发书籍加载，利用页面切换时间完成解析
     if (isMobiFile(b.file_path)) {
       mobiPreloader.preload(b.file_path);
+    }
+    // TXT 预加载：提前触发元数据加载，利用页面切换时间完成目录解析
+    if (isTxtFile(b.file_path)) {
+      txtPreloader.preload(b.file_path);
     }
     nav.toReader(b.id, { fromGroupId: id });
   };

@@ -5,6 +5,7 @@ import { MobiRenderer } from "../../../services/formats/mobi/MobiRenderer";
 import { EpubRenderer } from "../../../services/formats/epub/EpubRenderer";
 import { HtmlRenderer } from "../../../services/formats/html/HtmlRenderer";
 import { IBookRenderer, getBookFormat } from "../../../services/formats";
+import { TxtRenderer } from "../../../services/formats/txt/TxtRenderer";
 import { TocNode } from "../../reader/types";
 import { useReaderState } from "./useReaderState";
 import { usePageRenderer } from "./usePageRenderer";
@@ -117,6 +118,27 @@ export const useInitReader = ({
             log(
                 `[Reader] EPUB 需要重渲染：主题变化=${themeChanged}, 模式变化=${modeChanged}`
             );
+        }
+
+        const renderer = rendererRef.current;
+        if (renderer instanceof TxtRenderer && (themeChanged || modeChanged)) {
+            try {
+                const cacheStats = renderer.getCacheStats ? renderer.getCacheStats() : null;
+                const chapterCount = renderer.getChapterCount ? renderer.getChapterCount() : undefined;
+                const currentChapterIndex = renderer.getCurrentChapterIndex ? renderer.getCurrentChapterIndex() : undefined;
+                log("[Reader][TXT] 模式或主题变化", "info", {
+                    mode: readingMode,
+                    theme: currentTheme,
+                    pageGap: settings.pageGap,
+                    hideDivider: settings.hideDivider,
+                    chapterMode: renderer.isChapterMode ? renderer.isChapterMode() : undefined,
+                    chapterIndex: currentChapterIndex,
+                    chapterCount,
+                    cacheStats,
+                });
+            } catch (e) {
+                logError("[Reader][TXT] 记录模式变化日志失败", { error: String(e) }).catch(() => { });
+            }
         }
 
         // 使用 currentPageRef 而不是 currentPage state，避免依赖循环

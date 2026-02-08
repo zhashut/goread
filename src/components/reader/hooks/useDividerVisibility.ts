@@ -44,15 +44,8 @@ export const useDividerVisibility = ({
       return;
     }
 
-    // TXT: 通过容器查找分隔线
-    if (renderer.format === 'txt') {
-      const container = (renderer as any)._container as HTMLElement | undefined;
-      if (container) {
-        const dividers = container.querySelectorAll('.txt-page-divider') as NodeListOf<HTMLElement>;
-        dividers.forEach(d => {
-          d.style.display = hideDivider ? 'none' : 'block';
-        });
-      }
+    if (renderer.format === 'txt' && typeof (renderer as any).updateDividerVisibility === 'function') {
+      (renderer as any).updateDividerVisibility(hideDivider);
     }
   }, [hideDivider, isDomRender, loading, rendererRef]);
 };

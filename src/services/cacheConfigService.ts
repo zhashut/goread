@@ -3,10 +3,12 @@ import { epubCacheService } from './formats/epub/epubCacheService';
 import { epubPreloader } from './formats/epub/epubPreloader';
 import { mobiCacheService } from './formats/mobi/mobiCacheService';
 import { mobiPreloader } from './formats/mobi/mobiPreloader';
+import { txtCacheService } from './formats/txt/txtCacheService';
+import { txtPreloader, generateTxtBookId } from './formats/txt/txtPreloader';
 import { generateQuickBookId } from '../utils/bookId';
 
 /** 书籍格式类型（用于缓存清理判断） */
-type BookFormat = 'pdf' | 'epub' | 'mobi' | 'azw3' | 'unknown';
+type BookFormat = 'pdf' | 'epub' | 'mobi' | 'azw3' | 'txt' | 'unknown';
 
 /**
  * 根据文件路径判断书籍格式
@@ -16,6 +18,7 @@ function getBookFormat(filePath: string): BookFormat {
   if (ext === 'pdf') return 'pdf';
   if (ext === 'epub') return 'epub';
   if (ext === 'mobi' || ext === 'azw3' || ext === 'azw') return 'mobi';
+  if (ext === 'txt') return 'txt';
   return 'unknown';
 }
 
@@ -32,23 +35,25 @@ export const cacheConfigService = {
       typeof days === 'number' && days > 0
         ? days * 24 * 60 * 60
         : 0;
-    
+
     // 设置 EPUB 内存缓存过期时间
     epubCacheService.setTimeToIdleSecs(secs);
-    
+
     // 设置 EPUB 预加载缓存过期时间（与全局策略一致）
     epubPreloader.setExpiryDays(days);
-    
+
     // 配置变更时立即处理存量缓存（按新配置的严格时间清理）
-    epubCacheService.applyConfigChange(days).catch(() => {});
+    epubCacheService.applyConfigChange(days).catch(() => { });
 
     // 设置 MOBI 内存缓存过期时间
     mobiCacheService.setTimeToIdleSecs(secs);
     // 设置 MOBI 预加载缓存过期时间（与全局策略一致）
     mobiPreloader.setExpiryDays(days);
     // 配置变更时立即处理 MOBI 存量缓存
-    mobiCacheService.applyConfigChange(days).catch(() => {});
-    
+    mobiCacheService.applyConfigChange(days).catch(() => { });
+
+    txtCacheService.setConfig({ timeToIdleSecs: secs });
+
     // 设置 PDF 缓存过期时间
     try {
       const invoke = await getInvoke();
@@ -101,7 +106,7 @@ export const cacheConfigService = {
     try {
       const invoke = await getInvoke();
       pdfStats = await invoke('pdf_get_cache_stats');
-    } catch {}
+    } catch { }
 
     // EPUB 统计
     let epubStats = null;
@@ -123,7 +128,7 @@ export const cacheConfigService = {
           totalSizeBytes: persistedStats.totalSizeBytes,
         },
       };
-    } catch {}
+    } catch { }
 
 
 
@@ -147,7 +152,7 @@ export const cacheConfigService = {
           totalSizeBytes: persistedStats.totalSizeBytes,
         },
       };
-    } catch {}
+    } catch { }
 
     return { pdf: pdfStats, epub: epubStats, mobi: mobiStats };
   },
@@ -166,19 +171,19 @@ export const cacheConfigService = {
         if (format === 'epub') {
           // 清理预加载缓存
           epubPreloader.clear(filePath);
-          
+
           // 生成 bookId 并清理内存缓存
           const bookId = generateQuickBookId(filePath);
           epubCacheService.sectionCache.clearBook(bookId);
           epubCacheService.resourceCache.clearBook(bookId);
-          
+
           // 清理后端磁盘缓存（章节、资源、元数据）
           await epubCacheService.clearBookFromDB(bookId);
           return true;
         } else if (format === 'mobi') {
           // 清理预加载缓存
           mobiPreloader.clear(filePath);
-          
+
           // 生成 bookId 并清理内存缓存
           const bookId = generateQuickBookId(filePath);
           mobiCacheService.sectionCache.clearBook(bookId);
@@ -186,6 +191,19 @@ export const cacheConfigService = {
 
           // 清理后端磁盘缓存
           await mobiCacheService.clearBookFromDB(bookId);
+          return true;
+        } else if (format === 'txt') {
+          // 清理 TXT 预加载缓存
+          txtPreloader.clear(filePath);
+
+          // 生成 bookId 并清理内存缓存
+          const bookId = generateTxtBookId(filePath);
+          txtCacheService.clearBook(bookId);
+
+          // 清理后端元数据缓存
+          try {
+            await invoke('txt_clear_metadata_cache', { filePath });
+          } catch { }
           return true;
         } else if (format === 'pdf') {
           // 清理指定 PDF 的缓存
@@ -208,8 +226,10 @@ export const cacheConfigService = {
         // 清理所有缓存
         epubPreloader.clearAll();
         mobiPreloader.clearAll();
+        txtPreloader.clearAll();
         await epubCacheService.clearAll();
         await mobiCacheService.clearAll();
+        txtCacheService.clearAll();
         return await invoke('pdf_clear_cache', { filePath: undefined });
       }
     } catch {

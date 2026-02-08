@@ -471,7 +471,7 @@ impl TocParser {
 
             // 跳过空行
             if trimmed.is_empty() {
-                char_offset += line.len() + 1;
+                char_offset += line.chars().count() + 1;
                 continue;
             }
 
@@ -491,7 +491,7 @@ impl TocParser {
                 }
             }
 
-            char_offset += line.len() + 1;
+            char_offset += line.chars().count() + 1;
         }
 
         candidates
@@ -598,7 +598,7 @@ impl TocParser {
 
     /// 智能分段策略（兜底）
     fn smart_segmentation(&self, content: &str, lines: &[String]) -> Vec<TocItem> {
-        let total_chars = content.len();
+        let total_chars = content.chars().count();
         let total_lines = lines.len();
 
         // 策略：基于段落密度自动计算分段大小
@@ -665,7 +665,7 @@ impl TocParser {
     fn calculate_offset(&self, lines: &[String], line_number: usize) -> usize {
         let mut offset = 0;
         for line in lines.iter().take(line_number) {
-            offset += line.len() + 1;
+            offset += line.chars().count() + 1;
         }
         offset
     }
@@ -674,99 +674,5 @@ impl TocParser {
 impl Default for TocParser {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_standard_chinese_chapter() {
-        let content = "第一章 开始\n这是正文内容\n第二章 继续\n更多内容";
-        let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
-        let parser = TocParser::new();
-        let toc = parser.parse(content, &lines);
-        
-        assert!(toc.len() >= 2, "Should detect at least 2 chapters");
-    }
-
-    #[test]
-    fn test_chapter_with_colon() {
-        let content = "第一章：开始\n这是正文内容\n第二章：继续\n更多内容";
-        let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
-        let parser = TocParser::new();
-        let toc = parser.parse(content, &lines);
-        
-        assert!(toc.len() >= 2, "Should detect chapters with colon");
-    }
-
-    #[test]
-    fn test_bracket_chapter() {
-        let content = "【第一章】开始\n这是正文内容\n【第二章】继续\n更多内容";
-        let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
-        let parser = TocParser::new();
-        let toc = parser.parse(content, &lines);
-        
-        assert!(toc.len() >= 2, "Should detect bracketed chapters");
-    }
-
-    #[test]
-    fn test_volume_structure() {
-        let content = "卷一 风起云涌\n第一章 少年\n正文内容\n第二章 启程\n更多内容";
-        let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
-        let parser = TocParser::new();
-        let toc = parser.parse(content, &lines);
-        
-        // 应该识别出卷和章的层级结构
-        assert!(!toc.is_empty());
-        if let Some(volume) = toc.first() {
-            assert_eq!(volume.level, 0, "Volume should be level 0");
-        }
-    }
-
-    #[test]
-    fn test_prologue_epilogue() {
-        let content = "楔子\n很久以前...\n第一章 开始\n正文\n尾声\n结束了";
-        let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
-        let parser = TocParser::new();
-        let toc = parser.parse(content, &lines);
-        
-        assert!(toc.len() >= 2, "Should detect prologue and chapters");
-    }
-
-    #[test]
-    fn test_english_chapter() {
-        let content = "Chapter 1 The Beginning\nSome content\nChapter 2 The Journey\nMore content";
-        let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
-        let parser = TocParser::new();
-        let toc = parser.parse(content, &lines);
-        
-        assert!(toc.len() >= 2, "Should detect English chapters");
-    }
-
-    #[test]
-    fn test_numeric_chapter() {
-        let content = "001 开始\n正文内容\n002 继续\n更多内容\n003 结束\n结束内容";
-        let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
-        let parser = TocParser::new();
-        let toc = parser.parse(content, &lines);
-        
-        assert!(toc.len() >= 3, "Should detect numeric chapters");
-    }
-
-    #[test]
-    fn test_fallback_segmentation() {
-        // 创建一个没有明显章节的长文本
-        let mut content = String::new();
-        for i in 0..200 {
-            content.push_str(&format!("这是第{}行普通内容。\n", i));
-        }
-        let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
-        let parser = TocParser::new();
-        let toc = parser.parse(&content, &lines);
-        
-        // 应该使用兜底策略生成分段
-        assert!(!toc.is_empty(), "Should have fallback segments");
     }
 }

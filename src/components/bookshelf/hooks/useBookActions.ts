@@ -6,6 +6,8 @@ import { cacheConfigService } from "../../../services/cacheConfigService";
 import { epubPreloader, isEpubFile } from "../../../services/formats/epub/epubPreloader";
 import { mobiPreloader, isMobiFile } from "../../../services/formats/mobi/mobiPreloader";
 import { ensurePermissionForDeleteLocal } from "../../../utils/storagePermission";
+import { txtPreloader, isTxtFile } from "../../../services/formats/txt/txtPreloader";
+
 
 interface UseBookActionsProps {
   nav: any;
@@ -54,6 +56,10 @@ export const useBookActions = ({
     if (isMobiFile(book.file_path)) {
       mobiPreloader.preload(book.file_path);
     }
+    // TXT 预加载：提前触发元数据加载，利用页面切换时间完成目录解析
+    if (isTxtFile(book.file_path)) {
+      txtPreloader.preload(book.file_path);
+    }
     // 后端 mark_book_opened 会自动更新 recent_order，使该书移到最前
     nav.toReader(book.id, { fromTab: activeTab });
   }, [selectionMode, toggleBookSelection, nav, activeTab]);
@@ -91,7 +97,7 @@ export const useBookActions = ({
         await bookService.deleteBook(book.id);
         // 清理 EPUB 相关缓存（预加载、内存、磁盘）
         cacheConfigService.clearCache(book.file_path).catch((err) => {
-          logError(`[Bookshelf] 删除书籍后清理缓存失败: ${err}`).catch(() => {});
+          logError(`[Bookshelf] 删除书籍后清理缓存失败: ${err}`).catch(() => { });
         });
         await Promise.all([loadBooks(), loadGroups()]);
       }

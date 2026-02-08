@@ -102,19 +102,10 @@ export const useNavigation = ({
                         // 传递完整的浮点数进度，渲染器内部处理精确位置恢复
                         await renderer.goToPage(pageNum);
                     } else if (renderer && renderer instanceof TxtRenderer) {
-                        // TXT 纵向模式使用精确进度定位
-                        if (renderer.isVerticalMode()) {
-                            // 先更新精确进度，避免 useTxtPaging 的 useEffect 覆盖
-                            renderer.updatePreciseProgress(pageNum);
-                            const scrollContainer = renderer.getScrollContainer();
-                            if (scrollContainer) {
-                                const viewportHeight = scrollContainer.clientHeight;
-                                renderer.scrollToVirtualPage(pageNum, viewportHeight);
-                            }
-                        } else {
-                            // 横向模式使用整数页码
-                            await renderer.goToPage(intPage);
+                        if (latestPreciseProgressRef) {
+                            latestPreciseProgressRef.current = pageNum;
                         }
+                        await renderer.jumpToPreciseProgress(pageNum);
                     }
                 } else if (readingMode === "horizontal") {
                     // 强制渲染，因为是主动跳转
@@ -155,6 +146,8 @@ export const useNavigation = ({
             verticalCanvasRefs,
             isExternal,
             book,
+            currentPage,
+            latestPreciseProgressRef,
         ]
     );
 

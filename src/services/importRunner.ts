@@ -3,6 +3,7 @@ import { pathToTitle, waitNextFrame } from "./importUtils";
 import { getBookFormat, BookFormat } from "./formats";
 import { resolveLocalPathFromUri } from "./resolveLocalPath";
 import { generateQuickBookId } from "./formats/epub/cache";
+import { txtPreloader } from "./formats/txt/txtPreloader";
 import { parseCoverImage, migrateBookCover } from "../utils/coverUtils";
 
 // 移动端检测
@@ -237,11 +238,16 @@ async function importTxtBook(filePath: string, invoke: any, logError: any): Prom
     await logError('txt_load_document failed during import', { error: String(err), filePath });
   }
 
-  // TXT 没有封面图片，页数由前端虚拟分页决定
+  const totalPages = Math.max(
+    1,
+    Number(info?.metadata?.page_count ?? info?.metadata?.pageCount ?? 0)
+  );
+
+  // TXT 没有封面图片，页数使用后端目录解析得到的章节数作为初值
   return {
     info: { title: info?.title },
     coverImage: undefined,
-    totalPages: 1,
+    totalPages,
   };
 }
 
@@ -396,6 +402,30 @@ export const importPathsToExistingGroup = async (
     }
 
     await groupService.moveBookToGroup(saved.id, groupId);
+
+    if (format === 'txt') {
+      try {
+        await log('[Import][TXT] 导入后触发预热', 'info', {
+          filePath,
+          bookId: saved.id,
+        });
+        const meta = await txtPreloader.getOrLoad(filePath);
+        const shouldPreloadChapters =
+          (meta.total_bytes ?? 0) > 0 &&
+          (meta.total_bytes ?? 0) <= 2 * 1024 * 1024 &&
+          meta.chapters.length > 0 &&
+          meta.chapters.length <= 500;
+        if (shouldPreloadChapters) {
+          await txtPreloader.preloadChapters(filePath, 0, meta.chapters.length);
+        }
+      } catch (e) {
+        await logError('[Import][TXT] 导入预热失败', {
+          error: String(e),
+          filePath,
+          bookId: saved.id,
+        });
+      }
+    }
 
     await log('[Import] 导入书籍完成', 'info', {
       index: i + 1,

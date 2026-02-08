@@ -15,31 +15,43 @@ export const useBookFormatHelper = (
     return (isExternal ? externalPath : book?.file_path) || null;
   }, [isExternal, externalPath, book?.file_path]);
 
-  const isEpubDom = useMemo(() => {
-    if (!bookFilePath) return false;
-    return getBookFormat(bookFilePath) === "epub";
+  const format = useMemo(() => {
+    if (!bookFilePath) return null;
+    return getBookFormat(bookFilePath);
   }, [bookFilePath]);
+
+  const isEpubDom = useMemo(() => {
+    if (!format) return false;
+    return format === "epub";
+  }, [format]);
 
   const isMobi = useMemo(() => {
-    if (!bookFilePath) return false;
-    return getBookFormat(bookFilePath) === "mobi";
-  }, [bookFilePath]);
+    if (!format) return false;
+    return format === "mobi";
+  }, [format]);
 
   const isMarkdown = useMemo(() => {
-    if (!bookFilePath) return false;
-    return getBookFormat(bookFilePath) === "markdown";
-  }, [bookFilePath]);
+    if (!format) return false;
+    return format === "markdown";
+  }, [format]);
 
   const isHtml = useMemo(() => {
-    if (!bookFilePath) return false;
-    return getBookFormat(bookFilePath) === "html";
-  }, [bookFilePath]);
+    if (!format) return false;
+    return format === "html";
+  }, [format]);
+
+  const isTxt = useMemo(() => {
+    if (!format) return false;
+    return format === "txt";
+  }, [format]);
 
   return {
     bookFilePath,
+    format,
     isEpubDom,
     isMobi,
     isMarkdown,
     isHtml,
+    isTxt,
   };
 };

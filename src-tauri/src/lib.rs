@@ -89,7 +89,7 @@ use epub_commands::*;
 use html_commands::*;
 use markdown_commands::*;
 use pdf_commands::*;
-use txt_commands::*;
+use txt_commands::{txt_load_document, txt_load_metadata, txt_load_chapter, txt_clear_metadata_cache, txt_get_cache_stats};
 use mobi_commands::*;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
 use sqlx::SqlitePool;
@@ -254,6 +254,10 @@ pub fn run() {
             html_load_document,
             // TXT commands
             txt_load_document,
+            txt_load_metadata,
+            txt_load_chapter,
+            txt_clear_metadata_cache,
+            txt_get_cache_stats,
             // Status bar control commands
             show_status_bar,
             hide_status_bar,
