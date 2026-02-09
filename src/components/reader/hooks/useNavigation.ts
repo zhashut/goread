@@ -68,8 +68,6 @@ export const useNavigation = ({
             const isEpub = renderer && renderer instanceof EpubRenderer;
             const isTxt = renderer && renderer instanceof TxtRenderer;
 
-            // TXT 纵向模式：先更新精确进度，再更新整数页码
-            // 这样 useTxtPaging 的 useEffect 能拿到正确的精确进度
             if (isTxt && (renderer as TxtRenderer).isVerticalMode() && latestPreciseProgressRef) {
                 latestPreciseProgressRef.current = pageNum;
             }
@@ -126,10 +124,18 @@ export const useNavigation = ({
                     predictor.recordPageVisit(intPage);
                 }
 
-                // Mobi 格式的进度由 onPageChange 回调保存，避免重复写入
-                // EPUB 格式在精确进度恢复时，进度由渲染器内部回调更新
                 if (!isExternal && book && !isMobi && !isEpub) {
-                    bookService.updateBookProgress(book.id, intPage).catch(() => { });
+                    let progressToSave: number = intPage;
+                    if (renderer && renderer instanceof TxtRenderer) {
+                        try {
+                            const precise = renderer.getPreciseProgress();
+                            if (precise > 0 && isFinite(precise)) {
+                                progressToSave = precise;
+                            }
+                        } catch {
+                        }
+                    }
+                    bookService.updateBookProgress(book.id, progressToSave).catch(() => { });
                 }
             } catch (e) {
                 await logError('页面跳转失败', { error: String(e), pageNum });

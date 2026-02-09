@@ -76,14 +76,14 @@ export const BookCard: React.FC<CommonBookCardProps> = ({
   const isUnread = hasPagination ? baseProgress <= 1 : !hasReadRecord;
 
   // 计算进度：
-  // - 未读时显示 0%
-  // - 已读时按 baseProgress/total_pages 正常计算百分比
   const progress =
     isUnread
       ? 0
-      : book.total_pages > 0
-        ? Math.min(100, Math.round((baseProgress / book.total_pages) * 1000) / 10)
-        : 0;
+      : format === 'txt' && totalPages > 0
+        ? Math.min(100, Math.round(((baseProgress - 1) / Math.max(1, totalPages - 1)) * 1000) / 10)
+        : totalPages > 0
+          ? Math.min(100, Math.round((baseProgress / totalPages) * 1000) / 10)
+          : 0;
 
   // 计算 padding-bottom 比例
   let pb = "133.33%";

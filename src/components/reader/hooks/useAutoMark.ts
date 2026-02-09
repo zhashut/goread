@@ -13,6 +13,7 @@ type AutoMarkProps = {
     rendererRef: React.MutableRefObject<IBookRenderer | null>;
     setBook: React.Dispatch<React.SetStateAction<IBook | null>>;
     readingMode: "horizontal" | "vertical";
+    latestPreciseProgressRef?: React.MutableRefObject<number | null>;
 };
 
 /**
@@ -29,21 +30,78 @@ export const useAutoMark = ({
     rendererRef,
     setBook,
     readingMode,
+    latestPreciseProgressRef,
 }: AutoMarkProps) => {
     const lastAutoMarkPageRef = useRef<number | null>(null);
 
     useEffect(() => {
         if (isExternal || !book || totalPages <= 0) return;
+        const renderer = rendererRef.current as any;
+        // 渲染器未就绪时跳过，等下次 effect 重新执行
+        if (!renderer) return;
+
+        const format = renderer?.format as string | undefined;
+        const isTxt = format === "txt";
+
+        if (isTxt && readingMode === 'vertical') {
+            // TXT 纵向模式：需要通过滚动事件监听来检测触底
+            // 因为 latestPreciseProgressRef.current 的变化不会触发 useEffect 重新执行
+            const container = renderer?.getScrollContainer?.() as HTMLElement | null;
+            if (!container) return;
+
+            const checkAutoMark = () => {
+                if (book.status === 1) return; // 已标记则跳过
+
+                const preciseProgress = latestPreciseProgressRef?.current ?? currentPage;
+                // TXT 精确进度是 1-based，达到最后一页底部时接近 totalPages + 0.999
+                const progressRatio = totalPages <= 1
+                    ? (preciseProgress - 1)
+                    : (preciseProgress - 1) / Math.max(1, totalPages - 1);
+
+                if (progressRatio < 0.98) return;
+
+                // 检查是否滚到底部（始终检查，不跳过）
+                const maxScroll = container.scrollHeight - container.clientHeight;
+                // 无论内容是否超过一屏，都要求滚动位置达到底部附近
+                // 对于不足一屏的内容，maxScroll <= 2，此时 scrollTop 应接近 maxScroll
+                const atBottom = maxScroll <= 2
+                    ? container.scrollTop >= maxScroll  // 不足一屏时，需滚动到最大位置
+                    : container.scrollTop >= maxScroll - 50;  // 超过一屏时，留 50px 容差
+                if (!atBottom) return;
+
+                // 防止重复标记
+                if (lastAutoMarkPageRef.current === currentPage) return;
+                lastAutoMarkPageRef.current = currentPage;
+
+                (async () => {
+                    try {
+                        log(`[useAutoMark] TXT 纵向模式进度 100%，自动标记为已读`);
+                        setBook(prev => prev ? { ...prev, status: 1 } : null);
+                        await statsService.markBookFinished(book.id);
+                    } catch (e) {
+                        await logError('自动标记已读失败', { error: String(e), bookId: book.id });
+                    }
+                })();
+            };
+
+            // 只在滚动时检测，不在初始化时检测（避免误触发）
+            container.addEventListener('scroll', checkAutoMark);
+            return () => {
+                container.removeEventListener('scroll', checkAutoMark);
+            };
+        }
 
         if (currentPage < totalPages) {
             lastAutoMarkPageRef.current = null;
             return;
         }
 
+        // TXT 纵向模式由上面的滚动监听处理，这里跳过避免重复或误触发
+        if (isTxt && readingMode === 'vertical') {
+            return;
+        }
+
         if (currentPage >= totalPages && book.status !== 1 && lastAutoMarkPageRef.current !== currentPage) {
-            const renderer = rendererRef.current as any;
-            const format = renderer?.format as string | undefined;
-            const isTxt = format === "txt";
             const isTxtHorizontal = isTxt && readingMode === "horizontal";
 
             const autoMark = async () => {
@@ -92,7 +150,7 @@ export const useAutoMark = ({
 
             if (isDomRender) {
                 if (!contentReady) return;
-                
+
                 checkAndMark();
 
                 const r = rendererRef.current as any;
@@ -112,5 +170,5 @@ export const useAutoMark = ({
                 autoMark();
             }
         }
-    }, [currentPage, totalPages, book, contentReady, isDomRender, isExternal, rendererRef, setBook]);
+    }, [currentPage, totalPages, book, contentReady, isDomRender, isExternal, rendererRef, setBook, readingMode, latestPreciseProgressRef]);
 };

@@ -27,6 +27,8 @@ interface TxtLoadOptions {
   useChapterMode?: boolean;
   skipPreloaderCache?: boolean;
   startProgress?: number;
+  /** 直接指定初始章节索引（0-based），优先于 startProgress */
+  startChapterIndex?: number;
 }
 
 export interface TxtDocumentLoaderContext {
@@ -140,7 +142,10 @@ async function loadDocumentChapterMode(
     ctx.setToc(convertBackendToc(bookMeta.toc));
     ctx.setEncoding(bookMeta.encoding);
     const startProgress = options?.startProgress ?? 0;
-    const chapterIndex = findChapterByProgress(bookMeta, startProgress);
+    // 优先使用直接指定的章节索引
+    const chapterIndex = typeof options?.startChapterIndex === 'number'
+      ? Math.min(Math.max(0, options.startChapterIndex), bookMeta.chapters.length - 1)
+      : findChapterByProgress(bookMeta, startProgress);
     ctx.setCurrentChapterIndex(chapterIndex);
     const currentChapter = await chapterCache.getChapter(chapterIndex);
     ctx.setContent(currentChapter.content);
@@ -162,7 +167,6 @@ async function loadDocumentChapterMode(
     return await loadDocumentFullMode(filePath, ctx);
   }
 }
-
 export function useTxtDocumentLoader(ctx: TxtDocumentLoaderContext): TxtDocumentLoader {
   const loadDocument = async (
     filePath: string,

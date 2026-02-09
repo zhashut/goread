@@ -18,6 +18,7 @@ export interface TxtProgressContext {
   setCurrentPage: (value: number) => void;
   goToPage: (page: number) => Promise<void>;
   goToChapter: (chapterIndex: number) => Promise<void>;
+  getChapterIndexByPage?: (pageIndex: number) => number;
 }
 
 export interface TxtProgressController {
@@ -59,7 +60,9 @@ export function useTxtProgressController(
       return;
     }
     const total = context.getPageCount() || 1;
-    const value = Math.max(1, Math.min(progress, total));
+    // 允许精确进度略超过整数页数（最后一页内的小数偏移），与章节模式保持一致
+    const max = total + 0.999999;
+    const value = Math.max(1, Math.min(progress, max));
     context.setCurrentPreciseProgress(value);
   };
 
@@ -119,11 +122,33 @@ export function useTxtProgressController(
     chapterPrecise: number
   ): number => {
     if (!context.getUseChapterMode()) return chapterPrecise;
+    const chapterIndex = Math.floor(chapterPrecise) - 1;
     const chapterOffset = clampChapterOffset(
       chapterPrecise - Math.floor(chapterPrecise)
     );
     const virtualTotal = Math.max(1, context.getPageCount());
     if (virtualTotal <= 1) return 1;
+
+    // 查找该章节在虚拟页面中的范围
+    if (context.getChapterIndexByPage) {
+      let chapterFirstPage = -1;
+      let chapterLastPage = -1;
+      for (let i = 0; i < virtualTotal; i++) {
+        if (context.getChapterIndexByPage(i) === chapterIndex) {
+          if (chapterFirstPage === -1) chapterFirstPage = i;
+          chapterLastPage = i;
+        }
+      }
+      // 如果找到了该章节的页面范围，精确映射
+      if (chapterFirstPage !== -1) {
+        const chapterPageCount = chapterLastPage - chapterFirstPage + 1;
+        const ratio = chapterOffset / 0.9999;
+        const pageWithinChapter = ratio * chapterPageCount;
+        return chapterFirstPage + 1 + pageWithinChapter;
+      }
+    }
+
+    // 回退：只有单章时使用简单映射
     const ratio = chapterOffset / 0.9999;
     return 1 + ratio * (virtualTotal - 1);
   };
@@ -132,12 +157,49 @@ export function useTxtProgressController(
     virtualPrecise: number
   ): number => {
     if (!context.getUseChapterMode()) return virtualPrecise;
-    const virtualTotal = Math.max(1, context.getPageCount());
-    const ratio =
-      virtualTotal <= 1
-        ? 0
-        : Math.max(0, Math.min(1, (virtualPrecise - 1) / (virtualTotal - 1)));
-    return context.getCurrentChapterIndex() + 1 + ratio * 0.9999;
+
+    const pageIndex = Math.max(0, Math.floor(virtualPrecise) - 1);
+    const chapterIndex = context.getChapterIndexByPage?.(pageIndex) ?? context.getCurrentChapterIndex();
+    const pageOffset = virtualPrecise - Math.floor(virtualPrecise);
+
+    // 计算该章节在虚拟页面中的范围，得到章节内部进度
+    const totalVirtualPages = context.getPageCount();
+    let chapterFirstPage = 0;
+    let chapterLastPage = totalVirtualPages - 1;
+    if (context.getChapterIndexByPage) {
+      // 向前搜索该章节的第一个页面
+      for (let i = pageIndex; i >= 0; i--) {
+        if (context.getChapterIndexByPage(i) !== chapterIndex) break;
+        chapterFirstPage = i;
+      }
+      // 向后搜索该章节的最后一个页面
+      for (let i = pageIndex; i < totalVirtualPages; i++) {
+        if (context.getChapterIndexByPage(i) !== chapterIndex) break;
+        chapterLastPage = i;
+      }
+    }
+
+    const chapterPageCount = chapterLastPage - chapterFirstPage + 1;
+    const pageWithinChapter = pageIndex - chapterFirstPage + pageOffset;
+    const chapterOffset = chapterPageCount > 0
+      ? clampChapterOffset((pageWithinChapter / chapterPageCount) * 0.9999)
+      : 0;
+
+    // 触底修正：最后一章且滚到底部时，强制进度到达上限
+    const chapterCount = context.getChapterCount();
+    if (chapterIndex === chapterCount - 1) {
+      const container = context.getContainer();
+      if (container) {
+        const atBottom =
+          container.scrollTop + container.clientHeight >=
+          container.scrollHeight - 50;
+        if (atBottom) {
+          return chapterCount + 0.9999;
+        }
+      }
+    }
+
+    return chapterIndex + 1 + chapterOffset;
   };
 
   const scrollToVirtualPage = (page: number, viewportHeight: number): void => {

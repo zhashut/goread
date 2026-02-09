@@ -5,12 +5,26 @@ mod toc_parser;
 
 use chardetng::EncodingDetector;
 use memmap2::MmapOptions;
+use once_cell::sync::Lazy;
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
+use std::sync::Mutex;
 
 use super::{BookError, BookErrorCode, BookFormat, BookMetadata, TocItem, TocLocation};
 use toc_parser::TocParser;
+
+#[derive(Clone)]
+struct FullTextCacheEntry {
+    normalized: String,
+    encoding: String,
+    total_bytes: u64,
+}
+
+static FULL_TEXT_CACHE: Lazy<Mutex<HashMap<String, FullTextCacheEntry>>> = Lazy::new(|| {
+    Mutex::new(HashMap::new())
+});
 
 /// 章节元信息（包含字节偏移量）
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -367,6 +381,21 @@ impl TxtEngine {
         let content = Self::decode_bytes(slice, &meta.encoding)?;
         let normalized = Self::normalize_text(&content);
 
+        let has_replacement = normalized.chars().any(|c| c == '\u{FFFD}');
+        if has_replacement && (meta.encoding == "UTF-8" || meta.encoding.starts_with("UTF-8")) {
+            println!(
+                "[TxtEngine] 章节解码出现替代符，使用全文回退: path={}, index={}, encoding={}, byte_start={}, byte_end={}, char_start={}, char_end={}",
+                path,
+                chapter_index,
+                meta.encoding,
+                start,
+                end,
+                chapter.char_start,
+                chapter.char_end
+            );
+            return Self::build_chapter_fallback_full_utf8(path, chapter_index, meta);
+        }
+
         Ok(TxtChapterContent {
             index: chapter_index,
             content: normalized,
@@ -416,6 +445,21 @@ impl TxtEngine {
         let content = Self::decode_bytes(&buffer, &meta.encoding)?;
         let normalized = Self::normalize_text(&content);
 
+        let has_replacement = normalized.chars().any(|c| c == '\u{FFFD}');
+        if has_replacement && (meta.encoding == "UTF-8" || meta.encoding.starts_with("UTF-8")) {
+            println!(
+                "[TxtEngine] 章节解码出现替代符，使用全文回退: path={}, index={}, encoding={}, byte_start={}, byte_end={}, char_start={}, char_end={}",
+                path,
+                chapter_index,
+                meta.encoding,
+                start,
+                end,
+                chapter.char_start,
+                chapter.char_end
+            );
+            return Self::build_chapter_fallback_full_utf8(path, chapter_index, meta);
+        }
+
         Ok(TxtChapterContent {
             index: chapter_index,
             content: normalized,
@@ -453,6 +497,143 @@ impl TxtEngine {
         }
 
         (start, end)
+    }
+
+    fn build_chapter_fallback_full_utf8(
+        path: &str,
+        chapter_index: u32,
+        meta: &TxtBookMeta,
+    ) -> Result<TxtChapterContent, BookError> {
+        let (normalized, total_chars, encoding, total_bytes) =
+            Self::get_or_load_full_normalized_text(path, &meta.encoding)?;
+
+        let chapter = meta
+            .chapters
+            .get(chapter_index as usize)
+            .ok_or_else(|| {
+                BookError::new(
+                    BookErrorCode::InvalidParameter,
+                    format!(
+                        "全文回退章节索引 {} 超出范围（共 {} 章）",
+                        chapter_index,
+                        meta.chapters.len()
+                    ),
+                )
+            })?;
+
+        let mut char_start = chapter.char_start.min(total_chars);
+        let mut char_end = chapter.char_end.min(total_chars);
+        if char_end < char_start {
+            char_end = char_start;
+        }
+
+        let mut start_byte = 0usize;
+        let mut end_byte = normalized.len();
+        let mut current = 0u64;
+
+        for (byte_idx, _) in normalized.char_indices() {
+            if current == char_start {
+                start_byte = byte_idx;
+            }
+            if current == char_end {
+                end_byte = byte_idx;
+                break;
+            }
+            current = current.saturating_add(1);
+        }
+
+        let slice = if start_byte >= end_byte || start_byte >= normalized.len() {
+            String::new()
+        } else {
+            let end_idx = end_byte.min(normalized.len());
+            normalized[start_byte..end_idx].to_string()
+        };
+
+        println!(
+            "[TxtEngine] 全文回退提取章节: path={}, index={}, encoding={}, char_start={}, char_end={}, start_byte={}, end_byte={}, total_chars={}, total_bytes={}",
+            path,
+            chapter_index,
+            encoding,
+            char_start,
+            char_end,
+            start_byte,
+            end_byte,
+            total_chars,
+            total_bytes
+        );
+
+        Ok(TxtChapterContent {
+            index: chapter_index,
+            content: slice,
+            char_start,
+            char_end,
+        })
+    }
+
+    fn get_or_load_full_normalized_text(
+        path: &str,
+        meta_encoding: &str,
+    ) -> Result<(String, u64, String, u64), BookError> {
+        if let Ok(cache) = FULL_TEXT_CACHE.lock() {
+            if let Some(entry) = cache.get(path) {
+                return Ok((
+                    entry.normalized.clone(),
+                    entry.normalized.chars().count() as u64,
+                    entry.encoding.clone(),
+                    entry.total_bytes,
+                ));
+            }
+        }
+
+        let bytes = fs::read(path).map_err(|e| {
+            BookError::new(
+                BookErrorCode::IoError,
+                format!("全文回退读取文件失败: {}", e),
+            )
+        })?;
+
+        let total_bytes = bytes.len() as u64;
+        let (content, encoding) = Self::decode_content(&bytes)?;
+
+        if encoding != meta_encoding {
+            println!(
+                "[TxtEngine] 全文缓存编码与元数据不一致: path={}, meta_encoding={}, detected_encoding={}",
+                path,
+                meta_encoding,
+                encoding
+            );
+        }
+
+        let normalized = Self::normalize_text(&content);
+        let replacement_count = normalized.chars().filter(|c| *c == '\u{FFFD}').count();
+        if replacement_count > 0 {
+            println!(
+                "[TxtEngine] 全文缓存仍包含替代符: path={}, encoding={}, replacement_count={}",
+                path,
+                encoding,
+                replacement_count
+            );
+        }
+
+        let entry = FullTextCacheEntry {
+            normalized: normalized.clone(),
+            encoding: encoding.clone(),
+            total_bytes,
+        };
+
+        if let Ok(mut cache) = FULL_TEXT_CACHE.lock() {
+            cache.insert(path.to_string(), entry);
+            println!(
+                "[TxtEngine] 全文缓存创建: path={}, encoding={}, total_bytes={}",
+                path,
+                encoding,
+                total_bytes
+            );
+        }
+
+        let total_chars = normalized.chars().count() as u64;
+
+        Ok((normalized, total_chars, encoding, total_bytes))
     }
 
     /// 将 TocItem 转换为 TxtChapterMeta

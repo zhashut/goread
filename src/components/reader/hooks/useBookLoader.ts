@@ -65,6 +65,8 @@ export const useBookLoader = (
         setExternalPath,
         setIsDomRender,
         bookIdRef,
+        savedPageAtOpenRef,
+        latestPreciseProgressRef,
     } = readerState;
     const { rendererRef, modeVersionRef, epubRenderedRef } = refs;
 
@@ -206,19 +208,14 @@ export const useBookLoader = (
                 let bookInfo;
                 let pageCount;
                 if (renderer instanceof TxtRenderer) {
+                    // 章节模式下 precise_progress 格式为 chapterIndex+1+offset（如 3.5 表示第3章50%位置）
+                    // 直接用整数部分作为章节索引，避免 0-1 比例映射导致的精度损失
                     const initialProgress = targetBook.precise_progress ?? targetBook.current_page ?? 1;
-                    const denomBase = targetBook.total_pages || 1;
-                    const denom = Math.max(1, denomBase - 1);
-                    let startProgress = denom > 0 ? (initialProgress - 1) / denom : 0;
-                    if (startProgress < 0) startProgress = 0;
-                    if (startProgress > 1) startProgress = 1;
-                    if (targetBook.status !== 1 && startProgress >= 0.999) {
-                        startProgress = 0.95;
-                    }
+                    const chapterIndex = Math.max(0, Math.floor(initialProgress) - 1);
 
                     bookInfo = await renderer.loadDocument(targetBook.file_path, {
                         useChapterMode: true,
-                        startProgress,
+                        startChapterIndex: chapterIndex,
                     });
 
                     pageCount = Math.max(
@@ -237,8 +234,63 @@ export const useBookLoader = (
                 if (!params.isExternal && renderer instanceof TxtRenderer) {
                     const oldTotalPages = targetBook.total_pages ?? 1;
                     if (pageCount > 0 && pageCount !== oldTotalPages) {
-                        setBook({ ...targetBook, total_pages: pageCount });
+                        const legacyTotal = oldTotalPages > 0 ? oldTotalPages : 1;
+                        const legacyProgress =
+                            typeof targetBook.precise_progress === "number"
+                                ? targetBook.precise_progress
+                                : typeof targetBook.current_page === "number"
+                                ? targetBook.current_page
+                                : 1;
+
+                        let migratedPrecise: number | null = null;
+                        if (legacyTotal > 1 && legacyProgress > 0) {
+                            const denom = Math.max(1, legacyTotal - 1);
+                            let ratio = (legacyProgress - 1) / denom;
+                            if (!isFinite(ratio)) {
+                                ratio = 0;
+                            }
+                            if (ratio < 0) ratio = 0;
+                            if (ratio > 1) ratio = 1;
+
+                            const chapterCount = Math.max(1, pageCount);
+                            const scaled = ratio * (chapterCount - 1);
+                            let chapterIndex = Math.floor(scaled + 1e-6);
+                            if (chapterIndex < 0) chapterIndex = 0;
+                            if (chapterIndex > chapterCount - 1) {
+                                chapterIndex = chapterCount - 1;
+                            }
+                            const rawOffset = chapterCount > 1 ? scaled - chapterIndex : ratio;
+                            const offset =
+                                rawOffset <= 0
+                                    ? 0
+                                    : rawOffset >= 0.9999
+                                    ? 0.9999
+                                    : rawOffset;
+                            migratedPrecise = chapterIndex + 1 + offset;
+                        }
+
+                        const nextBook = {
+                            ...targetBook,
+                            total_pages: pageCount,
+                            precise_progress:
+                                migratedPrecise != null
+                                    ? migratedPrecise
+                                    : targetBook.precise_progress,
+                        };
+
+                        setBook(nextBook);
                         bookService.updateBookTotalPages(targetBook.id, pageCount).catch(() => { });
+
+                        if (migratedPrecise != null) {
+                            setCurrentPage(migratedPrecise);
+                            savedPageAtOpenRef.current = migratedPrecise;
+                            if (latestPreciseProgressRef) {
+                                latestPreciseProgressRef.current = migratedPrecise;
+                            }
+                            bookService
+                                .updateBookProgress(targetBook.id, migratedPrecise)
+                                .catch(() => { });
+                        }
                     }
                 }
                 setLoading(false);

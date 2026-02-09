@@ -263,6 +263,7 @@ export const Reader: React.FC = () => {
     rendererRef,
     setBook: readerState.setBook,
     readingMode,
+    latestPreciseProgressRef: readerState.latestPreciseProgressRef,
   });
 
 

@@ -61,6 +61,10 @@ export const useTxtPaging = ({
   const lastAutoSwitchTsRef = useRef<number>(0);
   const lastPreloadTsRef = useRef<number>(0);
   const lastPreloadTargetRef = useRef<number | null>(null);
+  // 分页版本号守卫：检测异步精确分页替换，跳过中间帧的页码计算
+  const lastPagesVersionRef = useRef(0);
+  // 标记页码变化是否来自滚动，避免页码 effect 反向滚动导致二次跳变
+  const fromScrollRef = useRef(false);
 
   // 判断是否为 TXT 渲染器
   const isTxtRenderer = (r: IBookRenderer | null): r is TxtRenderer => {
@@ -80,7 +84,7 @@ export const useTxtPaging = ({
     // 仅对 TXT 格式生效，避免影响其他格式的目录高亮逻辑
     const renderer = rendererRef.current;
     if (!isTxtRenderer(renderer)) return;
-    
+
     if (!setActiveNodeSignature || !toc || toc.length === 0) return;
     const sig = findActiveNodeSignature(currentPage, 1.0, true, toc);
     setActiveNodeSignature(sig || undefined);
@@ -215,13 +219,13 @@ export const useTxtPaging = ({
           const pageInt = chapterMode
             ? Math.min(Math.max(1, Math.floor(preciseProgress)), Math.max(1, txtRenderer.getChapterCount()))
             : Math.floor(preciseProgress);
-          
+
           // 先更新 ref，避免 setCurrentPage 触发页码变化监听时产生二次滚动
           lastPageRef.current = pageInt;
           if (latestPreciseProgressRef) {
             latestPreciseProgressRef.current = preciseProgress;
           }
-          
+
           // 再设置页码和滚动
           setCurrentPage(pageInt);
           if (viewportHeight > 0) {
@@ -232,20 +236,30 @@ export const useTxtPaging = ({
               txtRenderer.scrollToVirtualPage(preciseProgress, viewportHeight);
             }
           }
+
+          // 内容不足一屏时自动追加下一章，避免无法触发滚动追加
+          if (chapterMode && typeof txtRenderer.appendNextChapter === 'function') {
+            const maxScroll = container!.scrollHeight - container!.clientHeight;
+            if (maxScroll <= 2) {
+              try {
+                await txtRenderer.appendNextChapter();
+              } catch { }
+            }
+          }
         } else {
           const targetPage = chapterMode
             ? 1
             : Math.min(
-                Math.max(1, Math.floor(preciseProgress)),
-                unifiedTotalPages > 0 ? unifiedTotalPages : 1
-              );
+              Math.max(1, Math.floor(preciseProgress)),
+              unifiedTotalPages > 0 ? unifiedTotalPages : 1
+            );
 
           // 先更新 ref，避免 setCurrentPage 触发页码变化监听时产生二次渲染
           lastPageRef.current = chapterMode ? Math.floor(preciseProgress) : targetPage;
           if (latestPreciseProgressRef) {
             latestPreciseProgressRef.current = preciseProgress;
           }
-          
+
           await txtRenderer.renderPage(targetPage, container!, options);
           setCurrentPage(chapterMode ? Math.floor(preciseProgress) : targetPage);
         }
@@ -269,29 +283,52 @@ export const useTxtPaging = ({
     const chapterMode = renderer.isChapterMode();
 
     if (readingMode === 'vertical') {
+      // 来自 scroll handler 的页码更新，不需要反向滚动
+      if (fromScrollRef.current) {
+        fromScrollRef.current = false;
+        // 仍然需要持久化进度
+        if (!isExternal && book) {
+          bookService
+            .updateBookProgress(book.id, latestPreciseProgressRef?.current ?? currentPage)
+            .catch(() => { });
+        }
+        return;
+      }
+
       if (chapterMode) {
         const chapterCount = Math.max(1, renderer.getChapterCount());
         const targetChapterIndex = Math.min(
           Math.max(0, currentPage - 1),
           chapterCount - 1
         );
-        renderer
-          .goToChapter(targetChapterIndex)
-          .then(() => {
-            const viewportHeight = container.clientHeight;
-            const preciseProgress = latestPreciseProgressRef?.current ?? currentPage;
-            const virtualPrecise = renderer.convertChapterPreciseToVirtualPrecise(preciseProgress);
-            renderer.scrollToVirtualPage(virtualPrecise, viewportHeight);
-            lastScrollTopRef.current = container.scrollTop;
-          })
-          .catch(() => { });
+        // 如果目标章节已经在连续滚动加载的范围内，不需要重新加载
+        const minLoadedIndex = typeof renderer.getMinLoadedChapterIndex === 'function'
+          ? renderer.getMinLoadedChapterIndex()
+          : renderer.getCurrentChapterIndex();
+        const maxLoadedIndex = typeof renderer.getMaxLoadedChapterIndex === 'function'
+          ? renderer.getMaxLoadedChapterIndex()
+          : renderer.getCurrentChapterIndex();
+        const isAlreadyLoaded = targetChapterIndex >= minLoadedIndex
+          && targetChapterIndex <= maxLoadedIndex;
+        if (!isAlreadyLoaded) {
+          renderer
+            .goToChapter(targetChapterIndex)
+            .then(() => {
+              const viewportHeight = container.clientHeight;
+              const preciseProgress = latestPreciseProgressRef?.current ?? currentPage;
+              const virtualPrecise = renderer.convertChapterPreciseToVirtualPrecise(preciseProgress);
+              renderer.scrollToVirtualPage(virtualPrecise, viewportHeight);
+              lastScrollTopRef.current = container.scrollTop;
+            })
+            .catch(() => { });
+        }
       }
 
       // 纵向模式：优先使用精确进度（如果整数部分匹配）
       const viewportHeight = container.clientHeight;
       const preciseProgress = latestPreciseProgressRef?.current ?? currentPage;
       const preciseIntPage = Math.floor(preciseProgress);
-      
+
       if (preciseIntPage === currentPage) {
         // 整数部分匹配，使用精确进度恢复位置
         if (!chapterMode) {
@@ -362,138 +399,119 @@ export const useTxtPaging = ({
         const wasScrollTop = lastScrollTopRef.current;
         lastScrollTopRef.current = scrollTop;
 
-        // 触底检测：如果滚动到底部，直接设为最后一页
-        const isAtBottom = maxScrollTop > 0 && scrollTop >= maxScrollTop - 2; // 2px 容差
-        if (isAtBottom) {
-          if (chapterMode) {
-            const chapterCount = Math.max(1, renderer.getChapterCount());
-            const currentChapterIndex = renderer.getCurrentChapterIndex();
-            const canGoNext = currentChapterIndex < chapterCount - 1;
-            const isScrollingDown = scrollTop > wasScrollTop;
-            const now = Date.now();
-            const canAutoSwitch =
-              canGoNext &&
-              isScrollingDown &&
-              !isAutoSwitchingChapterRef.current &&
-              now - lastAutoSwitchTsRef.current > 450;
+        // 章节模式：预追加检测（提前触发，避免触底时阻塞）
+        if (chapterMode && !isAutoSwitchingChapterRef.current) {
+          const now = Date.now();
+          const isScrollingDown = scrollTop > wasScrollTop;
+          const isScrollingUp = scrollTop < wasScrollTop;
 
-            if (canAutoSwitch) {
+          // 距离底部不足半屏时预追加下一章
+          const nearBottomThreshold = viewportHeight * 0.5;
+          const isNearBottom = maxScrollTop > 0 && scrollTop >= maxScrollTop - nearBottomThreshold;
+          if (isNearBottom && isScrollingDown) {
+            const maxLoadedIndex = typeof renderer.getMaxLoadedChapterIndex === 'function'
+              ? renderer.getMaxLoadedChapterIndex()
+              : renderer.getCurrentChapterIndex();
+            const chapterCount = Math.max(1, renderer.getChapterCount());
+            const canGoNext = maxLoadedIndex < chapterCount - 1;
+
+            if (canGoNext && now - lastAutoSwitchTsRef.current > 50) {
               isAutoSwitchingChapterRef.current = true;
               lastAutoSwitchTsRef.current = now;
               void (async () => {
                 try {
-                  const nextChapterIndex = currentChapterIndex + 1;
-                  await renderer.goToChapter(nextChapterIndex);
-                  container.scrollTop = 0;
+                  if (typeof renderer.appendNextChapter === 'function') {
+                    await renderer.appendNextChapter();
+                    // 不再循环追加短章节，下一帧的 scroll 事件会自然再次触发
+                  } else {
+                    const nextChapterIndex = maxLoadedIndex + 1;
+                    await renderer.goToChapter(nextChapterIndex);
+                    container.scrollTop = 0;
 
-                  const nextChapterPage = nextChapterIndex + 1;
-                  lastPageRef.current = nextChapterPage;
-                  setCurrentPage(nextChapterPage);
-                  if (latestPreciseProgressRef) {
-                    latestPreciseProgressRef.current = nextChapterPage;
-                  }
+                    const nextChapterPage = nextChapterIndex + 1;
+                    lastPageRef.current = nextChapterPage;
+                    setCurrentPage(nextChapterPage);
+                    if (latestPreciseProgressRef) {
+                      latestPreciseProgressRef.current = nextChapterPage;
+                    }
 
-                  if (!isExternal && book) {
-                    lastSavedPreciseRef.current = nextChapterPage;
-                    lastSaveTimeRef.current = Date.now();
-                    bookService.updateBookProgress(book.id, nextChapterPage).catch(() => { });
+                    if (!isExternal && book) {
+                      lastSavedPreciseRef.current = nextChapterPage;
+                      lastSaveTimeRef.current = Date.now();
+                      bookService.updateBookProgress(book.id, nextChapterPage).catch(() => { });
+                    }
                   }
                 } finally {
                   isAutoSwitchingChapterRef.current = false;
                 }
               })();
-              return;
-            }
-
-            const chapterPage = renderer.getCurrentChapterIndex() + 1;
-            const preciseProgress = chapterPage + 0.9999;
-            const pageInt = Math.floor(preciseProgress);
-            if (pageInt !== lastPageRef.current) {
-              lastPageRef.current = pageInt;
-              setCurrentPage(pageInt);
-            }
-            if (latestPreciseProgressRef) {
-              latestPreciseProgressRef.current = preciseProgress;
-            }
-          } else {
-            const total = totalPages > 0 ? totalPages : renderer.getPageCount();
-            const precisePage = total;
-            renderer.updatePreciseProgress(precisePage);
-
-            if (precisePage !== lastPageRef.current) {
-              lastPageRef.current = precisePage;
-              setCurrentPage(precisePage);
-            }
-
-            if (latestPreciseProgressRef) {
-              latestPreciseProgressRef.current = precisePage;
             }
           }
 
-          if (!isExternal && book) {
-            const now = Date.now();
-            const lastPrecise = lastSavedPreciseRef.current;
-            const lastTime = lastSaveTimeRef.current;
-            const valueToSave = chapterMode
-              ? (latestPreciseProgressRef?.current ?? (renderer.getCurrentChapterIndex() + 1))
-              : (latestPreciseProgressRef?.current ?? currentPage);
-            if (lastPrecise === null || Math.abs(valueToSave - lastPrecise) >= 0.1 || now - lastTime >= 3000) {
-              lastSavedPreciseRef.current = valueToSave;
-              lastSaveTimeRef.current = now;
-              bookService.updateBookProgress(book.id, valueToSave).catch(() => { });
+          // 距离顶部不足 30% 屏时预追加上一章
+          const nearTopThreshold = viewportHeight * 0.3;
+          const isNearTop = scrollTop <= nearTopThreshold;
+          if (isNearTop && isScrollingUp) {
+            const minLoadedIndex = typeof renderer.getMinLoadedChapterIndex === 'function'
+              ? renderer.getMinLoadedChapterIndex()
+              : renderer.getCurrentChapterIndex();
+            const canGoPrev = minLoadedIndex > 0;
+
+            if (canGoPrev && now - lastAutoSwitchTsRef.current > 50) {
+              isAutoSwitchingChapterRef.current = true;
+              lastAutoSwitchTsRef.current = now;
+              void (async () => {
+                try {
+                  if (typeof renderer.prependPrevChapter === 'function') {
+                    const prepended = await renderer.prependPrevChapter();
+                    if (prepended) {
+                      lastScrollTopRef.current = container.scrollTop;
+                    }
+                  } else {
+                    const prevChapterIndex = minLoadedIndex - 1;
+                    await renderer.goToChapter(prevChapterIndex);
+
+                    const safePadding = 12;
+                    const targetScrollTop = Math.max(
+                      0,
+                      container.scrollHeight - viewportHeight - safePadding
+                    );
+                    container.scrollTop = targetScrollTop;
+                    lastScrollTopRef.current = targetScrollTop;
+
+                    const prevChapterPage = prevChapterIndex + 1;
+                    lastPageRef.current = prevChapterPage;
+                    setCurrentPage(prevChapterPage);
+                    if (latestPreciseProgressRef) {
+                      latestPreciseProgressRef.current = prevChapterPage + 0.9999;
+                    }
+
+                    if (!isExternal && book) {
+                      const valueToSave =
+                        latestPreciseProgressRef?.current ?? prevChapterPage;
+                      lastSavedPreciseRef.current = valueToSave;
+                      lastSaveTimeRef.current = Date.now();
+                      bookService.updateBookProgress(book.id, valueToSave).catch(() => { });
+                    }
+                  }
+                } finally {
+                  isAutoSwitchingChapterRef.current = false;
+                }
+              })();
             }
           }
+        }
+
+        // 分页版本号守卫：精确分页异步替换后跳过本帧页码计算，避免跳变
+        const currentPagesVersion = renderer.getPagesVersion();
+        if (currentPagesVersion !== lastPagesVersionRef.current) {
+          lastPagesVersionRef.current = currentPagesVersion;
           return;
         }
 
-        const isAtTop = scrollTop <= 2;
-        if (isAtTop && chapterMode) {
-          const currentChapterIndex = renderer.getCurrentChapterIndex();
-          const canGoPrev = currentChapterIndex > 0;
-          const isScrollingUp = scrollTop < wasScrollTop;
-          const now = Date.now();
-          const canAutoSwitch =
-            canGoPrev &&
-            isScrollingUp &&
-            !isAutoSwitchingChapterRef.current &&
-            now - lastAutoSwitchTsRef.current > 450;
-
-          if (canAutoSwitch) {
-            isAutoSwitchingChapterRef.current = true;
-            lastAutoSwitchTsRef.current = now;
-            void (async () => {
-              try {
-                const prevChapterIndex = currentChapterIndex - 1;
-                await renderer.goToChapter(prevChapterIndex);
-
-                const safePadding = 12;
-                const targetScrollTop = Math.max(
-                  0,
-                  container.scrollHeight - viewportHeight - safePadding
-                );
-                container.scrollTop = targetScrollTop;
-                lastScrollTopRef.current = targetScrollTop;
-
-                const prevChapterPage = prevChapterIndex + 1;
-                lastPageRef.current = prevChapterPage;
-                setCurrentPage(prevChapterPage);
-                if (latestPreciseProgressRef) {
-                  latestPreciseProgressRef.current = prevChapterPage + 0.9999;
-                }
-
-                if (!isExternal && book) {
-                  const valueToSave =
-                    latestPreciseProgressRef?.current ?? prevChapterPage;
-                  lastSavedPreciseRef.current = valueToSave;
-                  lastSaveTimeRef.current = Date.now();
-                  bookService.updateBookProgress(book.id, valueToSave).catch(() => { });
-                }
-              } finally {
-                isAutoSwitchingChapterRef.current = false;
-              }
-            })();
-            return;
-          }
+        // 章节追加/前插期间 DOM 和 pageMap 不一致，跳过页码计算
+        if (isAutoSwitchingChapterRef.current) {
+          return;
         }
 
         const virtualPrecise = renderer.getVirtualPreciseByScrollTop(scrollTop);
@@ -523,12 +541,13 @@ export const useTxtPaging = ({
             renderer.preloadAdjacentChapters(targetIndex).catch(() => { });
           }
 
-          const chapterPage = renderer.getCurrentChapterIndex() + 1;
           const chapterPrecise = renderer.convertVirtualPreciseToChapterPrecise(virtualPrecise);
+          const chapterPage = Math.floor(chapterPrecise);
           renderer.updatePreciseProgress(chapterPrecise);
 
           if (chapterPage !== lastPageRef.current) {
             lastPageRef.current = chapterPage;
+            fromScrollRef.current = true;
             setCurrentPage(chapterPage);
           }
 
@@ -541,6 +560,7 @@ export const useTxtPaging = ({
           const pageInt = Math.floor(virtualPrecise);
           if (pageInt !== lastPageRef.current) {
             lastPageRef.current = pageInt;
+            fromScrollRef.current = true;
             setCurrentPage(pageInt);
           }
 
@@ -559,9 +579,9 @@ export const useTxtPaging = ({
           let shouldSave = false;
           if (lastPrecise === null) {
             shouldSave = true;
-          } else if (Math.abs(progressToSave - lastPrecise) >= 0.1) {
+          } else if (Math.abs(progressToSave - lastPrecise) >= 0.02) {
             shouldSave = true;
-          } else if (now - lastTime >= 3000) {
+          } else if (now - lastTime >= 100) {
             shouldSave = true;
           }
 
@@ -582,6 +602,31 @@ export const useTxtPaging = ({
       container.removeEventListener('scroll', handleScroll);
       if (rafId !== null) {
         cancelAnimationFrame(rafId);
+      }
+      if (!isExternal && book) {
+        let progressToSave =
+          latestPreciseProgressRef?.current ?? renderer.getPreciseProgress();
+        if (renderer.isVerticalMode()) {
+          const viewportHeight = container.clientHeight;
+          if (viewportHeight > 0) {
+            const scrollTop = container.scrollTop;
+            const chapterModeCurrent = renderer.isChapterMode();
+            const virtualPrecise = renderer.getVirtualPreciseByScrollTop(scrollTop);
+            if (chapterModeCurrent) {
+              progressToSave =
+                renderer.convertVirtualPreciseToChapterPrecise(virtualPrecise);
+            } else {
+              progressToSave = virtualPrecise;
+            }
+            if (latestPreciseProgressRef) {
+              latestPreciseProgressRef.current = progressToSave;
+            }
+            renderer.updatePreciseProgress(progressToSave);
+          }
+        }
+        if (progressToSave && lastSavedPreciseRef.current !== progressToSave) {
+          bookService.updateBookProgress(book.id, progressToSave).catch(() => { });
+        }
       }
     };
   }, [readingMode, loading, book?.id, isExternal, totalPages]);
@@ -611,14 +656,8 @@ export const useTxtPaging = ({
             const max = chapterCount + 0.999999;
             if (preciseProgress > max) preciseProgress = max;
 
-            const chapterInt = Math.min(
-              Math.max(1, Math.floor(preciseProgress)),
-              chapterCount
-            );
-            const targetChapterIndex = chapterInt - 1;
-            if (txtRenderer.getCurrentChapterIndex() !== targetChapterIndex) {
-              await txtRenderer.goToChapter(targetChapterIndex);
-            }
+            // 不调用 goToChapter，避免清空连续滚动已追加的章节内容
+            // renderFullContent 会使用当前 _content（可能包含多章拼接内容）重新渲染
           }
 
           await txtRenderer.renderFullContent(container, options);

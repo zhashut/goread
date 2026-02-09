@@ -37,6 +37,8 @@ export interface TxtLoadOptions {
   skipPreloaderCache?: boolean;
   /** 初始进度（0-1） */
   startProgress?: number;
+  /** 直接指定初始章节索引（0-based），优先于 startProgress */
+  startChapterIndex?: number;
 }
 
 /**
@@ -78,6 +80,11 @@ export class TxtRenderer implements IBookRenderer {
   private _currentHideDivider: boolean = false;
   private _verticalPageTops: number[] = [];
   private _verticalPageHeights: number[] = [];
+  // 记录当前 content 中包含哪些章节
+  private _loadedChapters = new Set<number>();
+
+  // 分页版本号，每次异步精确分页替换后自增，用于 scroll handler 检测数据变化
+  private _pagesVersion: number = 0;
 
   // 目录更新回调，分页完成后触发，用于通知 UI 层刷新目录数据
   onTocUpdated?: (toc: TocItem[]) => void;
@@ -144,6 +151,7 @@ export class TxtRenderer implements IBookRenderer {
       },
       goToPage: (page) => this.goToPage(page),
       goToChapter: (chapterIndex) => this.goToChapter(chapterIndex),
+      getChapterIndexByPage: (pageIndex) => this.getChapterIndexByPage(pageIndex),
     });
   }
 
@@ -179,6 +187,11 @@ export class TxtRenderer implements IBookRenderer {
   /** 获取当前页码 */
   getCurrentPage(): number {
     return this._currentPage;
+  }
+
+  /** 获取分页版本号，用于 scroll handler 检测异步分页替换 */
+  getPagesVersion(): number {
+    return this._pagesVersion;
   }
 
   /** 获取精确进度（浮点数），用于撤回跳转等场景 */
@@ -261,6 +274,10 @@ export class TxtRenderer implements IBookRenderer {
     }
 
     if (chapterIndex === this._currentChapterIndex) {
+      // 确保当前章节在已加载集合中（初次加载时可能为空）
+      if (!this._loadedChapters.has(chapterIndex)) {
+        this._loadedChapters.add(chapterIndex);
+      }
       return;
     }
 
@@ -289,6 +306,249 @@ export class TxtRenderer implements IBookRenderer {
       chapterIndex,
       this._bookMeta.chapters.length
     ).catch(() => { });
+
+    // 重置已加载章节集合
+    this._loadedChapters.clear();
+    this._loadedChapters.add(chapterIndex);
+  }
+
+  /** 获取已加载章节的最大索引 */
+  getMaxLoadedChapterIndex(): number {
+    if (this._loadedChapters.size === 0) return this._currentChapterIndex;
+    return Math.max(...this._loadedChapters);
+  }
+
+  /**
+   * 追加下一章（连续滚动模式）
+   * 返回 true 表示成功追加，false 表示无法追加（已是最后一章或已加载）
+   */
+  async appendNextChapter(): Promise<boolean> {
+    if (!this._useChapterMode || !this._chapterCache || !this._bookMeta) {
+      return false;
+    }
+
+    // 基于已加载章节的最大索引来判断下一章
+    const maxLoaded = this.getMaxLoadedChapterIndex();
+    const nextIndex = maxLoaded + 1;
+    if (nextIndex >= this._bookMeta.chapters.length) {
+      return false;
+    }
+
+    // 防止重复加载
+    if (this._loadedChapters.has(nextIndex)) {
+      return false;
+    }
+
+    console.log(`[TxtRenderer] Appending chapter ${nextIndex}`);
+
+    // 加载新章节
+    const chapter = await this._chapterCache.getChapter(nextIndex);
+
+    if (!this._container) return false;
+
+    const options = this._lastRenderOptions || {};
+    const currentContentLength = this._content.length;
+
+    // 纵向滚动模式：使用轻量估算分页，保持 _pages 与 DOM wrapper 一致
+    const estimatedPages = this._estimatePages(chapter.content, nextIndex, currentContentLength);
+
+    this._content += chapter.content;
+
+    const shiftedPages = estimatedPages.map(p => ({
+      ...p,
+      chapterIndex: nextIndex,
+      index: p.index + this._pages.length,
+      startOffset: p.startOffset + currentContentLength,
+      endOffset: p.endOffset + currentContentLength
+    }));
+    this._pages.push(...shiftedPages);
+
+    this._loadedChapters.add(nextIndex);
+
+    // 追加 TOC 不依赖分页计算，直接处理
+    this.onTocUpdated?.(this._toc);
+
+    // DOM 即将变化，递增版本号让 scroll handler 跳过过渡期的页码计算
+    this._pagesVersion++;
+
+    // 渲染追加的内容
+    const startPageIndex = this._pages.length - estimatedPages.length;
+
+    if (this._isVerticalMode) {
+      this._core.appendContentWithPageDividers(
+        this._container,
+        chapter.content,
+        estimatedPages,
+        options,
+        startPageIndex
+      );
+
+      // 等一帧让 DOM 生效，刷新 pageMap
+      await new Promise<void>(resolve => {
+        requestAnimationFrame(() => {
+          if (this._container) {
+            this._scrollHeight = this._container.scrollHeight;
+            this.refreshVerticalPageMap(this._container);
+          }
+          resolve();
+        });
+      });
+
+    }
+
+    // 预加载下一章
+    this._chapterCache.preloadAdjacentChapters(
+      nextIndex,
+      this._bookMeta.chapters.length
+    ).catch(() => { });
+
+    return true;
+  }
+
+  /**
+   * 基于内容行数和平均行高做轻量估算分页
+   * 不涉及 DOM 测量，避免阻塞追加流程
+   */
+  private _estimatePages(
+    content: string,
+    _chapterIndex: number,
+    _baseOffset: number
+  ): PageRange[] {
+    // 用现有分页数据估算平均每页字符数
+    const avgCharsPerPage = this._pages.length > 0
+      ? Math.max(200, Math.floor(this._content.length / this._pages.length))
+      : 2000;
+
+    const pages: PageRange[] = [];
+    let offset = 0;
+    let pageIndex = 0;
+    while (offset < content.length) {
+      const end = Math.min(offset + avgCharsPerPage, content.length);
+      pages.push({
+        index: pageIndex,
+        startOffset: offset,
+        endOffset: end,
+      });
+      offset = end;
+      pageIndex++;
+    }
+    // 至少返回一页
+    if (pages.length === 0) {
+      pages.push({
+        index: 0,
+        startOffset: 0,
+        endOffset: content.length,
+      });
+    }
+    return pages;
+  }
+
+  /**
+   * 向前追加上一章（连续滚动模式）
+   * 返回 true 表示成功追加，false 表示无法追加
+   */
+  async prependPrevChapter(): Promise<boolean> {
+    if (!this._useChapterMode || !this._chapterCache || !this._bookMeta) {
+      return false;
+    }
+
+    // 基于已加载章节的最小索引来判断上一章
+    const minLoaded = this.getMinLoadedChapterIndex();
+    const prevIndex = minLoaded - 1;
+    if (prevIndex < 0) {
+      return false;
+    }
+
+    if (this._loadedChapters.has(prevIndex)) {
+      return false;
+    }
+
+    if (!this._container) return false;
+
+    console.log(`[TxtRenderer] Prepending chapter ${prevIndex}`);
+
+    // DOM 即将变化，递增版本号让 scroll handler 跳过过渡期的页码计算
+    this._pagesVersion++;
+
+    const chapter = await this._chapterCache.getChapter(prevIndex);
+    const options = this._lastRenderOptions || {};
+
+    // 使用轻量估算分页，避免阻塞
+    const newPages = this._estimatePages(chapter.content, prevIndex, 0);
+
+    // 记录插入前的滚动高度
+    const prevScrollHeight = this._container.scrollHeight;
+
+    const newContentLength = chapter.content.length;
+
+    // 更新现有 pages 的偏移量（向后移动）
+    for (const p of this._pages) {
+      p.startOffset += newContentLength;
+      p.endOffset += newContentLength;
+      if (p.index !== undefined) {
+        p.index += newPages.length;
+      }
+    }
+
+    // 创建新页面并插入到头部
+    const prependedPages = newPages.map(p => ({
+      ...p,
+      chapterIndex: prevIndex,
+    }));
+    this._pages.unshift(...prependedPages);
+
+    // 更新内容
+    this._content = chapter.content + this._content;
+    this._loadedChapters.add(prevIndex);
+
+    // 渲染追加的内容到 DOM 前面
+    if (this._isVerticalMode) {
+      this._core.prependContentWithPageDividers(
+        this._container,
+        chapter.content,
+        newPages,
+        options,
+        0
+      );
+
+      // 按 DOM 顺序重新编号所有 page wrapper 的 data-page-index
+      const orderedWrappers = this._container.querySelectorAll('[data-page-index]');
+      orderedWrappers.forEach((el, i) => {
+        el.setAttribute('data-page-index', String(i));
+      });
+
+      // 连续两帧确认布局稳定后再修正 scrollTop
+      await new Promise<void>(resolve => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            if (this._container) {
+              const newScrollHeight = this._container.scrollHeight;
+              const scrollDelta = newScrollHeight - prevScrollHeight;
+              this._container.scrollTop += scrollDelta;
+
+              this._scrollHeight = newScrollHeight;
+              this.refreshVerticalPageMap(this._container);
+            }
+            resolve();
+          });
+        });
+      });
+
+    }
+
+    // 预加载相邻章节
+    this._chapterCache.preloadAdjacentChapters(
+      prevIndex,
+      this._bookMeta.chapters.length
+    ).catch(() => { });
+
+    return true;
+  }
+
+  /** 获取已加载章节的最小索引 */
+  getMinLoadedChapterIndex(): number {
+    if (this._loadedChapters.size === 0) return this._currentChapterIndex;
+    return Math.min(...this._loadedChapters);
   }
 
   /** 获取当前章节索引 */
@@ -400,8 +660,23 @@ export class TxtRenderer implements IBookRenderer {
       options,
       { updateTocPageNumbers: !this._useChapterMode }
     );
-    this._pages = pages;
+
+    // 如果是章节模式，需要为 pages 添加 chapterIndex
+    if (this._useChapterMode) {
+      const chapterIndex = this._currentChapterIndex;
+      this._pages = pages.map(p => ({ ...p, chapterIndex }));
+    } else {
+      this._pages = pages;
+    }
+
     this._toc = toc;
+  }
+
+  getChapterIndexByPage(pageIndex: number): number {
+    if (pageIndex < 0 || pageIndex >= this._pages.length) {
+      return this._currentChapterIndex;
+    }
+    return this._pages[pageIndex].chapterIndex ?? this._currentChapterIndex;
   }
 
   /** 渲染内容到容器 */
@@ -499,6 +774,7 @@ export class TxtRenderer implements IBookRenderer {
     this._scrollHeight = 0;
     this._currentPreciseProgress = 1;
     this._bookPreciseProgress = 1;
+    this._pagesVersion = 0;
     this._useChapterMode = false;
     this._chapterCache = null;
     this._bookMeta = null;
