@@ -136,6 +136,55 @@ fn convert_toc(navpoints: &[NavPoint]) -> Vec<TocItem> {
     convert_toc_level(navpoints, 0)
 }
 
+/// 从章节 HTML 中提取内联 <style> 标签和外链 CSS 引用的样式内容
+fn extract_styles_from_html<R: std::io::Read + std::io::Seek>(
+    doc: &mut EpubDoc<R>,
+    html: &str,
+) -> Vec<String> {
+    let mut styles = Vec::new();
+
+    // 提取 <style>...</style> 内联样式
+    let style_re = Regex::new(r"(?is)<style[^>]*>(.*?)</style>").unwrap();
+    for caps in style_re.captures_iter(html) {
+        if let Some(m) = caps.get(1) {
+            let css = m.as_str().trim();
+            if !css.is_empty() {
+                styles.push(css.to_string());
+            }
+        }
+    }
+
+    // 提取 <link rel="stylesheet" href="epub://path"> 外链样式
+    // href 和 rel 属性顺序不固定，需要两种正则覆盖
+    let link_patterns = [
+        Regex::new(r#"(?i)<link[^>]+rel=["']stylesheet["'][^>]+href=["']epub://([^"']+)["'][^>]*/?>"#).unwrap(),
+        Regex::new(r#"(?i)<link[^>]+href=["']epub://([^"']+)["'][^>]+rel=["']stylesheet["'][^>]*/?>"#).unwrap(),
+    ];
+
+    let mut seen_css_paths: HashSet<String> = HashSet::new();
+    for re in &link_patterns {
+        for caps in re.captures_iter(html) {
+            if let Some(m) = caps.get(1) {
+                let css_path = m.as_str().to_string();
+                if seen_css_paths.contains(&css_path) {
+                    continue;
+                }
+                seen_css_paths.insert(css_path.clone());
+                if let Some(data) = doc.get_resource_by_path(&css_path) {
+                    if let Ok(css_text) = String::from_utf8(data) {
+                        let trimmed = css_text.trim();
+                        if !trimmed.is_empty() {
+                            styles.push(trimmed.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    styles
+}
+
 fn extract_sections_and_resources<R: std::io::Read + std::io::Seek>(
     doc: &mut EpubDoc<R>,
 ) -> Result<(Vec<PreparedSection>, Vec<String>, Vec<PreparedResource>, u32), String> {
@@ -199,11 +248,14 @@ fn extract_sections_and_resources<R: std::io::Read + std::io::Seek>(
             })
             .into_owned();
 
+        // 从原始 HTML 中提取 CSS 样式（内联 <style> 和外链 <link>）
+        let styles = extract_styles_from_html(doc, &html_raw);
+
         sections.push(PreparedSection {
             index,
             path: section_path,
             html,
-            styles: Vec::new(),
+            styles,
             resource_refs,
         });
     }
