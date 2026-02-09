@@ -345,8 +345,8 @@ export const Reader: React.FC = () => {
     toggleUi: () => setUiVisible((v) => !v),
   });
 
-  const showModeSwitchLoading =
-    isEpubDom && readingMode === "horizontal" && !contentReady && !loading;
+  const showContentLoadingOverlay =
+    isEpubDom && !contentReady && !loading;
 
   // 加载状态
   if (loading) {
@@ -485,7 +485,7 @@ export const Reader: React.FC = () => {
         </div>
       </div>
 
-      {showModeSwitchLoading && (
+      {showContentLoadingOverlay && (
         <Loading
           visible
           text={tCommon('loading')}
@@ -633,6 +633,9 @@ export const Reader: React.FC = () => {
             // 锚点跳转强制记录撤回状态（即使页码相同，滚动位置也会改变）
             undoJump.handleJump(fromProgress, targetPage, true);
             if (isEpub) {
+              if (isEpubDom && readingMode === 'vertical' && !loading) {
+                readerState.setContentReady(false);
+              }
               (rendererRef.current as any).goToHref?.(anchor);
             } else {
               (rendererRef.current as any).scrollToAnchor?.(anchor);

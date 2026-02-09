@@ -45,6 +45,7 @@ export const useNavigation = ({
         currentPage,
         setCurrentPage,
         totalPages,
+        setContentReady,
         isDomRender,
         book,
         setBook,
@@ -59,15 +60,25 @@ export const useNavigation = ({
             const intPage = Math.floor(pageNum);
             if (intPage < 1 || intPage > totalPages) return;
 
-            markReadingActive();
-
-            // 对于 Mobi 格式，页码由内部滚动监听驱动的 onPageChange 回调统一更新
-            // 其他格式需要提前设置页码（使用整数部分）
             const renderer = rendererRef.current;
             const isMobi = renderer && renderer instanceof MobiRenderer;
             const isEpub = renderer && renderer instanceof EpubRenderer;
             const isTxt = renderer && renderer instanceof TxtRenderer;
 
+            markReadingActive();
+
+            if (
+                isDomRender &&
+                renderer &&
+                renderer instanceof EpubRenderer &&
+                readingMode === "vertical" &&
+                Math.abs(pageNum - currentPage) > 1
+            ) {
+                setContentReady(false);
+            }
+
+            // TXT 纵向模式：先更新精确进度，再更新整数页码
+            // 这样 useTxtPaging 的 useEffect 能拿到正确的精确进度
             if (isTxt && (renderer as TxtRenderer).isVerticalMode() && latestPreciseProgressRef) {
                 latestPreciseProgressRef.current = pageNum;
             }

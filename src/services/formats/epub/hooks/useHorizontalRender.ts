@@ -4,7 +4,6 @@
  */
 
 import { RenderOptions, ReaderTheme, TocItem } from '../../types';
-import { logError } from '../../../index';
 import {
   type IEpubSectionCache,
   type IEpubResourceCache,
@@ -13,6 +12,7 @@ import { epubCacheService } from '../epubCacheService';
 import { EpubThemeHook } from './useEpubTheme';
 import { EpubResourceHook } from './useEpubResource';
 import { getTocHrefForSection } from './tocMapping';
+import { extractBodyContent } from '../../../../utils/htmlUtils';
 
 /** 横向渲染上下文 */
 export interface HorizontalRenderContext {
@@ -122,12 +122,6 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
         cacheEntry = await epubCacheService.loadSectionFromDB(bookId, sectionIndex);
         if (cacheEntry) {
           sectionCache.setSection(cacheEntry);
-          logError(
-            `[HorizontalRender] 从后端磁盘恢复章节 ${sectionIndex + 1} 到内存`,
-          ).catch(() => { });
-        }
-        if (cacheEntry) {
-          sectionCache.setSection(cacheEntry);
         }
       } catch (e) {
       }
@@ -189,7 +183,7 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
 
     const content = document.createElement('div');
     content.className = 'epub-section-content';
-    content.innerHTML = restoredHtml;
+    content.innerHTML = extractBodyContent(restoredHtml);
     shadow.appendChild(content);
 
     // 更新当前页码和进度

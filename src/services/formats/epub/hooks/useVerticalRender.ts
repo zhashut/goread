@@ -4,7 +4,7 @@
  */
 
 import { RenderOptions, ReaderTheme, TocItem } from '../../types';
-import { logError } from '../../../index';
+import { log, logError } from '../../../index';
 import { EpubResourceHook } from './useEpubResource';
 import { EpubThemeHook } from './useEpubTheme';
 import { EpubNavigationHook } from './useEpubNavigation';
@@ -16,6 +16,7 @@ import {
 import { epubCacheService } from '../epubCacheService';
 import { createDividerEl, toggleDividerVisibility, updateDividerStyle } from '../../../../components/reader/PageDivider';
 import { getTocHrefForSection } from './tocMapping';
+import { extractBodyContent } from '../../../../utils/htmlUtils';
 
 /** 纵向渲染上下文 */
 export interface VerticalRenderContext {
@@ -149,34 +150,34 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
    */
   const updateScrollProgress = (): void => {
     if (!state.scrollContainer || !state.verticalContinuousMode) return;
-
-    // 跳转期间不更新页码，避免冲突
     if (state.isNavigating) return;
 
     const container = state.scrollContainer;
     const scrollTop = container.scrollTop;
     const viewportHeight = container.clientHeight;
+    const scrollHeight = container.scrollHeight;
     const centerY = scrollTop + viewportHeight / 2;
 
-    // 查找视口中心所在的章节
     let currentSectionIndex = -1;
 
-    state.sectionContainers.forEach((wrapper, index) => {
-      const rect = wrapper.getBoundingClientRect();
-      const containerRect = container.getBoundingClientRect();
-      const relativeTop = rect.top - containerRect.top + scrollTop;
-      const relativeBottom = relativeTop + rect.height;
+    if (scrollHeight > viewportHeight && scrollTop + viewportHeight >= scrollHeight - 50 && sectionCount > 0) {
+      currentSectionIndex = sectionCount - 1;
+    } else {
+      state.sectionContainers.forEach((wrapper, index) => {
+        const rect = wrapper.getBoundingClientRect();
+        const containerRect = container.getBoundingClientRect();
+        const relativeTop = rect.top - containerRect.top + scrollTop;
+        const relativeBottom = relativeTop + rect.height;
 
-      // 检查视口中心是否在这个章节内
-      if (centerY >= relativeTop && centerY < relativeBottom) {
-        currentSectionIndex = index;
-      }
-    });
+        if (centerY >= relativeTop && centerY < relativeBottom) {
+          currentSectionIndex = index;
+        }
+      });
+    }
 
     if (currentSectionIndex >= 0) {
       const newPage = currentSectionIndex + 1;
 
-      // 更新当前页码
       if (newPage !== state.currentPage) {
         state.currentPage = newPage;
       }
@@ -259,9 +260,6 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
 
   /**
    * 渲染单个章节
-   */
-  /**
-   * 渲染单个章节
    * 使用 renderingInProgress 防止并发渲染同一章节
    */
   const renderSection = async (index: number, options?: RenderOptions): Promise<void> => {
@@ -303,7 +301,6 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
       }
 
       if (cacheEntry) {
-
         try {
           // 使用 shadow DOM 隔离样式（复用已存在的 Shadow Root 或创建新的）
           let shadow = wrapper.shadowRoot;
@@ -377,10 +374,10 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
             }
           }
 
-          // 注入恢复后的内容
+          // 提取 body 内容后注入（EPUB 的 HTML 是完整 XHTML 文档，不能直接放入 div）
           const content = document.createElement('div');
           content.className = 'epub-section-content';
-          content.innerHTML = restoredHtml;
+          content.innerHTML = extractBodyContent(restoredHtml);
           shadow.appendChild(content);
 
           // 处理链接点击事件
@@ -396,7 +393,7 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
           wrapper.dataset.rendered = 'true';
           return;
         } catch (e) {
-          // 渲染失败时清除渲染中状态
+          logError(`[VerticalRender] 章节 ${index + 1} 渲染异常: ${e}`).catch(() => {});
           state.renderingInProgress.delete(index);
         }
       }
@@ -508,7 +505,6 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
       state.currentPage = intPage;
       state.currentPreciseProgress = page;
 
-      // 立即滚动完成较快，300ms 足够
       setTimeout(() => {
         state.isNavigating = false;
 
@@ -517,6 +513,10 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
 
         if (context.onPageChange) {
           context.onPageChange(page);
+        }
+
+        if (context.onFirstScreenReady) {
+          context.onFirstScreenReady();
         }
       }, 300);
     }
@@ -784,7 +784,6 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
         // 跳过已缓存的章节
         const cached = sectionCache.getSection(bookId, index);
         if (cached) {
-          logError(`[EPUB预热] 章节 ${index + 1} 已在缓存中，跳过`).catch(() => { });
           continue;
         }
 
@@ -805,20 +804,12 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
 
         try {
           await renderSection(index, { theme: 'light' });
-          logError(`[EPUB预热] 章节 ${index + 1} 预热完成`).catch(() => { });
         } catch (e) {
-          logError(`[EPUB预热] 章节 ${index + 1} 预热失败`, {
-            error: String(e),
-            stack: (e as Error)?.stack,
-            bookId,
-            sectionIndex: index,
-            phase: 'preload',
-            step: 'preloadSectionsOffscreen',
-          }).catch(() => { });
+          logError(`[EPUB预热] 章节 ${index + 1} 预热失败: ${e}`).catch(() => { });
         }
       }
 
-      logError(`[EPUB预热] 预热流程完成`).catch(() => { });
+      log(`[EPUB预热] 预热流程完成`).catch(() => { });
     } finally {
       // 清理临时容器
       offscreenContainer.remove();
