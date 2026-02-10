@@ -11,7 +11,7 @@ import {
 import { epubCacheService } from '../epubCacheService';
 import { EpubThemeHook } from './useEpubTheme';
 import { EpubResourceHook } from './useEpubResource';
-import { getTocHrefForSection } from './tocMapping';
+import { getTocHrefForSection, getSpineIndexForHref } from './tocMapping';
 import { extractBodyContent } from '../../../../utils/htmlUtils';
 
 /** 横向渲染上下文 */
@@ -302,44 +302,11 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
   };
 
   const goToHref = async (href: string): Promise<void> => {
-    const toc = context.toc;
-    if (!toc || toc.length === 0) return;
-
-    const normalizeHref = (h: string) => h?.split('#')[0] || '';
-    const hrefBase = normalizeHref(href);
-
-    const flat: TocItem[] = [];
-    const walk = (items: TocItem[]) => {
-      for (const item of items) {
-        flat.push(item);
-        if (item.children && item.children.length > 0) {
-          walk(item.children);
-        }
-      }
-    };
-    walk(toc);
-
-    const normalizedHref = hrefBase || href;
-    let sectionIndex = flat.findIndex((item) => {
-      const loc = item.location;
-      if (typeof loc !== 'string' || !loc) return false;
-      const locBase = normalizeHref(loc);
-      return (
-        loc === href ||
-        (normalizedHref && locBase === normalizedHref) ||
-        loc.endsWith(href) ||
-        (normalizedHref && locBase.endsWith(normalizedHref))
-      );
-    });
-
     const sectionCount = context.sectionCount || 0;
+    if (sectionCount <= 0) return;
 
-
-
-    if (sectionIndex >= 0 && sectionCount > 0) {
-      if (sectionIndex >= sectionCount) {
-        sectionIndex = sectionCount - 1;
-      }
+    const sectionIndex = getSpineIndexForHref(href, context.spine);
+    if (sectionIndex >= 0 && sectionIndex < sectionCount) {
       await goToPage(sectionIndex + 1);
     }
   };

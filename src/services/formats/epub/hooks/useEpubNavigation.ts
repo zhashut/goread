@@ -4,6 +4,7 @@
  */
 
 import { TocItem } from '../../types';
+import { getSpineIndexForHref } from './tocMapping';
 
 /** 导航上下文 */
 export interface NavigationContext {
@@ -12,6 +13,7 @@ export interface NavigationContext {
   sectionContainers: Map<number, HTMLElement>;
   goToPage: (page: number) => Promise<void>;
   toc?: TocItem[];
+  spine?: string[];
   sectionCount?: number;
 }
 
@@ -66,51 +68,13 @@ export function useEpubNavigation(context: NavigationContext): EpubNavigationHoo
    * 导航到指定 href（跨章节）
    */
   const navigateToHref = (href: string): void => {
-    const toc = context.toc;
     const sectionCount = context.sectionCount || 0;
-    if (!toc || toc.length === 0 || sectionCount <= 0) {
-      return;
-    }
+    if (sectionCount <= 0) return;
 
     const [_, anchor] = href.split('#');
+    const sectionIndex = getSpineIndexForHref(href, context.spine);
 
-    const normalizeHref = (h: string) => h?.split('#')[0] || '';
-    const hrefBase = normalizeHref(href);
-
-    const flat: TocItem[] = [];
-    const walk = (items: TocItem[]) => {
-      for (const item of items) {
-        flat.push(item);
-        if (item.children && item.children.length > 0) {
-          walk(item.children);
-        }
-      }
-    };
-
-    walk(toc);
-
-    let sectionIndex = -1;
-    const normalizedHref = hrefBase || href;
-
-    sectionIndex = flat.findIndex((item) => {
-      const loc = item.location;
-      if (typeof loc !== 'string' || !loc) return false;
-      const locBase = normalizeHref(loc);
-      return (
-        loc === href ||
-        (normalizedHref && locBase === normalizedHref) ||
-        loc.endsWith(href) ||
-        (normalizedHref && locBase.endsWith(normalizedHref))
-      );
-    });
-
-    if (sectionIndex >= 0 && sectionCount > 0) {
-      if (sectionIndex >= sectionCount) {
-        sectionIndex = sectionCount - 1;
-      }
-    }
-
-    if (sectionIndex >= 0) {
+    if (sectionIndex >= 0 && sectionIndex < sectionCount) {
       goToPage(sectionIndex + 1).then(() => {
         if (anchor) {
           setTimeout(() => {

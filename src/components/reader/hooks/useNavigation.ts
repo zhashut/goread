@@ -10,6 +10,7 @@ import { useReaderState } from "./useReaderState";
 import { usePageRenderer } from "./usePageRenderer";
 import { useToc } from "./useToc";
 import { IBookRenderer } from "../../../services/formats";
+import { TocNode } from "../types";
 
 type NavigationProps = {
     readerState: ReturnType<typeof useReaderState>;
@@ -17,7 +18,7 @@ type NavigationProps = {
         ReturnType<typeof usePageRenderer>,
         "renderPage" | "renderPageToTarget" | "getSmartPredictor" | "renderedPagesRef"
     >;
-    tocData: Pick<ReturnType<typeof useToc>, "toc">;
+    tocData: Pick<ReturnType<typeof useToc>, "toc" | "activeNodeSignature">;
     refs: {
         verticalCanvasRefs: React.MutableRefObject<Map<number, HTMLCanvasElement>>;
         rendererRef: React.MutableRefObject<IBookRenderer | null>;
@@ -209,51 +210,103 @@ export const useNavigation = ({
         }
     }, [isExternal, book, setBook, tCommon]);
 
-    // 辅助：查找当前章节页码
-    const findCurrentChapterPage = useCallback(() => {
+    // 收集并排序所有章节页码
+    const chapterPages = useCallback(() => {
         const pages: number[] = [];
-        const collect = (ns: typeof tocData.toc) => {
+        const collect = (ns: TocNode[]) => {
             for (const n of ns) {
                 if (typeof n.page === "number") pages.push(n.page);
-                if (n.children && n.children.length) collect(n.children);
+                if (n.children?.length) collect(n.children);
             }
         };
         collect(tocData.toc);
         pages.sort((a, b) => a - b);
-        let target: number | undefined = undefined;
-        for (const p of pages) {
-            if (p <= currentPage) target = p;
-            else break;
-        }
-        return target;
-    }, [tocData.toc, currentPage]);
+        return pages;
+    }, [tocData.toc]);
+
+    // 收集所有 anchor 型章节（按文档顺序）
+    const chapterAnchors = useCallback(() => {
+        const anchors: string[] = [];
+        const collect = (ns: TocNode[]) => {
+            for (const n of ns) {
+                if (n.anchor) anchors.push(n.anchor);
+                if (n.children?.length) collect(n.children);
+            }
+        };
+        collect(tocData.toc);
+        return anchors;
+    }, [tocData.toc]);
+
+    // 从 activeNodeSignature 中定位当前 anchor 在列表中的索引
+    const findCurrentAnchorIndex = useCallback((anchors: string[]): number => {
+        const sig = tocData.activeNodeSignature;
+        if (!sig) return -1;
+        // signature 格式: "title|-1|level"，通过 title+level 匹配 anchor
+        const parts = sig.split("|");
+        const level = parseInt(parts[parts.length - 1], 10);
+        const title = parts.slice(0, parts.length - 2).join("|");
+        let matched: string | undefined;
+        const find = (ns: TocNode[], lvl: number): boolean => {
+            for (const n of ns) {
+                if (n.anchor && n.title === title && lvl === level) {
+                    matched = n.anchor;
+                    return true;
+                }
+                if (n.children?.length && find(n.children, lvl + 1)) return true;
+            }
+            return false;
+        };
+        find(tocData.toc, 0);
+        return matched ? anchors.indexOf(matched) : -1;
+    }, [tocData.toc, tocData.activeNodeSignature]);
+
+    // anchor 型章节跳转
+    const scrollToChapterAnchor = useCallback((anchor: string) => {
+        rendererRef.current?.scrollToAnchor?.(anchor);
+    }, [rendererRef]);
+
+    // EPUB 已有独立的章节跳转机制（prevPage/nextPage 对 EPUB 按 section 索引跳转），不走 anchor 分支
+    const isEpubRenderer = useCallback(() => {
+        return rendererRef.current instanceof EpubRenderer;
+    }, [rendererRef]);
 
     const prevChapter = useCallback(() => {
-        const page = findCurrentChapterPage();
-        if (typeof page === "number" && page < currentPage) {
-            goToPage(page);
-        } else {
-            prevPage();
+        const pages = chapterPages();
+        // 页码型章节导航（PDF、TXT 等）
+        if (pages.length > 1) {
+            let target: number | undefined;
+            for (const p of pages) {
+                if (p < currentPage) target = p;
+                else break;
+            }
+            if (typeof target === "number") { goToPage(target); return; }
+            prevPage(); return;
         }
-    }, [findCurrentChapterPage, currentPage, goToPage, prevPage]);
+        // anchor 型章节导航（Markdown、HTML、MOBI），EPUB 除外
+        const anchors = chapterAnchors();
+        if (anchors.length > 1 && isDomRender && !isEpubRenderer()) {
+            const idx = findCurrentAnchorIndex(anchors);
+            if (idx > 0) { scrollToChapterAnchor(anchors[idx - 1]); return; }
+        }
+        prevPage();
+    }, [chapterPages, chapterAnchors, findCurrentAnchorIndex, scrollToChapterAnchor, isEpubRenderer, currentPage, goToPage, prevPage, isDomRender]);
 
     const nextChapter = useCallback(() => {
-        const pages: number[] = [];
-        const collect = (ns: typeof tocData.toc) => {
-            for (const n of ns) {
-                if (typeof n.page === "number") pages.push(n.page);
-                if (n.children && n.children.length) collect(n.children);
-            }
-        };
-        collect(tocData.toc);
-        pages.sort((a, b) => a - b);
-        const target = pages.find((p) => p > currentPage);
-        if (typeof target === "number") {
-            goToPage(target);
-        } else {
-            nextPage();
+        const pages = chapterPages();
+        // 页码型章节导航（PDF、TXT 等）
+        if (pages.length > 1) {
+            const target = pages.find((p) => p > currentPage);
+            if (typeof target === "number") { goToPage(target); return; }
+            nextPage(); return;
         }
-    }, [tocData.toc, currentPage, goToPage, nextPage]);
+        // anchor 型章节导航（Markdown、HTML、MOBI），EPUB 除外
+        const anchors = chapterAnchors();
+        if (anchors.length > 1 && isDomRender && !isEpubRenderer()) {
+            const idx = findCurrentAnchorIndex(anchors);
+            if (idx >= 0 && idx < anchors.length - 1) { scrollToChapterAnchor(anchors[idx + 1]); return; }
+        }
+        nextPage();
+    }, [chapterPages, chapterAnchors, findCurrentAnchorIndex, scrollToChapterAnchor, isEpubRenderer, currentPage, goToPage, nextPage, isDomRender]);
 
     return {
         goToPage,
@@ -261,7 +314,6 @@ export const useNavigation = ({
         prevPage,
         toggleFinish,
         prevChapter,
-        nextChapter,
-        findCurrentChapterPage
+        nextChapter
     };
 };

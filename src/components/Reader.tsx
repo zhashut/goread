@@ -272,7 +272,7 @@ export const Reader: React.FC = () => {
   const navigation = useNavigation({
     readerState,
     pageRenderer,
-    tocData,
+    tocData: { toc: tocData.toc, activeNodeSignature: tocData.activeNodeSignature },
     refs: { verticalCanvasRefs, rendererRef },
     data: { readingMode, isExternal, markReadingActive }
   });

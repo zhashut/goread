@@ -86,3 +86,39 @@ export const getTocHrefForSection = (
   return null;
 };
 
+/**
+ * 根据 TOC href 查找 spine 索引
+ * 用于目录跳转：点击目录项(href) → 找到对应 spine 章节索引
+ */
+export const getSpineIndexForHref = (
+  href: string,
+  spine?: string[],
+): number => {
+  if (!spine || spine.length === 0 || !href) return -1;
+
+  const hrefBase = stripAnchor(href);
+  const hrefFileName = getFileName(hrefBase);
+
+  // 精确匹配 / 去锚点精确匹配
+  let idx = spine.findIndex((s) => {
+    if (s === href) return true;
+    return stripAnchor(s) === hrefBase;
+  });
+  if (idx >= 0) return idx;
+
+  // endsWith 匹配（处理路径前缀差异）
+  idx = spine.findIndex((s) => {
+    const sBase = stripAnchor(s);
+    return sBase.endsWith(hrefBase) || hrefBase.endsWith(sBase);
+  });
+  if (idx >= 0) return idx;
+
+  // 文件名匹配
+  if (hrefFileName) {
+    idx = spine.findIndex((s) => getFileName(stripAnchor(s)) === hrefFileName);
+    if (idx >= 0) return idx;
+  }
+
+  return -1;
+};
+

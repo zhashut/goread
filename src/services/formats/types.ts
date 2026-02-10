@@ -151,6 +151,9 @@ export interface IBookRenderer {
   /** 跳转到指定页 */
   goToPage(page: number): Promise<void>;
 
+  /** 滚动到指定锚点（Markdown/HTML/MOBI 等 anchor 型格式使用） */
+  scrollToAnchor?(anchor: string): void | Promise<void>;
+
   /** 搜索文本 */
   searchText(query: string, options?: { caseSensitive?: boolean }): Promise<SearchResult[]>;
 

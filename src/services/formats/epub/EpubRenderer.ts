@@ -29,6 +29,7 @@ import {
   type VerticalRenderHook,
   type HorizontalRenderHook,
 } from './hooks';
+import { getSpineIndexForHref } from './hooks/tocMapping';
 
 // 导入 Lifecycle Hook
 import { useEpubLifecycle, EpubLifecycleHook } from './hooks/useEpubLifecycle';
@@ -181,6 +182,7 @@ export class EpubRenderer implements IBookRenderer {
       sectionContainers: this._verticalRenderHook!.state.sectionContainers,
       goToPage: (page: number) => this._verticalRenderHook!.goToPage(page),
       get toc() { return lifeState.toc; },
+      get spine() { return lifeState.spine; },
       get sectionCount() { return lifeState.sectionCount; },
     };
     this._navigationHook = useEpubNavigation(navigationContext);
@@ -358,61 +360,10 @@ export class EpubRenderer implements IBookRenderer {
   async goToHref(href: string): Promise<void> {
     if (this._readingMode === 'vertical' && this._verticalRenderHook?.state.verticalContinuousMode) {
       const lifeState = this._lifecycleHook.state;
-      const book: any = lifeState.book as any;
       const sectionCount = lifeState.sectionCount || 0;
+      const sectionIndex = getSpineIndexForHref(href, lifeState.spine);
 
-      const normalizeHref = (h: string) => h?.split('#')[0] || '';
-      const hrefBase = normalizeHref(href);
-
-      let sectionIndex = -1;
-
-      if (book && Array.isArray(book.sections)) {
-        sectionIndex = book.sections.findIndex((section: any) => {
-          const sectionId = normalizeHref(section.id || '');
-          return (
-            section.id === href ||
-            (hrefBase && sectionId === hrefBase) ||
-            section.id.endsWith(href) ||
-            (hrefBase && sectionId.endsWith(hrefBase))
-          );
-        });
-      }
-
-      if (sectionIndex < 0 && Array.isArray(lifeState.toc) && lifeState.toc.length > 0 && sectionCount > 0) {
-        const flat: TocItem[] = [];
-        const walk = (items: TocItem[]) => {
-          for (const item of items) {
-            flat.push(item);
-            if (item.children && item.children.length > 0) {
-              walk(item.children);
-            }
-          }
-        };
-
-        walk(lifeState.toc);
-
-        const normalizedHref = hrefBase || href;
-
-        sectionIndex = flat.findIndex((item) => {
-          const loc = item.location;
-          if (typeof loc !== 'string' || !loc) return false;
-          const locBase = normalizeHref(loc);
-          return (
-            loc === href ||
-            (normalizedHref && locBase === normalizedHref) ||
-            loc.endsWith(href) ||
-            (normalizedHref && locBase.endsWith(normalizedHref))
-          );
-        });
-
-        if (sectionIndex >= 0 && sectionCount > 0) {
-          if (sectionIndex >= sectionCount) {
-            sectionIndex = sectionCount - 1;
-          }
-        }
-      }
-
-      if (sectionIndex >= 0) {
+      if (sectionIndex >= 0 && sectionIndex < sectionCount) {
         await this.goToPage(sectionIndex + 1);
         return;
       }
