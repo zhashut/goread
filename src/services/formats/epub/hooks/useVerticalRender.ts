@@ -316,12 +316,10 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
           style.textContent = themeHook.getThemeStyles(options);
           shadow.appendChild(style);
 
-          // 注入原文档样式
-          if (cacheEntry.rawStyles.length > 0) {
-            const originalStyleEl = document.createElement('style');
-            originalStyleEl.textContent = cacheEntry.rawStyles.join('\n');
-            shadow.appendChild(originalStyleEl);
-          }
+          // 注入原文档样式（占位符稍后统一替换）
+          let stylesText = cacheEntry.rawStyles.length > 0
+            ? cacheEntry.rawStyles.join('\n')
+            : '';
 
           // 从缓存恢复 HTML，替换占位符为 Blob URL（内存缓存 -> 后端磁盘缓存 -> 网络加载）
           let restoredHtml = cacheEntry.rawHtml;
@@ -357,7 +355,7 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
                     mimeType,
                     sizeBytes: data.byteLength,
                     lastAccessTime: Date.now(),
-                  }).catch(() => { });
+                  }).catch(() => {});
                 }
               } catch {
                 // 网络加载失败
@@ -365,13 +363,18 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
             }
 
             if (data) {
-              const mimeType = getMimeType(ref);
-              const blob = new Blob([data], { type: mimeType });
-              const blobUrl = URL.createObjectURL(blob);
-              // 记录 blobUrl 以便后续清理（通过 resourceHook 管理）
+              const blobUrl = resourceHook.getOrCreateBlobUrl(ref, data);
               const placeholder = `__EPUB_RES__:${ref}`;
               restoredHtml = restoredHtml.split(placeholder).join(blobUrl);
+              stylesText = stylesText.split(placeholder).join(blobUrl);
             }
+          }
+
+          // 注入经过占位符替换的原文档样式
+          if (stylesText) {
+            const originalStyleEl = document.createElement('style');
+            originalStyleEl.textContent = stylesText;
+            shadow.appendChild(originalStyleEl);
           }
 
           // 提取 body 内容后注入（EPUB 的 HTML 是完整 XHTML 文档，不能直接放入 div）

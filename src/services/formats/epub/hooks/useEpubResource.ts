@@ -44,6 +44,8 @@ export interface EpubResourceHook {
     bookId: string,
     resourceCache: IEpubResourceCache
   ) => string;
+  /** 根据二进制数据获取或复用 Blob URL（带自动追踪和去重） */
+  getOrCreateBlobUrl: (resourcePath: string, data: ArrayBuffer) => string;
   /** 加载资源二进制数据（用于缓存存储） */
   loadResourceData: (resourcePath: string) => Promise<ArrayBuffer | null>;
 }
@@ -54,6 +56,8 @@ export interface EpubResourceHook {
  */
 export function useEpubResource(context: EpubResourceContext): EpubResourceHook {
   const { blobUrls } = context;
+  /** 资源路径 -> Blob URL 映射，避免重复创建 */
+  const blobUrlMap = new Map<string, string>();
 
   /**
    * 解析并加载资源
@@ -265,11 +269,26 @@ export function useEpubResource(context: EpubResourceContext): EpubResourceHook 
   };
 
   /**
+   * 根据资源路径获取或创建 Blob URL（复用已有的，避免重复分配）
+   */
+  const getOrCreateBlobUrl = (resourcePath: string, data: ArrayBuffer): string => {
+    const existing = blobUrlMap.get(resourcePath);
+    if (existing) return existing;
+    const mimeType = getMimeType(resourcePath);
+    const blob = new Blob([data], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    blobUrlMap.set(resourcePath, url);
+    blobUrls.add(url);
+    return url;
+  };
+
+  /**
    * 清理生成的 Blob URL
    */
   const clearBlobUrls = (): void => {
     blobUrls.forEach((url) => URL.revokeObjectURL(url));
     blobUrls.clear();
+    blobUrlMap.clear();
   };
 
   /**
@@ -402,10 +421,7 @@ export function useEpubResource(context: EpubResourceContext): EpubResourceHook 
 
       const data = resourceCache.get(bookId, ref);
       if (data) {
-        const mimeType = getMimeType(ref);
-        const blob = new Blob([data], { type: mimeType });
-        const blobUrl = URL.createObjectURL(blob);
-        blobUrls.add(blobUrl);
+        const blobUrl = getOrCreateBlobUrl(ref, data);
         restored = restored.split(placeholder).join(blobUrl);
       }
     }
@@ -446,6 +462,7 @@ export function useEpubResource(context: EpubResourceContext): EpubResourceHook 
     collectResourceRefs,
     normalizeHtmlResources,
     restoreBlobUrls,
+    getOrCreateBlobUrl,
     loadResourceData,
   };
 }

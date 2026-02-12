@@ -136,20 +136,30 @@ fn convert_toc(navpoints: &[NavPoint]) -> Vec<TocItem> {
     convert_toc_level(navpoints, 0)
 }
 
-/// 从章节 HTML 中提取内联 <style> 标签和外链 CSS 引用的样式内容
+/// 从章节 HTML 中提取内联 <style> 标签和外链 CSS 引用的样式内容，同时收集 CSS 中引用的资源路径
 fn extract_styles_from_html<R: std::io::Read + std::io::Seek>(
     doc: &mut EpubDoc<R>,
     html: &str,
-) -> Vec<String> {
+    url_re: &Regex,
+) -> (Vec<String>, Vec<String>) {
     let mut styles = Vec::new();
+    let mut css_resource_paths = Vec::new();
 
-    // 提取 <style>...</style> 内联样式
+    // 提取 <style>...</style> 内联样式，将 epub:// 路径转为占位符
     let style_re = Regex::new(r"(?is)<style[^>]*>(.*?)</style>").unwrap();
+    let epub_url_re = Regex::new(r#"url\(\s*["']?epub://([^"')]+?)["']?\s*\)"#).unwrap();
     for caps in style_re.captures_iter(html) {
         if let Some(m) = caps.get(1) {
             let css = m.as_str().trim();
             if !css.is_empty() {
-                styles.push(css.to_string());
+                // 收集内联样式中的资源路径
+                for c in epub_url_re.captures_iter(css) {
+                    css_resource_paths.push(c[1].to_string());
+                }
+                let fixed = epub_url_re.replace_all(css, |c: &regex::Captures| {
+                    format!("url(\"__EPUB_RES__:{}\")", &c[1])
+                });
+                styles.push(fixed.into_owned());
             }
         }
     }
@@ -172,7 +182,19 @@ fn extract_styles_from_html<R: std::io::Read + std::io::Seek>(
                 seen_css_paths.insert(css_path.clone());
                 if let Some(data) = doc.get_resource_by_path(&css_path) {
                     if let Ok(css_text) = String::from_utf8(data) {
-                        let trimmed = css_text.trim();
+                        // 修复 CSS 文件内部 url() 中的相对路径，使用占位符格式
+                        let fixed = url_re.replace_all(&css_text, |c: &regex::Captures| {
+                            let val = c[1].trim();
+                            if val.starts_with("data:") || val.starts_with("http://")
+                                || val.starts_with("https://") || val.starts_with('#')
+                            {
+                                return c[0].to_string();
+                            }
+                            let resolved = resolve_relative_path(&css_path, val);
+                            css_resource_paths.push(resolved.clone());
+                            format!("url(\"__EPUB_RES__:{}\")", resolved)
+                        });
+                        let trimmed = fixed.trim();
                         if !trimmed.is_empty() {
                             styles.push(trimmed.to_string());
                         }
@@ -182,7 +204,67 @@ fn extract_styles_from_html<R: std::io::Read + std::io::Seek>(
         }
     }
 
-    styles
+    (styles, css_resource_paths)
+}
+
+/// XML 解析失败时，直接从 zip 读取原始内容作为回退
+fn try_raw_fallback<R: std::io::Read + std::io::Seek>(
+    doc: &mut EpubDoc<R>,
+    section_path: &str,
+) -> Option<String> {
+    let bytes = doc.get_resource_by_path(section_path)?;
+    String::from_utf8(bytes).ok()
+}
+
+/// 基于章节路径将相对资源路径解析为 EPUB 内绝对路径
+fn resolve_relative_path(section_path: &str, relative: &str) -> String {
+    // 取章节所在目录
+    let base_dir = match section_path.rfind('/') {
+        Some(pos) => &section_path[..pos],
+        None => "",
+    };
+
+    let mut parts: Vec<&str> = if base_dir.is_empty() {
+        Vec::new()
+    } else {
+        base_dir.split('/').collect()
+    };
+
+    for seg in relative.split('/') {
+        match seg {
+            ".." => { parts.pop(); }
+            "." | "" => {}
+            _ => parts.push(seg),
+        }
+    }
+
+    parts.join("/")
+}
+
+/// 收集单个资源：去重读取二进制数据并加入资源列表
+fn collect_resource<R: std::io::Read + std::io::Seek>(
+    doc: &mut EpubDoc<R>,
+    path: &str,
+    seen: &mut HashSet<String>,
+    resources: &mut Vec<PreparedResource>,
+    refs: &mut Vec<String>,
+) {
+    if !seen.contains(path) {
+        if let Some(data) = doc.get_resource_by_path(path) {
+            let mime = doc
+                .get_resource_mime_by_path(path)
+                .unwrap_or_else(|| "application/octet-stream".to_string());
+            resources.push(PreparedResource {
+                path: path.to_string(),
+                data,
+                mime_type: mime,
+            });
+        }
+        seen.insert(path.to_string());
+    }
+    if !refs.contains(&path.to_string()) {
+        refs.push(path.to_string());
+    }
 }
 
 fn extract_sections_and_resources<R: std::io::Read + std::io::Seek>(
@@ -191,7 +273,12 @@ fn extract_sections_and_resources<R: std::io::Read + std::io::Seek>(
     let total = doc.get_num_chapters() as u32;
 
     let re =
-        Regex::new(r#"epub://([^"')\s>]+)"#).map_err(|e| format!("正则表达式初始化失败: {}", e))?;
+        Regex::new(r#"epub://([^"')\s>]+)"#).map_err(|e| format!("正则初始化失败: {}", e))?;
+    let attr_re =
+        Regex::new(r#"(?i)(src|href)=["']([^"']+)["']"#).map_err(|e| format!("正则初始化失败: {}", e))?;
+    // 匹配 CSS url() 中的资源路径
+    let url_re =
+        Regex::new(r#"url\(\s*["']?([^"')]+?)["']?\s*\)"#).map_err(|e| format!("正则初始化失败: {}", e))?;
 
     let mut sections = Vec::with_capacity(total as usize);
     let mut spine = Vec::with_capacity(total as usize);
@@ -200,7 +287,8 @@ fn extract_sections_and_resources<R: std::io::Read + std::io::Seek>(
 
     for index in 0..total {
         if !doc.set_current_page(index as usize) {
-            return Err(format!("设置章节 {} 失败", index));
+            println!("[EPUB] 设置章节 {} 失败，跳过", index);
+            continue;
         }
 
         let section_path = doc
@@ -210,46 +298,86 @@ fn extract_sections_and_resources<R: std::io::Read + std::io::Seek>(
             .to_string();
         spine.push(section_path.clone());
 
-        let bytes = doc
-            .get_current_with_epub_uris()
-            .map_err(|e| format!("读取章节 {} 内容失败: {}", index, e))?;
-
-        let html_raw =
-            String::from_utf8(bytes).map_err(|e| format!("章节 {} 不是有效的 UTF-8: {}", index, e))?;
+        // 优先用 epub crate 的 XML 解析获取内容（会做资源路径替换），
+        // 失败时回退到直接读取原始字节（跳过 XML 解析）
+        let (html_raw, used_epub_uris) = match doc.get_current_with_epub_uris() {
+            Ok(bytes) => match String::from_utf8(bytes) {
+                Ok(s) => (s, true),
+                Err(_) => match try_raw_fallback(doc, &section_path) {
+                    Some(s) => (s, false),
+                    None => continue,
+                },
+            },
+            Err(e) => {
+                println!("[EPUB] 章节 {} XML 解析失败，尝试原始读取: {}", index, e);
+                match try_raw_fallback(doc, &section_path) {
+                    Some(s) => (s, false),
+                    None => continue,
+                }
+            }
+        };
 
         let mut resource_refs: Vec<String> = Vec::new();
 
-        for caps in re.captures_iter(&html_raw) {
+        // epub crate 已做 epub:// 前缀替换时直接匹配；
+        // 原始回退模式下匹配相对路径（src/href 属性值）
+        let refs_source: std::borrow::Cow<str> = if used_epub_uris {
+            std::borrow::Cow::Borrowed(&html_raw)
+        } else {
+            // 基于章节目录解析相对路径并注入 epub:// 前缀
+            let sp = &section_path;
+            std::borrow::Cow::Owned(
+                attr_re.replace_all(&html_raw, |caps: &regex::Captures| {
+                    let attr = &caps[1];
+                    let val = &caps[2];
+                    if val.starts_with("http://") || val.starts_with("https://")
+                        || val.starts_with("data:") || val.starts_with('#')
+                        || val.starts_with("mailto:")
+                    {
+                        return caps[0].to_string();
+                    }
+                    let resolved = resolve_relative_path(sp, val);
+                    format!("{}=\"epub://{}\"" , attr, resolved)
+                }).into_owned()
+            )
+        };
+
+        // 处理 CSS url() 中的相对资源路径（两种模式都需要）
+        let refs_source = {
+            let sp = &section_path;
+            let replaced = url_re.replace_all(&refs_source, |caps: &regex::Captures| {
+                let val = caps[1].trim();
+                if val.starts_with("epub://") || val.starts_with("http://")
+                    || val.starts_with("https://") || val.starts_with("data:")
+                    || val.starts_with('#')
+                {
+                    return caps[0].to_string();
+                }
+                let resolved = resolve_relative_path(sp, val);
+                format!("url(\"epub://{}\")", resolved)
+            });
+            replaced.into_owned()
+        };
+
+        // 收集 HTML 中 epub:// 引用的资源
+        for caps in re.captures_iter(&refs_source) {
             if let Some(m) = caps.get(1) {
                 let path = m.as_str().to_string();
-                if !seen_resources.contains(&path) {
-                    if let Some(data) = doc.get_resource_by_path(&path) {
-                        let mime = doc
-                            .get_resource_mime_by_path(&path)
-                            .unwrap_or_else(|| "application/octet-stream".to_string());
-
-                        resources.push(PreparedResource {
-                            path: path.clone(),
-                            data,
-                            mime_type: mime,
-                        });
-                    }
-                    seen_resources.insert(path.clone());
-                }
-                if !resource_refs.contains(&path) {
-                    resource_refs.push(path);
-                }
+                collect_resource(doc, &path, &mut seen_resources, &mut resources, &mut resource_refs);
             }
         }
 
         let html = re
-            .replace_all(&html_raw, |caps: &regex::Captures| {
+            .replace_all(&refs_source, |caps: &regex::Captures| {
                 format!("__EPUB_RES__:{}", &caps[1])
             })
             .into_owned();
 
-        // 从原始 HTML 中提取 CSS 样式（内联 <style> 和外链 <link>）
-        let styles = extract_styles_from_html(doc, &html_raw);
+        // 提取 CSS 样式（内联 <style> 和外链 <link>），并收集 CSS 中引用的资源
+        let (styles, css_resource_paths) = extract_styles_from_html(doc, &refs_source, &url_re);
+        for path in css_resource_paths {
+            collect_resource(doc, &path, &mut seen_resources, &mut resources, &mut resource_refs);
+        }
 
         sections.push(PreparedSection {
             index,

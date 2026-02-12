@@ -124,6 +124,7 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
           sectionCache.setSection(cacheEntry);
         }
       } catch (e) {
+        // 后端加载失败
       }
 
       if (!cacheEntry) {
@@ -142,6 +143,7 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
               data = dbEntry.data;
             }
           } catch (e) {
+            // 资源加载失败
           }
         }
       }
@@ -157,6 +159,7 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
         resourceCache,
       );
     } catch (e) {
+      // 资源恢复失败
     }
 
     // 构建 Shadow DOM，注入主题样式和原始样式
@@ -176,8 +179,19 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
     shadow.appendChild(themeStyle);
 
     if (cacheEntry.rawStyles.length > 0) {
+      // 替换样式中的资源占位符为 Blob URL
+      let stylesText = cacheEntry.rawStyles.join('\n');
+      for (const resRef of cacheEntry.resourceRefs) {
+        const placeholder = `__EPUB_RES__:${resRef}`;
+        if (!stylesText.includes(placeholder)) continue;
+        const data = resourceCache.get(bookId, resRef);
+        if (data) {
+          const blobUrl = context.resourceHook.getOrCreateBlobUrl(resRef, data);
+          stylesText = stylesText.split(placeholder).join(blobUrl);
+        }
+      }
       const originalStyle = document.createElement('style');
-      originalStyle.textContent = cacheEntry.rawStyles.join('\n');
+      originalStyle.textContent = stylesText;
       shadow.appendChild(originalStyle);
     }
 
