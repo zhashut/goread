@@ -14,6 +14,8 @@ interface SortableBookItemProps {
   onToggleSelect: () => void;
   onDelete: () => void;
   width?: number | string;
+  editable?: boolean;
+  onRename?: (newDisplayName: string) => void;
 }
 
 export const SortableBookItem: React.FC<SortableBookItemProps> = (props) => {

@@ -1,5 +1,6 @@
 import React, { useRef } from "react";
 import { useLongPress } from "../hooks/useLongPress";
+import { useInlineEdit } from "../hooks/useInlineEdit";
 import { SELECTION_LONGPRESS_DELAY_MS } from "../constants/interactions";
 import { IBook } from "../types";
 import { getBookFormat } from "../constants/fileTypes";
@@ -39,6 +40,9 @@ export interface CommonBookCardProps {
   onToggleSelect?: () => void;
   // 长按手势
   onLongPress?: () => void;
+  // 书名编辑（仅分组详情页传入）
+  editable?: boolean;
+  onRename?: (newDisplayName: string) => void;
   outerRef?: React.Ref<HTMLDivElement>;
   outerProps?: React.HTMLAttributes<HTMLDivElement>;
   styleOverride?: React.CSSProperties;
@@ -57,6 +61,8 @@ export const BookCard: React.FC<CommonBookCardProps> = ({
   selected = false,
   onToggleSelect,
   onLongPress,
+  editable = false,
+  onRename,
   outerRef,
   outerProps,
   styleOverride,
@@ -99,11 +105,16 @@ export const BookCard: React.FC<CommonBookCardProps> = ({
   }
 
   const displayTitle = getDisplayTitle(book.title);
+  const titleEditable = editable && !!onRename;
+  const inlineEdit = useInlineEdit({
+    value: displayTitle,
+    onSubmit: (newName) => onRename?.(newName),
+  });
 
   return (
     <div
       className="book-card"
-      onClick={onClick}
+      onClick={inlineEdit.isEditing ? undefined : onClick}
       draggable={draggable}
       onDragStart={onDragStart}
       onDragOver={onDragOver}
@@ -246,22 +257,53 @@ export const BookCard: React.FC<CommonBookCardProps> = ({
         )}
       </div>
       <div style={{ marginTop: CARD_INFO_MARGIN_TOP + "px" }}>
-        <div
-          style={{
-            fontSize: BOOK_TITLE_FONT_SIZE + "px",
-            fontWeight: BOOK_TITLE_FONT_WEIGHT,
-            color: "#333",
-            lineHeight: 1.5,
-            display: "-webkit-box",
-            WebkitLineClamp: 2,
-            WebkitBoxOrient: "vertical" as any,
-            overflow: "hidden",
-            textAlign: "left",
-            userSelect: "none",
-          }}
-        >
-          {displayTitle}
-        </div>
+        {inlineEdit.isEditing ? (
+          <input
+            ref={inlineEdit.inputRef}
+            value={inlineEdit.editValue}
+            onChange={(e) => inlineEdit.setEditValue(e.target.value)}
+            onKeyDown={inlineEdit.handleKeyDown}
+            onBlur={inlineEdit.handleBlur}
+            onClick={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
+            style={{
+              width: "100%",
+              fontSize: BOOK_TITLE_FONT_SIZE + "px",
+              fontWeight: BOOK_TITLE_FONT_WEIGHT,
+              color: "#333",
+              lineHeight: 1.5,
+              border: "1px solid #d23c3c",
+              borderRadius: "3px",
+              outline: "none",
+              padding: "2px 4px",
+              boxSizing: "border-box",
+              background: "#fff",
+            }}
+          />
+        ) : (
+          <div
+            onClick={(e) => {
+              if (titleEditable) {
+                e.stopPropagation();
+                inlineEdit.startEdit();
+              }
+            }}
+            style={{
+              fontSize: BOOK_TITLE_FONT_SIZE + "px",
+              fontWeight: BOOK_TITLE_FONT_WEIGHT,
+              color: "#333",
+              lineHeight: 1.5,
+              display: "-webkit-box",
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical" as any,
+              overflow: "hidden",
+              textAlign: "left",
+              userSelect: "none",
+            }}
+          >
+            {displayTitle}
+          </div>
+        )}
         <div
           style={{
             marginTop: BOOK_PROGRESS_MARGIN_TOP + "px",

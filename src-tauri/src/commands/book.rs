@@ -626,3 +626,19 @@ pub async fn reorder_recent_books(ordered_ids: Vec<i64>, db: DbState<'_>) -> Res
     tx.commit().await?;
     Ok(())
 }
+
+/// 修改书籍标题
+#[tauri::command]
+pub async fn rename_book(id: i64, new_title: String, db: DbState<'_>) -> Result<(), Error> {
+    let title = new_title.trim().to_string();
+    if title.is_empty() {
+        return Err(Error::Message("书名不能为空".to_string()));
+    }
+    let pool = db.lock().await;
+    sqlx::query("UPDATE books SET title = ? WHERE id = ?")
+        .bind(&title)
+        .bind(id)
+        .execute(&*pool)
+        .await?;
+    Ok(())
+}

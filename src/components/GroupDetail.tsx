@@ -9,6 +9,7 @@ import { GRID_GAP_GROUP_DETAIL, GROUP_GRID_COLUMNS } from "../constants/ui";
 import { groupService, bookService, logError } from "../services";
 import { cacheConfigService } from "../services/cacheConfigService";
 import { ensurePermissionForDeleteLocal } from "../utils/storagePermission";
+import { getFileExtension } from "../constants/fileTypes";
 import { SortableBookItem } from "./bookshelf/SortableBookItem";
 import ConfirmDeleteDrawer from "./bookshelf/ConfirmDeleteDrawer";
 import ChooseExistingGroupDrawer from "./ChooseExistingGroupDrawer";
@@ -475,6 +476,17 @@ export const GroupDetail: React.FC<{
                     key={b.id}
                     id={b.id}
                     book={b}
+                    editable={!selectionMode && !dragActive}
+                    onRename={async (newDisplayName) => {
+                        const ext = getFileExtension(b.file_path);
+                        const newTitle = newDisplayName + ext;
+                        await bookService.renameBook(b.id, newTitle);
+                        setBooks(prev => prev.map(book =>
+                            book.id === b.id ? { ...book, title: newTitle } : book
+                        ));
+                        // 通知其他页面书籍数据变更
+                        window.dispatchEvent(new CustomEvent("goread:books:changed"));
+                    }}
                     onClick={() => {
                       if (selectionMode) {
                         toggleSelectBook(b.id);
