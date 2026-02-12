@@ -276,7 +276,8 @@ export const usePageRenderer = ({
             try {
                 await existingRender;
             } catch { }
-            return;
+            // 主动翻页时需要继续执行绘制，确保 canvas 内容与目标页一致
+            if (!forceRender) return;
         }
 
         const renderPromise = (async () => {
