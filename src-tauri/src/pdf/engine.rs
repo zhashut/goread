@@ -1053,6 +1053,10 @@ impl PdfEngineManager {
     pub fn get_cache_manager(&self) -> &CacheManager {
         &self.cache_manager
     }
+
+    pub fn get_cache_manager_mut(&mut self) -> &mut CacheManager {
+        &mut self.cache_manager
+    }
 }
 
 impl Clone for PdfEngineManager {

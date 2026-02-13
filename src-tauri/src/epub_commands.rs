@@ -257,3 +257,14 @@ pub async fn epub_prepare_book(
         spine: prepared.spine,
     })
 }
+
+/// 设置 EPUB 磁盘缓存最大容量（MB），由前端下发
+#[tauri::command]
+pub async fn epub_set_cache_max_size(
+    max_size_mb: u32,
+    state: State<'_, EpubCacheState>,
+) -> Result<bool, String> {
+    let mut manager = state.lock().await;
+    manager.set_max_size((max_size_mb as usize) * 1024 * 1024);
+    Ok(true)
+}

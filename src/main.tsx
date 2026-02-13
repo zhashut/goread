@@ -5,6 +5,7 @@ import { initSafeAreaInsets } from "./utils/layout";
 import { statusBarService } from "./services/statusBarService";
 import { volumeKeyService } from "./services/volumeKeyService";
 import { preloadCoverRoot } from "./hooks/useCover";
+import { syncDiskCacheConfig } from "./constants/cache";
 import i18n from "./locales";
 import { getReaderSettings, ReaderSettings } from "./services";
 import { getSystemAppLanguage, AppLanguage } from "./services/systemLanguageService";
@@ -55,6 +56,9 @@ const setupApp = async () => {
     
     // 预加载封面根目录路径（提高首页封面显示速度）
     preloadCoverRoot().catch(() => {});
+    
+    // 同步缓存配置到后端
+    syncDiskCacheConfig().catch(() => {});
     
     try {
       const { logError } = await import('./services');

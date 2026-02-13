@@ -752,3 +752,15 @@ pub async fn pdf_get_outline(
         Err(e) => Ok(OutlineResponse { success: false, outline: None, error: Some(e.to_string()) }),
     }
 }
+
+/// 动态设置 PDF 内存缓存上限（MB），由前端统一下发
+#[tauri::command]
+pub async fn pdf_set_cache_max_size(
+    max_size_mb: u32,
+    manager: State<'_, PdfManagerState>,
+) -> Result<bool, String> {
+    let mut manager = manager.lock().await;
+    let bytes = (max_size_mb as usize) * 1024 * 1024;
+    manager.get_cache_manager_mut().set_max_size(bytes);
+    Ok(true)
+}

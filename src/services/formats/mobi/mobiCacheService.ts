@@ -12,6 +12,11 @@ import {
   type IMobiResourceCache,
   type MobiSectionCacheEntry,
 } from './cache';
+import {
+  MOBI_SECTION_CACHE_MAX_SIZE,
+  MOBI_SECTION_CACHE_MAX_MEMORY_MB,
+  MOBI_RESOURCE_CACHE_MAX_MEMORY_MB,
+} from '../../../constants/cache';
 
 import { BookInfo, TocItem } from '../types';
 
@@ -85,8 +90,8 @@ class MobiCacheService {
 
   constructor() {
     // 内存缓存（一级缓存）
-    this._sectionCache = new MobiSectionCacheManager(80, 64); // 设计文档建议: 80个章节, 64MB
-    this._resourceCache = new MobiResourceCacheManager(150); // 设计文档建议: 150MB
+    this._sectionCache = new MobiSectionCacheManager(MOBI_SECTION_CACHE_MAX_SIZE, MOBI_SECTION_CACHE_MAX_MEMORY_MB);
+    this._resourceCache = new MobiResourceCacheManager(MOBI_RESOURCE_CACHE_MAX_MEMORY_MB);
   }
 
   /**

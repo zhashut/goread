@@ -181,3 +181,14 @@ pub async fn mobi_load_metadata(
     let manager = state.lock().await;
     manager.load_metadata(&book_id).await
 }
+
+/// 设置 MOBI 磁盘缓存最大容量（MB），由前端下发
+#[tauri::command]
+pub async fn mobi_set_cache_max_size(
+    max_size_mb: u32,
+    state: State<'_, MobiCacheState>,
+) -> Result<bool, String> {
+    let mut manager = state.lock().await;
+    manager.set_max_size((max_size_mb as usize) * 1024 * 1024);
+    Ok(true)
+}

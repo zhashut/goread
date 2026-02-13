@@ -4,6 +4,12 @@
  */
 
 import { logError } from '../../index';
+import {
+  TXT_MAX_CHAPTERS_PER_BOOK,
+  TXT_CACHE_MAX_MEMORY_MB,
+  TXT_PRELOAD_RANGE,
+  TXT_CACHE_TIME_TO_IDLE_SECS,
+} from '../../../constants/cache';
 
 /** 章节元信息（与后端对应） */
 export interface TxtChapterMeta {
@@ -62,10 +68,10 @@ export interface TxtCacheConfig {
 }
 
 const DEFAULT_CONFIG: TxtCacheConfig = {
-    maxChaptersPerBook: 15,
-    maxTotalMemoryMB: 64,
-    preloadRange: 5,
-    timeToIdleSecs: 0,
+    maxChaptersPerBook: TXT_MAX_CHAPTERS_PER_BOOK,
+    maxTotalMemoryMB: TXT_CACHE_MAX_MEMORY_MB,
+    preloadRange: TXT_PRELOAD_RANGE,
+    timeToIdleSecs: TXT_CACHE_TIME_TO_IDLE_SECS,
 };
 
 /**

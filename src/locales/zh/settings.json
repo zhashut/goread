@@ -17,7 +17,7 @@
   "unlimited": "不限",
   "cacheExpiry": {
     "label": "缓存有效期",
-    "unlimitedHint": "缓存不会过期，上限约 100MB，超出后自动淘汰最少使用的章节缓存",
+    "unlimitedHint": "缓存不会过期，每种格式独立缓存上限约 256MB，超出自动淘汰最少使用的内容",
     "days": "{{count}} 天",
     "updateSuccess": "配置更新完成"
   },

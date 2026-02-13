@@ -13,6 +13,11 @@ import {
   type IEpubResourceCache,
   type EpubSectionCacheEntry,
 } from './cache';
+import {
+  EPUB_SECTION_CACHE_MAX_SIZE,
+  EPUB_SECTION_CACHE_MAX_MEMORY_MB,
+  EPUB_RESOURCE_CACHE_MAX_MEMORY_MB,
+} from '../../../constants/cache';
 
 import { BookInfo, TocItem } from '../types';
 
@@ -88,8 +93,8 @@ class EpubCacheService {
 
   constructor() {
     // 内存缓存（一级缓存）
-    this._sectionCache = new EpubSectionCacheManager(100, 100);
-    this._resourceCache = new EpubResourceCacheManager(150);
+    this._sectionCache = new EpubSectionCacheManager(EPUB_SECTION_CACHE_MAX_SIZE, EPUB_SECTION_CACHE_MAX_MEMORY_MB);
+    this._resourceCache = new EpubResourceCacheManager(EPUB_RESOURCE_CACHE_MAX_MEMORY_MB);
   }
 
   /**

@@ -9,6 +9,7 @@ import { generateQuickBookId } from '../../../utils/bookId';
 import { evictOldestEntry } from '../../../utils/lruCacheUtils';
 import { readFileChunked } from '../../../utils/chunkedFileReader';
 import { MobiBook } from './types';
+import { MOBI_PRELOADER_MAX_MEMORY_MB } from '../../../constants/cache';
 
 /** 预加载缓存条目 */
 interface PreloadCacheEntry {
@@ -31,7 +32,7 @@ class MobiPreloader {
   /** 空闲过期时间（秒），0 表示不过期 */
   private _timeToIdleSecs = 0;
   /** 最大预估内存占用（MB），0 表示不限 */
-  private _maxMemoryMB = 128;
+  private _maxMemoryMB = MOBI_PRELOADER_MAX_MEMORY_MB;
   /** 当前预估内存占用（MB） */
   private _currentMemoryMB = 0;
 

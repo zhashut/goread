@@ -7,7 +7,7 @@ use moka::future::Cache as MokaCache;
 use crate::formats::{BookRenderCache, BoxFuture};
 use crate::pdf::types::{CacheKey, RenderResult, PdfError};
 
-const DEFAULT_MAX_CACHE_SIZE: usize = 100 * 1024 * 1024; // 100MB（按权重表示字节数）
+const DEFAULT_MAX_CACHE_SIZE: usize = 256 * 1024 * 1024; // 256MB（按权重表示字节数）
 const DEFAULT_MAX_CACHE_ITEMS: usize = 50; // 仅用于统计展示
 const DEFAULT_CACHE_TIME_TO_IDLE_SECS: u64 = 24 * 60 * 60; // 一天内未访问的页面按默认策略过期
 

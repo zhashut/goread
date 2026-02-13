@@ -127,6 +127,9 @@ pub struct MetadataCacheEntry {
     pub last_access_time: u64,
 }
 
+/// 默认磁盘缓存上限（字节），前端未下发时的 fallback
+const DEFAULT_DISK_CACHE_MAX_BYTES: usize = 256 * 1024 * 1024;
+
 /// EPUB 缓存管理器
 pub struct EpubCacheManager {
     /// 缓存有效期（天），0 表示不限
@@ -141,20 +144,20 @@ impl EpubCacheManager {
     /// 创建新的缓存管理器
     pub fn new() -> Self {
         Self {
-            expiry_days: Arc::new(AtomicU64::new(0)), // 默认不限
+            expiry_days: Arc::new(AtomicU64::new(0)),
             total_size: Arc::new(RwLock::new(0)),
-            max_size: 500 * 1024 * 1024, // 500MB
+            max_size: DEFAULT_DISK_CACHE_MAX_BYTES,
         }
+    }
+
+    /// 设置最大缓存容量（字节），由前端下发
+    pub fn set_max_size(&mut self, max_size_bytes: usize) {
+        self.max_size = max_size_bytes;
     }
 
     /// 设置缓存有效期（天）
     pub fn set_expiry_days(&self, days: u64) {
         self.expiry_days.store(days, Ordering::Relaxed);
-    }
-
-    /// 获取缓存有效期（天）
-    pub fn get_expiry_days(&self) -> u64 {
-        self.expiry_days.load(Ordering::Relaxed)
     }
 
     /// 获取当前时间戳（毫秒）
