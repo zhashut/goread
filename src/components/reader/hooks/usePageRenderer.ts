@@ -67,6 +67,8 @@ export const usePageRenderer = ({
     const renderQueueRef = useRef<Map<number, Promise<void>>>(new Map());
     // 已渲染页面集合（用于避免重复渲染）
     const renderedPagesRef = useRef<Set<number>>(new Set());
+    // 高清渲染防抖定时器
+    const hdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // 辅助函数
     const makeCacheKey = (id: string, pageNum: number) => `${id}:${pageNum}`;
@@ -120,6 +122,10 @@ export const usePageRenderer = ({
         preloadingTasksRef.current.clear();
         renderedPagesRef.current.clear();
         renderQueueRef.current.clear();
+        if (hdTimerRef.current) {
+            clearTimeout(hdTimerRef.current);
+            hdTimerRef.current = null;
+        }
     }, []);
 
     useEffect(() => {
@@ -478,10 +484,112 @@ export const usePageRenderer = ({
         return renderPromise;
     };
 
+    /** 对单个 canvas 执行高清渲染（公共逻辑） */
+    const renderHdToCanvas = async (
+        pageNum: number,
+        canvas: HTMLCanvasElement,
+        zoomScale: number,
+        capturedBookId: string,
+        localModeVer: number
+    ) => {
+        // 过时检查
+        if (bookIdRef.current !== capturedBookId || modeVersionRef.current !== localModeVer) return;
+
+        const context = canvas.getContext("2d");
+        if (!context) return;
+
+        const renderer = rendererRef.current;
+        if (!renderer?.loadPageBitmap) return;
+
+        const filePath = isExternal ? externalPath : book?.file_path;
+        if (!renderer.isReady && filePath) {
+            try { await renderer.loadDocument(filePath); } catch {}
+        }
+
+        const viewW = canvas.parentElement?.clientWidth || mainViewRef.current?.clientWidth || 800;
+        const dpr = getCurrentScale();
+        const hdWidth = Math.min(4096, Math.floor(viewW * zoomScale * dpr));
+
+        log(`[renderHd] 页面 ${pageNum} 高清渲染，scale=${zoomScale}, width=${hdWidth}`);
+        const t0 = performance.now();
+
+        try {
+            const bitmap = await renderer.loadPageBitmap(
+                pageNum, hdWidth,
+                settings.renderQuality || "standard",
+                settings.theme
+            );
+
+            // 再次过时检查（异步渲染期间可能已切换）
+            if (bookIdRef.current !== capturedBookId || modeVersionRef.current !== localModeVer) {
+                bitmap.close && bitmap.close();
+                return;
+            }
+
+            canvas.width = bitmap.width;
+            canvas.height = bitmap.height;
+            context.setTransform(1, 0, 0, 1, 0, 0);
+            context.clearRect(0, 0, canvas.width, canvas.height);
+            context.drawImage(bitmap, 0, 0);
+            bitmap.close && bitmap.close();
+
+            log(`[renderHd] 页面 ${pageNum} 高清渲染完成，耗时 ${Math.round(performance.now() - t0)}ms`);
+        } catch (e) {
+            logError('高清渲染失败', { error: String(e), pageNum });
+        }
+    };
+
+    /** 横向模式高清重渲染 */
+    const renderHdPage = (pageNum: number, zoomScale: number) => {
+        if (hdTimerRef.current) clearTimeout(hdTimerRef.current);
+
+        if (zoomScale <= 1) {
+            renderPage(pageNum, true);
+            return;
+        }
+
+        const capturedBookId = bookIdRef.current;
+        const localModeVer = modeVersionRef.current;
+        hdTimerRef.current = setTimeout(() => {
+            const canvas = canvasRef.current;
+            if (!canvas || !capturedBookId) return;
+            renderHdToCanvas(pageNum, canvas, zoomScale, capturedBookId, localModeVer);
+        }, 300);
+    };
+
+    /** 纵向模式高清重渲染：对指定页面的 canvas 执行高清渲染 */
+    const renderHdPageToTarget = (
+        pages: { pageNum: number; canvas: HTMLCanvasElement }[],
+        zoomScale: number
+    ) => {
+        if (hdTimerRef.current) clearTimeout(hdTimerRef.current);
+
+        if (zoomScale <= 1) {
+            // 恢复正常渲染
+            for (const { pageNum, canvas } of pages) {
+                renderedPagesRef.current.delete(pageNum);
+                renderPageToTarget(pageNum, canvas);
+            }
+            return;
+        }
+
+        const capturedBookId = bookIdRef.current;
+        const localModeVer = modeVersionRef.current;
+        hdTimerRef.current = setTimeout(() => {
+            if (!capturedBookId) return;
+            for (const { pageNum, canvas } of pages) {
+                if (!document.contains(canvas)) continue;
+                renderHdToCanvas(pageNum, canvas, zoomScale, capturedBookId, localModeVer);
+            }
+        }, 300);
+    };
+
     return {
         loadPageBitmap,
         renderPage,
         renderPageToTarget,
+        renderHdPage,
+        renderHdPageToTarget,
         resetCache,
         forceClearCache,
         getSmartPredictor,

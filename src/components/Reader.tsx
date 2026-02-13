@@ -127,7 +127,30 @@ export const Reader: React.FC = () => {
   useViewport();
 
   // 内容区域双指缩放（CSS Transform）
-  usePinchZoom(contentZoomRef);
+  const { resetZoom } = usePinchZoom(contentZoomRef, {
+    onZoomEnd: (scale) => {
+      if (isDomRender) return;
+      if (readingMode === "horizontal") {
+        pageRenderer.renderHdPage(currentPage, scale);
+      } else if (readingMode === "vertical") {
+        // 纵向模式：找出视口内可见的页面 canvas 进行高清渲染
+        const scrollEl = verticalScrollRef.current || mainViewRef.current;
+        if (!scrollEl) return;
+        const viewTop = scrollEl.getBoundingClientRect().top;
+        const viewBottom = viewTop + scrollEl.clientHeight;
+        const visiblePages: { pageNum: number; canvas: HTMLCanvasElement }[] = [];
+        verticalCanvasRefs.current.forEach((canvas, pageNum) => {
+          const rect = canvas.getBoundingClientRect();
+          if (rect.bottom > viewTop && rect.top < viewBottom) {
+            visiblePages.push({ pageNum, canvas });
+          }
+        });
+        if (visiblePages.length > 0) {
+          pageRenderer.renderHdPageToTarget(visiblePages, scale);
+        }
+      }
+    }
+  });
 
   // 外部文件可见性处理
   useExternalVisibility(isExternal);
@@ -274,6 +297,15 @@ export const Reader: React.FC = () => {
 
 
   // 导航
+  // 翻页时重置缩放状态（清除 CSS transform 和手势状态）
+  const prevPageForZoom = useRef(currentPage);
+  if (prevPageForZoom.current !== currentPage) {
+    prevPageForZoom.current = currentPage;
+    if (!isDomRender && globalThis.__goread_pinch_zoomed) {
+      resetZoom();
+    }
+  }
+
   const navigation = useNavigation({
     readerState,
     pageRenderer,

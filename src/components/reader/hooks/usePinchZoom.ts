@@ -56,8 +56,11 @@ function clampTranslate(tx: number, ty: number, scale: number, rect: DOMRect) {
  * 所有 touch 监听均为 passive:false，双指时 preventDefault 阻止系统接管手势。
  */
 export const usePinchZoom = (
-  contentRef: React.RefObject<HTMLElement | null>
+  contentRef: React.RefObject<HTMLElement | null>,
+  options?: { onZoomEnd?: (scale: number) => void }
 ) => {
+  const onZoomEndRef = useRef(options?.onZoomEnd);
+  onZoomEndRef.current = options?.onZoomEnd;
   const gestureRef = useRef<GestureState>({
     active: false,
     initialDistance: 0,
@@ -97,6 +100,7 @@ export const usePinchZoom = (
     applyTransform(1, 0, 0);
     globalThis.__goread_pinch_zoomed = false;
     if (contentRef.current) contentRef.current.style.touchAction = "pan-y";
+    onZoomEndRef.current?.(1);
   }, [applyTransform, contentRef]);
 
   useEffect(() => {
@@ -177,6 +181,7 @@ export const usePinchZoom = (
         } else {
           globalThis.__goread_pinch_zoomed = true;
           el.style.touchAction = "none";
+          onZoomEndRef.current?.(g.lastScale);
         }
       }
       if (e.touches.length === 0) g.panning = false;
