@@ -51,7 +51,7 @@ export const AUTO_PAGE_INTERVAL_MS = 2000; // 横向自动翻页间隔
 export const DEFAULT_SCROLL_SPEED_PX_PER_SEC = 120; // 纵向每秒滚动像素
 
 // 缓存配置（从统一缓存配置文件重导出）
-export { PDF_PAGE_CACHE_SIZE as PAGE_CACHE_SIZE, PDF_PAGE_CACHE_MAX_MEMORY_MB as PAGE_CACHE_MEMORY_LIMIT_MB } from './cache';
+export { PDF_PAGE_CACHE_MAX_MEMORY_MB as PAGE_CACHE_MEMORY_LIMIT_MB } from './cache';
 
 // UI 交互配置
 export const RESIZE_DEBOUNCE_MS = 300; // 窗口大小改变防抖时间

@@ -5,7 +5,6 @@
 
 import { logError } from '../../index';
 import {
-  TXT_MAX_CHAPTERS_PER_BOOK,
   TXT_CACHE_MAX_MEMORY_MB,
   TXT_PRELOAD_RANGE,
   TXT_CACHE_TIME_TO_IDLE_SECS,
@@ -61,14 +60,12 @@ interface MetadataCacheEntry {
 
 /** 缓存配置 */
 export interface TxtCacheConfig {
-    maxChaptersPerBook: number;
     maxTotalMemoryMB: number;
     preloadRange: number;
     timeToIdleSecs: number;
 }
 
 const DEFAULT_CONFIG: TxtCacheConfig = {
-    maxChaptersPerBook: TXT_MAX_CHAPTERS_PER_BOOK,
     maxTotalMemoryMB: TXT_CACHE_MAX_MEMORY_MB,
     preloadRange: TXT_PRELOAD_RANGE,
     timeToIdleSecs: TXT_CACHE_TIME_TO_IDLE_SECS,
@@ -95,7 +92,7 @@ class TxtCacheService {
      */
     setConfig(config: Partial<TxtCacheConfig>): void {
         this._config = { ...this._config, ...config };
-        logError(`[TxtCacheService] 配置更新: maxChapters=${this._config.maxChaptersPerBook}, preload=${this._config.preloadRange}`).catch(() => { });
+        logError(`[TxtCacheService] 配置更新: memoryMB=${this._config.maxTotalMemoryMB}, preload=${this._config.preloadRange}`).catch(() => { });
     }
 
     /**
@@ -189,11 +186,6 @@ class TxtCacheService {
             sizeBytes,
         };
 
-        // 检查是否需要淘汰
-        if (bookCache.size >= this._config.maxChaptersPerBook) {
-            this._evictLRUChapter(bookId);
-        }
-
         // 检查内存限制
         while (this._currentMemoryMB + sizeMB > this._config.maxTotalMemoryMB && this._currentMemoryMB > 0) {
             this._evictGlobalLRU();
@@ -228,31 +220,6 @@ class TxtCacheService {
     }
 
     // ======================== 淘汰策略 ========================
-
-    /**
-     * 淘汰指定书籍中最久未访问的章节
-     */
-    private _evictLRUChapter(bookId: string): void {
-        const bookCache = this._chapterCache.get(bookId);
-        if (!bookCache || bookCache.size === 0) return;
-
-        // 找到最久未访问的章节
-        let oldest: ChapterCacheEntry | null = null;
-        let oldestIndex = -1;
-
-        for (const [index, entry] of bookCache) {
-            if (!oldest || entry.lastAccessTime < oldest.lastAccessTime) {
-                oldest = entry;
-                oldestIndex = index;
-            }
-        }
-
-        if (oldest && oldestIndex >= 0) {
-            bookCache.delete(oldestIndex);
-            this._currentMemoryMB -= oldest.sizeBytes / (1024 * 1024);
-            if (this._currentMemoryMB < 0) this._currentMemoryMB = 0;
-        }
-    }
 
     /**
      * 淘汰全局最久未访问的章节

@@ -1,8 +1,6 @@
 import { getInvoke } from '../services';
 
 // ======================== EPUB 缓存配置 ========================
-/** EPUB 章节内存缓存 - 最大条目数 */
-export const EPUB_SECTION_CACHE_MAX_SIZE = 100;
 /** EPUB 章节内存缓存 - 内存上限 (MB) */
 export const EPUB_SECTION_CACHE_MAX_MEMORY_MB = 256;
 /** EPUB 资源内存缓存 - 内存上限 (MB) */
@@ -13,8 +11,6 @@ export const EPUB_PRELOADER_MAX_MEMORY_MB = 256;
 export const EPUB_DISK_CACHE_MAX_MB = 256;
 
 // ======================== MOBI 缓存配置 ========================
-/** MOBI 章节内存缓存 - 最大条目数 */
-export const MOBI_SECTION_CACHE_MAX_SIZE = 80;
 /** MOBI 章节内存缓存 - 内存上限 (MB) */
 export const MOBI_SECTION_CACHE_MAX_MEMORY_MB = 256;
 /** MOBI 资源内存缓存 - 内存上限 (MB) */
@@ -25,8 +21,6 @@ export const MOBI_PRELOADER_MAX_MEMORY_MB = 256;
 export const MOBI_DISK_CACHE_MAX_MB = 256;
 
 // ======================== TXT 缓存配置 ========================
-/** TXT 单本最大缓存章节数 */
-export const TXT_MAX_CHAPTERS_PER_BOOK = 15;
 /** TXT 总内存上限 (MB) */
 export const TXT_CACHE_MAX_MEMORY_MB = 256;
 /** TXT 预加载范围（前后各 N 章） */
@@ -35,8 +29,6 @@ export const TXT_PRELOAD_RANGE = 5;
 export const TXT_CACHE_TIME_TO_IDLE_SECS = 0;
 
 // ======================== PDF 缓存配置 ========================
-/** PDF 页面缓存数量 */
-export const PDF_PAGE_CACHE_SIZE = 100;
 /** PDF 页面缓存内存上限 (MB) */
 export const PDF_PAGE_CACHE_MAX_MEMORY_MB = 256;
 /** PDF 后端内存缓存上限 (MB) */

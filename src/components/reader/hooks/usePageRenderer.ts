@@ -8,12 +8,12 @@ import {
 } from "../../../utils/pdfOptimization";
 import {
     QUALITY_SCALE_MAP,
-    PAGE_CACHE_SIZE,
     PAGE_CACHE_MEMORY_LIMIT_MB,
 } from "../../../constants/config";
 import { log, logError } from "../../../services";
 import { ReaderSettings } from "../../../services";
 import { IBook } from "../../../types";
+
 
 type RenderStateProps = {
     rendererRef: React.MutableRefObject<IBookRenderer | null>;
@@ -53,7 +53,7 @@ export const usePageRenderer = ({
     // 缓存与队列管理，统一通过 IBookPageCache 接口访问
     const pageCacheRef = useRef<IBookPageCache>(
         new PdfPageCache(
-            new PageCacheManager(PAGE_CACHE_SIZE, PAGE_CACHE_MEMORY_LIMIT_MB)
+            new PageCacheManager(PAGE_CACHE_MEMORY_LIMIT_MB)
         )
     );
     // 预加载图片资源缓存（显式管理 ImageBitmap）

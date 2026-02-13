@@ -14,13 +14,11 @@ export interface CachedPage {
 
 export class PageCacheManager {
     private cache: Map<string, CachedPage>;
-    private maxCacheSize: number; // 最大缓存页数
     private maxMemoryMB: number; // 最大内存占用（MB）
     private currentMemoryMB: number;
 
-    constructor(maxCacheSize: number = 50, maxMemoryMB: number = 200) {
+    constructor(maxMemoryMB: number = 256) {
         this.cache = new Map();
-        this.maxCacheSize = maxCacheSize;
         this.maxMemoryMB = maxMemoryMB;
         this.currentMemoryMB = 0;
     }
@@ -75,8 +73,7 @@ export class PageCacheManager {
 
         // 检查是否需要淘汰旧页面
         while (
-            (this.cache.size >= this.maxCacheSize ||
-                this.currentMemoryMB + memoryMB > this.maxMemoryMB) &&
+            this.currentMemoryMB + memoryMB > this.maxMemoryMB &&
             this.cache.size > 0
         ) {
             this.evictOldest();
@@ -159,7 +156,7 @@ export class PageCacheManager {
         const mem = typeof this.currentMemoryMB === 'number' ? this.currentMemoryMB : 0;
         return {
             size: this.cache.size,
-            maxSize: this.maxCacheSize,
+            maxSize: 0, // 不按数量限制，仅靠内存上限控制
             memoryMB: parseFloat(mem.toFixed(2)),
             maxMemoryMB: this.maxMemoryMB,
         };

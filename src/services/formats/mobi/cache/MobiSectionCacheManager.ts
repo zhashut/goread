@@ -18,8 +18,6 @@ import { isIdleExpired, evictOldestEntry } from '../../../../utils/lruCacheUtils
 export class MobiSectionCacheManager implements IMobiSectionCache {
   /** 缓存容器 */
   private cache: Map<string, MobiSectionCacheEntry>;
-  /** 最大缓存章节数 */
-  private maxCacheSize: number;
   /** 最大内存占用（MB） */
   private maxMemoryMB: number;
   /** 当前内存占用（MB） */
@@ -27,9 +25,8 @@ export class MobiSectionCacheManager implements IMobiSectionCache {
   /** 空闲过期时间（秒），0 表示不过期 */
   private timeToIdleSecs: number;
 
-  constructor(maxCacheSize: number = 100, maxMemoryMB: number = 100) {
+  constructor(maxMemoryMB: number = 256) {
     this.cache = new Map();
-    this.maxCacheSize = maxCacheSize;
     this.maxMemoryMB = maxMemoryMB;
     this.currentMemoryMB = 0;
     this.timeToIdleSecs = 0;
@@ -124,10 +121,9 @@ export class MobiSectionCacheManager implements IMobiSectionCache {
       this.cache.delete(key);
     }
 
-    // 淘汰直到满足容量和内存限制
+    // 淘汰直到满足内存限制
     while (
-      (this.cache.size >= this.maxCacheSize ||
-        this.currentMemoryMB + memoryMB > this.maxMemoryMB) &&
+      this.currentMemoryMB + memoryMB > this.maxMemoryMB &&
       this.cache.size > 0
     ) {
       this.evictOldest();
@@ -211,7 +207,7 @@ export class MobiSectionCacheManager implements IMobiSectionCache {
   getStats(): BookPageCacheStats {
     return {
       size: this.cache.size,
-      maxSize: this.maxCacheSize,
+      maxSize: 0, // 不按数量限制，仅靠内存上限控制
       memoryMB: parseFloat(this.currentMemoryMB.toFixed(2)),
       maxMemoryMB: this.maxMemoryMB,
     };
