@@ -892,6 +892,9 @@ export class Paginator extends HTMLElement {
         })
     }
     #onTouchStart(e) {
+        if (e.touches.length > 1) {
+            this.#dispatchPinchEvent('pinch-touch-start', e.touches)
+        }
         const touch = e.changedTouches[0]
         this.#touchState = {
             x: touch?.screenX, y: touch?.screenY,
@@ -900,14 +903,15 @@ export class Paginator extends HTMLElement {
         }
     }
     #onTouchMove(e) {
-        const state = this.#touchState
-        if (state.pinched) return
-        state.pinched = globalThis.visualViewport.scale > 1
-        if (this.scrolled || state.pinched) return
         if (e.touches.length > 1) {
+            this.#dispatchPinchEvent('pinch-touch-move', e.touches)
             if (this.#touchScrolled) e.preventDefault()
             return
         }
+        const state = this.#touchState
+        if (state.pinched) return
+        state.pinched = globalThis.__goread_pinch_zoomed === true
+        if (this.scrolled || state.pinched) return
         e.preventDefault()
         const touch = e.changedTouches[0]
         const x = touch.screenX, y = touch.screenY
@@ -921,17 +925,27 @@ export class Paginator extends HTMLElement {
         this.#touchScrolled = true
         this.scrollBy(dx, dy)
     }
-    #onTouchEnd() {
+    #onTouchEnd(e) {
+        if (e.touches.length === 0 && globalThis.__goread_pinch_zoomed) {
+            this.#dispatchPinchEvent('pinch-touch-end', e.changedTouches)
+        }
         this.#touchScrolled = false
         if (this.scrolled) return
 
-        // XXX: Firefox seems to report scale as 1... sometimes...?
-        // at this point I'm basically throwing `requestAnimationFrame` at
-        // anything that doesn't work
         requestAnimationFrame(() => {
-            if (globalThis.visualViewport.scale === 1)
+            if (globalThis.__goread_pinch_zoomed !== true)
                 this.snap(this.#touchState.vx, this.#touchState.vy)
         })
+    }
+    /** 将多指触摸信息通过自定义事件转发到宿主元素 */
+    #dispatchPinchEvent(name, touches) {
+        this.dispatchEvent(new CustomEvent(name, {
+            detail: { touches: Array.from(touches).map(t => ({
+                clientX: t.clientX, clientY: t.clientY,
+                screenX: t.screenX, screenY: t.screenY,
+            })) },
+            bubbles: true, composed: true,
+        }))
     }
     // allows one to process rects as if they were LTR and horizontal
     #getRectMapper() {

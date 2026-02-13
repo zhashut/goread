@@ -16,6 +16,7 @@ export * from "./useResizeHandler";
 export * from "./useAutoMark";
 export * from "./useModeSwitch";
 export * from "./useViewport";
+export * from "./usePinchZoom";
 export * from "./useExternalVisibility";
 export * from "./usePageSync";
 export * from "./useReaderTheme";
@@ -26,5 +27,3 @@ export * from "./useBookFormatHelper";
 export * from "./useReaderClick";
 export * from "./useBookPageDivider";
 export * from "./useDividerVisibility";
-
-

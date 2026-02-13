@@ -1,16 +1,15 @@
 import { useEffect } from "react";
-import { applyScalable, resetZoom, applyNonScalable } from "../../../utils/viewport";
+import { applyNonScalable, resetZoom } from "../../../utils/viewport";
 
 /**
- * 视口缩放 Hook
- * 负责在阅读器加载时应用可缩放视口，卸载时恢复
+ * 视口管理 Hook
+ * 阅读器中禁用浏览器原生缩放，缩放由 usePinchZoom 通过 CSS Transform 实现
  */
 export const useViewport = () => {
     useEffect(() => {
-        applyScalable();
+        applyNonScalable();
         return () => {
             resetZoom();
-            applyNonScalable();
         };
     }, []);
 };

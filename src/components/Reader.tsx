@@ -40,6 +40,7 @@ import {
   useAutoMark,
   useModeSwitch,
   useViewport,
+  usePinchZoom,
   useExternalVisibility,
   usePageSync,
   useReaderTheme,
@@ -89,6 +90,7 @@ export const Reader: React.FC = () => {
   const epubRenderedRef = useRef(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const mainViewRef = useRef<HTMLDivElement>(null);
+  const contentZoomRef = useRef<HTMLDivElement>(null);
   const verticalScrollRef = useRef<HTMLDivElement>(null);
   const verticalCanvasRefs = useRef<Map<number, HTMLCanvasElement>>(new Map());
 
@@ -121,8 +123,11 @@ export const Reader: React.FC = () => {
 
   const { markReadingActive } = useReadingSession(book, isExternal);
 
-  // 视口缩放
+  // 视口管理（禁用原生缩放）
   useViewport();
+
+  // 内容区域双指缩放（CSS Transform）
+  usePinchZoom(contentZoomRef);
 
   // 外部文件可见性处理
   useExternalVisibility(isExternal);
@@ -397,6 +402,7 @@ export const Reader: React.FC = () => {
           }}
           ref={mainViewRef}
         >
+          <div ref={contentZoomRef} style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
           {/* DOM 渲染模式（Markdown、EPUB 等格式） */}
           {isDomRender ? (
             <div
@@ -482,6 +488,7 @@ export const Reader: React.FC = () => {
               })}
             </div>
           )}
+          </div>
         </div>
       </div>
 
