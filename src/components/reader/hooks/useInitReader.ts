@@ -148,7 +148,7 @@ export const useInitReader = ({
         // 1. 如果有最近的精确阅读进度（通常在阅读过程中产生），优先使用
         if (readerState.latestPreciseProgressRef.current != null) {
             pageToRender = readerState.latestPreciseProgressRef.current;
-        } 
+        }
         // 2. 如果没有最近进度，但有打开时的存档进度，且与当前页码匹配（整数部分一致），则使用存档进度
         // 这主要用于刚打开书籍时的初始渲染，确保精确恢复位置
         else {
@@ -304,15 +304,20 @@ export const useInitReader = ({
 
                         if (renderer instanceof MobiRenderer) {
                             renderer.onTocChange = (anchor: string) => {
-                                const normalizeAnchor = (h: string) => h?.split("#")[0] || "";
-                                const anchorBase = normalizeAnchor(anchor);
-
+                                // 在 TOC 树中查找匹配节点，精确匹配优先
                                 const findByAnchor = (list: TocNode[], level: number): { title: string; level: number } | null => {
+                                    // 精确匹配（含 #fileposXXX 片段）
                                     for (const n of list) {
-                                        const base = normalizeAnchor(n.anchor || "");
-                                        if (n.anchor === anchor || (anchorBase && base === anchorBase)) {
-                                            return { title: n.title, level };
+                                        if (n.anchor === anchor) return { title: n.title, level };
+                                        if (n.children) {
+                                            const r = findByAnchor(n.children, level + 1);
+                                            if (r) return r;
                                         }
+                                    }
+                                    // section 级别匹配（仅当精确匹配未命中时）
+                                    const sectionBase = anchor.split("#")[0];
+                                    for (const n of list) {
+                                        if (n.anchor?.split("#")[0] === sectionBase) return { title: n.title, level };
                                         if (n.children) {
                                             const r = findByAnchor(n.children, level + 1);
                                             if (r) return r;

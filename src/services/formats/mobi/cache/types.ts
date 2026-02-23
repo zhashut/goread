@@ -15,7 +15,7 @@ export interface MobiSectionCacheMeta {
   createdAt: number;
   /** 最近访问时间戳（ms），用于 LRU 和空闲过期 */
   lastAccessTime: number;
-  /** foliate section.id */
+  /** 章节序号 */
   sectionId: number;
 }
 
