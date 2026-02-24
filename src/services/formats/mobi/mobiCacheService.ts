@@ -4,7 +4,7 @@
  * 全部使用后端 Rust 磁盘持久化（对齐 EPUB/PDF 缓存方案）
  */
 
-import { logError, getInvoke } from '../../index';
+import { log, logError, getInvoke } from '../../index';
 import {
   MobiSectionCacheManager,
   MobiResourceCacheManager,
@@ -120,7 +120,7 @@ class MobiCacheService {
         styles: string[];
         resource_refs: string[];
       }
-      
+
       const invoke = (await getInvoke()) as <T>(cmd: string, args?: any) => Promise<T>;
       const result = await invoke<BackendSectionData | null>('mobi_load_section', {
         bookId,
@@ -175,7 +175,7 @@ class MobiCacheService {
         stack: (e as Error)?.stack,
         bookId: entry.bookId,
         sectionIndex: entry.sectionIndex,
-      }).catch(() => {});
+      }).catch(() => { });
     }
   }
 
@@ -235,7 +235,7 @@ class MobiCacheService {
         stack: (e as Error)?.stack,
         bookId: entry.bookId,
         resourcePath: entry.resourcePath,
-      }).catch(() => {});
+      }).catch(() => { });
     }
   }
 
@@ -276,7 +276,7 @@ class MobiCacheService {
           description: result.book_info.description ?? undefined,
           publisher: result.book_info.publisher ?? undefined,
           language: result.book_info.language ?? undefined,
-          pageCount: result.book_info.page_count,
+          pageCount: result.section_count || result.book_info.page_count,
           format: (result.book_info.format as BookInfo['format']) ?? 'mobi',
           coverImage: result.book_info.cover_image ?? undefined,
         },
@@ -337,7 +337,7 @@ class MobiCacheService {
         error: String(e),
         stack: (e as Error)?.stack,
         bookId,
-      }).catch(() => {});
+      }).catch(() => { });
     }
   }
 
@@ -356,17 +356,16 @@ class MobiCacheService {
         error: String(e),
         stack: (e as Error)?.stack,
         bookId,
-      }).catch(() => {});
+      }).catch(() => { });
     }
   }
 
   /**
    * 清空所有持久化缓存
+   * TODO: 后端暂未提供 clear_all 命令，当前仅清理内存层
    */
   async clearAllFromDB(): Promise<void> {
-    // 通过设置有效期为 -1 天来清理所有缓存
-    // 后端没有 clear_all 命令，这里只是触发过期清理
-    logError('[MobiCacheService] 清空所有缓存').catch(() => {});
+    log('[MobiCacheService] 清空所有缓存', 'info').catch(() => { });
   }
 
   /**
@@ -377,7 +376,7 @@ class MobiCacheService {
       const invoke = (await getInvoke()) as <T>(cmd: string, args?: any) => Promise<T>;
       const cleaned = await invoke<number>('mobi_cleanup_expired');
       if (cleaned > 0) {
-        logError(`[MobiCacheService] 后端清理过期缓存 ${cleaned} 条`).catch(() => {});
+        log(`[MobiCacheService] 后端清理过期缓存 ${cleaned} 条`, 'info').catch(() => { });
       }
     } catch {
       // 静默失败
@@ -418,13 +417,13 @@ class MobiCacheService {
     try {
       const invoke = (await getInvoke()) as <T>(cmd: string, args?: any) => Promise<T>;
       await invoke('mobi_set_cache_expiry', { days: newDays });
-      logError(`[MobiCacheService] 配置变更：${newDays === 0 ? '不限' : newDays + '天'}`).catch(() => {});
+      log(`[MobiCacheService] 配置变更：${newDays === 0 ? '不限' : newDays + '天'}`, 'info').catch(() => { });
     } catch (e) {
       logError('[MobiCacheService] 设置缓存有效期失败', {
         error: String(e),
         stack: (e as Error)?.stack,
         days: newDays,
-      }).catch(() => {});
+      }).catch(() => { });
     }
   }
 

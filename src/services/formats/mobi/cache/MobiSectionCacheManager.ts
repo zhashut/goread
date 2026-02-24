@@ -8,7 +8,7 @@ import type {
   IMobiSectionCache,
 } from './types';
 import type { BookPageCacheStats } from '../../types';
-import { logError } from '../../../index';
+import { log, logError } from '../../../index';
 import { isIdleExpired, evictOldestEntry } from '../../../../utils/lruCacheUtils';
 
 /**
@@ -61,7 +61,7 @@ export class MobiSectionCacheManager implements IMobiSectionCache {
         if (this.currentMemoryMB < 0) {
           this.currentMemoryMB = 0;
         }
-        logError(`[MobiSectionCache] 淘汰章节缓存: ${String(key)}`).catch(() => {});
+        logError(`[MobiSectionCache] 淘汰章节缓存: ${String(key)}`, { key: String(key) }).catch(() => { });
       },
     });
     if (!removed) {
@@ -91,7 +91,7 @@ export class MobiSectionCacheManager implements IMobiSectionCache {
         this.currentMemoryMB = 0;
       }
       this.cache.delete(key);
-      logError(`[MobiSectionCache] 章节缓存已过期: ${key}`).catch(() => {});
+      log(`[MobiSectionCache] 章节缓存已过期: ${key}`, 'info').catch(() => { });
       return null;
     }
 
@@ -189,7 +189,7 @@ export class MobiSectionCacheManager implements IMobiSectionCache {
     });
 
     keysToDelete.forEach((key) => this.cache.delete(key));
-    logError(`[MobiSectionCache] 清空书籍缓存: ${bookId}, 删除 ${keysToDelete.length} 个章节`).catch(() => {});
+    log(`[MobiSectionCache] 清空书籍缓存: ${bookId}, 删除 ${keysToDelete.length} 个章节`, 'info').catch(() => { });
   }
 
   /**
@@ -198,7 +198,7 @@ export class MobiSectionCacheManager implements IMobiSectionCache {
   clearAll(): void {
     this.cache.clear();
     this.currentMemoryMB = 0;
-    logError('[MobiSectionCache] 清空所有缓存').catch(() => {});
+    log('[MobiSectionCache] 清空所有缓存', 'info').catch(() => { });
   }
 
   /**

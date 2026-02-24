@@ -314,6 +314,7 @@ pub fn run() {
             mobi_get_cache_stats,
             mobi_save_metadata,
             mobi_load_metadata,
+            mobi_prepare_book,
             epub_inspect,
             epub_prepare_book
         ])

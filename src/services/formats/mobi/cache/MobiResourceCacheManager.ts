@@ -8,7 +8,7 @@ import type {
   IMobiResourceCache,
 } from './types';
 import type { BookPageCacheStats } from '../../types';
-import { logError } from '../../../index';
+import { log } from '../../../index';
 import { isIdleExpired, evictOldestEntry } from '../../../../utils/lruCacheUtils';
 
 /**
@@ -57,7 +57,7 @@ export class MobiResourceCacheManager implements IMobiResourceCache {
         if (this.currentMemoryMB < 0) {
           this.currentMemoryMB = 0;
         }
-        logError(`[MobiResourceCache] 淘汰资源: ${String(key)}`).catch(() => {});
+        log(`[MobiResourceCache] 淘汰资源: ${String(key)}`, 'info').catch(() => { });
       },
     });
   }
@@ -196,7 +196,7 @@ export class MobiResourceCacheManager implements IMobiResourceCache {
     });
 
     keysToDelete.forEach((key) => this.cache.delete(key));
-    logError(`[MobiResourceCache] 清空书籍资源: ${bookId}, 删除 ${keysToDelete.length} 个资源`).catch(() => {});
+    log(`[MobiResourceCache] 清空书籍资源: ${bookId}, 删除 ${keysToDelete.length} 个资源`, 'info').catch(() => { });
   }
 
   /**
@@ -205,7 +205,7 @@ export class MobiResourceCacheManager implements IMobiResourceCache {
   clearAll(): void {
     this.cache.clear();
     this.currentMemoryMB = 0;
-    logError('[MobiResourceCache] 清空所有资源缓存').catch(() => {});
+    log('[MobiResourceCache] 清空所有资源缓存', 'info').catch(() => { });
   }
 
   /**

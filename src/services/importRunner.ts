@@ -119,34 +119,37 @@ async function importHtmlBook(filePath: string, invoke: any, logError: any): Pro
 }
 
 // MOBI 格式导入
-async function importMobiBook(filePath: string, _invoke: any, logError: any, options?: { skipPreloaderCache?: boolean }): Promise<ImportResult> {
+async function importMobiBook(filePath: string, _invoke: any, logError: any, _options?: { skipPreloaderCache?: boolean }): Promise<ImportResult> {
   let info: any = null;
   let coverImage: string | undefined = undefined;
   let totalPages = 1;
 
   try {
-    // 动态导入 MobiRenderer 避免循环依赖
-    const { MobiRenderer } = await import('./formats/mobi/MobiRenderer');
-    const renderer = new MobiRenderer();
-    const bookInfo = await renderer.loadDocument(filePath, {
-      skipPreloaderCache: options?.skipPreloaderCache,
+    const invoke = await getInvoke();
+    const result = await invoke<{
+      book_info: {
+        title?: string | null;
+        author?: string | null;
+        page_count: number;
+        cover_image?: string | null;
+      };
+      section_count: number;
+    }>('mobi_prepare_book', {
+      filePath,
+      bookId: generateQuickBookId(filePath),
     });
-    
-    info = {
-      title: bookInfo.title,
-      author: bookInfo.author,
-    };
-    
-    // 封面图片格式: "data:image/...;base64,xxxxx"
-    // 直接传完整 data URL，后端会正确识别并落盘
-    // 避免提取纯 Base64 后因长度过短被误识别为路径
-    if (bookInfo.coverImage && bookInfo.coverImage.startsWith('data:')) {
-      coverImage = bookInfo.coverImage;
-    }
-    
-    totalPages = bookInfo.pageCount || 1;
 
-    await renderer.close();
+    const bookInfo = result.book_info;
+    info = {
+      title: bookInfo?.title ?? pathToTitle(filePath),
+      author: bookInfo?.author ?? undefined,
+    };
+
+    if (bookInfo?.cover_image && bookInfo.cover_image.startsWith('data:')) {
+      coverImage = bookInfo.cover_image;
+    }
+
+    totalPages = Math.max(1, result.section_count);
   } catch (err) {
     await logError('MOBI import failed', { error: String(err), filePath });
   }
@@ -366,14 +369,14 @@ export const importPathsToExistingGroup = async (
       await logError('Unsupported file format, skipping', { filePath });
       continue;
     }
-    
+
     await log('[Import] 开始导入书籍', 'info', {
       index: i + 1,
       total,
       filePath,
       format,
     });
-    
+
     // 大文件且是 EPUB/MOBI 格式时，跳过预加载缓存存储，避免内存累积
     const skipCache = largeFile && (format === 'epub' || format === 'mobi');
     const { coverImage, totalPages } = await importByFormat(filePath, format, invoke, logError, {
@@ -449,7 +452,7 @@ export const importPathsToExistingGroup = async (
       await forceGarbageCollection(largeFile);
       const delayMs = largeFile ? MOBILE_LARGE_FILE_DELAY_MS : MOBILE_IMPORT_DELAY_MS;
       await new Promise(resolve => setTimeout(resolve, delayMs));
-      await logError(`[Import] 移动端内存清理完成，延迟 ${delayMs}ms`);
+      await log(`[Import] 移动端内存清理完成，延迟 ${delayMs}ms`, 'info');
     }
   }
 
