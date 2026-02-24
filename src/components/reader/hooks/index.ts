@@ -26,5 +26,4 @@ export * from "./useBookFormatHelper";
 export * from "./useReaderClick";
 export * from "./useBookPageDivider";
 export * from "./useDividerVisibility";
-
-
+export * from "./useTocSort";

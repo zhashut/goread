@@ -50,6 +50,7 @@ import {
   useReaderClick,
   useBookPageDivider,
   useDividerVisibility,
+  useTocSort,
 } from "./reader/hooks";
 
 import { UndoJumpIcon } from "./covers/UndoJumpIcon";
@@ -141,6 +142,7 @@ export const Reader: React.FC = () => {
   const tocData = useToc(currentPage, readingMode, isDomRender);
   const bookmarkData = useBookmarks(book, isExternal);
   const { hideDivider, setHideDivider } = useBookPageDivider(book);
+  const tocSort = useTocSort(tocData.toc, book);
 
   // 6. 核心逻辑 Hooks
   // 页面渲染器
@@ -608,8 +610,11 @@ export const Reader: React.FC = () => {
       <TocOverlay
         visible={tocOverlayOpen}
         toc={tocData.toc}
+        sortedToc={tocSort.sortedToc}
         bookmarks={isExternal ? [] : bookmarkData.bookmarks}
         activeSignature={tocData.activeNodeSignature}
+        sortMode={tocSort.sortMode}
+        isReversed={tocSort.isReversed}
         onClose={() => {
           setTocOverlayOpen(false);
           setUiVisible(false);
@@ -649,6 +654,8 @@ export const Reader: React.FC = () => {
         }}
         onDeleteBookmark={isExternal ? () => Promise.resolve(false) : bookmarkData.deleteBookmark}
         setToc={tocData.setToc}
+        onSortModeChange={tocSort.setSortMode}
+        onToggleReverse={tocSort.toggleReverse}
       />
 
       <ModeOverlay

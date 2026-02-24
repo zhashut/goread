@@ -1,32 +1,45 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useCallback } from "react";
 import { useTranslation } from 'react-i18next';
 import { TocNode } from "./types";
 import { IBookmark } from "../../types";
 import { getSafeAreaInsets } from "../../utils/layout";
+import { TocSortMode } from "./hooks/useTocSort";
 
 interface TocOverlayProps {
   visible: boolean;
   toc: TocNode[];
+  sortedToc: TocNode[];
   bookmarks: IBookmark[];
   activeSignature?: string | undefined;
+  sortMode: TocSortMode;
+  isReversed: boolean;
   onClose: () => void;
   onGoToPage: (page: number | undefined, anchor?: string) => void;
   onDeleteBookmark: (id: number) => void;
-  setToc: (toc: TocNode[]) => void; // 用于展开/折叠
+  setToc: (toc: TocNode[]) => void;
+  onSortModeChange: (mode: TocSortMode) => void;
+  onToggleReverse: () => void;
 }
 
 export const TocOverlay: React.FC<TocOverlayProps> = ({
   visible,
   toc,
+  sortedToc,
   bookmarks,
   activeSignature,
+  sortMode,
+  isReversed,
   onClose,
   onGoToPage,
   onDeleteBookmark,
   setToc,
+  onSortModeChange,
+  onToggleReverse,
 }) => {
   const { t } = useTranslation('reader');
   const [leftTab, setLeftTab] = useState<"toc" | "bookmark">("toc");
+  const [sortMenuOpen, setSortMenuOpen] = useState(false);
+  const sortActionRef = useRef<HTMLDivElement>(null);
   const tocItemRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const prevVisibleRef = useRef(false);
@@ -35,9 +48,20 @@ export const TocOverlay: React.FC<TocOverlayProps> = ({
   React.useEffect(() => {
     if (visible && !prevVisibleRef.current) {
       setLeftTab("toc");
+      setSortMenuOpen(false);
     }
     prevVisibleRef.current = visible;
   }, [visible]);
+
+  // 点击排序菜单外部区域时关闭菜单
+  const handleSortMenuOutsideClick = useCallback((e: React.MouseEvent) => {
+    if (sortActionRef.current && !sortActionRef.current.contains(e.target as Node)) {
+      setSortMenuOpen(false);
+    }
+  }, []);
+
+  // 排序方式是否处于非默认状态（用于图标高亮）
+  const isSortActive = sortMode !== 'default' || isReversed;
 
   // 自动滚动到当前章节
   React.useEffect(() => {
@@ -58,6 +82,22 @@ export const TocOverlay: React.FC<TocOverlayProps> = ({
     }
   }, [visible, activeSignature]);
 
+  // 通过 signature 匹配更新原始 toc 中节点的展开状态
+  const toggleNodeExpanded = useCallback((targetSig: string) => {
+    const toggle = (nodes: TocNode[], level: number): TocNode[] => {
+      return nodes.map(n => {
+        const nSig = `${n.title}|${typeof n.page === "number" ? n.page : -1}|${level}`;
+        const children = n.children ? toggle(n.children, level + 1) : undefined;
+        if (nSig === targetSig) {
+          return { ...n, expanded: !n.expanded, children };
+        }
+        return children !== n.children ? { ...n, children } : n;
+      });
+    };
+    setToc(toggle(toc, 0));
+  }, [toc, setToc]);
+
+  // 渲染目录树使用排序后的数据展示，但展开/折叠操作仍作用于原始 toc
   const renderTocTree = (nodes: TocNode[], level: number): React.ReactNode => {
     const indent = 10 + level * 14;
     return nodes.map((node, idx) => {
@@ -94,8 +134,7 @@ export const TocOverlay: React.FC<TocOverlayProps> = ({
               onClick={(e) => {
                 e.stopPropagation();
                 if (hasChildren) {
-                  node.expanded = !node.expanded;
-                  setToc([...toc]);
+                  toggleNodeExpanded(sig);
                 }
               }}
               style={{
@@ -204,7 +243,10 @@ export const TocOverlay: React.FC<TocOverlayProps> = ({
       }}
     >
       <div
-        onClick={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          handleSortMenuOutsideClick(e);
+        }}
         style={{
           width: "75%",
           height: "100%",
@@ -217,54 +259,191 @@ export const TocOverlay: React.FC<TocOverlayProps> = ({
           overflow: "hidden",
         }}
       >
-        {/* 顶部页签：目录 / 书签（固定在顶部） */}
+        {/* 顶部页签：目录 / 书签 + 排序按钮 */}
           <div
             style={{
               padding: `calc(${getSafeAreaInsets().top} + 16px) 16px 0 16px`,
               flexShrink: 0,
               display: "flex",
               alignItems: "center",
+              justifyContent: "space-between",
               marginBottom: "12px",
             }}
           >
-            <button
-              onClick={() => setLeftTab("toc")}
-              style={{
-                background: "none",
-                border: "none",
-                color: leftTab === "toc" ? "#d15158" : "#fff",
-                cursor: "pointer",
-                fontSize: "14px",
-                padding: "4px 6px",
-                borderBottom:
-                  leftTab === "toc"
-                    ? "2px solid #d15158"
-                    : "2px solid transparent",
-                marginRight: "16px",
-              }}
-            >
-            <span style={{ marginRight: "6px" }}>≡</span>
-            <span>{t('toc')}</span>
-          </button>
-          <button
-            onClick={() => setLeftTab("bookmark")}
-            style={{
-              background: "none",
-              border: "none",
-              color: leftTab === "bookmark" ? "#d15158" : "#fff",
-              cursor: "pointer",
-              fontSize: "14px",
-              padding: "4px 6px",
-              borderBottom:
-                leftTab === "bookmark"
-                  ? "2px solid #d15158"
-                  : "2px solid transparent",
-            }}
-          >
-            <span style={{ marginRight: "6px" }}>🔖</span>
-            <span>{t('bookmark')}</span>
-          </button>
-        </div>
+            <div style={{ display: "flex", alignItems: "center" }}>
+              <button
+                onClick={() => setLeftTab("toc")}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: leftTab === "toc" ? "#d15158" : "#fff",
+                  cursor: "pointer",
+                  fontSize: "14px",
+                  padding: "4px 6px",
+                  borderBottom:
+                    leftTab === "toc"
+                      ? "2px solid #d15158"
+                      : "2px solid transparent",
+                  marginRight: "16px",
+                }}
+              >
+                <span style={{ marginRight: "6px" }}>≡</span>
+                <span>{t('toc')}</span>
+              </button>
+              <button
+                onClick={() => setLeftTab("bookmark")}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: leftTab === "bookmark" ? "#d15158" : "#fff",
+                  cursor: "pointer",
+                  fontSize: "14px",
+                  padding: "4px 6px",
+                  borderBottom:
+                    leftTab === "bookmark"
+                      ? "2px solid #d15158"
+                      : "2px solid transparent",
+                }}
+              >
+                <span style={{ marginRight: "6px" }}>🔖</span>
+                <span>{t('bookmark')}</span>
+              </button>
+            </div>
+
+            {/* 排序按钮（仅在目录 Tab 下显示） */}
+            {leftTab === "toc" && (
+              <div ref={sortActionRef} style={{ position: "relative" }}>
+                <div
+                  onClick={() => setSortMenuOpen(v => !v)}
+                  style={{
+                    width: 32,
+                    height: 32,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    borderRadius: "50%",
+                    cursor: "pointer",
+                    color: isSortActive || sortMenuOpen ? "#d15158" : "#999",
+                    transition: "color 0.2s",
+                  }}
+                >
+                  <svg width={20} height={20} viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M3 18h6v-2H3v2zM3 6v2h18V6H3zm0 7h12v-2H3v2z" />
+                  </svg>
+                </div>
+
+                {/* 排序下拉菜单 */}
+                <div
+                  style={{
+                    position: "absolute",
+                    top: 40,
+                    right: 0,
+                    width: 160,
+                    backgroundColor: "#2c2c2c",
+                    borderRadius: 8,
+                    boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+                    padding: "6px 0",
+                    opacity: sortMenuOpen ? 1 : 0,
+                    transform: sortMenuOpen ? "translateY(0)" : "translateY(-10px)",
+                    pointerEvents: sortMenuOpen ? "auto" : "none",
+                    transition: "all 0.2s ease",
+                    border: "1px solid #3d3d3d",
+                    zIndex: 30,
+                  }}
+                >
+                  {/* 默认排序 */}
+                  <div
+                    onClick={() => {
+                      onSortModeChange('default');
+                      setTimeout(() => setSortMenuOpen(false), 150);
+                    }}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      padding: "10px 16px",
+                      fontSize: 14,
+                      color: sortMode === 'default' ? "#d15158" : "#ccc",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <span>{t('sortDefault')}</span>
+                    {sortMode === 'default' && (
+                      <svg width={14} height={14} viewBox="0 0 24 24" fill="#d15158">
+                        <path d="M9 16.17L4.83 12l-1.41 1.41L9 19 21 7l-1.41-1.41z" />
+                      </svg>
+                    )}
+                  </div>
+
+                  {/* 按名称排序 */}
+                  <div
+                    onClick={() => {
+                      onSortModeChange('name');
+                      setTimeout(() => setSortMenuOpen(false), 150);
+                    }}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      padding: "10px 16px",
+                      fontSize: 14,
+                      color: sortMode === 'name' ? "#d15158" : "#ccc",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <span>{t('sortByName')}</span>
+                    {sortMode === 'name' && (
+                      <svg width={14} height={14} viewBox="0 0 24 24" fill="#d15158">
+                        <path d="M9 16.17L4.83 12l-1.41 1.41L9 19 21 7l-1.41-1.41z" />
+                      </svg>
+                    )}
+                  </div>
+
+                  {/* 分割线 */}
+                  <div style={{ height: 1, backgroundColor: "#3d3d3d", margin: "4px 0" }} />
+
+                  {/* 倒序排列开关 */}
+                  <div
+                    onClick={onToggleReverse}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      padding: "10px 16px",
+                      fontSize: 14,
+                      color: "#ccc",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <span>{t('sortReverse')}</span>
+                    <div
+                      style={{
+                        width: 36,
+                        height: 20,
+                        backgroundColor: isReversed ? "#d15158" : "#555",
+                        borderRadius: 10,
+                        position: "relative",
+                        transition: "background 0.3s",
+                      }}
+                    >
+                      <div
+                        style={{
+                          position: "absolute",
+                          top: 2,
+                          left: isReversed ? 18 : 2,
+                          width: 16,
+                          height: 16,
+                          backgroundColor: "#fff",
+                          borderRadius: "50%",
+                          transition: "left 0.3s",
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
 
         {/* 内容区：目录或书签列表（可滚动） */}
         <div
@@ -278,12 +457,12 @@ export const TocOverlay: React.FC<TocOverlayProps> = ({
           }}
         >
           {leftTab === "toc" ? (
-            toc.length === 0 ? (
+            sortedToc.length === 0 ? (
               <div style={{ fontSize: "13px", opacity: 0.6 }}>
                 {t('noToc')}
               </div>
             ) : (
-              <div>{renderTocTree(toc, 0)}</div>
+              <div>{renderTocTree(sortedToc, 0)}</div>
             )
           ) : bookmarks.length === 0 ? (
             <div

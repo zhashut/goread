@@ -25,5 +25,8 @@
   "theme": "阅读主题",
   "themeLight": "亮色",
   "themeDark": "暗色",
-  "themeFollowGlobal": "跟随全局（当前：{{theme}}）"
+  "themeFollowGlobal": "跟随全局（当前：{{theme}}）",
+  "sortDefault": "默认排序",
+  "sortByName": "按名称排序",
+  "sortReverse": "倒序排列"
 }

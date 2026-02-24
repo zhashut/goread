@@ -23,6 +23,7 @@ export interface IBookService {
   updateBookTheme(id: number, theme: ReaderTheme | null): Promise<void>;
   updateBookReadingMode(id: number, readingMode: 'horizontal' | 'vertical' | null): Promise<void>;
   updateBookHideDivider(id: number, hide: boolean): Promise<void>;
+  updateBookTocSort(id: number, tocSort: number): Promise<void>;
   resetAllBookThemes(): Promise<void>;
   renameBook(id: number, newTitle: string): Promise<void>;
 }
@@ -33,10 +34,10 @@ export class TauriBookService implements IBookService {
     try {
       const invoke = await getInvoke();
       await invoke('init_database');
-      } catch (error) {
-        await logError('Failed to init database', { error: String(error) });
-        // 数据库已初始化时忽略错误
-      }
+    } catch (error) {
+      await logError('Failed to init database', { error: String(error) });
+      // 数据库已初始化时忽略错误
+    }
   }
 
   async addBook(path: string, title: string, coverImage?: string, totalPages: number = 1): Promise<IBook> {
@@ -107,6 +108,11 @@ export class TauriBookService implements IBookService {
   async updateBookHideDivider(id: number, hide: boolean): Promise<void> {
     const invoke = await getInvoke();
     await invoke('update_book_hide_divider', { id, hide });
+  }
+
+  async updateBookTocSort(id: number, tocSort: number): Promise<void> {
+    const invoke = await getInvoke();
+    await invoke('update_book_toc_sort', { id, tocSort });
   }
 
   async resetAllBookThemes(): Promise<void> {
