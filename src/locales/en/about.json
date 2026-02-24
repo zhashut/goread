@@ -17,8 +17,11 @@
     "pdfiumRender": {
       "description": "High-level Rust bindings for PDFium for PDF rendering"
     },
-    "foliateJs": {
-      "description": "E-book reader core library (EPUB/MOBI/FB2)"
+    "epub": {
+      "description": "Rust library for reading EPUB files and extracting metadata and content."
+    },
+    "mobi": {
+      "description": "Rust crate for working with MOBI/AZW3 ebooks and parsing metadata and content."
     },
     "dndKit": {
       "description": "Modern, lightweight, and high-performance React drag and drop toolkit"

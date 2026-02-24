@@ -31,11 +31,18 @@ const LIBRARIES: LibraryInfo[] = [
     githubUrl: 'https://github.com/ajrcarey/pdfium-render',
   },
   {
-    name: 'foliate-js',
-    author: 'johnfactotum',
-    version: 'latest',
-    descKey: 'libs.foliateJs.description',
-    githubUrl: 'https://github.com/johnfactotum/foliate-js',
+    name: 'epub-rs',
+    author: 'danigm',
+    version: '2',
+    descKey: 'libs.epub.description',
+    githubUrl: 'https://github.com/danigm/epub-rs',
+  },
+  {
+    name: 'mobi-rs',
+    author: 'Wojciech Kępka',
+    version: '0.4',
+    descKey: 'libs.mobi.description',
+    githubUrl: 'https://github.com/wojciechkepka/mobi-rs',
   },
   {
     name: 'dnd-kit',

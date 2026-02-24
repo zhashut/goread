@@ -17,8 +17,11 @@
     "pdfiumRender": {
       "description": "PDFium 的高级 Rust 绑定，用于 PDF 渲染"
     },
-    "foliateJs": {
-      "description": "电子书阅读器核心库（EPUB/MOBI/FB2）"
+    "epub": {
+      "description": "基于 Rust 的 EPUB 解析库，用于读取 EPUB 电子书元数据与内容。"
+    },
+    "mobi": {
+      "description": "基于 Rust 的 MOBI/AZW3 解析库，用于读取电子书元数据与内容。"
     },
     "dndKit": {
       "description": "现代、轻量、高性能的 React 拖拽工具包"
