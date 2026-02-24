@@ -68,18 +68,63 @@ fn estimate_page_count<R: std::io::Read + std::io::Seek>(doc: &EpubDoc<R>) -> i3
     }
 }
 
+/// 将图片二进制数据编码为 data URI 格式
+fn encode_cover_to_data_uri(bytes: &[u8], mime: &str) -> Option<String> {
+    use base64::{engine::general_purpose, Engine as _};
+
+    if bytes.is_empty() {
+        return None;
+    }
+    let encoded = general_purpose::STANDARD.encode(bytes);
+    Some(format!("data:{};base64,{}", mime, encoded))
+}
+
+/// 从 EPUB 资源列表中查找封面图片
+/// 优先匹配 id 或路径含 "cover" 的图片资源，其次使用首个图片资源
+fn find_cover_from_resources<R: std::io::Read + std::io::Seek>(
+    doc: &mut EpubDoc<R>,
+) -> Option<String> {
+    let mut cover_candidate: Option<(String, String)> = None;
+    let mut first_image: Option<(String, String)> = None;
+
+    for (id, item) in doc.resources.iter() {
+        let mime = &item.mime;
+        if !mime.starts_with("image/") {
+            continue;
+        }
+
+        let path_str = item.path.to_string_lossy().to_string();
+        let id_lower = id.to_lowercase();
+        let path_lower = path_str.to_lowercase();
+        if id_lower.contains("cover") || path_lower.contains("cover") {
+            cover_candidate = Some((path_str, mime.clone()));
+            break;
+        }
+
+        if first_image.is_none() {
+            first_image = Some((path_str, mime.clone()));
+        }
+    }
+
+    let (res_path, mime) = cover_candidate.or(first_image)?;
+    let data = doc.get_resource_by_path(&res_path)?;
+    encode_cover_to_data_uri(&data, &mime)
+}
+
 fn extract_cover_data<R: std::io::Read + std::io::Seek>(
     doc: &mut EpubDoc<R>,
 ) -> Option<String> {
-    use base64::{engine::general_purpose, Engine as _};
+    // 优先使用 epub crate 内置的封面提取
+    if let Some((bytes, mime)) = doc.get_cover() {
+        if let Some(uri) = encode_cover_to_data_uri(&bytes, &mime) {
+            return Some(uri);
+        }
+    }
 
-    let (bytes, mime) = match doc.get_cover() {
-        Some((bytes, mime)) if !bytes.is_empty() => (bytes, mime),
-        _ => return None,
-    };
+    println!("[EPUB] get_cover() 未找到封面，尝试从资源列表中查找");
 
-    let encoded = general_purpose::STANDARD.encode(&bytes);
-    Some(format!("data:{};base64,{}", mime, encoded))
+    // 回退：从 manifest 资源中查找封面图片
+    find_cover_from_resources(doc)
 }
 
 pub fn inspect_epub(file_path: &str) -> Result<EpubInspectResult, String> {
