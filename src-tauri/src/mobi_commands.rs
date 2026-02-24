@@ -1,9 +1,12 @@
 //! MOBI 相关的 Tauri 命令
 use crate::formats::mobi::cache::{MobiCacheManager, BookInfo, TocItem, MetadataCacheEntry, SectionCacheData};
+use crate::formats::mobi::engine::{prepare_book, MobiPreparedBook};
+use serde::Serialize;
 use serde_json::Value;
 use std::sync::Arc;
 use tauri::State;
 use tokio::sync::Mutex;
+use tokio::task;
 
 /// MOBI 缓存管理器状态
 pub type MobiCacheState = Arc<Mutex<MobiCacheManager>>;
@@ -180,4 +183,65 @@ pub async fn mobi_load_metadata(
 ) -> Result<Option<MetadataCacheEntry>, String> {
     let manager = state.lock().await;
     manager.load_metadata(&book_id).await
+}
+
+// ====================== MOBI Rust 解析引擎 ======================
+
+#[derive(Debug, Serialize)]
+pub struct MobiPrepareResult {
+    pub book_info: BookInfo,
+    pub toc: Vec<TocItem>,
+    pub section_count: u32,
+}
+
+/// 一次性解析 MOBI 文件并将章节/资源/元数据写入磁盘缓存
+#[tauri::command]
+pub async fn mobi_prepare_book(
+    file_path: String,
+    book_id: String,
+    state: State<'_, MobiCacheState>,
+) -> Result<MobiPrepareResult, String> {
+    let prepared: MobiPreparedBook = task::spawn_blocking(move || prepare_book(&file_path))
+        .await
+        .map_err(|e| format!("MOBI 解析任务失败: {}", e))??;
+
+    let manager = state.lock().await;
+
+    // 清理旧缓存
+    manager.clear_book_cache(&book_id).await
+        .map_err(|e| format!("清理旧缓存失败: {}", e))?;
+
+    // 保存所有章节
+    for section in &prepared.sections {
+        manager.save_section(
+            &book_id,
+            section.index,
+            &section.html,
+            section.styles.clone(),
+            section.resource_refs.clone(),
+        ).await.map_err(|e| format!("保存章节缓存失败: {}", e))?;
+    }
+
+    // 保存所有资源
+    for res in &prepared.resources {
+        manager.save_resource(&book_id, &res.path, &res.data, &res.mime_type)
+            .await.map_err(|e| format!("保存资源缓存失败: {}", e))?;
+    }
+
+    // 保存元数据
+    manager.save_metadata(
+        &book_id,
+        prepared.book_info.clone(),
+        prepared.toc.clone(),
+        prepared.section_count,
+    ).await.map_err(|e| format!("保存元数据失败: {}", e))?;
+
+    println!("[backend] MOBI 解析完成: book_id={}, sections={}, resources={}",
+        book_id, prepared.section_count, prepared.resources.len());
+
+    Ok(MobiPrepareResult {
+        book_info: prepared.book_info,
+        toc: prepared.toc,
+        section_count: prepared.section_count,
+    })
 }
