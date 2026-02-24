@@ -17,6 +17,7 @@ export interface IBook {
   reading_mode?: 'horizontal' | 'vertical' | null; // 阅读模式：horizontal=横向分页，vertical=纵向滚动
   precise_progress?: number;
   hide_divider?: boolean;
+  toc_sort?: number | null;
 }
 
 export interface IGroup {

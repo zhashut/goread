@@ -25,5 +25,8 @@
   "theme": "Reading Theme",
   "themeLight": "Light",
   "themeDark": "Dark",
-  "themeFollowGlobal": "Follow global (current: {{theme}})"
+  "themeFollowGlobal": "Follow global (current: {{theme}})",
+  "sortDefault": "Default Order",
+  "sortByName": "Sort by Name",
+  "sortReverse": "Reverse Order"
 }

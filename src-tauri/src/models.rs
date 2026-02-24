@@ -20,6 +20,7 @@ pub struct Book {
     pub reading_mode: Option<String>, // 阅读模式：horizontal=横向分页，vertical=纵向滚动
     pub precise_progress: Option<f64>,
     pub hide_divider: Option<bool>,
+    pub toc_sort: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
