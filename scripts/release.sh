@@ -83,6 +83,35 @@ update_version_files() {
     echo -e "${GREEN}✓ src-tauri/Cargo.lock${NC}"
 }
 
+# 回滚本地和远程的 tag 和 commit
+rollback() {
+    local version=$1
+    local prev_commit=$2
+    local branch=$3
+
+    echo -e "${RED}正在回滚本地和远程更改...${NC}"
+    # 删除本地 tag
+    git tag -d "v$version" >/dev/null 2>&1 || true
+    # 删除远程 tag（如存在）
+    git push origin ":refs/tags/v$version" >/dev/null 2>&1 || true
+    # 回滚到发布前的 commit
+    if [ -n "$prev_commit" ]; then
+        git reset --soft "$prev_commit" >/dev/null 2>&1 || true
+    else
+        git reset --soft HEAD~1 >/dev/null 2>&1 || true
+    fi
+    # 撤销版本文件的更改
+    git checkout -- package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock 2>/dev/null || true
+    # 回滚远程分支
+    if [ -n "$branch" ]; then
+        git push origin "$branch" --force-with-lease >/dev/null 2>&1
+        if [ $? -ne 0 ]; then
+            echo -e "${YELLOW}警告: 远程分支 $branch 未能自动回滚，请手动检查${NC}"
+        fi
+    fi
+    echo -e "${YELLOW}已回滚本地和远程的 tag 和 commit${NC}"
+}
+
 # 主逻辑
 main() {
     # 获取最新 tag
@@ -103,10 +132,34 @@ main() {
     # 验证版本号格式
     validate_version "$NEW_VERSION"
     
-    # 检查 tag 是否已存在
+    # 检查 tag 是否已存在（区分本地和远程）
+    LOCAL_TAG_EXISTS=false
+    REMOTE_TAG_EXISTS=false
+    
     if git rev-parse "v$NEW_VERSION" >/dev/null 2>&1; then
-        echo -e "${RED}错误: Tag v$NEW_VERSION 已存在！${NC}"
+        LOCAL_TAG_EXISTS=true
+    fi
+    
+    if git ls-remote --tags origin "refs/tags/v$NEW_VERSION" 2>/dev/null | grep -q "v$NEW_VERSION"; then
+        REMOTE_TAG_EXISTS=true
+    fi
+    
+    if [ "$REMOTE_TAG_EXISTS" = true ]; then
+        echo -e "${RED}错误: Tag v$NEW_VERSION 在远程仓库已存在！${NC}"
         exit 1
+    fi
+    
+    if [ "$LOCAL_TAG_EXISTS" = true ]; then
+        echo -e "${YELLOW}警告: Tag v$NEW_VERSION 在本地已存在，但远程不存在（可能是上次发布失败残留）${NC}"
+        read -p "是否删除本地 tag 并继续? (y/n): " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            git tag -d "v$NEW_VERSION"
+            echo -e "${GREEN}✓ 已删除本地残留 tag${NC}"
+        else
+            echo -e "${YELLOW}已取消${NC}"
+            exit 0
+        fi
     fi
     
     # 确认发布
@@ -124,6 +177,10 @@ main() {
         exit 0
     fi
     
+    # 记录当前分支和提交，用于失败时回滚
+    CURRENT_BRANCH=$(git branch --show-current)
+    PREV_COMMIT=$(git rev-parse HEAD)
+    
     # 更新版本号
     update_version_files "$NEW_VERSION"
     
@@ -135,9 +192,26 @@ main() {
     echo -e "${YELLOW}正在创建 tag...${NC}"
     git tag "v$NEW_VERSION"
     
-    echo -e "${YELLOW}正在推送到远程仓库...${NC}"
-    git push origin master
+    # 推送阶段：关闭 set -e，手动处理错误，失败时回滚
+    set +e
+    
+    echo -e "${YELLOW}正在推送 commit 到远程仓库...${NC}"
+    git push origin "$CURRENT_BRANCH"
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}错误: 推送 commit 失败！${NC}"
+        rollback "$NEW_VERSION" "$PREV_COMMIT" "$CURRENT_BRANCH"
+        exit 1
+    fi
+    
+    echo -e "${YELLOW}正在推送 tag 到远程仓库...${NC}"
     git push origin "v$NEW_VERSION"
+    if [ $? -ne 0 ]; then
+        echo -e "${RED}错误: 推送 tag 失败！${NC}"
+        rollback "$NEW_VERSION" "$PREV_COMMIT" "$CURRENT_BRANCH"
+        exit 1
+    fi
+    
+    set -e
     
     echo ""
     echo -e "${GREEN}========================================${NC}"
