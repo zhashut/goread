@@ -379,9 +379,17 @@ export const importPathsToExistingGroup = async (
 
     // 大文件且是 EPUB/MOBI 格式时，跳过预加载缓存存储，避免内存累积
     const skipCache = largeFile && (format === 'epub' || format === 'mobi');
-    const { coverImage, totalPages } = await importByFormat(filePath, format, invoke, logError, {
+    const { info, coverImage, totalPages } = await importByFormat(filePath, format, invoke, logError, {
       skipPreloaderCache: skipCache,
     });
+
+    if (!info) {
+      await logError('[Import] 导入失败或格式不支持，跳过写入书库', {
+        filePath,
+        format,
+      });
+      continue;
+    }
 
     const title = pathToTitle(filePath) || "Unknown";
     const saved = await bookService.addBook(

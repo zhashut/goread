@@ -10,7 +10,7 @@ use super::patterns::{
     FIRST_P_RE, HEADING_POS_RE, HEADING_RE, PART_LEVEL_RE, REF_TOC_ALT_BYTES_RE,
     REF_TOC_BYTES_RE, SPLIT_BYTES_RE,
 };
-use super::pdb::align_to_char_boundary;
+use super::pdb::{align_to_char_boundary, extract_ncx_toc};
 use super::utils::{build_section, is_title_like, replace_recindex, strip_html_tags};
 use super::PreparedSection;
 use crate::formats::mobi::cache::TocItem;
@@ -60,10 +60,13 @@ fn decode_and_build_section(
 ) -> Option<PreparedSection> {
     let s = start.min(raw_text.len());
     let e = end.min(raw_text.len());
-    if s >= e { return None; }
+    if s >= e {
+        return None;
+    }
 
     // 收集落在 [s, e) 范围内的 filepos，按偏移排序去重
-    let mut anchors_in_range: Vec<usize> = filepos_anchors.iter()
+    let mut anchors_in_range: Vec<usize> = filepos_anchors
+        .iter()
         .copied()
         .filter(|&fp| fp > s && fp < e)
         .collect();
@@ -74,11 +77,9 @@ fn decode_and_build_section(
         let (decoded, _, _) = encoding.decode(&raw_text[s..e]);
         replace_recindex(decoded.trim(), image_map)
     } else {
-        // 按锚点位置将字节切片拆分，在切分点插入锚点标签
         let mut result = String::new();
         let mut cur = s;
         for fp in &anchors_in_range {
-            // 对齐到字符边界，避免在多字节字符中间截断
             let aligned_fp = align_to_char_boundary(raw_text, *fp, encoding);
             if aligned_fp != *fp {
                 println!("[mobi-engine] 锚点对齐: filepos={} -> aligned={}", fp, aligned_fp);
@@ -94,13 +95,16 @@ fn decode_and_build_section(
     };
 
     let trimmed = html.trim();
-    if trimmed.is_empty() { return None; }
+    if trimmed.is_empty() {
+        return None;
+    }
     Some(build_section(trimmed.to_string(), index))
 }
 
 /// 按分页标记拆分章节并提取目录（完全基于字节操作）
 pub(super) fn split_into_sections(
     raw_text: &[u8],
+    mobi_data: &[u8],
     image_map: &HashMap<usize, String>,
     encoding: &'static Encoding,
 ) -> (Vec<PreparedSection>, Vec<TocItem>) {
@@ -110,7 +114,12 @@ pub(super) fn split_into_sections(
         return (vec![], vec![]);
     }
 
-    println!("[mobi-engine] body 字节范围: {}..{} ({} bytes)", body_start, body_end, body_end - body_start);
+    println!(
+        "[mobi-engine] body 字节范围: {}..{} ({} bytes)",
+        body_start,
+        body_end,
+        body_end - body_start
+    );
 
     // 在 body 区域查找 pagebreak
     let breaks = find_pagebreaks(raw_text, body_start, body_end);
@@ -120,8 +129,8 @@ pub(super) fn split_into_sections(
         let ranges = compute_section_ranges(body_start, body_end, &breaks);
 
         if ranges.len() > 1 {
-            // 先提取 TOC 和 filepos 锚点列表
-            let (toc, filepos_anchors) = extract_toc_from_guide(raw_text, encoding, &ranges);
+            // 优先尝试从 INDX/NCX 提取目录，降级到 guide TOC
+            let (toc, filepos_anchors) = extract_toc_from_ncx_or_guide(raw_text, mobi_data, encoding, &ranges);
             let anchor_fps: Vec<usize> = filepos_anchors.iter().map(|(_, fp)| *fp).collect();
 
             // 解码时将锚点精确注入到对应字节位置
@@ -129,7 +138,15 @@ pub(super) fn split_into_sections(
             let mut valid_ranges = Vec::new();
             for &(start, end) in &ranges {
                 let anchors_for_section = if !toc.is_empty() { &anchor_fps[..] } else { &[] };
-                if let Some(section) = decode_and_build_section(raw_text, start, end, encoding, image_map, sections.len() as u32, anchors_for_section) {
+                if let Some(section) = decode_and_build_section(
+                    raw_text,
+                    start,
+                    end,
+                    encoding,
+                    image_map,
+                    sections.len() as u32,
+                    anchors_for_section,
+                ) {
                     sections.push(section);
                     valid_ranges.push((start, end));
                 }
@@ -173,6 +190,76 @@ fn parse_ascii_number(bytes: &[u8]) -> Option<usize> {
     std::str::from_utf8(bytes).ok().and_then(|s| s.parse().ok())
 }
 
+
+/// 优先从 INDX/NCX 提取目录，失败则降级到 guide TOC
+fn extract_toc_from_ncx_or_guide(
+    raw_text: &[u8],
+    mobi_data: &[u8],
+    encoding: &'static Encoding,
+    section_byte_ranges: &[(usize, usize)],
+) -> (Vec<TocItem>, Vec<(u32, usize)>) {
+    // 尝试 INDX/NCX
+    if let Some(ncx_entries) = extract_ncx_toc(mobi_data) {
+        let (toc, anchors) = build_toc_from_ncx(&ncx_entries, section_byte_ranges);
+        if !toc.is_empty() {
+            println!("[mobi-engine] 使用 INDX/NCX 目录: {} 项", toc.len());
+            return (toc, anchors);
+        }
+    }
+    // 降级到 guide TOC
+    extract_toc_from_guide(raw_text, encoding, section_byte_ranges)
+}
+
+/// 从 NCX 条目构建 TocItem 列表
+fn build_toc_from_ncx(
+    ncx_entries: &[super::pdb::NcxEntry],
+    section_byte_ranges: &[(usize, usize)],
+) -> (Vec<TocItem>, Vec<(u32, usize)>) {
+    let mut filepos_anchors = Vec::new();
+    let mut items: Vec<(usize, TocItem)> = Vec::with_capacity(ncx_entries.len());
+
+    for (i, entry) in ncx_entries.iter().enumerate() {
+        if entry.label.trim().is_empty() {
+            continue;
+        }
+        let fp = entry.offset;
+        let section_index = section_byte_ranges
+            .iter()
+            .position(|&(start, end)| fp >= start && fp < end)
+            .or_else(|| {
+                section_byte_ranges.iter().enumerate()
+                    .filter(|(_, &(start, _))| start > fp)
+                    .min_by_key(|(_, &(start, _))| start)
+                    .map(|(idx, _)| idx)
+            })
+            .unwrap_or(0) as u32;
+
+        let location = format!("section:{}#filepos{}", section_index, fp);
+        filepos_anchors.push((section_index, fp));
+
+        items.push((i, TocItem {
+            title: Some(entry.label.clone()),
+            location: Some(location),
+            level: entry.heading_level as i32,
+            children: vec![],
+        }));
+    }
+
+    if items.is_empty() {
+        return (vec![], vec![]);
+    }
+
+    // 利用 NCX 的 parent/child 关系构建层级
+    let has_hierarchy = ncx_entries.iter().any(|e| e.heading_level > 0);
+    let mut toc: Vec<TocItem> = items.into_iter().map(|(_, item)| item).collect();
+
+    if has_hierarchy {
+        nest_toc_by_level(&mut toc);
+    }
+
+    (toc, filepos_anchors)
+}
+
 /// 从原始字节流中提取 guide TOC（完全在字节级操作）
 fn extract_toc_from_guide(
     raw_text: &[u8],
@@ -192,17 +279,19 @@ fn extract_toc_from_guide(
         let region_end = SPLIT_BYTES_RE.find_at(raw_text, toc_filepos)
             .map(|m| m.start())
             .unwrap_or_else(|| (toc_filepos + 50000).min(raw_text.len()));
+        println!("[mobi-engine] TOC 区域: filepos={}, range={}..{} ({} bytes)", toc_filepos, toc_filepos, region_end, region_end - toc_filepos);
         &raw_text[toc_filepos..region_end]
     } else {
         // 找包含最多 <a filepos> 的 section
+        println!("[mobi-engine] TOC filepos 未找到(toc_filepos={}), 降级查找最佳 TOC section", toc_filepos);
         find_best_toc_section(raw_text, section_byte_ranges)
     };
 
     if toc_region.is_empty() {
+        println!("[mobi-engine] TOC 区域为空，无法提取目录");
         return (vec![], vec![]);
     }
 
-    // 提取所有 <a filepos="N">title</a>
     let mut entries: Vec<(usize, String)> = Vec::new();
     for caps in ANCHOR_BYTES_RE.captures_iter(toc_region) {
         let fp = match caps.get(1).and_then(|m| parse_ascii_number(m.as_bytes())) {
@@ -210,13 +299,14 @@ fn extract_toc_from_guide(
             _ => continue,
         };
 
-        // 标题字节用实际编码解码
         if let Some(title_match) = caps.get(2) {
-            let (decoded_title, _, _) = encoding.decode(title_match.as_bytes());
+            let raw_bytes = title_match.as_bytes();
+            let (decoded_title, _, _) = encoding.decode(raw_bytes);
             let title = strip_html_tags(&decoded_title).trim().to_string();
-            if !title.is_empty() {
-                entries.push((fp, title));
+            if title.is_empty() {
+                continue;
             }
+            entries.push((fp, title));
         }
     }
 
@@ -420,7 +510,10 @@ fn build_toc_from_sections(sections: &mut [PreparedSection]) -> Vec<TocItem> {
 
         if let Some(text) = first_p_text {
             let display = if text.len() > 50 {
-                format!("{}...", &text[..text.char_indices().nth(50).map(|(i, _)| i).unwrap_or(text.len())])
+                format!(
+                    "{}...",
+                    &text[..text.char_indices().nth(50).map(|(i, _)| i).unwrap_or(text.len())]
+                )
             } else {
                 text
             };
@@ -430,7 +523,7 @@ fn build_toc_from_sections(sections: &mut [PreparedSection]) -> Vec<TocItem> {
                 level: 0,
                 children: vec![],
             });
-        } else if section_count <= 20 {
+        } else {
             toc.push(TocItem {
                 title: Some(format!("第 {} 章", i + 1)),
                 location: Some(format!("section:{}", section.index)),
@@ -480,7 +573,9 @@ fn split_by_chapter_pattern(html: &str) -> (Vec<PreparedSection>, Vec<TocItem>) 
     for (i, (pos, chapter_name)) in positions.iter().enumerate() {
         let end = positions.get(i + 1).map(|(p, _)| *p).unwrap_or(html.len());
         let content = html[*pos..end].trim();
-        if content.is_empty() { continue; }
+        if content.is_empty() {
+            continue;
+        }
 
         let index = sections.len() as u32;
         toc.push(TocItem {
@@ -517,7 +612,9 @@ fn split_by_headings(html: &str) -> (Vec<PreparedSection>, Vec<TocItem>) {
     for (i, &pos) in positions.iter().enumerate() {
         let end = positions.get(i + 1).copied().unwrap_or(html.len());
         let content = html[pos..end].trim();
-        if content.is_empty() { continue; }
+        if content.is_empty() {
+            continue;
+        }
         sections.push(build_section(content.to_string(), sections.len() as u32));
     }
 
