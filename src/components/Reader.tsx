@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { TopBar } from "./reader/TopBar";
@@ -51,6 +51,7 @@ import {
   useBookPageDivider,
   useDividerVisibility,
   useTocSort,
+  useContentPinchZoom,
 } from "./reader/hooks";
 
 import { UndoJumpIcon } from "./covers/UndoJumpIcon";
@@ -337,14 +338,48 @@ export const Reader: React.FC = () => {
     }
   });
 
+  const getZoomContentElement = useCallback(() => {
+    if (isDomRender) return domRenderer.domContainerRef.current;
+    if (readingMode === "horizontal") return canvasRef.current;
+    return verticalScrollRef.current;
+  }, [domRenderer.domContainerRef, isDomRender, readingMode]);
+
+  const zoom = useContentPinchZoom({
+    enabled: !loading && !isSeeking && !tocOverlayOpen && !modeOverlayOpen && !moreDrawerOpen && !capture.cropMode,
+    viewportRef: mainViewRef,
+    getContentElement: getZoomContentElement,
+    minScale: 1,
+    maxScale: 4,
+    tapMoveThresholdPx: 6,
+  });
+
+  useEffect(() => {
+    if (tocOverlayOpen || modeOverlayOpen || moreDrawerOpen || capture.cropMode) {
+      zoom.reset();
+    }
+  }, [capture.cropMode, moreDrawerOpen, modeOverlayOpen, tocOverlayOpen, zoom.reset]);
+
+  useEffect(() => {
+    zoom.reset();
+  }, [bookId, isDomRender, readingMode, zoom.reset]);
+
   const { handleMainViewClick } = useReaderClick({
     readingMode,
-    clickTurnPage: settings.clickTurnPage,
-    onPrevPage: navigation.prevPage,
-    onNextPage: navigation.nextPage,
+    clickTurnPage: settings.clickTurnPage && !zoom.isZoomed,
+    onPrevPage: () => {
+      if (zoom.isZoomed) return;
+      navigation.prevPage();
+    },
+    onNextPage: () => {
+      if (zoom.isZoomed) return;
+      navigation.nextPage();
+    },
     autoScroll: autoScrollData.autoScroll,
     setAutoScroll: autoScrollData.setAutoScroll,
-    toggleUi: () => setUiVisible((v) => !v),
+    toggleUi: () => {
+      if (zoom.shouldSuppressClick()) return;
+      setUiVisible((v) => !v);
+    },
   });
 
   const showContentLoadingOverlay =
@@ -387,13 +422,14 @@ export const Reader: React.FC = () => {
       >
         <div
           onClick={handleMainViewClick}
+          {...zoom.bind}
           className="no-scrollbar"
           style={{
             flex: 1,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            overflow: tocOverlayOpen || modeOverlayOpen ? "hidden" : "auto",
+            overflow: zoom.isZoomed || tocOverlayOpen || modeOverlayOpen ? "hidden" : "auto",
             padding: 0,
             position: "relative",
           }}
@@ -419,7 +455,7 @@ export const Reader: React.FC = () => {
                         height: "100%",
                       }
                 ),
-                overflowY: isEpubDom && readingMode === "horizontal" ? "hidden" : "auto",
+                overflowY: zoom.isZoomed ? "hidden" : isEpubDom && readingMode === "horizontal" ? "hidden" : "auto",
                 backgroundColor: isEpubDom
                   ? effectiveTheme === "dark"
                     ? "#000000"
@@ -428,6 +464,7 @@ export const Reader: React.FC = () => {
                   ? "#000000"
                   : "#1a1a1a",
                 pointerEvents: "auto",
+                ...zoom.contentStyle,
               }}
             />
           ) : readingMode === "horizontal" ? (
@@ -440,11 +477,12 @@ export const Reader: React.FC = () => {
                 height: "auto",
                 boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
                 backgroundColor: loading ? (effectiveTheme === 'dark' ? "#000000" : "#2a2a2a") : "transparent",
+                ...zoom.contentStyle,
               }}
             />
           ) : (
             <div
-              style={{ width: "100%", maxHeight: "100%", overflowY: "auto" }}
+              style={{ width: "100%", maxHeight: "100%", overflowY: zoom.isZoomed ? "hidden" : "auto", ...zoom.contentStyle }}
               className="no-scrollbar"
               ref={verticalScrollRef}
             >
