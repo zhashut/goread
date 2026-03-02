@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { TopBar } from "./reader/TopBar";
@@ -11,7 +11,7 @@ import { CropOverlay } from "./reader/CropOverlay";
 import { Toast } from "./Toast";
 import { Loading } from "./Loading";
 import { ExternalFileOpenPayload } from "../types";
-import { IBookRenderer, getBookFormat } from "../services/formats";
+import { IBookRenderer } from "../services/formats";
 import {
   TOAST_DURATION_LONG_MS,
   TOAST_DURATION_ERROR_MS,
@@ -51,6 +51,7 @@ import {
   useBookPageDivider,
   useDividerVisibility,
   useTocSort,
+  useContentPinchZoom,
 } from "./reader/hooks";
 
 import { UndoJumpIcon } from "./covers/UndoJumpIcon";
@@ -117,8 +118,10 @@ export const Reader: React.FC = () => {
     setBook,
   });
 
-  const { isEpubDom, isMobi, isMarkdown, isHtml, isTxt } =
+  const { format, isEpubDom, isMobi, isMarkdown, isHtml, isTxt } =
     useBookFormatHelper(book, isExternal, externalPath || undefined);
+
+  const isPdf = format === "pdf";
 
   const { markReadingActive } = useReadingSession(book, isExternal);
 
@@ -337,14 +340,54 @@ export const Reader: React.FC = () => {
     }
   });
 
+  const getZoomContentElement = useCallback(() => {
+    if (readingMode === "horizontal") return canvasRef.current;
+    return verticalScrollRef.current;
+  }, [readingMode]);
+
+  const zoom = useContentPinchZoom({
+    enabled:
+      isPdf &&
+      !loading &&
+      !isSeeking &&
+      !tocOverlayOpen &&
+      !modeOverlayOpen &&
+      !moreDrawerOpen &&
+      !capture.cropMode,
+    viewportRef: mainViewRef,
+    getContentElement: getZoomContentElement,
+    minScale: 1,
+    maxScale: 4,
+    tapMoveThresholdPx: 6,
+  });
+
+  useEffect(() => {
+    if (tocOverlayOpen || modeOverlayOpen || moreDrawerOpen || capture.cropMode) {
+      zoom.reset();
+    }
+  }, [capture.cropMode, moreDrawerOpen, modeOverlayOpen, tocOverlayOpen, zoom.reset]);
+
+  useEffect(() => {
+    zoom.reset();
+  }, [bookId, isDomRender, readingMode, isPdf, zoom.reset]);
+
   const { handleMainViewClick } = useReaderClick({
     readingMode,
-    clickTurnPage: settings.clickTurnPage,
-    onPrevPage: navigation.prevPage,
-    onNextPage: navigation.nextPage,
+    clickTurnPage: settings.clickTurnPage && !(isPdf && zoom.isZoomed),
+    onPrevPage: () => {
+      if (isPdf && zoom.isZoomed) return;
+      navigation.prevPage();
+    },
+    onNextPage: () => {
+      if (isPdf && zoom.isZoomed) return;
+      navigation.nextPage();
+    },
     autoScroll: autoScrollData.autoScroll,
     setAutoScroll: autoScrollData.setAutoScroll,
-    toggleUi: () => setUiVisible((v) => !v),
+    toggleUi: () => {
+      if (isPdf && zoom.shouldSuppressClick()) return;
+      setUiVisible((v) => !v);
+    },
   });
 
   const showContentLoadingOverlay =
@@ -387,13 +430,14 @@ export const Reader: React.FC = () => {
       >
         <div
           onClick={handleMainViewClick}
+          {...(isPdf ? zoom.bind : {})}
           className="no-scrollbar"
           style={{
             flex: 1,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            overflow: tocOverlayOpen || modeOverlayOpen ? "hidden" : "auto",
+            overflow: (isPdf && zoom.isZoomed) || tocOverlayOpen || modeOverlayOpen ? "hidden" : "auto",
             padding: 0,
             position: "relative",
           }}
@@ -440,11 +484,17 @@ export const Reader: React.FC = () => {
                 height: "auto",
                 boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
                 backgroundColor: loading ? (effectiveTheme === 'dark' ? "#000000" : "#2a2a2a") : "transparent",
+                ...(isPdf ? zoom.contentStyle : {}),
               }}
             />
           ) : (
             <div
-              style={{ width: "100%", maxHeight: "100%", overflowY: "auto" }}
+              style={{
+                width: "100%",
+                maxHeight: "100%",
+                overflowY: isPdf && zoom.isZoomed ? "hidden" : "auto",
+                ...(isPdf ? zoom.contentStyle : {}),
+              }}
               className="no-scrollbar"
               ref={verticalScrollRef}
             >
@@ -620,7 +670,7 @@ export const Reader: React.FC = () => {
           setUiVisible(false);
         }}
         onGoToPage={(page, anchor) => {
-          const isEpub = book?.file_path && getBookFormat(book.file_path) === 'epub';
+          const isEpub = isEpubDom;
           
           // 所有格式都尝试获取精确进度，用于撤回跳转功能
           let fromProgress = currentPage;

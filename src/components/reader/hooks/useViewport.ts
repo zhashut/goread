@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { applyScalable, resetZoom, applyNonScalable } from "../../../utils/viewport";
+import { applyNonScalable, resetZoom } from "../../../utils/viewport";
 
 /**
  * 视口缩放 Hook
@@ -7,10 +7,9 @@ import { applyScalable, resetZoom, applyNonScalable } from "../../../utils/viewp
  */
 export const useViewport = () => {
     useEffect(() => {
-        applyScalable();
+        applyNonScalable();
         return () => {
             resetZoom();
-            applyNonScalable();
         };
     }, []);
 };
