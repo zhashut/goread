@@ -1,0 +1,195 @@
+[English](README.md) | 简体中文
+
+<p align="center">
+  <img src="./public/app-icon.svg" alt="GoRead 图标" width="128" height="128">
+</p>
+
+# GoRead
+
+GoRead 是一款专为本地电子书阅读打造的轻量级阅读器应用，支持桌面与移动端（Android / iOS），让你在多设备上都能获得统一、流畅的阅读体验。
+
+> 获取电子书线上来源：<a href="https://z-lib.id" target="_blank">Z-Library</a> — 在线获取后可导入到本地管理。
+
+---
+
+## 应用简介
+
+GoRead 聚焦「本地电子书管理与沉浸式阅读」，不依赖云端账号，无广告、少打扰，适合希望掌控自己书库和隐私的用户。你可以将散落在各个文件夹中的电子书集中管理，按分组整理，并在一个统一的阅读器中完成阅读、标记和进度管理。
+
+<div style="display: flex; flex-wrap: wrap; gap: 10px; justify-content: center;">
+  <img height="300px" src="https://i.meee.com.tw/HF73JGU.jpg" alt="GoRead界面截图" style="max-width: 100%; object-fit: contain;" />
+  <img height="300px" src="https://i.meee.com.tw/RY9Ahtd.jpg" alt="GoRead界面截图" style="max-width: 100%; object-fit: contain;" />
+  <img height="300px" src="https://i.meee.com.tw/brsYHQH.jpg" alt="GoRead界面截图" style="max-width: 100%; object-fit: contain;" />
+  <img height="300px" src="https://i.meee.com.tw/mb0cq5H.jpg" alt="GoRead界面截图" style="max-width: 100%; object-fit: contain;" />
+  <img height="300px" src="https://i.meee.com.tw/R9GxmsH.jpg" alt="GoRead界面截图" style="max-width: 100%; object-fit: contain;" />
+  <img height="300px" src="https://i.meee.com.tw/RBwwGWL.jpg" alt="GoRead界面截图" style="max-width: 100%; object-fit: contain;" />
+  <img height="300px" src="https://i.meee.com.tw/6JKFBzF.jpg" alt="GoRead界面截图" style="max-width: 100%; object-fit: contain;" />
+</div>
+
+---
+
+## 核心功能
+
+### 1. 书库与书架管理
+- 导入本地电子书文件，一次导入即可长期管理
+- 以「书架视图」展示所有书籍，支持快速浏览与筛选
+- 书籍信息统一管理，方便后续查找与整理
+
+### 2. 自定义分组整理
+- 支持为书籍创建自定义分组，例如「在读」「技术」「文学」「待阅读」等
+- 书籍可在分组之间自由移动，保持书库始终井井有条
+- 分组顺序可调整，便于将常用分组置顶
+
+### 3. 沉浸式阅读体验
+- 使用高性能渲染引擎，翻页、缩放和跳转操作保持流畅
+- 支持常见阅读操作：跳转页面、连续阅读、页面缩放等
+- 阅读界面简洁克制，尽量减少干扰，让注意力回到内容本身
+
+### 4. 书签与阅读进度
+- 支持为关键页面添加多个书签，方便日后快速回看
+- 自动记录每本书的阅读进度，下次打开直接回到上次离开的页面
+- 每本书的进度在本地保存，不依赖网络
+
+### 5. 搜索与快速定位
+- 支持按书名搜索，快速找到想读的书
+- 结合分组、排序等功能，可以快速定位到当前最关心的内容
+
+### 6. 本地存储与隐私
+- 所有书籍与阅读数据均保存在本地
+- 不上传书库和阅读记录，适合对隐私有更高要求的用户
+
+### 7. 多语言与国际化
+- 内置简体中文与英文界面，默认跟随系统语言
+- 后续将提供应用内语言切换与更多语种支持
+
+### 8. 格式支持
+
+- [x] PDF
+- [x] Markdown
+- [x] EPUB
+- [x] MOBI
+- [x] TXT
+- [x] HTML
+- [ ] CBZ
+
+---
+
+## 适合哪些用户？
+
+- **重度阅读用户**：本地电子书较多，希望用一个工具统一管理
+- **技术/专业用户**：常用 PDF 或电子手册，需要高效查阅与标记
+- **在意隐私的用户**：不希望书库、阅读记录依赖云端或第三方账号
+- **多设备用户**：希望在桌面与移动端都有一致的阅读体验（通过文件同步工具即可在多设备间共享书库）
+
+---
+
+## 基本使用流程
+
+1. **安装并启动 GoRead**
+2. **导入书籍**：将本地电子书文件导入到应用中
+3. **整理分组**：根据个人习惯创建分组，将书籍分门别类整理
+4. **开始阅读**：在书架中选择一本书进入阅读界面
+5. **添加书签 / 记录进度**：在阅读过程中为关键内容添加书签，关闭时自动记录进度
+6. **搜索和管理**：通过搜索和分组快速找到需要的书籍
+
+---
+
+## 快速开始（开发者）
+
+如果你希望在本地运行或参与开发 GoRead，可以按以下步骤操作：
+
+### 环境要求
+- 已安装 Node.js（建议使用 LTS 版本）
+- 已安装 Rust（使用稳定版即可）
+- 操作系统已按 Tauri 官方文档完成基础依赖配置
+
+### 安装依赖
+
+```bash
+npm install
+```
+
+### 启动开发环境
+
+```bash
+npm run tauri dev
+```
+
+### 构建发布版本（桌面端）
+
+```bash
+npm run tauri build
+```
+
+---
+
+## 移动端支持
+
+GoRead 支持构建为 Android 和 iOS 应用，适合希望在手机或平板上使用本地阅读器的用户。
+
+### 初始化移动端工程
+
+首次进行移动端开发前，需要完成初始化：
+
+```bash
+# 初始化 Android
+npm run tauri android init
+
+# 初始化 iOS
+npm run tauri ios init
+```
+
+### 运行移动端应用（开发调试）
+
+在连接真机或启动模拟器后，可以启动移动端调试：
+
+```bash
+# Android 开发模式
+npm run tauri android dev
+
+# iOS 开发模式
+npm run tauri ios dev
+```
+
+### 构建移动端安装包
+
+```bash
+# 构建 Android 安装包（APK/AAB）
+npm run tauri android build -- --target aarch64
+
+# 构建 iOS 安装包（IPA）
+# 选项: app-store, ad-hoc, enterprise, development
+npm run tauri ios build -- --export-method development
+```
+
+如需为 Android 生成签名密钥，可参考如下命令：
+```bash
+keytool -genkey -v \
+  -keystore "release-key.keystore" \
+  -alias "goread" \
+  -keyalg RSA \
+  -keysize 4096 \
+  -validity 10000
+```
+
+---
+
+## 参与与反馈
+GoRead 仍在持续迭代中，欢迎你：
+
+- 提交问题或建议，帮助我们改进产品体验
+- 贡献代码或优化现有功能
+- 分享在不同设备、不同阅读场景下的使用体验
+
+如果你在使用过程中遇到问题，或对功能有新的想法，欢迎在项目中提交 Issue 或 Pull Request。
+
+---
+
+## 使用协议
+
+本项目采用 AGPL-3.0 协议进行开源，具体条款可参考 Free Software Foundation 公布的《GNU Affero General Public License v3.0》原文。
+
+在此基础上，本项目明确禁止任何形式的商业使用，包括但不限于销售本软件、将本软件或其修改版本用于收费服务，或以任何直接或间接方式通过本软件牟利。如有违反，作者保留依法追究相关法律责任的权利。
+
+## ⭐ Star History
+ [![Star History Chart](https://api.star-history.com/svg?repos=zhashut/goread&type=Date)](https://star-history.com/#zhashut/goread&Date)
