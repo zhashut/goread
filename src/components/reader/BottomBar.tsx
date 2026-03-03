@@ -1,9 +1,10 @@
 import React from "react";
 import { useTranslation } from 'react-i18next';
-import { BOTTOM_DRAWER_RADIUS, READER_THEME_ICON_SIZE, READER_THEME_BUTTON_SIZE } from "../../constants/ui";
+import { BOTTOM_DRAWER_RADIUS, READER_THEME_ICON_SIZE, READER_THEME_BUTTON_SIZE, READER_LISTEN_BUTTON_SIZE, READER_LISTEN_ICON_SIZE } from "../../constants/ui";
 import type { ReaderTheme } from "../../services/formats/types";
 import { ThemeSunIcon } from "../covers/ThemeSunIcon";
 import { ThemeMoonIcon } from "../covers/ThemeMoonIcon";
+import { ListenIcon } from "../covers/ListenIcon";
 
 interface BottomBarProps {
   visible: boolean;
@@ -19,6 +20,12 @@ interface BottomBarProps {
   theme: ReaderTheme;
   themeSupported: boolean;
   onToggleTheme?: () => void;
+  /** 听书功能是否可用（控制按钮是否渲染） */
+  listenSupported?: boolean;
+  /** 当前是否处于听书状态 */
+  isListening?: boolean;
+  /** 切换听书状态的回调 */
+  onToggleListen?: () => void;
   
   onSeekStart: () => void;
   onSeekChange: (val: number) => void;
@@ -46,6 +53,9 @@ export const BottomBar: React.FC<BottomBarProps> = ({
   theme,
   themeSupported,
   onToggleTheme,
+  listenSupported,
+  isListening,
+  onToggleListen,
   onSeekStart,
   onSeekChange,
   onSeekEnd,
@@ -93,6 +103,35 @@ export const BottomBar: React.FC<BottomBarProps> = ({
         zIndex: 10,
       }}
     >
+      {/* 听书悬浮按钮（位于主题按钮上方） */}
+      {listenSupported && onToggleListen && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleListen();
+          }}
+          style={{
+            position: "absolute",
+            right: 25,
+            top: -138,
+            width: READER_LISTEN_BUTTON_SIZE,
+            height: READER_LISTEN_BUTTON_SIZE,
+            borderRadius: `${READER_LISTEN_BUTTON_SIZE / 2}px`,
+            border: isListening ? "1px solid #5a3a3a" : "none",
+            outline: "none",
+            backgroundColor: "#1f1f1f",
+            boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "#ffffff",
+            cursor: "pointer",
+          }}
+        >
+          <ListenIcon size={READER_LISTEN_ICON_SIZE} isActive={isListening} />
+        </button>
+      )}
+      {/* 主题切换悬浮按钮 */}
       {themeSupported && onToggleTheme && (
         <button
           onClick={(e) => {

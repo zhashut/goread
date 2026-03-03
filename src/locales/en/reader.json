@@ -28,5 +28,7 @@
   "themeFollowGlobal": "Follow global (current: {{theme}})",
   "sortDefault": "Default Order",
   "sortByName": "Sort by Name",
-  "sortReverse": "Reverse Order"
+  "sortReverse": "Reverse Order",
+  "listenOn": "Listen mode on",
+  "listenOff": "Listen mode off"
 }

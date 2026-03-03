@@ -132,6 +132,9 @@ export const Reader: React.FC = () => {
   useExternalVisibility(isExternal);
 
 
+  // 听书功能仅支持 epub / mobi / txt
+  const listenSupported = isEpubDom || isMobi || isTxt;
+
   // 3. UI 状态
   const [uiVisible, setUiVisible] = useState(false);
   const [tocOverlayOpen, setTocOverlayOpen] = useState(false);
@@ -140,6 +143,19 @@ export const Reader: React.FC = () => {
   // Seek State
   const [isSeeking, setIsSeeking] = useState(false);
   const [seekPage, setSeekPage] = useState<number | null>(null);
+  // 听书状态
+  const [isListening, setIsListening] = useState(false);
+  const [listenToastMsg, setListenToastMsg] = useState("");
+
+  const { t: tReader } = useTranslation('reader');
+
+  const handleToggleListen = useCallback(() => {
+    setIsListening(prev => {
+      const next = !prev;
+      setListenToastMsg(next ? tReader('listenOn') : tReader('listenOff'));
+      return next;
+    });
+  }, [tReader]);
 
   // 4. 数据 Hooks (TOC, Bookmarks)
   const tocData = useToc(currentPage, readingMode, isDomRender);
@@ -786,6 +802,9 @@ export const Reader: React.FC = () => {
           setUiVisible(false);
         }}
         onOpenMore={() => setMoreDrawerOpen(true)}
+        listenSupported={listenSupported}
+        isListening={isListening}
+        onToggleListen={handleToggleListen}
       />
 
       <MoreDrawer
@@ -823,6 +842,14 @@ export const Reader: React.FC = () => {
         <Toast
           message={bookmarkData.bookmarkToastText}
           onClose={() => bookmarkData.setBookmarkToastVisible(false)}
+        />
+      )}
+      {/* 听书状态切换提示 */}
+      {listenToastMsg && (
+        <Toast
+          message={listenToastMsg}
+          onClose={() => setListenToastMsg("")}
+          style={{ top: '50%', bottom: 'auto', transform: 'translate(-50%, -50%)' }}
         />
       )}
     </div>

@@ -46,6 +46,8 @@ export const BOTTOM_DRAWER_RADIUS = 16;
 // 阅读器底部工具栏配置
 export const READER_THEME_ICON_SIZE = 34; // 主题切换图标大小（px）
 export const READER_THEME_BUTTON_SIZE = 55; // 主题切换按钮大小（px）
+export const READER_LISTEN_BUTTON_SIZE = 55; // 听书按钮大小（px），与主题按钮一致
+export const READER_LISTEN_ICON_SIZE = 30;   // 听书图标大小（px）
 
 // Markdown 默认封面配置
 export const MARKDOWN_COVER_PLACEHOLDER = "__MARKDOWN__";
