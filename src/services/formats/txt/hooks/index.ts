@@ -22,3 +22,9 @@ export {
   type TxtProgressContext,
   type TxtProgressController,
 } from './useTxtProgressController';
+
+export {
+  useTxtTTS,
+  type TxtTTSContext,
+  type TxtTTSHook,
+} from './useTxtTTS';

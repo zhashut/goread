@@ -6,3 +6,4 @@ export * from './useMobiLifecycle';
 export * from './useMobiRender';
 export * from './useMobiNavigation';
 export * from './useMobiTheme';
+export * from './useMobiTTS';

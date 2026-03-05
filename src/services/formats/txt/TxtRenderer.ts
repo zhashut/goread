@@ -21,11 +21,13 @@ import {
   useTxtRendererCore,
   useTxtDocumentLoader,
   useTxtProgressController,
+  useTxtTTS,
   type PageRange,
   type TxtRendererCore,
   type TxtChapterCacheHook,
   type TxtDocumentLoader,
   type TxtProgressController,
+  type TxtTTSHook,
 } from './hooks';
 import { TxtBookMeta } from './txtCacheService';
 
@@ -68,6 +70,7 @@ export class TxtRenderer implements IBookRenderer {
   private _core: TxtRendererCore;
   private _loader: TxtDocumentLoader;
   private _progress: TxtProgressController;
+  private _ttsHook: TxtTTSHook;
   // 精确进度（浮点数），用于撤回跳转等场景的精确定位
   private _currentPreciseProgress: number = 1;
   private _bookPreciseProgress: number = 1;
@@ -152,6 +155,25 @@ export class TxtRenderer implements IBookRenderer {
       goToPage: (page) => this.goToPage(page),
       goToChapter: (chapterIndex) => this.goToChapter(chapterIndex),
       getChapterIndexByPage: (pageIndex) => this.getChapterIndexByPage(pageIndex),
+    });
+
+    this._ttsHook = useTxtTTS({
+      getIsReady: () => this._isReady,
+      getContent: () => this._content,
+      getPages: () => this._pages,
+      getIsVerticalMode: () => this._isVerticalMode,
+      getContainer: () => this._container,
+      getCurrentPage: () => this._currentPage,
+      setCurrentPage: (page) => {
+        this._currentPage = page;
+      },
+      getVerticalPageTops: () => this._verticalPageTops,
+      getUseChapterMode: () => this._useChapterMode,
+      getBookMeta: () => this._bookMeta,
+      getCurrentChapterIndex: () => this._currentChapterIndex,
+      goToPage: (page) => this.goToPage(page),
+      goToChapter: (chapterIndex) => this.goToChapter(chapterIndex),
+      appendNextChapter: () => this.appendNextChapter(),
     });
   }
 
@@ -758,6 +780,32 @@ export class TxtRenderer implements IBookRenderer {
       return null;
     }
     return this._chapterCache.getCacheStats();
+  }
+
+  /**
+   * 获取当前可见内容的文档数据，供 TTS 朗读
+   */
+  getTTSDocument():
+    | { type: 'dom'; doc: Document | Element }
+    | { type: 'text'; text: string }
+    | null {
+    return this._ttsHook.getTTSDocument();
+  }
+
+  /**
+   * 获取当前视口可见区域的起始位置，供 TTS 从用户阅读处开始朗读
+   */
+  getVisibleStartForTTS():
+    | { type: 'range'; range: Range }
+    | null {
+    return this._ttsHook.getVisibleStartForTTS();
+  }
+
+  /**
+   * TTS 自动前进：横向模式翻到下一页，纵向模式滚动到下一区域
+   */
+  async advanceForTTS(): Promise<boolean> {
+    return await this._ttsHook.advanceForTTS();
   }
 
   /** 关闭并释放资源 */

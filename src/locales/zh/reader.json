@@ -30,5 +30,10 @@
   "sortByName": "按名称排序",
   "sortReverse": "倒序排列",
   "listenOn": "已开启听书",
-  "listenOff": "已退出听书"
+  "listenOff": "已退出听书",
+  "listenFailedNoVoice": "听书启动失败：当前设备无可用语音引擎，请检查系统 TTS 设置",
+  "listenFailedNativeBridge": "听书启动失败：当前平台不支持原生语音",
+  "listenFailedNativeInit": "听书启动失败：原生语音引擎初始化失败，请安装或启用 TTS 引擎",
+  "listenFailedNoContent": "听书启动失败：当前页面无可朗读内容",
+  "listenFailedUnknown": "听书启动失败，请检查设备语音设置"
 }
