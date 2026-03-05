@@ -1,3 +1,5 @@
+import { TTS_RATE_DEFAULT } from './tts';
+
 export const RENDER_QUALITY_OPTIONS = [
   { label: "极速(Thumbnail)", value: "thumbnail" },
   { label: "标准(Standard)", value: "standard" },
@@ -44,6 +46,7 @@ export const DEFAULT_SETTINGS = {
   theme: 'light' as const,
   cacheExpiryDays: 0 as const,
   language: 'system' as const,
+  ttsRate: TTS_RATE_DEFAULT,
 };
 
 // 阅读器自动翻页/滚动配置

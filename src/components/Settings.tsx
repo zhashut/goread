@@ -20,6 +20,12 @@ import {
   SETTINGS_SAVE_DEBOUNCE_MS,
 } from "../constants/config";
 import {
+  TTS_RATE_MIN,
+  TTS_RATE_MAX,
+  TTS_RATE_DEFAULT,
+  TTS_RATE_STEP,
+} from "../constants/tts";
+import {
   SETTINGS_BUTTON_PADDING,
   SETTINGS_BUTTON_FONT_SIZE,
   SETTINGS_BUTTON_RADIUS,
@@ -559,6 +565,49 @@ export const Settings: React.FC = () => {
                   setSettings((s) => ({
                     ...s,
                     pageGap: Number(e.target.value),
+                  }))
+                }
+                style={{ width: "100%", background: track }}
+              />
+            );
+          })()}
+          </div>
+
+          <div style={{ padding: "12px 0" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginBottom: "8px",
+            }}
+          >
+            <span style={{ color: "#333", fontSize: "15px" }}>{t('ttsRate')}</span>
+            <span style={{ color: "#999", fontSize: "12px" }}>
+              {settings.ttsRate ?? TTS_RATE_DEFAULT}x
+            </span>
+          </div>
+          {(() => {
+            const min = TTS_RATE_MIN,
+              max = TTS_RATE_MAX;
+            const val = settings.ttsRate ?? TTS_RATE_DEFAULT;
+            const pct = Math.max(
+              0,
+              Math.min(100, Math.round(((val - min) / (max - min)) * 100))
+            );
+            const track = `linear-gradient(to right, #d15158 0%, #d15158 ${pct}%, #e0e0e0 ${pct}%, #e0e0e0 100%)`;
+            return (
+              <input
+                className="settings-range"
+                type="range"
+                min={min}
+                max={max}
+                step={TTS_RATE_STEP}
+                value={val}
+                onChange={(e) =>
+                  setSettings((s) => ({
+                    ...s,
+                    ttsRate: Number(e.target.value),
                   }))
                 }
                 style={{ width: "100%", background: track }}

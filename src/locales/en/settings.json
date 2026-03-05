@@ -14,6 +14,7 @@
   "importing": "Importing...",
   "scrollSpeed": "Scroll Speed",
   "pageGap": "Page Gap",
+  "ttsRate": "TTS Speed",
   "unlimited": "Unlimited",
   "cacheExpiry": {
     "label": "Cache Expiration",

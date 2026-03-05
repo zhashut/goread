@@ -24,6 +24,7 @@ export type ReaderSettings = {
   language?: LanguageSetting;
   theme?: ReaderTheme;
   cacheExpiryDays?: number;
+  ttsRate?: number;
 };
 
 const SETTINGS_KEY = 'reader_settings_v1';

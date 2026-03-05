@@ -14,6 +14,7 @@
   "importing": "正在导入...",
   "scrollSpeed": "滚动速度",
   "pageGap": "页面间隙",
+  "ttsRate": "听书语速",
   "unlimited": "不限",
   "cacheExpiry": {
     "label": "缓存有效期",
