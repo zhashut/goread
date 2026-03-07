@@ -62,22 +62,33 @@ update_version_files() {
     
     echo -e "${YELLOW}正在更新版本号到配置文件...${NC}"
     
-    # 更新 package.json
+    # 更新 package.json / package-lock.json
     if [[ "$OSTYPE" == "darwin"* ]]; then
         # macOS
         sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"$version\"/" package.json
+        if [ -f package-lock.json ]; then
+            sed -i '' "1,/\"packages\": {/ s/\"version\": \"[^\"]*\"/\"version\": \"$version\"/" package-lock.json
+            sed -i '' "/\"packages\": {/,/^    \"node_modules\\// s/\"version\": \"[^\"]*\"/\"version\": \"$version\"/" package-lock.json
+        fi
         sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"$version\"/" src-tauri/tauri.conf.json
         sed -i '' "s/^version = \"[^\"]*\"/version = \"$version\"/" src-tauri/Cargo.toml
         sed -i '' '/\[\[package\]\]/,/^\[/ { /name = "GoRead"/,/^\[/ { s/^version = "[^"]*"/version = "'"$version"'"/ } }' src-tauri/Cargo.lock
     else
         # Linux/Git Bash
         sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$version\"/" package.json
+        if [ -f package-lock.json ]; then
+            sed -i "1,/\"packages\": {/ s/\"version\": \"[^\"]*\"/\"version\": \"$version\"/" package-lock.json
+            sed -i "/\"packages\": {/,/^    \"node_modules\\// s/\"version\": \"[^\"]*\"/\"version\": \"$version\"/" package-lock.json
+        fi
         sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$version\"/" src-tauri/tauri.conf.json
         sed -i "s/^version = \"[^\"]*\"/version = \"$version\"/" src-tauri/Cargo.toml
         sed -i '/\[\[package\]\]/,/^\[/ { /name = "GoRead"/,/^\[/ { s/^version = "[^"]*"/version = "'"$version"'"/ } }' src-tauri/Cargo.lock
     fi
     
     echo -e "${GREEN}✓ package.json${NC}"
+    if [ -f package-lock.json ]; then
+        echo -e "${GREEN}✓ package-lock.json${NC}"
+    fi
     echo -e "${GREEN}✓ src-tauri/tauri.conf.json${NC}"
     echo -e "${GREEN}✓ src-tauri/Cargo.toml${NC}"
     echo -e "${GREEN}✓ src-tauri/Cargo.lock${NC}"
@@ -101,7 +112,7 @@ rollback() {
         git reset --soft HEAD~1 >/dev/null 2>&1 || true
     fi
     # 撤销版本文件的更改
-    git checkout -- package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock 2>/dev/null || true
+    git checkout -- package.json package-lock.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock 2>/dev/null || true
     # 回滚远程分支
     if [ -n "$branch" ]; then
         git push origin "$branch" --force-with-lease >/dev/null 2>&1
@@ -187,6 +198,9 @@ main() {
     # Git 操作
     echo -e "${YELLOW}正在提交更改...${NC}"
     git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
+    if [ -f package-lock.json ]; then
+        git add package-lock.json
+    fi
     git commit -m "chore(release): release version v$NEW_VERSION"
     
     echo -e "${YELLOW}正在创建 tag...${NC}"
