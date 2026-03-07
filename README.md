@@ -65,7 +65,12 @@ You can consolidate e‑books scattered across different folders, organize them 
 - Built-in English and Simplified Chinese UI, follows system language by default
 - Planned in-app language switch and more languages support
 
-### 8. Format Support
+### 8. Text-to-Speech (TTS)
+- Tap the **Listen** button in the reader to start/stop reading aloud
+- Supports **EPUB / MOBI / TXT** only
+- Speech rate can be adjusted in **Settings**
+
+### 9. Format Support
 
 - [x] PDF
 - [x] Markdown
@@ -92,8 +97,9 @@ You can consolidate e‑books scattered across different folders, organize them 
 2. **Import books**: Import local e‑book files into the app
 3. **Organize groups**: Create groups based on your own reading habits and categorize books
 4. **Start reading**: Select a book from the bookshelf to open the reader
-5. **Add bookmarks / track progress**: Add bookmarks for key content while reading; progress is recorded automatically when you exit
-6. **Search and manage**: Use search and groups to quickly locate the books you need
+5. **Listen (TTS, EPUB / MOBI / TXT only)**: Tap **Listen** in the reader; adjust speech rate in **Settings**
+6. **Add bookmarks / track progress**: Add bookmarks for key content while reading; progress is recorded automatically when you exit
+7. **Search and manage**: Use search and groups to quickly locate the books you need
 
 ---
 
