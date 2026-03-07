@@ -3,6 +3,7 @@ export {
   type PageRange,
   type ParagraphInfo,
   type TxtRendererCore,
+  type ChapterTitleMap,
 } from './useTxtRendererCore';
 
 export {
@@ -28,3 +29,16 @@ export {
   type TxtTTSContext,
   type TxtTTSHook,
 } from './useTxtTTS';
+
+export {
+  useTxtChapterWindowJump,
+  type TxtChapterWindowJumpContext,
+  type TxtChapterWindowJumpHook,
+  type TxtChapterWindowOptions,
+} from './useTxtChapterWindowJump';
+
+export {
+  useTxtChapterTitleMap,
+  type TxtChapterTitleMapContext,
+  type TxtChapterTitleMapHook,
+} from './useTxtChapterTitleMap';

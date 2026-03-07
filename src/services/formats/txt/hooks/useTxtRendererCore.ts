@@ -13,39 +13,53 @@ export interface ParagraphInfo {
   endOffset: number;
 }
 
+/** 章节标题信息：字符偏移量 → 层级的映射 */
+export type ChapterTitleMap = Map<number, number>;
+
 export interface TxtRendererCore {
+  /** 对容器应用排版样式（fontSize / padding 等） */
+  applyStyles(
+    container: HTMLElement,
+    options?: RenderOptions,
+    isVertical?: boolean
+  ): void;
   calculatePages(
     content: string,
     toc: TocItem[],
     container: HTMLElement,
     options?: RenderOptions,
-    config?: { updateTocPageNumbers?: boolean }
+    config?: { updateTocPageNumbers?: boolean },
+    chapterTitles?: ChapterTitleMap
   ): Promise<{ pages: PageRange[]; toc: TocItem[] }>;
   renderContent(
     container: HTMLElement,
     content: string,
     options?: RenderOptions,
-    isVertical?: boolean
+    isVertical?: boolean,
+    chapterTitles?: ChapterTitleMap
   ): void;
   renderContentWithPageDividers(
     container: HTMLElement,
     content: string,
     pages: PageRange[],
-    options?: RenderOptions
+    options?: RenderOptions,
+    chapterTitles?: ChapterTitleMap
   ): void;
   appendContentWithPageDividers(
     container: HTMLElement,
     content: string,
     pages: PageRange[],
     options?: RenderOptions,
-    startPageIndex?: number
+    startPageIndex?: number,
+    chapterTitles?: ChapterTitleMap
   ): void;
   prependContentWithPageDividers(
     container: HTMLElement,
     content: string,
     pages: PageRange[],
     options?: RenderOptions,
-    startPageIndex?: number
+    startPageIndex?: number,
+    chapterTitles?: ChapterTitleMap
   ): void;
 }
 
@@ -99,6 +113,34 @@ function createParagraphElement(
       `;
   p.textContent = text;
   return p;
+}
+
+/** 创建章节标题元素，与正文段落使用不同的排版样式 */
+function createChapterTitleElement(
+  text: string,
+  level: number,
+  isVertical: boolean = false
+): HTMLElement {
+  const h = document.createElement('h3');
+  h.style.cssText = `
+    margin: 1.2em 0 0.6em 0;
+    ${isVertical ? 'padding: 0 16px;' : ''}
+    font-size: 1.2em;
+    font-weight: bold;
+    text-indent: 0;
+    text-align: center;
+    word-break: break-word;
+    white-space: pre-wrap;
+    line-height: 1.6;
+  `;
+  // 二级及以下标题左对齐、字号稍小
+  if (level >= 2) {
+    h.style.textAlign = 'left';
+    h.style.fontSize = '1.1em';
+  }
+  h.textContent = text;
+  h.setAttribute('data-chapter-title', 'true');
+  return h;
 }
 
 /**
@@ -204,32 +246,69 @@ function updateTocPageNumbers(toc: TocItem[], pages: PageRange[]): TocItem[] {
 
 export function useTxtRendererCore(): TxtRendererCore {
   /**
-   * 核心分页算法：逐行填充
-   * 每行独立测量高度，累积到页面容量后开启新页
+   * 创建逐行测量用的 DOM 元素（标题行 / 普通段落）
+   * 使用与实际渲染一致的元素样式，确保测量高度准确
+   */
+  const createMeasureElement = (
+    line: ParagraphInfo,
+    isVertical: boolean,
+    chapterTitles?: ChapterTitleMap
+  ): HTMLElement => {
+    const titleLevel = chapterTitles?.get(line.startOffset);
+    if (titleLevel !== undefined) {
+      return createChapterTitleElement(line.text, titleLevel, isVertical);
+    }
+    return createParagraphElement(line.text, isVertical);
+  };
+
+  /**
+   * 从渲染容器中读取实际的 padding 值
+   */
+  const getContainerPadding = (container: HTMLElement): { top: number; bottom: number; left: number; right: number } => {
+    const style = window.getComputedStyle(container);
+    return {
+      top: parseFloat(style.paddingTop) || 0,
+      bottom: parseFloat(style.paddingBottom) || 0,
+      left: parseFloat(style.paddingLeft) || 0,
+      right: parseFloat(style.paddingRight) || 0,
+    };
+  };
+
+  /**
+   * 核心分页算法：批量行高度差分法
+   * 连续向测量容器追加行元素，用 scrollHeight 差值获取真实行高
+   * 自然处理 margin collapse，消除 padding 污染
    */
   const calculatePages = async (
     content: string,
     toc: TocItem[],
     container: HTMLElement,
     options?: RenderOptions,
-    config?: { updateTocPageNumbers?: boolean }
+    config?: { updateTocPageNumbers?: boolean },
+    chapterTitles?: ChapterTitleMap
   ): Promise<{ pages: PageRange[]; toc: TocItem[] }> => {
     const fontSize = options?.fontSize || 16;
     const lineHeight = options?.lineHeight || 1.8;
     const containerHeight = container.clientHeight || window.innerHeight;
     const containerWidth = container.clientWidth || window.innerWidth;
 
-    // 创建测量容器
+    // 读取渲染容器实际 padding，确保测量宽度和可用高度与渲染一致
+    const padding = getContainerPadding(container);
+    const isVertical = padding.top === 0 && padding.bottom === 0;
+    const contentWidth = containerWidth - padding.left - padding.right;
+    const availableHeight = containerHeight - padding.top - padding.bottom;
+
+    // 测量容器：无 padding，宽度等于渲染容器的内容区域宽度
     const measureContainer = document.createElement('div');
     measureContainer.style.cssText = `
       position: absolute;
       left: -99999px;
       visibility: hidden;
-      width: ${containerWidth}px;
+      width: ${contentWidth}px;
       font-size: ${fontSize}px;
       line-height: ${lineHeight};
       font-family: ${options?.fontFamily || 'system-ui, sans-serif'};
-      padding: 16px;
+      padding: 0;
       box-sizing: border-box;
       white-space: pre-wrap;
       word-break: break-word;
@@ -237,32 +316,29 @@ export function useTxtRendererCore(): TxtRendererCore {
     document.body.appendChild(measureContainer);
 
     const pages: PageRange[] = [];
-    // 可用高度（扣除 padding）
-    const availableHeight = containerHeight - 32;
 
     try {
       const lines = splitContentIntoLines(content);
 
       if (lines.length === 0) {
-        // 空内容时返回单页
         pages.push({ index: 0, startOffset: 0, endOffset: content.length });
         return { pages, toc };
       }
 
       let currentPageStartOffset = lines[0].startOffset;
       let currentHeight = 0;
+      let prevScrollHeight = 0;
       let lastYieldTime = performance.now();
 
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
+        const el = createMeasureElement(line, isVertical, chapterTitles);
 
-        // 测量当前行高度
-        measureContainer.innerHTML = '';
-        const p = document.createElement('p');
-        p.style.cssText = 'margin: 0 0 0.8em 0; text-indent: 2em; white-space: pre-wrap; word-break: break-word;';
-        p.textContent = line.text;
-        measureContainer.appendChild(p);
-        const lineRenderHeight = measureContainer.scrollHeight;
+        // 追加到测量容器，用 scrollHeight 差值获取该行真实渲染高度
+        measureContainer.appendChild(el);
+        const currentScrollHeight = measureContainer.scrollHeight;
+        const lineRenderHeight = currentScrollHeight - prevScrollHeight;
+        prevScrollHeight = currentScrollHeight;
 
         // 判断是否需要换页
         if (currentHeight + lineRenderHeight > availableHeight && currentHeight > 0) {
@@ -274,15 +350,18 @@ export function useTxtRendererCore(): TxtRendererCore {
             endOffset: prevLine.endOffset,
           });
 
-          // 开始新页
+          // 开始新页：清空测量容器，重新放入当前行
+          // 新页首行没有与前一行的 margin collapse，需要独立测量
           currentPageStartOffset = line.startOffset;
-          currentHeight = lineRenderHeight;
+          measureContainer.innerHTML = '';
+          measureContainer.appendChild(el.cloneNode(true));
+          prevScrollHeight = measureContainer.scrollHeight;
+          currentHeight = prevScrollHeight;
         } else {
-          // 累加高度
           currentHeight += lineRenderHeight;
         }
 
-        // 每处理 50 行检查一次时间，如果超过 16ms (一帧) 则让出控制权
+        // 周期性让出主线程控制权，避免长时间阻塞
         if (i % 50 === 0) {
           const now = performance.now();
           if (now - lastYieldTime > 16) {
@@ -315,15 +394,22 @@ export function useTxtRendererCore(): TxtRendererCore {
     container: HTMLElement,
     content: string,
     options?: RenderOptions,
-    isVertical: boolean = false
+    isVertical: boolean = false,
+    chapterTitles?: ChapterTitleMap
   ): void => {
     applyContainerStyles(container, options, isVertical);
     container.innerHTML = '';
     const lines = splitContentIntoLines(content);
 
     for (const line of lines) {
-      const p = createParagraphElement(line.text, isVertical);
-      container.appendChild(p);
+      const titleLevel = chapterTitles?.get(line.startOffset);
+      if (titleLevel !== undefined) {
+        const el = createChapterTitleElement(line.text, titleLevel, isVertical);
+        container.appendChild(el);
+      } else {
+        const p = createParagraphElement(line.text, isVertical);
+        container.appendChild(p);
+      }
     }
   };
 
@@ -344,11 +430,12 @@ export function useTxtRendererCore(): TxtRendererCore {
     container: HTMLElement,
     content: string,
     pages: PageRange[],
-    options?: RenderOptions
+    options?: RenderOptions,
+    chapterTitles?: ChapterTitleMap
   ): void => {
     applyContainerStyles(container, options, true);
     container.innerHTML = '';
-    _renderContentInternal(container, content, pages, options, 0);
+    _renderContentInternal(container, content, pages, options, 0, chapterTitles);
   };
 
   /**
@@ -360,7 +447,8 @@ export function useTxtRendererCore(): TxtRendererCore {
     content: string,
     pages: PageRange[],
     options?: RenderOptions,
-    startPageIndex: number = 0
+    startPageIndex: number = 0,
+    chapterTitles?: ChapterTitleMap
   ): void => {
     // 在旧内容和新内容之间插入章节分隔符
     if (container.lastElementChild) {
@@ -385,7 +473,7 @@ export function useTxtRendererCore(): TxtRendererCore {
       container.appendChild(divider);
     }
 
-    _renderContentInternal(container, content, pages, options, startPageIndex);
+    _renderContentInternal(container, content, pages, options, startPageIndex, chapterTitles);
   };
 
   /**
@@ -396,7 +484,8 @@ export function useTxtRendererCore(): TxtRendererCore {
     content: string,
     pages: PageRange[],
     options: RenderOptions | undefined,
-    startPageIndex: number
+    startPageIndex: number,
+    chapterTitles?: ChapterTitleMap
   ): void => {
     const lines = splitContentIntoLines(content);
 
@@ -413,8 +502,14 @@ export function useTxtRendererCore(): TxtRendererCore {
       }
 
       for (const line of lines) {
-        const p = createParagraphElement(line.text, true);
-        wrapper.appendChild(p);
+        const titleLevel = chapterTitles?.get(line.startOffset);
+        if (titleLevel !== undefined) {
+          const el = createChapterTitleElement(line.text, titleLevel, true);
+          wrapper.appendChild(el);
+        } else {
+          const p = createParagraphElement(line.text, true);
+          wrapper.appendChild(p);
+        }
       }
       return;
     }
@@ -482,9 +577,15 @@ export function useTxtRendererCore(): TxtRendererCore {
         container.appendChild(currentWrapper);
       }
 
-      // 将行添加到当前页
-      const p = createParagraphElement(line.text, true);
-      currentWrapper.appendChild(p);
+      // 将行添加到当前页（标题行使用标题样式）
+      const titleLevel = chapterTitles?.get(line.startOffset);
+      if (titleLevel !== undefined) {
+        const el = createChapterTitleElement(line.text, titleLevel, true);
+        currentWrapper.appendChild(el);
+      } else {
+        const p = createParagraphElement(line.text, true);
+        currentWrapper.appendChild(p);
+      }
     }
   };
 
@@ -496,11 +597,12 @@ export function useTxtRendererCore(): TxtRendererCore {
     content: string,
     pages: PageRange[],
     options?: RenderOptions,
-    startPageIndex: number = 0
+    startPageIndex: number = 0,
+    chapterTitles?: ChapterTitleMap
   ): void => {
     const fragment = document.createDocumentFragment();
     const tempDiv = document.createElement('div');
-    _renderContentInternal(tempDiv, content, pages, options, startPageIndex);
+    _renderContentInternal(tempDiv, content, pages, options, startPageIndex, chapterTitles);
     while (tempDiv.firstChild) {
       fragment.appendChild(tempDiv.firstChild);
     }
@@ -536,7 +638,17 @@ export function useTxtRendererCore(): TxtRendererCore {
     }
   };
 
+  /** 对容器应用排版样式 */
+  const applyStyles = (
+    container: HTMLElement,
+    options?: RenderOptions,
+    isVertical: boolean = false
+  ): void => {
+    applyContainerStyles(container, options, isVertical);
+  };
+
   return {
+    applyStyles,
     calculatePages,
     renderContent,
     renderContentWithPageDividers,

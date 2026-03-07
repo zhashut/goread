@@ -115,7 +115,18 @@ export const useNavigation = ({
                         if (latestPreciseProgressRef) {
                             latestPreciseProgressRef.current = pageNum;
                         }
-                        await renderer.jumpToPreciseProgress(pageNum);
+                        if (
+                            renderer.isChapterMode?.() &&
+                            renderer.isVerticalMode?.() &&
+                            typeof (renderer as any).jumpToPreciseProgressWithWindow === "function"
+                        ) {
+                            await (renderer as any).jumpToPreciseProgressWithWindow(pageNum, {
+                                includePrev: true,
+                                includeNext: true,
+                            });
+                        } else {
+                            await renderer.jumpToPreciseProgress(pageNum);
+                        }
                     }
                 } else if (readingMode === "horizontal") {
                     // 强制渲染，因为是主动跳转

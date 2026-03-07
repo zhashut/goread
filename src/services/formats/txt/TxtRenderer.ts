@@ -22,12 +22,18 @@ import {
   useTxtDocumentLoader,
   useTxtProgressController,
   useTxtTTS,
+  useTxtChapterWindowJump,
+  useTxtChapterTitleMap,
   type PageRange,
   type TxtRendererCore,
   type TxtChapterCacheHook,
   type TxtDocumentLoader,
   type TxtProgressController,
   type TxtTTSHook,
+  type ChapterTitleMap,
+  type TxtChapterWindowJumpHook,
+  type TxtChapterWindowOptions,
+  type TxtChapterTitleMapHook,
 } from './hooks';
 import { TxtBookMeta } from './txtCacheService';
 
@@ -42,6 +48,8 @@ export interface TxtLoadOptions {
   /** 直接指定初始章节索引（0-based），优先于 startProgress */
   startChapterIndex?: number;
 }
+
+export type { TxtChapterWindowOptions } from './hooks';
 
 /**
  * TXT 渲染器实现
@@ -71,6 +79,8 @@ export class TxtRenderer implements IBookRenderer {
   private _loader: TxtDocumentLoader;
   private _progress: TxtProgressController;
   private _ttsHook: TxtTTSHook;
+  private _windowJump: TxtChapterWindowJumpHook;
+  private _titleMap: TxtChapterTitleMapHook;
   // 精确进度（浮点数），用于撤回跳转等场景的精确定位
   private _currentPreciseProgress: number = 1;
   private _bookPreciseProgress: number = 1;
@@ -85,6 +95,10 @@ export class TxtRenderer implements IBookRenderer {
   private _verticalPageHeights: number[] = [];
   // 记录当前 content 中包含哪些章节
   private _loadedChapters = new Set<number>();
+  // 各已加载章节在拼接后 _content 中的起始偏移
+  private _chapterContentOffsets = new Map<number, number>();
+  // 章节标题映射缓存（内容变化时需清除）
+  private _cachedTitleMap: ChapterTitleMap | null = null;
 
   // 分页版本号，每次异步精确分页替换后自增，用于 scroll handler 检测数据变化
   private _pagesVersion: number = 0;
@@ -174,6 +188,81 @@ export class TxtRenderer implements IBookRenderer {
       goToPage: (page) => this.goToPage(page),
       goToChapter: (chapterIndex) => this.goToChapter(chapterIndex),
       appendNextChapter: () => this.appendNextChapter(),
+    });
+
+    this._windowJump = useTxtChapterWindowJump({
+      getIsReady: () => this._isReady,
+      getUseChapterMode: () => this._useChapterMode,
+      getIsVerticalMode: () => this._isVerticalMode,
+      getContainer: () => this._container,
+      getBookMeta: () => this._bookMeta,
+      getChapterCache: () => this._chapterCache,
+
+      setContent: (value) => {
+        this._content = value;
+      },
+      setPages: (value) => {
+        this._pages = value;
+      },
+      setCurrentChapterIndex: (value) => {
+        this._currentChapterIndex = value;
+      },
+      setBookPreciseProgress: (value) => {
+        this._bookPreciseProgress = value;
+      },
+      resetLoadedChapters: (indices) => {
+        this._loadedChapters.clear();
+        for (const idx of indices) this._loadedChapters.add(idx);
+      },
+      resetChapterContentOffsets: (pairs) => {
+        this._chapterContentOffsets.clear();
+        for (const { chapterIndex, offset } of pairs) {
+          this._chapterContentOffsets.set(chapterIndex, offset);
+        }
+      },
+      invalidateTitleMapCache: () => {
+        this._invalidateTitleMapCache();
+      },
+
+      estimatePages: (content, chapterIndex, baseOffset) =>
+        this._estimatePages(content, chapterIndex, baseOffset),
+      bumpPagesVersion: () => {
+        this._pagesVersion++;
+      },
+      renderFullContent: (container) =>
+        this.renderFullContent(container, this._lastRenderOptions || {}),
+      convertChapterPreciseToVirtualPrecise: (progress) =>
+        this.convertChapterPreciseToVirtualPrecise(progress),
+      scrollToVirtualPage: (virtualPrecise, viewportHeight) => {
+        this.scrollToVirtualPage(virtualPrecise, viewportHeight);
+      },
+      preloadAdjacentChapters: (chapterIndex) =>
+        this.preloadAdjacentChapters(chapterIndex),
+      jumpToPreciseProgress: (progress) => this.jumpToPreciseProgress(progress),
+    });
+
+    this._titleMap = useTxtChapterTitleMap({
+      getUseChapterMode: () => this._useChapterMode,
+      getBookMeta: () => this._bookMeta,
+      getToc: () => this._toc,
+      getContentLength: () => this._content.length,
+      getCurrentChapterIndex: () => this._currentChapterIndex,
+      getChapterContentOffsetsPairs: () =>
+        Array.from(this._chapterContentOffsets.entries()).map(([chapterIndex, offset]) => ({
+          chapterIndex,
+          offset,
+        })),
+      getCachedTitleMap: () => this._cachedTitleMap,
+
+      setCachedTitleMap: (value) => {
+        this._cachedTitleMap = value;
+      },
+      ensureChapterOffsetsInitialized: () => {
+        if (this._chapterContentOffsets.size === 0 && this._content.length > 0) {
+          this._chapterContentOffsets.set(this._currentChapterIndex, 0);
+          this._loadedChapters.add(this._currentChapterIndex);
+        }
+      },
     });
   }
 
@@ -267,6 +356,14 @@ export class TxtRenderer implements IBookRenderer {
     await this._progress.jumpToPreciseProgress(progress);
   }
 
+  async jumpToPreciseProgressWithWindow(
+    progress: number,
+    window: TxtChapterWindowOptions = { includePrev: true, includeNext: true }
+  ): Promise<void> {
+    if (!this._isReady) return;
+    await this._windowJump.jumpToPreciseProgressWithWindow(progress, window);
+  }
+
   /** 跳转到指定页（横向模式，支持浮点数精确进度） */
   async goToPage(page: number): Promise<void> {
     // 记录精确进度（可能是浮点数）
@@ -314,6 +411,13 @@ export class TxtRenderer implements IBookRenderer {
     // 清空分页缓存，需要重新计算
     this._pages = [];
 
+    // 重置已加载章节集合和内容偏移映射
+    this._loadedChapters.clear();
+    this._loadedChapters.add(chapterIndex);
+    this._chapterContentOffsets.clear();
+    this._chapterContentOffsets.set(chapterIndex, 0);
+    this._invalidateTitleMapCache();
+
     // 如果有容器，重新渲染
     if (this._container) {
       if (this._isVerticalMode) {
@@ -328,10 +432,6 @@ export class TxtRenderer implements IBookRenderer {
       chapterIndex,
       this._bookMeta.chapters.length
     ).catch(() => { });
-
-    // 重置已加载章节集合
-    this._loadedChapters.clear();
-    this._loadedChapters.add(chapterIndex);
   }
 
   /** 获取已加载章节的最大索引 */
@@ -374,7 +474,10 @@ export class TxtRenderer implements IBookRenderer {
     // 纵向滚动模式：使用轻量估算分页，保持 _pages 与 DOM wrapper 一致
     const estimatedPages = this._estimatePages(chapter.content, nextIndex, currentContentLength);
 
+    // 记录新章节在拼接后 _content 中的起始偏移
+    this._chapterContentOffsets.set(nextIndex, currentContentLength);
     this._content += chapter.content;
+    this._invalidateTitleMapCache();
 
     const shiftedPages = estimatedPages.map(p => ({
       ...p,
@@ -396,13 +499,16 @@ export class TxtRenderer implements IBookRenderer {
     // 渲染追加的内容
     const startPageIndex = this._pages.length - estimatedPages.length;
 
+    const appendTitles = this._titleMap.getTitleMapForRange(currentContentLength, this._content.length);
+
     if (this._isVerticalMode) {
       this._core.appendContentWithPageDividers(
         this._container,
         chapter.content,
         estimatedPages,
         options,
-        startPageIndex
+        startPageIndex,
+        appendTitles
       );
 
       // 等一帧让 DOM 生效，刷新 pageMap
@@ -512,6 +618,12 @@ export class TxtRenderer implements IBookRenderer {
       }
     }
 
+    // 更新已有章节的内容偏移（全部后移）
+    for (const [idx, off] of this._chapterContentOffsets) {
+      this._chapterContentOffsets.set(idx, off + newContentLength);
+    }
+    this._chapterContentOffsets.set(prevIndex, 0);
+
     // 创建新页面并插入到头部
     const prependedPages = newPages.map(p => ({
       ...p,
@@ -522,15 +634,19 @@ export class TxtRenderer implements IBookRenderer {
     // 更新内容
     this._content = chapter.content + this._content;
     this._loadedChapters.add(prevIndex);
+    this._invalidateTitleMapCache();
 
     // 渲染追加的内容到 DOM 前面
     if (this._isVerticalMode) {
+      const prependTitles = this._titleMap.getTitleMapForRange(0, newContentLength);
+
       this._core.prependContentWithPageDividers(
         this._container,
         chapter.content,
         newPages,
         options,
-        0
+        0,
+        prependTitles
       );
 
       // 按 DOM 顺序重新编号所有 page wrapper 的 data-page-index
@@ -623,8 +739,8 @@ export class TxtRenderer implements IBookRenderer {
     const pageInfo = this._pages[validPage - 1];
     const pageContent = this._content.slice(pageInfo.startOffset, pageInfo.endOffset);
 
-    // 渲染内容
-    this._renderContent(container, pageContent, mergedOptions, false);
+    // 渲染内容（横向模式传递页面偏移量以正确识别标题行）
+    this._renderContent(container, pageContent, mergedOptions, false, pageInfo.startOffset);
   }
 
   /** 渲染全部内容（纵向模式） */
@@ -675,12 +791,17 @@ export class TxtRenderer implements IBookRenderer {
     container: HTMLElement,
     options?: RenderOptions
   ): Promise<void> {
+    // 先对容器应用样式，确保 calculatePages 读取到正确的 padding 和宽度
+    this._core.applyStyles(container, options, this._isVerticalMode);
+
+    const chapterTitles = this._titleMap.getFullTitleMap();
     const { pages, toc } = await this._core.calculatePages(
       this._content,
       this._toc,
       container,
       options,
-      { updateTocPageNumbers: !this._useChapterMode }
+      { updateTocPageNumbers: !this._useChapterMode },
+      chapterTitles
     );
 
     // 如果是章节模式，需要为 pages 添加 chapterIndex
@@ -706,13 +827,24 @@ export class TxtRenderer implements IBookRenderer {
     container: HTMLElement,
     content: string,
     options?: RenderOptions,
-    isVertical: boolean = false
+    isVertical: boolean = false,
+    contentStartOffset: number = 0
   ): void {
+    const chapterTitles = this._titleMap.getTitleMapForRender({
+      isVertical,
+      contentStartOffset,
+      contentLength: content.length,
+    });
     if (isVertical) {
-      this._core.renderContentWithPageDividers(container, content, this._pages, options);
+      this._core.renderContentWithPageDividers(container, content, this._pages, options, chapterTitles);
     } else {
-      this._core.renderContent(container, content, options, false);
+      this._core.renderContent(container, content, options, false, chapterTitles);
     }
+  }
+
+  /** 使标题映射缓存失效（内容变化时调用） */
+  private _invalidateTitleMapCache(): void {
+    this._titleMap.invalidate();
   }
 
   /** 搜索文本（TXT 不支持搜索） */
@@ -830,6 +962,8 @@ export class TxtRenderer implements IBookRenderer {
     this._currentHideDivider = false;
     this._verticalPageTops = [];
     this._verticalPageHeights = [];
+    this._chapterContentOffsets.clear();
+    this._cachedTitleMap = null;
   }
 
   /** 页面变化回调 */

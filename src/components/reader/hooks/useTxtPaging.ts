@@ -418,7 +418,7 @@ export const useTxtPaging = ({
             const chapterCount = Math.max(1, renderer.getChapterCount());
             const canGoNext = maxLoadedIndex < chapterCount - 1;
 
-            if (canGoNext && now - lastAutoSwitchTsRef.current > 50) {
+            if (canGoNext && now - lastAutoSwitchTsRef.current > 300) {
               isAutoSwitchingChapterRef.current = true;
               lastAutoSwitchTsRef.current = now;
               void (async () => {
@@ -451,8 +451,7 @@ export const useTxtPaging = ({
             }
           }
 
-          // 距离顶部不足 30% 屏时预追加上一章
-          const nearTopThreshold = viewportHeight * 0.3;
+          const nearTopThreshold = 16;
           const isNearTop = scrollTop <= nearTopThreshold;
           if (isNearTop && isScrollingUp) {
             const minLoadedIndex = typeof renderer.getMinLoadedChapterIndex === 'function'
@@ -460,7 +459,7 @@ export const useTxtPaging = ({
               : renderer.getCurrentChapterIndex();
             const canGoPrev = minLoadedIndex > 0;
 
-            if (canGoPrev && now - lastAutoSwitchTsRef.current > 50) {
+            if (canGoPrev && now - lastAutoSwitchTsRef.current > 300) {
               isAutoSwitchingChapterRef.current = true;
               lastAutoSwitchTsRef.current = now;
               void (async () => {
