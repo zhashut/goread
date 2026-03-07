@@ -92,6 +92,7 @@ export interface VerticalRenderHook {
  */
 export function useVerticalRender(context: VerticalRenderContext): VerticalRenderHook {
   const { sectionCount, resourceHook, themeHook } = context;
+  const MAX_RATIO = 0.999999;
 
   // 内部状态
   const state: VerticalRenderState = {
@@ -138,11 +139,11 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
     const wrapperTop = wrapperRect.top - containerRect.top + scrollTop;
     // 计算滚动位置在章节内的偏移
     const offsetInSection = scrollTop - wrapperTop;
-    const sectionHeight = wrapper.scrollHeight;
+    const scrollable = Math.max(0, wrapper.scrollHeight - container.clientHeight);
 
-    if (sectionHeight <= 0) return 0;
-    // 返回 0~1 之间的比例
-    return Math.max(0, Math.min(1, offsetInSection / sectionHeight));
+    if (scrollable <= 0) return 0;
+    const ratio = offsetInSection / scrollable;
+    return Math.max(0, Math.min(MAX_RATIO, ratio));
   };
 
   /**
@@ -500,8 +501,11 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
 
       // 应用章节内偏移
       if (offsetRatio > 0 && state.scrollContainer) {
-        const sectionHeight = targetWrapper.scrollHeight;
-        const offsetPx = sectionHeight * offsetRatio;
+        const scrollable = Math.max(
+          0,
+          targetWrapper.scrollHeight - state.scrollContainer.clientHeight
+        );
+        const offsetPx = scrollable * Math.min(MAX_RATIO, offsetRatio);
         state.scrollContainer.scrollTop += offsetPx;
       }
 
@@ -638,9 +642,10 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
     }
     let initialOffset = rawProgress - Math.floor(rawProgress);
     if (!isFinite(initialOffset) || initialOffset < 0) initialOffset = 0;
-    if (initialOffset > 1) initialOffset = 1;
-    if (sectionCount > 0 && initialPageInt === sectionCount) {
-      initialOffset = 0;
+    if (initialOffset >= 1) initialOffset = MAX_RATIO;
+    if (initialOffset > MAX_RATIO) initialOffset = MAX_RATIO;
+    if (sectionCount > 0 && rawProgress > sectionCount && initialOffset === 0) {
+      initialOffset = MAX_RATIO;
     }
     state.currentPage = initialPageInt;
     state.currentPreciseProgress = initialPageInt + initialOffset;
@@ -689,7 +694,8 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
             requestAnimationFrame(() => {
               // 应用章节内偏移：根据偏移比例计算具体像素值
               if (initialOffset > 0 && targetWrapper.scrollHeight > 0) {
-                const offsetPx = targetWrapper.scrollHeight * initialOffset;
+                const scrollable = Math.max(0, targetWrapper.scrollHeight - container.clientHeight);
+                const offsetPx = scrollable * initialOffset;
                 container.scrollTop += offsetPx;
               }
               resolve();

@@ -255,12 +255,20 @@ export const useInitReader = ({
                     if (renderer instanceof EpubRenderer) {
                         renderer.onPageChange = (p: number) => {
                             // p 可能是浮点数（整数部分为页码，小数部分为章节内偏移比例）
-                            const pageInt = Math.floor(p);
+                            let progress = p;
+                            if (!isFinite(progress) || progress <= 0) {
+                                progress = 1;
+                            }
+                            if (totalPages > 0) {
+                                const max = totalPages + 0.999999;
+                                if (progress > max) progress = max;
+                            }
+                            const pageInt = Math.floor(progress);
                             // UI 显示整数页码
                             setCurrentPage(pageInt);
                             if (!isExternal && book) {
                                 // 保存完整浮点数进度到数据库
-                                bookService.updateBookProgress(book.id, p).catch(() => { });
+                                bookService.updateBookProgress(book.id, progress).catch(() => { });
                             }
                         };
                         // 设置滚动活跃回调，用于更新阅读时长统计
