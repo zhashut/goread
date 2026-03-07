@@ -23,11 +23,13 @@ import {
   useEpubNavigation,
   useVerticalRender,
   useHorizontalRender,
+  useEpubTTS,
   type EpubThemeHook,
   type EpubResourceHook,
   type EpubNavigationHook,
   type VerticalRenderHook,
   type HorizontalRenderHook,
+  type EpubTTSHook,
 } from './hooks';
 import { getSpineIndexForHref } from './hooks/tocMapping';
 
@@ -75,6 +77,7 @@ export class EpubRenderer implements IBookRenderer {
   private _navigationHook: EpubNavigationHook | null = null;
   private _verticalRenderHook: VerticalRenderHook | null = null;
   private _horizontalRenderHook: HorizontalRenderHook | null = null;
+  private _ttsHook: EpubTTSHook;
 
   constructor() {
     // 初始化无依赖的 hooks
@@ -83,6 +86,23 @@ export class EpubRenderer implements IBookRenderer {
     // 使用全局缓存服务（单例，跨 EpubRenderer 实例共享）
     this._sectionCache = epubCacheService.sectionCache;
     this._resourceCache = epubCacheService.resourceCache;
+
+    this._ttsHook = useEpubTTS({
+      getReadingMode: () => this._readingMode,
+      getContainer: () => this._currentContainer,
+      getHasVerticalHook: () => !!this._verticalRenderHook,
+      getVerticalRenderState: () => {
+        if (!this._verticalRenderHook) return null;
+        return {
+          sectionContainers: this._verticalRenderHook.state.sectionContainers,
+          renderedSections: this._verticalRenderHook.state.renderedSections,
+          currentPage: this._verticalRenderHook.state.currentPage,
+        };
+      },
+      getCurrentPage: () => this.getCurrentPage(),
+      getPageCount: () => this.getPageCount(),
+      nextPage: () => this.nextPage(),
+    });
   }
 
   /**
@@ -637,6 +657,32 @@ export class EpubRenderer implements IBookRenderer {
       return;
     }
     this._horizontalRenderHook?.scrollBy(deltaY);
+  }
+
+  /**
+   * TTS 自动前进：切换到下一章节
+   * 横向模式调用 nextPage 翻到下一章，纵向模式滚动到下一章节
+   */
+  async advanceForTTS(): Promise<boolean> {
+    return this._ttsHook.advanceForTTS();
+  }
+
+  /**
+   * 获取当前视口可见区域的起始位置，供 TTS 从用户阅读处开始朗读
+   * 纵向模式下在当前 section 的 Shadow DOM 中定位第一个可见文本节点
+   * 横向模式下每章即一页，从头开始即可
+   */
+  getVisibleStartForTTS():
+    | { type: 'range'; range: Range }
+    | null {
+    return this._ttsHook.getVisibleStartForTTS();
+  }
+
+  /**
+   * 获取当前可见章节的 DOM 内容根元素，供 TTS 朗读
+   */
+  getTTSDocument(): { type: 'dom'; doc: Document | Element } | null {
+    return this._ttsHook.getTTSDocument();
   }
 }
 

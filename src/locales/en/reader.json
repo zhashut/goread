@@ -30,5 +30,10 @@
   "sortByName": "Sort by Name",
   "sortReverse": "Reverse Order",
   "listenOn": "Listen mode on",
-  "listenOff": "Listen mode off"
+  "listenOff": "Listen mode off",
+  "listenFailedNoVoice": "Listen failed: no voice engine available, please check TTS settings",
+  "listenFailedNativeBridge": "Listen failed: native TTS not supported on this platform",
+  "listenFailedNativeInit": "Listen failed: native TTS engine init failed, please install a TTS engine",
+  "listenFailedNoContent": "Listen failed: no readable content on current page",
+  "listenFailedUnknown": "Listen failed, please check device voice settings"
 }

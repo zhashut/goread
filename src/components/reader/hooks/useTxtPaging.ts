@@ -23,6 +23,7 @@ export type TxtPagingProps = {
   toc?: TocNode[];
   /** 设置当前激活章节签名 */
   setActiveNodeSignature?: (sig: string | undefined) => void;
+  onAfterRerender?: () => void;
 };
 
 export const useTxtPaging = ({
@@ -34,6 +35,7 @@ export const useTxtPaging = ({
   setToc,
   toc,
   setActiveNodeSignature,
+  onAfterRerender,
 }: TxtPagingProps) => {
   const {
     book,
@@ -264,6 +266,7 @@ export const useTxtPaging = ({
           setCurrentPage(chapterMode ? Math.floor(preciseProgress) : targetPage);
         }
         setContentReady(true);
+        onAfterRerender?.();
       } catch (err) {
         console.error('[useTxtPaging] initPagination failed', err);
       }
@@ -729,12 +732,13 @@ export const useTxtPaging = ({
             }
           }
         }
+        onAfterRerender?.();
       } catch {
       }
     };
 
     rerender();
-  }, [options?.theme, options?.pageGap, readingMode, book?.id, isExternal]);
+  }, [options?.theme, options?.pageGap, readingMode, book?.id, isExternal, onAfterRerender]);
 
   // 清理：书籍切换时重置初始化状态
   useEffect(() => {

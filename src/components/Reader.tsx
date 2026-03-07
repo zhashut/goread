@@ -52,6 +52,7 @@ import {
   useDividerVisibility,
   useTocSort,
   useContentPinchZoom,
+  useReaderTTS,
 } from "./reader/hooks";
 
 import { UndoJumpIcon } from "./covers/UndoJumpIcon";
@@ -132,8 +133,15 @@ export const Reader: React.FC = () => {
   useExternalVisibility(isExternal);
 
 
-  // 听书功能仅支持 epub / mobi / txt
-  const listenSupported = isEpubDom || isMobi || isTxt;
+  // TTS 听书
+  const {
+    listenSupported,
+    isListening,
+    handleToggleListen,
+    listenToastMsg,
+    clearListenToast,
+    notifyTtsDocumentUpdated,
+  } = useReaderTTS({ rendererRef, isEpubDom, isMobi, isTxt });
 
   // 3. UI 状态
   const [uiVisible, setUiVisible] = useState(false);
@@ -143,19 +151,6 @@ export const Reader: React.FC = () => {
   // Seek State
   const [isSeeking, setIsSeeking] = useState(false);
   const [seekPage, setSeekPage] = useState<number | null>(null);
-  // 听书状态
-  const [isListening, setIsListening] = useState(false);
-  const [listenToastMsg, setListenToastMsg] = useState("");
-
-  const { t: tReader } = useTranslation('reader');
-
-  const handleToggleListen = useCallback(() => {
-    setIsListening(prev => {
-      const next = !prev;
-      setListenToastMsg(next ? tReader('listenOn') : tReader('listenOff'));
-      return next;
-    });
-  }, [tReader]);
 
   // 4. 数据 Hooks (TOC, Bookmarks)
   const tocData = useToc(currentPage, readingMode, isDomRender);
@@ -210,6 +205,7 @@ export const Reader: React.FC = () => {
     setToc: tocData.setToc,
     toc: tocData.toc,
     setActiveNodeSignature: tocData.setActiveNodeSignature,
+    onAfterRerender: notifyTtsDocumentUpdated,
   });
 
 
@@ -244,7 +240,8 @@ export const Reader: React.FC = () => {
       setVerticalLazyReady: verticalScroll.setVerticalLazyReady,
       setActiveNodeSignature: tocData.setActiveNodeSignature,
       setToc: tocData.setToc,
-      markReadingActive
+      markReadingActive,
+      notifyTtsDocumentUpdated,
     },
     data: { readingMode, settings: { ...settingsWithTheme, hideDivider }, toc: tocData.toc }
   });
@@ -848,7 +845,8 @@ export const Reader: React.FC = () => {
       {listenToastMsg && (
         <Toast
           message={listenToastMsg}
-          onClose={() => setListenToastMsg("")}
+          duration={1000}
+          onClose={clearListenToast}
           style={{ top: '50%', bottom: 'auto', transform: 'translate(-50%, -50%)' }}
         />
       )}

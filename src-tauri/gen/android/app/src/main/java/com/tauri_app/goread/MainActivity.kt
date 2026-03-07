@@ -44,6 +44,9 @@ class MainActivity : TauriActivity() {
   // 外部文件打开挂起数据（在 WebView 尚未就绪时暂存）
   private var pendingOpenFilePayload: String? = null
   
+  // TTS 原生引擎桥接（Web Speech API 不可用时的兜底）
+  private var ttsBridge: TTSBridge? = null
+  
   // SAF 目录选择回调
   private val openDocumentTreeLauncher = registerForActivityResult(
     ActivityResultContracts.OpenDocumentTree()
@@ -127,6 +130,10 @@ class MainActivity : TauriActivity() {
     // SAF 文件访问接口（目录选择、扫描与复制）
     webView.addJavascriptInterface(SafBridge(), "SafBridge")
     
+    // TTS 原生引擎桥接（Web Speech API 不可用时的兜底）
+    ttsBridge = TTSBridge(this) { webViewRef }
+    webView.addJavascriptInterface(ttsBridge!!, "TTSBridge")
+    
     // Default show status bar (only hide when entering Reader page based on user settings)
     windowInsetsController?.show(WindowInsetsCompat.Type.statusBars())
     
@@ -160,6 +167,11 @@ class MainActivity : TauriActivity() {
       // Notify JavaScript that VolumeKeyBridge is ready
       webView.postDelayed({
         notifyVolumeKeyBridgeReady()
+      }, 200)
+      
+      // Notify JavaScript that TTSBridge is ready
+      webView.postDelayed({
+        notifyTTSBridgeReady()
       }, 200)
       
       // 如果存在挂起的外部文件打开请求，注入到前端
@@ -199,6 +211,21 @@ class MainActivity : TauriActivity() {
             window.dispatchEvent(new CustomEvent('volumeKeyBridgeReady'));
           }
           console.log('[VolumeKey] Android bridge ready');
+        })();
+      """.trimIndent()
+      webViewRef?.evaluateJavascript(js, null)
+    }
+  }
+  
+  private fun notifyTTSBridgeReady() {
+    webViewRef?.post {
+      val js = """
+        (function() {
+          window.__TTS_BRIDGE_READY__ = true;
+          if (typeof CustomEvent !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('ttsBridgeReady'));
+          }
+          console.log('[TTSBridge] Android bridge ready');
         })();
       """.trimIndent()
       webViewRef?.evaluateJavascript(js, null)
@@ -722,5 +749,10 @@ class MainActivity : TauriActivity() {
         }
       }
     }
+  }
+  
+  override fun onDestroy() {
+    ttsBridge?.shutdown()
+    super.onDestroy()
   }
 }

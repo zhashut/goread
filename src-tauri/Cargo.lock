@@ -27,6 +27,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-dialog",
  "tauri-plugin-fs",
+ "tauri-plugin-native-tts",
  "tauri-plugin-opener",
  "tauri-plugin-os",
  "tauri-plugin-sql",
@@ -4966,6 +4967,16 @@ dependencies = [
  "thiserror 2.0.17",
  "toml 0.9.8",
  "url",
+]
+
+[[package]]
+name = "tauri-plugin-native-tts"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "thiserror 1.0.69",
 ]
 
 [[package]]

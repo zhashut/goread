@@ -28,3 +28,4 @@ export * from "./useBookPageDivider";
 export * from "./useDividerVisibility";
 export * from "./useTocSort";
 export * from "./useContentPinchZoom";
+export * from "./useReaderTTS";

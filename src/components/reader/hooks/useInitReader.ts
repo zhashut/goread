@@ -29,6 +29,7 @@ type InitReaderProps = {
         setActiveNodeSignature: (sig: string | undefined) => void;
         setToc: (nodes: TocNode[]) => void;
         markReadingActive: () => void;
+        notifyTtsDocumentUpdated?: () => void;
     };
     data: {
         readingMode: "horizontal" | "vertical";
@@ -75,6 +76,7 @@ export const useInitReader = ({
         setActiveNodeSignature,
         setToc,
         markReadingActive,
+        notifyTtsDocumentUpdated,
     } = actions;
     const { readingMode, settings } = data;
 
@@ -209,6 +211,7 @@ export const useInitReader = ({
                         renderer.onPositionRestored = () => {
                             log("[Reader] Markdown 位置恢复完成");
                             setContentReady(true);
+                            notifyTtsDocumentUpdated?.();
                         };
                     }
 
@@ -217,6 +220,7 @@ export const useInitReader = ({
                             log("[Reader] HTML 位置恢复完成");
                             domRestoreDoneRef.current = true;
                             setContentReady(true);
+                            notifyTtsDocumentUpdated?.();
                         };
                     }
 
@@ -225,6 +229,7 @@ export const useInitReader = ({
                             log("[Reader] MOBI 位置恢复完成");
                             domRestoreDoneRef.current = true;
                             setContentReady(true);
+                            notifyTtsDocumentUpdated?.();
                         };
                         // MOBI 页码由内部滚动监听驱动，通过 onPageChange 统一更新 UI 和进度
                         renderer.onPageChange = (p: number) => {
@@ -243,6 +248,7 @@ export const useInitReader = ({
                         renderer.onFirstScreenReady = () => {
                             log("[Reader] EPUB 首屏渲染完成，提前隐藏 loading");
                             setContentReady(true);
+                            notifyTtsDocumentUpdated?.();
                         };
                     }
 
@@ -353,6 +359,7 @@ export const useInitReader = ({
                     if (!(renderer instanceof MarkdownRenderer) && !(renderer instanceof MobiRenderer)) {
                         if (!(renderer instanceof EpubRenderer && readingMode === 'vertical')) {
                             setContentReady(true);
+                            notifyTtsDocumentUpdated?.();
                         }
                     }
 

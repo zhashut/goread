@@ -1,3 +1,6 @@
 include ':app'
 
 apply from: 'tauri.settings.gradle'
+
+include ':tauri-plugin-native-tts'
+project(':tauri-plugin-native-tts').projectDir = new File('../../plugins/tauri-plugin-native-tts/android')

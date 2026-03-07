@@ -20,10 +20,12 @@ import {
   useMobiRender,
   useMobiNavigation,
   useMobiTheme,
+  useMobiTTS,
   MobiLifecycleHook,
   MobiRenderHook,
   MobiNavigationHook,
   MobiThemeHook,
+  MobiTTSHook,
 } from './hooks';
 
 /**
@@ -43,11 +45,16 @@ export class MobiRenderer implements IBookRenderer {
   private _themeHook: MobiThemeHook;
   private _renderHook: MobiRenderHook | null = null;
   private _navigationHook: MobiNavigationHook | null = null;
+  private _ttsHook: MobiTTSHook;
   private _currentHideDivider: boolean = false;
 
   constructor() {
     this._lifecycleHook = useMobiLifecycle();
     this._themeHook = useMobiTheme();
+    this._ttsHook = useMobiTTS({
+      getShadowRoot: () => this._renderHook?.state.shadowRoot || null,
+      getScrollContainer: () => this._renderHook?.state.scrollContainer || null,
+    });
   }
 
   private _initHooks(): void {
@@ -163,6 +170,31 @@ export class MobiRenderer implements IBookRenderer {
   updateDividerVisibility(hidden: boolean): void {
     this._currentHideDivider = hidden;
     this._renderHook?.updateDividerVisibility(hidden);
+  }
+
+  /**
+   * 获取当前可见的 MOBI section 的 DOM 元素，供 TTS 朗读
+   * 定位到用户视口中心所在的 .mobi-section，避免返回整个 .mobi-body
+   */
+  getTTSDocument(): { type: 'dom'; doc: Document | Element } | null {
+    return this._ttsHook.getTTSDocument();
+  }
+
+  /**
+   * 获取当前视口可见区域的起始位置，供 TTS 从用户阅读处开始朗读
+   * MOBI 为纵向滚动渲染，在当前 section 中定位第一个可见文本节点
+   */
+  getVisibleStartForTTS():
+    | { type: 'range'; range: Range }
+    | null {
+    return this._ttsHook.getVisibleStartForTTS();
+  }
+
+  /**
+   * TTS 自动前进：滚动到下一个 .mobi-section
+   */
+  async advanceForTTS(): Promise<boolean> {
+    return this._ttsHook.advanceForTTS();
   }
 
   onPageChange?: (page: number) => void;
