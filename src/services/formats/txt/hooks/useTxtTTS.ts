@@ -31,6 +31,21 @@ export interface TxtTTSHook {
 }
 
 export function useTxtTTS(context: TxtTTSContext): TxtTTSHook {
+  let pinnedWrapperIndex: number | null = null;
+  let pendingWrapperIndex: number | null = null;
+
+  const clearPinnedWrapper = (): void => {
+    pinnedWrapperIndex = null;
+    pendingWrapperIndex = null;
+  };
+
+  const clampIndex = (index: number, total: number): number => {
+    if (total <= 1) return 0;
+    if (index < 0) return 0;
+    if (index >= total) return total - 1;
+    return index;
+  };
+
   const getVisibleWrapperIndexByScrollTop = (
     scrollTop: number,
     wrappers: NodeListOf<HTMLElement>,
@@ -38,6 +53,7 @@ export function useTxtTTS(context: TxtTTSContext): TxtTTSHook {
     const total = wrappers.length;
     if (total <= 1) return 0;
 
+    const adjustedScrollTop = scrollTop + 1;
     const tops = context.getVerticalPageTops();
     if (tops.length === total) {
       let lo = 0;
@@ -45,7 +61,7 @@ export function useTxtTTS(context: TxtTTSContext): TxtTTSHook {
       while (lo <= hi) {
         const mid = (lo + hi) >> 1;
         const top = tops[mid] ?? 0;
-        if (top <= scrollTop) {
+        if (top <= adjustedScrollTop) {
           lo = mid + 1;
         } else {
           hi = mid - 1;
@@ -57,7 +73,7 @@ export function useTxtTTS(context: TxtTTSContext): TxtTTSHook {
     let best = 0;
     for (let i = 0; i < total; i++) {
       const top = wrappers[i]?.offsetTop ?? 0;
-      if (top <= scrollTop) best = i;
+      if (top <= adjustedScrollTop) best = i;
       else break;
     }
     return best;
@@ -81,17 +97,31 @@ export function useTxtTTS(context: TxtTTSContext): TxtTTSHook {
       ) as NodeListOf<HTMLElement>;
       if (wrappers.length === 0) return null;
 
-      const index = getVisibleWrapperIndexByScrollTop(
-        container.scrollTop,
-        wrappers,
-      );
-      const wrapper = wrappers[index];
+      let index: number;
+      if (pendingWrapperIndex !== null) {
+        index = clampIndex(pendingWrapperIndex, wrappers.length);
+        pinnedWrapperIndex = index;
+        pendingWrapperIndex = null;
+      } else if (pinnedWrapperIndex !== null) {
+        index = clampIndex(pinnedWrapperIndex, wrappers.length);
+        pinnedWrapperIndex = index;
+      } else {
+        index = getVisibleWrapperIndexByScrollTop(container.scrollTop, wrappers);
+      }
+
+      let wrapper = wrappers[index];
+      if (!wrapper || !wrapper.textContent?.trim()) {
+        clearPinnedWrapper();
+        index = getVisibleWrapperIndexByScrollTop(container.scrollTop, wrappers);
+        wrapper = wrappers[index];
+      }
       if (!wrapper) return null;
       if (!wrapper.textContent?.trim()) return null;
       return { type: 'dom', doc: wrapper };
     }
 
     if (!isVerticalMode) {
+      clearPinnedWrapper();
       const pageIndex = context.getCurrentPage() - 1;
       const pages = context.getPages();
       if (pageIndex < 0 || pageIndex >= pages.length) return null;
@@ -107,7 +137,10 @@ export function useTxtTTS(context: TxtTTSContext): TxtTTSHook {
     const container = context.getContainer();
     if (!container) return null;
 
-    if (!context.getIsVerticalMode()) return null;
+    if (!context.getIsVerticalMode()) {
+      clearPinnedWrapper();
+      return null;
+    }
 
     const wrappers = container.querySelectorAll(
       '[data-page-index]',
@@ -115,6 +148,8 @@ export function useTxtTTS(context: TxtTTSContext): TxtTTSHook {
     if (wrappers.length === 0) return null;
 
     const index = getVisibleWrapperIndexByScrollTop(container.scrollTop, wrappers);
+    pinnedWrapperIndex = clampIndex(index, wrappers.length);
+    pendingWrapperIndex = null;
     const wrapper = wrappers[index];
     if (!wrapper) return null;
     const range = findFirstVisibleTextRange(wrapper, container);
@@ -125,6 +160,7 @@ export function useTxtTTS(context: TxtTTSContext): TxtTTSHook {
     if (!context.getIsReady()) return false;
 
     if (!context.getIsVerticalMode()) {
+      clearPinnedWrapper();
       const nextPage = context.getCurrentPage() + 1;
       const pages = context.getPages();
       if (nextPage > pages.length) {
@@ -152,7 +188,10 @@ export function useTxtTTS(context: TxtTTSContext): TxtTTSHook {
     ) as NodeListOf<HTMLElement>;
     if (wrappers.length === 0) return false;
 
-    const currentIndex = getVisibleWrapperIndexByScrollTop(container.scrollTop, wrappers);
+    const currentIndex =
+      pinnedWrapperIndex !== null
+        ? clampIndex(pinnedWrapperIndex, wrappers.length)
+        : getVisibleWrapperIndexByScrollTop(container.scrollTop, wrappers);
     const nextIndex = currentIndex + 1;
 
     if (nextIndex < wrappers.length) {
@@ -160,6 +199,8 @@ export function useTxtTTS(context: TxtTTSContext): TxtTTSHook {
       const top = tops[nextIndex] ?? wrappers[nextIndex]?.offsetTop ?? 0;
       container.scrollTop = top;
       context.setCurrentPage(nextIndex + 1);
+      pinnedWrapperIndex = nextIndex;
+      pendingWrapperIndex = nextIndex;
       return true;
     }
 
@@ -175,6 +216,8 @@ export function useTxtTTS(context: TxtTTSContext): TxtTTSHook {
         const top = tops[nextIndex] ?? newWrappers[nextIndex]?.offsetTop ?? 0;
         container.scrollTop = top;
         context.setCurrentPage(nextIndex + 1);
+        pinnedWrapperIndex = nextIndex;
+        pendingWrapperIndex = nextIndex;
         return true;
       }
     }
