@@ -5,7 +5,8 @@ import type { TTSState } from '../../../services/tts/types';
 import { TTSController } from '../../../services/tts/TTSController';
 import { WebSpeechClient } from '../../../services/tts/WebSpeechClient';
 import { NativeTTSClient } from '../../../services/tts/NativeTTSClient';
-import { log, logError } from '../../../services';
+import { log, logError, getReaderSettings } from '../../../services';
+import { TTS_RATE_DEFAULT } from '../../../constants/tts';
 
 /** 操作锁状态：idle-空闲 / stopping-关闭中 / starting-开启中 */
 type ToggleLock = 'idle' | 'stopping' | 'starting';
@@ -184,6 +185,10 @@ export const useTTS = ({ rendererRef, listenSupported }: UseTTSOptions): UseTTSR
       log(`[TTS] 客户端创建成功: ${client.name}，开始朗读`, 'info');
       const controller = new TTSController(client, rendererRef.current!, setState);
       controllerRef.current = controller;
+
+      // 从持久化设置读取语速并应用到 TTS 引擎
+      const ttsRate = getReaderSettings().ttsRate ?? TTS_RATE_DEFAULT;
+      controller.setRate(ttsRate);
 
       const success = await controller.start();
       log(`[TTS] controller.start() 结果: ${success}`, 'info');
