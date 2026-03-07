@@ -13,6 +13,18 @@ use tokio::sync::RwLock;
 
 /// 缓存根目录
 fn epub_cache_root() -> PathBuf {
+    if let Ok(dir) = std::env::var("GOREAD_EPUB_CACHE_ROOT") {
+        if !dir.trim().is_empty() {
+            return PathBuf::from(dir);
+        }
+    }
+    let mut dir = std::env::temp_dir();
+    dir.push("goread_cache");
+    dir.push("epub");
+    dir
+}
+
+fn epub_cache_root_legacy() -> PathBuf {
     let mut dir = std::env::temp_dir();
     dir.push("goread_cache");
     dir.push("epub");
@@ -220,6 +232,37 @@ impl EpubCacheManager {
         Ok(())
     }
 
+    async fn read_section_entry_from_dir(
+        &self,
+        cache_dir: &PathBuf,
+        section_index: u32,
+    ) -> Result<Option<(SectionCacheMeta, String)>, String> {
+        let html_path = cache_dir.join(format!("{}.html", section_index));
+        let meta_path = cache_dir.join(format!("{}.meta.json", section_index));
+
+        if !html_path.exists() || !meta_path.exists() {
+            return Ok(None);
+        }
+
+        let meta_json = fs::read_to_string(&meta_path)
+            .await
+            .map_err(|e| format!("读取元数据失败: {}", e))?;
+        let meta: SectionCacheMeta =
+            serde_json::from_str(&meta_json).map_err(|e| format!("解析元数据失败: {}", e))?;
+
+        if self.is_expired(meta.last_access_time) {
+            let _ = fs::remove_file(&html_path).await;
+            let _ = fs::remove_file(&meta_path).await;
+            return Ok(None);
+        }
+
+        let html_content = fs::read_to_string(&html_path)
+            .await
+            .map_err(|e| format!("读取章节缓存失败: {}", e))?;
+
+        Ok(Some((meta, html_content)))
+    }
+
     /// 从磁盘加载章节缓存（返回完整的 HTML、样式和资源引用）
     pub async fn load_section(
         &self,
@@ -229,41 +272,75 @@ impl EpubCacheManager {
         let book_hash = compute_book_hash(book_id);
         let cache_dir = epub_section_cache_dir(&book_hash);
 
-        let html_path = cache_dir.join(format!("{}.html", section_index));
-        let meta_path = cache_dir.join(format!("{}.meta.json", section_index));
+        if let Some((meta, html_content)) =
+            self.read_section_entry_from_dir(&cache_dir, section_index).await?
+        {
+            let updated_meta = SectionCacheMeta {
+                last_access_time: Self::now_millis(),
+                ..meta.clone()
+            };
+            if let Ok(updated_meta_json) = serde_json::to_string(&updated_meta) {
+                let meta_path = cache_dir.join(format!("{}.meta.json", section_index));
+                let _ = fs::write(&meta_path, updated_meta_json).await;
+            }
 
-        // 检查文件是否存在
-        if !html_path.exists() || !meta_path.exists() {
-            return Ok(None);
+            return Ok(Some(SectionCacheData {
+                html: html_content,
+                styles: meta.styles,
+                resource_refs: meta.resource_refs,
+            }));
         }
 
-        // 读取元数据检查是否过期
-        let meta_json = fs::read_to_string(&meta_path)
-            .await
-            .map_err(|e| format!("读取元数据失败: {}", e))?;
-        let meta: SectionCacheMeta =
-            serde_json::from_str(&meta_json).map_err(|e| format!("解析元数据失败: {}", e))?;
+        let legacy_cache_dir = {
+            let mut dir = epub_cache_root_legacy();
+            dir.push("sections");
+            dir.push(&book_hash);
+            dir
+        };
 
-        if self.is_expired(meta.last_access_time) {
-            // 过期，删除缓存文件
-            let _ = fs::remove_file(&html_path).await;
-            let _ = fs::remove_file(&meta_path).await;
+        let legacy_loaded = match self
+            .read_section_entry_from_dir(&legacy_cache_dir, section_index)
+            .await
+        {
+            Ok(v) => v,
+            Err(_) => None,
+        };
+
+        let Some((meta, html_content)) = legacy_loaded else {
             return Ok(None);
-        }
+        };
 
-        // 读取 HTML 内容
-        let html_content = fs::read_to_string(&html_path)
-            .await
-            .map_err(|e| format!("读取章节缓存失败: {}", e))?;
-
-        // 更新访问时间
         let updated_meta = SectionCacheMeta {
             last_access_time: Self::now_millis(),
             ..meta.clone()
         };
         let updated_meta_json =
             serde_json::to_string(&updated_meta).map_err(|e| format!("序列化元数据失败: {}", e))?;
-        let _ = fs::write(&meta_path, updated_meta_json).await;
+
+        if legacy_cache_dir == cache_dir {
+            let meta_path = cache_dir.join(format!("{}.meta.json", section_index));
+            let _ = fs::write(&meta_path, updated_meta_json).await;
+
+            return Ok(Some(SectionCacheData {
+                html: html_content,
+                styles: meta.styles,
+                resource_refs: meta.resource_refs,
+            }));
+        }
+
+        let _ = fs::create_dir_all(&cache_dir).await;
+
+        let primary_html_path = cache_dir.join(format!("{}.html", section_index));
+        let primary_meta_path = cache_dir.join(format!("{}.meta.json", section_index));
+        let html_write_res = fs::write(&primary_html_path, &html_content).await;
+        let meta_write_res = fs::write(&primary_meta_path, updated_meta_json).await;
+
+        let legacy_html_path = legacy_cache_dir.join(format!("{}.html", section_index));
+        let legacy_meta_path = legacy_cache_dir.join(format!("{}.meta.json", section_index));
+        if html_write_res.is_ok() && meta_write_res.is_ok() {
+            let _ = fs::remove_file(&legacy_html_path).await;
+            let _ = fs::remove_file(&legacy_meta_path).await;
+        }
 
         Ok(Some(SectionCacheData {
             html: html_content,
@@ -312,6 +389,37 @@ impl EpubCacheManager {
         Ok(())
     }
 
+    async fn read_resource_entry_from_dir(
+        &self,
+        cache_dir: &PathBuf,
+        resource_hash: &str,
+    ) -> Result<Option<(ResourceCacheMeta, Vec<u8>)>, String> {
+        let data_path = cache_dir.join(format!("{}.data", resource_hash));
+        let meta_path = cache_dir.join(format!("{}.meta.json", resource_hash));
+
+        if !data_path.exists() || !meta_path.exists() {
+            return Ok(None);
+        }
+
+        let meta_json = fs::read_to_string(&meta_path)
+            .await
+            .map_err(|e| format!("读取元数据失败: {}", e))?;
+        let meta: ResourceCacheMeta =
+            serde_json::from_str(&meta_json).map_err(|e| format!("解析元数据失败: {}", e))?;
+
+        if self.is_expired(meta.last_access_time) {
+            let _ = fs::remove_file(&data_path).await;
+            let _ = fs::remove_file(&meta_path).await;
+            return Ok(None);
+        }
+
+        let data = fs::read(&data_path)
+            .await
+            .map_err(|e| format!("读取资源缓存失败: {}", e))?;
+
+        Ok(Some((meta, data)))
+    }
+
     /// 从磁盘加载资源缓存
     pub async fn load_resource(
         &self,
@@ -322,44 +430,68 @@ impl EpubCacheManager {
         let cache_dir = epub_resource_cache_dir(&book_hash);
         let resource_hash = compute_resource_hash(resource_path);
 
-        let data_path = cache_dir.join(format!("{}.data", resource_hash));
-        let meta_path = cache_dir.join(format!("{}.meta.json", resource_hash));
-
-        // 检查文件是否存在
-        if !data_path.exists() || !meta_path.exists() {
-            return Ok(None);
+        if let Some((meta, data)) = self
+            .read_resource_entry_from_dir(&cache_dir, &resource_hash)
+            .await?
+        {
+            let mime_type = meta.mime_type.clone();
+            let updated_meta = ResourceCacheMeta {
+                last_access_time: Self::now_millis(),
+                ..meta
+            };
+            if let Ok(updated_meta_json) = serde_json::to_string(&updated_meta) {
+                let meta_path = cache_dir.join(format!("{}.meta.json", resource_hash));
+                let _ = fs::write(&meta_path, updated_meta_json).await;
+            }
+            return Ok(Some((data, mime_type)));
         }
 
-        // 读取元数据检查是否过期
-        let meta_json = fs::read_to_string(&meta_path)
-            .await
-            .map_err(|e| format!("读取元数据失败: {}", e))?;
-        let meta: ResourceCacheMeta =
-            serde_json::from_str(&meta_json).map_err(|e| format!("解析元数据失败: {}", e))?;
+        let legacy_cache_dir = {
+            let mut dir = epub_cache_root_legacy();
+            dir.push("resources");
+            dir.push(&book_hash);
+            dir
+        };
 
-        if self.is_expired(meta.last_access_time) {
-            // 过期，删除缓存文件
-            let _ = fs::remove_file(&data_path).await;
-            let _ = fs::remove_file(&meta_path).await;
+        let legacy_loaded = match self
+            .read_resource_entry_from_dir(&legacy_cache_dir, &resource_hash)
+            .await
+        {
+            Ok(v) => v,
+            Err(_) => None,
+        };
+
+        let Some((meta, data)) = legacy_loaded else {
             return Ok(None);
-        }
+        };
 
-        // 读取资源数据
-        let data = fs::read(&data_path)
-            .await
-            .map_err(|e| format!("读取资源缓存失败: {}", e))?;
-
-        // 先保存 mime_type，因为后面会 move meta
         let mime_type = meta.mime_type.clone();
-
-        // 更新访问时间
         let updated_meta = ResourceCacheMeta {
             last_access_time: Self::now_millis(),
             ..meta
         };
         let updated_meta_json =
             serde_json::to_string(&updated_meta).map_err(|e| format!("序列化元数据失败: {}", e))?;
-        let _ = fs::write(&meta_path, updated_meta_json).await;
+
+        if legacy_cache_dir == cache_dir {
+            let meta_path = cache_dir.join(format!("{}.meta.json", resource_hash));
+            let _ = fs::write(&meta_path, updated_meta_json).await;
+            return Ok(Some((data, mime_type)));
+        }
+
+        let _ = fs::create_dir_all(&cache_dir).await;
+
+        let primary_data_path = cache_dir.join(format!("{}.data", resource_hash));
+        let primary_meta_path = cache_dir.join(format!("{}.meta.json", resource_hash));
+        let data_write_res = fs::write(&primary_data_path, &data).await;
+        let meta_write_res = fs::write(&primary_meta_path, updated_meta_json).await;
+
+        let legacy_data_path = legacy_cache_dir.join(format!("{}.data", resource_hash));
+        let legacy_meta_path = legacy_cache_dir.join(format!("{}.meta.json", resource_hash));
+        if data_write_res.is_ok() && meta_write_res.is_ok() {
+            let _ = fs::remove_file(&legacy_data_path).await;
+            let _ = fs::remove_file(&legacy_meta_path).await;
+        }
 
         Ok(Some((data, mime_type)))
     }
@@ -382,6 +514,36 @@ impl EpubCacheManager {
 
         // 清理元数据缓存
         let _ = self.delete_metadata(book_id).await;
+
+        let legacy_section_dir = {
+            let mut dir = epub_cache_root_legacy();
+            dir.push("sections");
+            dir.push(&book_hash);
+            dir
+        };
+        if legacy_section_dir.exists() {
+            let _ = fs::remove_dir_all(&legacy_section_dir).await;
+        }
+
+        let legacy_resource_dir = {
+            let mut dir = epub_cache_root_legacy();
+            dir.push("resources");
+            dir.push(&book_hash);
+            dir
+        };
+        if legacy_resource_dir.exists() {
+            let _ = fs::remove_dir_all(&legacy_resource_dir).await;
+        }
+
+        let legacy_meta_path = {
+            let mut dir = epub_cache_root_legacy();
+            dir.push("metadata");
+            dir.push(format!("{}.json", book_hash));
+            dir
+        };
+        if legacy_meta_path.exists() {
+            let _ = fs::remove_file(&legacy_meta_path).await;
+        }
 
         Ok(())
     }
@@ -570,30 +732,67 @@ impl EpubCacheManager {
         let cache_dir = epub_metadata_cache_dir();
         let meta_path = cache_dir.join(format!("{}.json", book_hash));
 
-        if !meta_path.exists() {
-            return Ok(None);
+        if meta_path.exists() {
+            let meta_json = fs::read_to_string(&meta_path)
+                .await
+                .map_err(|e| format!("读取元数据缓存失败: {}", e))?;
+            let entry: MetadataCacheEntry = serde_json::from_str(&meta_json)
+                .map_err(|e| format!("解析元数据缓存失败: {}", e))?;
+
+            if self.is_expired(entry.last_access_time) {
+                let _ = fs::remove_file(&meta_path).await;
+                return Ok(None);
+            }
+
+            let updated_entry = MetadataCacheEntry {
+                last_access_time: Self::now_millis(),
+                ..entry.clone()
+            };
+            let updated_json = serde_json::to_string(&updated_entry)
+                .map_err(|e| format!("序列化元数据失败: {}", e))?;
+            let _ = fs::write(&meta_path, updated_json).await;
+
+            return Ok(Some(entry));
         }
 
-        let meta_json = fs::read_to_string(&meta_path)
-            .await
-            .map_err(|e| format!("读取元数据缓存失败: {}", e))?;
-        let entry: MetadataCacheEntry = serde_json::from_str(&meta_json)
-            .map_err(|e| format!("解析元数据缓存失败: {}", e))?;
+        let legacy_meta_path = {
+            let mut dir = epub_cache_root_legacy();
+            dir.push("metadata");
+            dir.push(format!("{}.json", book_hash));
+            dir
+        };
 
-        // 检查是否过期
+        let legacy_meta_json = match fs::read_to_string(&legacy_meta_path).await {
+            Ok(v) => v,
+            Err(_) => return Ok(None),
+        };
+        let entry: MetadataCacheEntry = match serde_json::from_str(&legacy_meta_json) {
+            Ok(v) => v,
+            Err(_) => return Ok(None),
+        };
+
         if self.is_expired(entry.last_access_time) {
-            let _ = fs::remove_file(&meta_path).await;
+            let _ = fs::remove_file(&legacy_meta_path).await;
             return Ok(None);
         }
 
-        // 更新访问时间
         let updated_entry = MetadataCacheEntry {
             last_access_time: Self::now_millis(),
             ..entry.clone()
         };
         let updated_json = serde_json::to_string(&updated_entry)
             .map_err(|e| format!("序列化元数据失败: {}", e))?;
-        let _ = fs::write(&meta_path, updated_json).await;
+
+        if legacy_meta_path == meta_path {
+            let _ = fs::write(&meta_path, updated_json).await;
+            return Ok(Some(entry));
+        }
+
+        let _ = fs::create_dir_all(&cache_dir).await;
+        let write_res = fs::write(&meta_path, updated_json).await;
+        if write_res.is_ok() {
+            let _ = fs::remove_file(&legacy_meta_path).await;
+        }
 
         Ok(Some(entry))
     }

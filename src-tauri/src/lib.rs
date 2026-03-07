@@ -149,6 +149,23 @@ pub fn run() {
                 // 初始化PDF管理器
                 app.manage(init_pdf_manager());
 
+                #[cfg(target_os = "android")]
+                {
+                    if let Ok(app_cache_dir) = app.path().app_cache_dir() {
+                        let cache_base = app_cache_dir.join("goread_cache");
+
+                        let epub_cache_root = cache_base.join("epub");
+                        let mobi_cache_root = cache_base.join("mobi");
+
+                        let _ = std::fs::create_dir_all(&epub_cache_root);
+                        let _ = std::fs::create_dir_all(&mobi_cache_root);
+                        unsafe {
+                            std::env::set_var("GOREAD_EPUB_CACHE_ROOT", epub_cache_root);
+                            std::env::set_var("GOREAD_MOBI_CACHE_ROOT", mobi_cache_root);
+                        }
+                    }
+                }
+
                 // 初始化EPUB缓存管理器
                 app.manage(epub_commands::EpubCacheState::new(Mutex::new(
                     formats::epub::EpubCacheManager::new(),
