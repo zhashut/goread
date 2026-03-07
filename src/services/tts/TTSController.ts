@@ -570,21 +570,7 @@ export class TTSController {
         return this.#textIterator.next();
       }
       return null;
-    }, () => this.#prepareAdvance());
-  }
-
-  /**
-   * 后台预备翻页，不阻塞当前朗读
-   * 提前调用 advanceForTTS 让渲染器翻页，减少章节/页面切换停顿
-   */
-  #prepareAdvance(): void {
-    if (this.#prefetchAdvance.hasAdvancePending) return;
-
-    this.#prefetchAdvance.setAdvancePending((async () => {
-      return await this.#rendererAdapter.advanceForTTS((err) => {
-        logError('[TTS] prepareAdvance error', err);
-      });
-    })());
+    }, () => {});
   }
 
   /** 清理预取和预翻页的所有状态 */

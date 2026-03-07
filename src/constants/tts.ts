@@ -1,6 +1,6 @@
 // TTS 语速控制参数
 export const TTS_RATE_MIN = 0.5;
-export const TTS_RATE_MAX = 3.0;
+export const TTS_RATE_MAX = 5.0;
 export const TTS_RATE_DEFAULT = 1.0;
 export const TTS_RATE_STEP = 0.1;
 
