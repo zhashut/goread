@@ -30,6 +30,7 @@ interface UseTTSOptions {
   rendererRef: React.MutableRefObject<IBookRenderer | null>;
   /** 是否支持听书 */
   listenSupported: boolean;
+  onReadingActivity?: () => void;
 }
 
 interface UseTTSReturn {
@@ -103,7 +104,7 @@ async function createTTSClient(): Promise<{ client: ITTSClient | null; failReaso
  * TTS 状态管理 Hook
  * 连接 UI 层和 TTSController，管理 TTS 生命周期
  */
-export const useTTS = ({ rendererRef, listenSupported }: UseTTSOptions): UseTTSReturn => {
+export const useTTS = ({ rendererRef, listenSupported, onReadingActivity }: UseTTSOptions): UseTTSReturn => {
   const [state, setState] = useState<TTSState>('stopped');
   const controllerRef = useRef<TTSController | null>(null);
   const lockRef = useRef<ToggleLock>('idle');
@@ -183,7 +184,7 @@ export const useTTS = ({ rendererRef, listenSupported }: UseTTSOptions): UseTTSR
       }
 
       log(`[TTS] 客户端创建成功: ${client.name}，开始朗读`, 'info');
-      const controller = new TTSController(client, rendererRef.current!, setState);
+      const controller = new TTSController(client, rendererRef.current!, setState, onReadingActivity);
       controllerRef.current = controller;
 
       // 从持久化设置读取语速并应用到 TTS 引擎
@@ -225,7 +226,7 @@ export const useTTS = ({ rendererRef, listenSupported }: UseTTSOptions): UseTTSR
       pendingStopRef.current = false;
       lockRef.current = 'idle';
     }
-  }, [listenSupported, rendererRef]);
+  }, [listenSupported, rendererRef, onReadingActivity]);
 
   const notifyDocumentUpdated = useCallback(() => {
     controllerRef.current?.notifyDocumentUpdated();

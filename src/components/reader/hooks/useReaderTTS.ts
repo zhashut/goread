@@ -9,6 +9,7 @@ interface UseReaderTTSOptions {
     isEpubDom: boolean;
     isMobi: boolean;
     isTxt: boolean;
+    onReadingActivity?: () => void;
 }
 
 interface UseReaderTTSReturn {
@@ -34,12 +35,13 @@ export const useReaderTTS = ({
     isEpubDom,
     isMobi,
     isTxt,
+    onReadingActivity,
 }: UseReaderTTSOptions): UseReaderTTSReturn => {
     // 听书功能仅支持 epub / mobi / txt
     const listenSupported = isEpubDom || isMobi || isTxt;
 
     // 底层 TTS hook
-    const tts = useTTS({ rendererRef, listenSupported });
+    const tts = useTTS({ rendererRef, listenSupported, onReadingActivity });
 
     // 听书状态提示
     const [listenToastMsg, setListenToastMsg] = useState("");

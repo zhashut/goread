@@ -31,6 +31,7 @@ export class TTSController {
   #rendererAdapter: TTSRendererAdapter;
   #state: TTSState = 'stopped';
   #onStateChange?: TTSStateChangeCallback;
+  #onReadingActivity?: () => void;
 
   #domIterator: DomSSMLIterator | null = null;
   #textIterator: TextSSMLIterator | null = null;
@@ -46,6 +47,8 @@ export class TTSController {
   #notifySeq = 0;
   /** 是否已销毁，防止 shutdown 后残余异步任务继续执行 */
   #disposed = false;
+  #activityTimerId: number | null = null;
+  #lastActivityNotifyTs = 0;
 
   /** 当前朗读任务的 AbortController */
   #abortController: AbortController | null = null;
@@ -56,15 +59,20 @@ export class TTSController {
 
   #prefetchAdvance = new PrefetchAdvanceManager();
 
+  static readonly #ACTIVITY_TIMER_MS = 30 * 1000;
+  static readonly #ACTIVITY_THROTTLE_MS = 3 * 1000;
+
   constructor(
     client: ITTSClient,
     renderer: IBookRenderer,
     onStateChange?: TTSStateChangeCallback,
+    onReadingActivity?: () => void,
   ) {
     this.#client = client;
     this.#renderer = renderer;
     this.#rendererAdapter = new TTSRendererAdapter(renderer);
     this.#onStateChange = onStateChange;
+    this.#onReadingActivity = onReadingActivity;
   }
 
   get state(): TTSState {
@@ -99,8 +107,48 @@ export class TTSController {
   // --- 状态控制 ---
 
   #setState(state: TTSState): void {
+    const prevState = this.#state;
     this.#state = state;
+    if (state === 'playing') {
+      this.#startActivityTimer(prevState !== 'paused');
+    } else {
+      this.#stopActivityTimer();
+    }
     this.#onStateChange?.(state);
+  }
+
+  #emitReadingActivity(force = false): void {
+    if (this.#disposed) return;
+    if (!this.#onReadingActivity) return;
+    if (!force && this.#state !== 'playing') return;
+
+    const now = Date.now();
+    if (!force && now - this.#lastActivityNotifyTs < TTSController.#ACTIVITY_THROTTLE_MS) {
+      return;
+    }
+    this.#lastActivityNotifyTs = now;
+
+    try {
+      this.#onReadingActivity();
+    } catch (e) {
+      logError('[TTS] onReadingActivity error', e);
+    }
+  }
+
+  #startActivityTimer(emitImmediately: boolean): void {
+    if (this.#activityTimerId != null) return;
+    if (emitImmediately) {
+      this.#emitReadingActivity(true);
+    }
+    this.#activityTimerId = window.setInterval(() => {
+      this.#emitReadingActivity(false);
+    }, TTSController.#ACTIVITY_TIMER_MS);
+  }
+
+  #stopActivityTimer(): void {
+    if (this.#activityTimerId == null) return;
+    window.clearInterval(this.#activityTimerId);
+    this.#activityTimerId = null;
   }
 
   /** 获取文档数据的最大重试次数 */
@@ -156,8 +204,16 @@ export class TTSController {
    */
   async resume(): Promise<void> {
     if (this.#state !== 'paused') return;
-    this.#setState('playing');
-    await this.#client.resume();
+    if (this.#disposed) return;
+    try {
+      await this.#client.resume();
+      if (this.#disposed) return;
+      if (this.#state !== 'paused') return;
+      this.#setState('playing');
+      this.#emitReadingActivity(true);
+    } catch (e) {
+      logError('[TTS] resume() error', e);
+    }
   }
 
   /**
@@ -165,8 +221,16 @@ export class TTSController {
    */
   async pause(): Promise<void> {
     if (this.#state !== 'playing') return;
+    if (this.#disposed) return;
     this.#setState('paused');
-    await this.#client.pause();
+    try {
+      await this.#client.pause();
+    } catch (e) {
+      logError('[TTS] pause() error', e);
+      if (!this.#disposed && this.#abortController) {
+        this.#setState('playing');
+      }
+    }
   }
 
   /**
@@ -174,25 +238,28 @@ export class TTSController {
    */
   async stop(): Promise<void> {
     log(`[TTS] stop() 开始, disposed=${this.#disposed}`, 'info');
-    // 中断当前朗读
-    if (this.#abortController) {
-      this.#abortController.abort();
-      this.#abortController = null;
+    try {
+      this.#stopActivityTimer();
+      if (this.#abortController) {
+        this.#abortController.abort();
+        this.#abortController = null;
+      }
+      await this.#client.stop();
+    } catch (e) {
+      logError('[TTS] stop() error', e);
+    } finally {
+      this.#speakPromise = null;
+      this.#clearPrefetchState();
+      this.#currentRanges.clear();
+      this.#currentMarkAnchors.clear();
+      this.#lastMark = null;
+      this.#docCache = null;
+      this.#docInvalidated = false;
+      this.#highlightManager.clear();
+      this.#highlightRange = null;
+      this.#setState('stopped');
+      log('[TTS] stop() 完成', 'info');
     }
-    // 立即取消 TTS 引擎播放，不等待 speakPromise
-    await this.#client.stop();
-    this.#speakPromise = null;
-
-    this.#clearPrefetchState();
-    this.#currentRanges.clear();
-    this.#currentMarkAnchors.clear();
-    this.#lastMark = null;
-    this.#docCache = null;
-    this.#docInvalidated = false;
-    this.#highlightManager.clear();
-    this.#highlightRange = null;
-    log('[TTS] stop() 完成', 'info');
-    this.#setState('stopped');
   }
 
   /**
@@ -201,6 +268,7 @@ export class TTSController {
   async shutdown(): Promise<void> {
     log(`[TTS] shutdown() 开始, disposed=${this.#disposed}`, 'info');
     this.#disposed = true;
+    this.#stopActivityTimer();
     // 先中断，不等待
     if (this.#abortController) {
       this.#abortController.abort();
@@ -218,11 +286,15 @@ export class TTSController {
     this.#domIterator?.dispose();
     this.#domIterator = null;
     this.#textIterator = null;
-    // 停止 TTS 引擎和客户端
-    await this.#client.stop();
-    await this.#client.shutdown();
-    this.#setState('stopped');
-    log('[TTS] shutdown() 完成', 'info');
+    try {
+      await this.#client.stop();
+      await this.#client.shutdown();
+    } catch (e) {
+      logError('[TTS] shutdown() error', e);
+    } finally {
+      this.#setState('stopped');
+      log('[TTS] shutdown() 完成', 'info');
+    }
   }
 
   async notifyDocumentUpdated(): Promise<void> {
@@ -423,6 +495,7 @@ export class TTSController {
 
           lastCode = event.code;
           if (event.code === 'boundary' && event.mark) {
+            this.#emitReadingActivity(false);
             this.#setMarkFromCache(event.mark);
           }
         }

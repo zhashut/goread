@@ -141,7 +141,13 @@ export const Reader: React.FC = () => {
     listenToastMsg,
     clearListenToast,
     notifyTtsDocumentUpdated,
-  } = useReaderTTS({ rendererRef, isEpubDom, isMobi, isTxt });
+  } = useReaderTTS({
+    rendererRef,
+    isEpubDom,
+    isMobi,
+    isTxt,
+    onReadingActivity: !isExternal ? markReadingActive : undefined,
+  });
 
   // 3. UI 状态
   const [uiVisible, setUiVisible] = useState(false);
