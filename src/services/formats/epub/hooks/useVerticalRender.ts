@@ -161,6 +161,12 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
   const applyLayoutAndRestoreAnchor = async (options?: RenderOptions): Promise<void> => {
     const container = state.scrollContainer;
     if (!container || !state.verticalContinuousMode) {
+      if (options?.theme !== undefined) {
+        context.currentTheme = options.theme;
+      }
+      if (options?.pageGap !== undefined) {
+        context.currentPageGap = options.pageGap;
+      }
       if (typeof options?.hideDivider === 'boolean') {
         updateDividerVisibilityFn(options.hideDivider);
       }
@@ -182,6 +188,12 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
 
     state.isNavigating = true;
     try {
+      if (options?.theme !== undefined) {
+        context.currentTheme = options.theme;
+      }
+      if (options?.pageGap !== undefined) {
+        context.currentPageGap = options.pageGap;
+      }
       if (typeof options?.hideDivider === 'boolean') {
         updateDividerVisibilityFn(options.hideDivider);
       }
@@ -492,19 +504,25 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
             const index = parseInt(wrapper.dataset.sectionIndex || '-1', 10);
 
             if (index >= 0 && !state.renderedSections.has(index)) {
+              const renderOptions: RenderOptions = {
+                ...(options || {}),
+                theme: context.currentTheme,
+                pageGap: context.currentPageGap,
+              };
+
               // 渲染当前章节
-              renderSection(index, options).catch(() => { });
+              renderSection(index, renderOptions).catch(() => { });
 
               // 预加载相邻章节
               const prevIndex = index - 1;
               const nextIndex = index + 1;
 
               if (prevIndex >= 0 && !state.renderedSections.has(prevIndex)) {
-                renderSection(prevIndex, options).catch(() => { });
+                renderSection(prevIndex, renderOptions).catch(() => { });
               }
 
               if (nextIndex < sectionCount && !state.renderedSections.has(nextIndex)) {
-                renderSection(nextIndex, options).catch(() => { });
+                renderSection(nextIndex, renderOptions).catch(() => { });
               }
             }
           }
@@ -602,6 +620,7 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
    * 更新章节间距
    */
   const updatePageGap = (pageGap: number): void => {
+    context.currentPageGap = pageGap;
     const bandHeight = pageGap * 2 + 1;
     state.dividerElements.forEach((divider) => {
       divider.style.height = `${bandHeight}px`;

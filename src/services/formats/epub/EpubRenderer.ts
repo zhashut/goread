@@ -302,10 +302,11 @@ export class EpubRenderer implements IBookRenderer {
     const hideDividerFromOptions =
       typeof options?.hideDivider === 'boolean' ? options.hideDivider : undefined;
 
-    // 在更新状态前检测主题是否变化
-    const isThemeChange = options?.theme && options.theme !== this._currentTheme;
+    const prevContainer = this._currentContainer;
+    const prevReadingMode = this._readingMode;
+
     // 检测阅读模式是否变化
-    const isModeChange = readingMode && readingMode !== this._readingMode;
+    const isModeChange = readingMode && readingMode !== prevReadingMode;
 
     this._currentTheme = theme as ReaderTheme;
     if (hideDividerFromOptions !== undefined) {
@@ -320,11 +321,12 @@ export class EpubRenderer implements IBookRenderer {
         this._initHooks();
       }
 
-      // 已渲染且主题/模式未变化时仅更新样式，跳过完整重渲染
+      const isSameContainer = prevContainer === container;
+
+      // 已渲染且模式未变化时仅更新样式，跳过完整重渲染
       if (
-        this._currentContainer === container &&
+        isSameContainer &&
         this._verticalRenderHook?.state.verticalContinuousMode &&
-        !isThemeChange &&
         !isModeChange
       ) {
         if (options?.pageGap !== undefined) {
