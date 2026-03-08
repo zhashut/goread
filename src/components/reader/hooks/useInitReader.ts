@@ -84,6 +84,7 @@ export const useInitReader = ({
     const hasInitializedRef = useRef(false);
     const lastThemeRef = useRef<string | undefined>();
     const lastReadingModeRef = useRef<string | undefined>();
+    const lastFontSizeRef = useRef<number | undefined>();
 
     // Reset initialization flag when book or mode changes
     useEffect(() => {
@@ -103,27 +104,33 @@ export const useInitReader = ({
         const modeChanged = typeof prevMode !== "undefined" && prevMode !== currentMode;
         lastReadingModeRef.current = currentMode;
 
+        const currentFontSize = settings.fontSize;
+        const prevFontSize = lastFontSizeRef.current;
+        const fontSizeChanged =
+            typeof prevFontSize !== "undefined" && prevFontSize !== currentFontSize;
+        lastFontSizeRef.current = currentFontSize;
+
         const filePathForEpub = isExternal ? externalPath : book?.file_path;
         const isEpub = filePathForEpub && getBookFormat(filePathForEpub) === "epub";
 
-        // EPUB 跳过渲染条件：已渲染且主题和模式都未变化
-        // 主题或模式变化时必须重新调用 renderPage
-        if (isEpub && epubRenderedRef.current && !themeChanged && !modeChanged) {
+        // EPUB 跳过渲染条件：已渲染且主题、模式、字号都未变化
+        // 主题/模式/字号变化时必须重新调用 renderPage
+        if (isEpub && epubRenderedRef.current && !themeChanged && !modeChanged && !fontSizeChanged) {
             log(
-                `[Reader] EPUB 跳过重复渲染：主题未变=${!themeChanged}, 模式未变=${!modeChanged}`
+                `[Reader] EPUB 跳过重复渲染：主题未变=${!themeChanged}, 模式未变=${!modeChanged}, 字号未变=${!fontSizeChanged}`
             );
             return;
         }
 
         // 主题或模式变化时记录日志
-        if (isEpub && epubRenderedRef.current && (themeChanged || modeChanged)) {
+        if (isEpub && epubRenderedRef.current && (themeChanged || modeChanged || fontSizeChanged)) {
             log(
-                `[Reader] EPUB 需要重渲染：主题变化=${themeChanged}, 模式变化=${modeChanged}`
+                `[Reader] EPUB 需要重渲染：主题变化=${themeChanged}, 模式变化=${modeChanged}, 字号变化=${fontSizeChanged}`
             );
         }
 
         const renderer = rendererRef.current;
-        if (renderer instanceof TxtRenderer && (themeChanged || modeChanged)) {
+        if (renderer instanceof TxtRenderer && (themeChanged || modeChanged || fontSizeChanged)) {
             try {
                 const cacheStats = renderer.getCacheStats ? renderer.getCacheStats() : null;
                 const chapterCount = renderer.getChapterCount ? renderer.getChapterCount() : undefined;
@@ -133,6 +140,7 @@ export const useInitReader = ({
                     theme: currentTheme,
                     pageGap: settings.pageGap,
                     hideDivider: settings.hideDivider,
+                    fontSize: settings.fontSize,
                     chapterMode: renderer.isChapterMode ? renderer.isChapterMode() : undefined,
                     chapterIndex: currentChapterIndex,
                     chapterCount,
@@ -194,11 +202,18 @@ export const useInitReader = ({
                     return;
                 }
 
-                // 主题切换时，优先从渲染器获取精确进度（含章节内偏移）
-                if (themeChanged && renderer.getPreciseProgress) {
-                    const preciseProgress = renderer.getPreciseProgress();
-                    if (preciseProgress > 0) {
-                        pageToRender = preciseProgress;
+                // 主题/字号变化时，优先从渲染器获取精确进度（含章节内偏移）
+                if (themeChanged || fontSizeChanged) {
+                    if (renderer instanceof EpubRenderer) {
+                        const preciseProgress = renderer.getInstantPreciseProgress();
+                        if (preciseProgress > 0) {
+                            pageToRender = preciseProgress;
+                        }
+                    } else if (renderer.getPreciseProgress) {
+                        const preciseProgress = renderer.getPreciseProgress();
+                        if (preciseProgress > 0) {
+                            pageToRender = preciseProgress;
+                        }
                     }
                 }
 
@@ -357,6 +372,7 @@ export const useInitReader = ({
                         theme: currentTheme,
                         pageGap: settings.pageGap,
                         hideDivider: settings.hideDivider,
+                        fontSize: settings.fontSize,
                     });
                     log("[Reader] DOM 渲染完成");
                     if (!(renderer instanceof MobiRenderer)) {
@@ -472,5 +488,6 @@ export const useInitReader = ({
         isExternal,
         externalPath,
         settings.theme,
+        settings.fontSize,
     ]);
 };

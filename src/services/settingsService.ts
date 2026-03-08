@@ -18,6 +18,7 @@ export type ReaderSettings = {
   recentDisplayCount: number;
   scrollSpeed: number;
   pageGap: number;
+  fontSize?: number;
   hideDivider?: boolean;
   readingMode?: 'horizontal' | 'vertical';
   renderQuality?: string;

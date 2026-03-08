@@ -80,6 +80,7 @@ pub async fn init_database(db: DbState<'_>) -> Result<(), Error> {
             position_in_group INTEGER,
             precise_progress REAL,
             theme TEXT,
+            font_size INTEGER,
             created_at INTEGER DEFAULT (strftime('%s', 'now')),
             FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE SET NULL
         )",
@@ -154,6 +155,10 @@ pub async fn init_database(db: DbState<'_>) -> Result<(), Error> {
 
     // 目录排序配置字段迁移
     let _ = sqlx::query("ALTER TABLE books ADD COLUMN toc_sort INTEGER DEFAULT 0")
+        .execute(&*pool)
+        .await;
+
+    let _ = sqlx::query("ALTER TABLE books ADD COLUMN font_size INTEGER")
         .execute(&*pool)
         .await;
 
@@ -432,6 +437,29 @@ pub async fn update_book_reading_mode(
 
     sqlx::query("UPDATE books SET reading_mode = ? WHERE id = ?")
         .bind(reading_mode.as_deref())
+        .bind(id)
+        .execute(&*pool)
+        .await?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn update_book_font_size(
+    id: i64,
+    font_size: Option<i64>,
+    db: DbState<'_>,
+) -> Result<(), Error> {
+    let pool = db.lock().await;
+
+    if let Some(size) = font_size {
+        if !(12..=30).contains(&size) {
+            return Err(Error::Message("Invalid font size".to_string()));
+        }
+    }
+
+    sqlx::query("UPDATE books SET font_size = ? WHERE id = ?")
+        .bind(font_size)
         .bind(id)
         .execute(&*pool)
         .await?;

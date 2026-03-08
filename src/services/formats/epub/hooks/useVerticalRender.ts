@@ -17,6 +17,7 @@ import { epubCacheService } from '../epubCacheService';
 import { createDividerEl, toggleDividerVisibility, updateDividerStyle } from '../../../../components/reader/PageDivider';
 import { getTocHrefForSection } from './tocMapping';
 import { extractBodyContent } from '../../../../utils/htmlUtils';
+import { stabilizeScrollTop } from './scrollStabilizer';
 
 /** 纵向渲染上下文 */
 export interface VerticalRenderContext {
@@ -68,6 +69,8 @@ export interface VerticalRenderHook {
   renderSection: (index: number, options?: RenderOptions) => Promise<void>;
   /** 计算当前章节内的滚动偏移比例 */
   calculateScrollOffset: () => number;
+  getInstantPreciseProgress: () => number;
+  applyLayoutAndRestoreAnchor: (options?: RenderOptions) => Promise<void>;
   /** 更新滚动进度和目录高亮 */
   updateScrollProgress: () => void;
   /** 确保指定章节及邻近章节已渲染 */
@@ -76,6 +79,8 @@ export interface VerticalRenderHook {
   goToPage: (page: number) => Promise<void>;
   /** 更新章节间距 */
   updatePageGap: (pageGap: number) => void;
+  /** 更新主题样式（包含字号/行高/字体等） */
+  updateThemeStyles: (options?: RenderOptions) => void;
   /** 更新分隔线可见性 */
   updateDividerVisibility: (hidden: boolean) => void;
   /** 清理资源 */
@@ -144,6 +149,69 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
     if (scrollable <= 0) return 0;
     const ratio = offsetInSection / scrollable;
     return Math.max(0, Math.min(MAX_RATIO, ratio));
+  };
+
+  const getInstantPreciseProgress = (): number => {
+    const page = state.currentPage || 1;
+    const ratio = calculateScrollOffset();
+    const clampedRatio = isFinite(ratio) ? Math.max(0, Math.min(MAX_RATIO, ratio)) : 0;
+    return page + clampedRatio;
+  };
+
+  const applyLayoutAndRestoreAnchor = async (options?: RenderOptions): Promise<void> => {
+    const container = state.scrollContainer;
+    if (!container || !state.verticalContinuousMode) {
+      if (typeof options?.hideDivider === 'boolean') {
+        updateDividerVisibilityFn(options.hideDivider);
+      }
+      if (
+        options?.theme !== undefined ||
+        options?.fontSize !== undefined ||
+        options?.lineHeight !== undefined ||
+        options?.fontFamily !== undefined
+      ) {
+        updateThemeStyles(options);
+      }
+      return;
+    }
+
+    const pageToRestore = state.currentPage;
+    const ratioToRestore = calculateScrollOffset();
+    const clampedRatio = isFinite(ratioToRestore) ? Math.max(0, Math.min(MAX_RATIO, ratioToRestore)) : 0;
+    const wrapperToRestore = state.sectionContainers.get(pageToRestore - 1) || null;
+
+    state.isNavigating = true;
+    try {
+      if (typeof options?.hideDivider === 'boolean') {
+        updateDividerVisibilityFn(options.hideDivider);
+      }
+      if (
+        options?.theme !== undefined ||
+        options?.fontSize !== undefined ||
+        options?.lineHeight !== undefined ||
+        options?.fontFamily !== undefined
+      ) {
+        updateThemeStyles(options);
+      }
+
+      if (wrapperToRestore) {
+        await stabilizeScrollTop({
+          container,
+          getTargetScrollTop: () => {
+            const wrapperRect = wrapperToRestore.getBoundingClientRect();
+            const containerRect = container.getBoundingClientRect();
+            const wrapperTop = wrapperRect.top - containerRect.top + container.scrollTop;
+            const scrollable = Math.max(0, wrapperToRestore.scrollHeight - container.clientHeight);
+            return wrapperTop + scrollable * clampedRatio;
+          },
+          observeElements: [wrapperToRestore],
+          imageRoot: wrapperToRestore.shadowRoot || wrapperToRestore,
+        });
+      }
+    } finally {
+      state.isNavigating = false;
+      updateScrollProgress();
+    }
   };
 
   /**
@@ -314,6 +382,7 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
 
           // 注入主题样式
           const style = document.createElement('style');
+          style.setAttribute('data-epub-theme-style', '');
           style.textContent = themeHook.getThemeStyles(options);
           shadow.appendChild(style);
 
@@ -829,16 +898,31 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
     }
   };
 
+  const updateThemeStyles = (options?: RenderOptions) => {
+    const next = themeHook.getThemeStyles(options);
+    for (const wrapper of state.sectionContainers.values()) {
+      const shadow = wrapper.shadowRoot;
+      if (!shadow) continue;
+      const styleEl =
+        shadow.querySelector('style[data-epub-theme-style]') || shadow.querySelector('style');
+      if (!styleEl) continue;
+      styleEl.textContent = next;
+    }
+  };
+
   return {
     state,
     renderVerticalContinuous,
     setupSectionObserver,
     renderSection,
     calculateScrollOffset,
+    getInstantPreciseProgress,
+    applyLayoutAndRestoreAnchor,
     updateScrollProgress,
     ensureSectionsRendered,
     goToPage,
     updatePageGap,
+    updateThemeStyles,
     cleanup,
     setNavigationHook,
     preloadSectionsOffscreen,

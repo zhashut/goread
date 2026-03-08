@@ -17,6 +17,7 @@ pub struct Book {
     pub finished_at: Option<i64>,  // 完成时间戳
     pub recent_order: Option<i64>, // 最近阅读排序值，值越大越靠前
     pub theme: Option<String>,
+    pub font_size: Option<i64>,
     pub reading_mode: Option<String>, // 阅读模式：horizontal=横向分页，vertical=纵向滚动
     pub precise_progress: Option<f64>,
     pub hide_divider: Option<bool>,

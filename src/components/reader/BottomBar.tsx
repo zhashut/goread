@@ -1,10 +1,11 @@
 import React from "react";
 import { useTranslation } from 'react-i18next';
-import { BOTTOM_DRAWER_RADIUS, READER_THEME_ICON_SIZE, READER_THEME_BUTTON_SIZE, READER_LISTEN_BUTTON_SIZE, READER_LISTEN_ICON_SIZE } from "../../constants/ui";
+import { BOTTOM_DRAWER_RADIUS, READER_FLOAT_BUTTON_EDGE_OFFSET, READER_FONT_CONTROL_TOP, READER_LISTEN_BUTTON_SIZE, READER_LISTEN_ICON_SIZE, READER_THEME_BUTTON_SIZE, READER_THEME_ICON_SIZE } from "../../constants/ui";
 import type { ReaderTheme } from "../../services/formats/types";
 import { ThemeSunIcon } from "../covers/ThemeSunIcon";
 import { ThemeMoonIcon } from "../covers/ThemeMoonIcon";
 import { ListenIcon } from "../covers/ListenIcon";
+import { FontSizeControl } from "./FontSizeControl";
 
 interface BottomBarProps {
   visible: boolean;
@@ -26,6 +27,11 @@ interface BottomBarProps {
   isListening?: boolean;
   /** 切换听书状态的回调 */
   onToggleListen?: () => void;
+  fontSizeSupported?: boolean;
+  fontSize?: number;
+  onIncreaseFontSize?: () => void;
+  onDecreaseFontSize?: () => void;
+  onSetFontSizeByRatio?: (ratio: number) => void;
   
   onSeekStart: () => void;
   onSeekChange: (val: number) => void;
@@ -56,6 +62,11 @@ export const BottomBar: React.FC<BottomBarProps> = ({
   listenSupported,
   isListening,
   onToggleListen,
+  fontSizeSupported,
+  fontSize,
+  onIncreaseFontSize,
+  onDecreaseFontSize,
+  onSetFontSizeByRatio,
   onSeekStart,
   onSeekChange,
   onSeekEnd,
@@ -112,7 +123,7 @@ export const BottomBar: React.FC<BottomBarProps> = ({
           }}
           style={{
             position: "absolute",
-            right: 25,
+            right: READER_FLOAT_BUTTON_EDGE_OFFSET,
             top: -138,
             width: READER_LISTEN_BUTTON_SIZE,
             height: READER_LISTEN_BUTTON_SIZE,
@@ -140,8 +151,8 @@ export const BottomBar: React.FC<BottomBarProps> = ({
           }}
           style={{
             position: "absolute",
-            right: 25,
-            top: -68,
+            right: READER_FLOAT_BUTTON_EDGE_OFFSET,
+            top: READER_FONT_CONTROL_TOP,
             width: READER_THEME_BUTTON_SIZE,
             height: READER_THEME_BUTTON_SIZE,
             borderRadius: `${READER_THEME_BUTTON_SIZE / 2}px`,
@@ -163,6 +174,20 @@ export const BottomBar: React.FC<BottomBarProps> = ({
           )}
         </button>
       )}
+
+      {fontSizeSupported &&
+        typeof fontSize === "number" &&
+        onIncreaseFontSize &&
+        onDecreaseFontSize &&
+        onSetFontSizeByRatio && (
+          <FontSizeControl
+            visible
+            fontSize={fontSize}
+            onIncrease={onIncreaseFontSize}
+            onDecrease={onDecreaseFontSize}
+            onSetByRatio={onSetFontSizeByRatio}
+          />
+        )}
       {/* 上方进度滑条 + 两端上一章/下一章文案 */}
       <div
         style={{

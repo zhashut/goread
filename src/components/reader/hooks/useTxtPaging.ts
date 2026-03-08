@@ -737,7 +737,7 @@ export const useTxtPaging = ({
     };
 
     rerender();
-  }, [options?.theme, options?.pageGap, readingMode, book?.id, isExternal, onAfterRerender]);
+  }, [options?.theme, options?.pageGap, options?.fontSize, readingMode, book?.id, isExternal, onAfterRerender]);
 
   // 清理：书籍切换时重置初始化状态
   useEffect(() => {

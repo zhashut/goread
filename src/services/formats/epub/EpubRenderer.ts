@@ -279,6 +279,16 @@ export class EpubRenderer implements IBookRenderer {
     return 1;
   }
 
+  getInstantPreciseProgress(): number {
+    if (this._readingMode === 'vertical' && this._verticalRenderHook) {
+      return this._verticalRenderHook.getInstantPreciseProgress();
+    }
+    if (this._readingMode === 'horizontal' && this._horizontalRenderHook) {
+      return this._horizontalRenderHook.getInstantPreciseProgress();
+    }
+    return this.getPreciseProgress();
+  }
+
   /**
    * 渲染 EPUB 到容器
    */
@@ -320,9 +330,11 @@ export class EpubRenderer implements IBookRenderer {
         if (options?.pageGap !== undefined) {
           this.updatePageGap(options.pageGap);
         }
-        if (hideDividerFromOptions !== undefined) {
-          this._verticalRenderHook?.updateDividerVisibility(this._currentHideDivider);
-        }
+        await this._verticalRenderHook.applyLayoutAndRestoreAnchor({
+          ...options,
+          theme,
+          hideDivider: this._currentHideDivider,
+        });
         return;
       }
 
@@ -341,7 +353,11 @@ export class EpubRenderer implements IBookRenderer {
       }
     }
 
-
+    const applied = await this._horizontalRenderHook!.applyThemeUpdateAndRestoreAnchor({
+      ...options,
+      theme,
+    });
+    if (applied) return;
 
     return this._horizontalRenderHook!.renderHorizontal(page, container, {
       ...options,

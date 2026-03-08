@@ -53,6 +53,7 @@ import {
   useTocSort,
   useContentPinchZoom,
   useReaderTTS,
+  useBookFontSize,
 } from "./reader/hooks";
 
 import { UndoJumpIcon } from "./covers/UndoJumpIcon";
@@ -123,6 +124,14 @@ export const Reader: React.FC = () => {
     useBookFormatHelper(book, isExternal, externalPath || undefined);
 
   const isPdf = format === "pdf";
+  const fontSizeSupported = isEpubDom || isMobi || isTxt;
+
+  const fontSizeData = useBookFontSize({
+    book,
+    isExternal,
+    supported: fontSizeSupported,
+    setBook,
+  });
 
   const { markReadingActive } = useReadingSession(book, isExternal);
 
@@ -163,6 +172,11 @@ export const Reader: React.FC = () => {
   const bookmarkData = useBookmarks(book, isExternal);
   const { hideDivider, setHideDivider } = useBookPageDivider(book);
   const tocSort = useTocSort(tocData.toc, book);
+  const renderOptions = {
+    ...settingsWithTheme,
+    hideDivider,
+    ...(fontSizeSupported ? { fontSize: fontSizeData.fontSize } : {}),
+  };
 
   // 6. 核心逻辑 Hooks
   // 页面渲染器
@@ -175,7 +189,7 @@ export const Reader: React.FC = () => {
     isExternal,
     externalPath,
     book,
-    settings: { ...settingsWithTheme, hideDivider },
+    settings: renderOptions,
     readingMode,
     totalPages,
   });
@@ -206,7 +220,7 @@ export const Reader: React.FC = () => {
     readerState,
     rendererRef,
     domContainerRef: domRenderer.domContainerRef,
-    options: { ...settingsWithTheme, hideDivider },
+    options: renderOptions,
     readingMode,
     setToc: tocData.setToc,
     toc: tocData.toc,
@@ -249,7 +263,7 @@ export const Reader: React.FC = () => {
       markReadingActive,
       notifyTtsDocumentUpdated,
     },
-    data: { readingMode, settings: { ...settingsWithTheme, hideDivider }, toc: tocData.toc }
+    data: { readingMode, settings: renderOptions, toc: tocData.toc }
   });
 
   // 模式切换缓存清理
@@ -765,6 +779,14 @@ export const Reader: React.FC = () => {
           const nextTheme: "light" | "dark" = effectiveTheme === "dark" ? "light" : "dark";
           handleChangeBookTheme(nextTheme);
         }}
+        listenSupported={listenSupported}
+        isListening={isListening}
+        onToggleListen={handleToggleListen}
+        fontSizeSupported={fontSizeSupported}
+        fontSize={fontSizeData.fontSize}
+        onIncreaseFontSize={fontSizeData.increase}
+        onDecreaseFontSize={fontSizeData.decrease}
+        onSetFontSizeByRatio={fontSizeData.setByRatio}
         onSeekStart={() => {
           setIsSeeking(true);
           verticalScroll.lastSeekTsRef.current = Date.now();
@@ -805,9 +827,6 @@ export const Reader: React.FC = () => {
           setUiVisible(false);
         }}
         onOpenMore={() => setMoreDrawerOpen(true)}
-        listenSupported={listenSupported}
-        isListening={isListening}
-        onToggleListen={handleToggleListen}
       />
 
       <MoreDrawer
@@ -853,6 +872,15 @@ export const Reader: React.FC = () => {
           message={listenToastMsg}
           duration={1000}
           onClose={clearListenToast}
+          style={{ top: '50%', bottom: 'auto', transform: 'translate(-50%, -50%)' }}
+        />
+      )}
+
+      {fontSizeData.toastMsg && (
+        <Toast
+          message={fontSizeData.toastMsg}
+          duration={1000}
+          onClose={fontSizeData.clearToast}
           style={{ top: '50%', bottom: 'auto', transform: 'translate(-50%, -50%)' }}
         />
       )}

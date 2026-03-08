@@ -13,6 +13,7 @@ import { EpubThemeHook } from './useEpubTheme';
 import { EpubResourceHook } from './useEpubResource';
 import { getTocHrefForSection, getSpineIndexForHref } from './tocMapping';
 import { extractBodyContent } from '../../../../utils/htmlUtils';
+import { stabilizeScrollTop } from './scrollStabilizer';
 
 /** 横向渲染上下文 */
 export interface HorizontalRenderContext {
@@ -42,6 +43,9 @@ export interface HorizontalRenderState {
 export interface HorizontalRenderHook {
   state: HorizontalRenderState;
   renderHorizontal: (page: number, container: HTMLElement, options?: RenderOptions) => Promise<void>;
+  updateThemeStyles: (options?: RenderOptions) => void;
+  getInstantPreciseProgress: () => number;
+  applyThemeUpdateAndRestoreAnchor: (options?: RenderOptions) => Promise<boolean>;
   goToPage: (page: number) => Promise<void>;
   goToHref: (href: string) => Promise<void>;
   nextPage: () => Promise<void>;
@@ -172,6 +176,7 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
 
     const theme = options?.theme || context.currentTheme || 'light';
     const themeStyle = document.createElement('style');
+    themeStyle.setAttribute('data-epub-theme-style', '');
     themeStyle.textContent = context.themeHook.getThemeStyles({
       ...options,
       theme,
@@ -276,6 +281,79 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
     }
   };
 
+  const updateThemeStyles = (options?: RenderOptions): void => {
+    const container = state.container;
+    if (!container) return;
+    const shadow = container.shadowRoot;
+    if (!shadow) return;
+    const theme = options?.theme || context.currentTheme || 'light';
+    const next = context.themeHook.getThemeStyles({ ...options, theme });
+    const styleEl =
+      shadow.querySelector('style[data-epub-theme-style]') || shadow.querySelector('style');
+    if (!styleEl) return;
+    styleEl.textContent = next;
+  };
+
+  const getInstantPreciseProgress = (): number => {
+    const MAX_RATIO = 0.999999;
+    const container = state.container;
+    const page = state.currentPage || 1;
+    if (!container) return page;
+    const denom = container.scrollHeight - container.clientHeight;
+    if (denom <= 0) return page;
+    const ratio = container.scrollTop / denom;
+    const clampedRatio = isFinite(ratio) ? Math.max(0, Math.min(MAX_RATIO, ratio)) : 0;
+    return page + clampedRatio;
+  };
+
+  const applyThemeUpdateAndRestoreAnchor = async (options?: RenderOptions): Promise<boolean> => {
+    const container = state.container;
+    if (!container) return false;
+    const shadow = container.shadowRoot;
+    if (!shadow) return false;
+
+    const initialProgress = options?.initialVirtualPage;
+    const targetPage =
+      typeof initialProgress === 'number' && isFinite(initialProgress) && initialProgress > 0
+        ? Math.floor(initialProgress)
+        : state.currentPage;
+    if (targetPage !== state.currentPage) return false;
+
+    const hasThemeChange =
+      options?.theme !== undefined ||
+      options?.fontSize !== undefined ||
+      options?.lineHeight !== undefined ||
+      options?.fontFamily !== undefined;
+    if (!hasThemeChange) return false;
+
+    const denom = container.scrollHeight - container.clientHeight;
+    const ratio = denom > 0 ? container.scrollTop / denom : 0;
+    const clampedRatio = isFinite(ratio) ? Math.max(0, Math.min(0.999999, ratio)) : 0;
+
+    const theme = options?.theme || context.currentTheme || 'light';
+    updateThemeStyles({ ...options, theme });
+
+    const contentEl =
+      shadow.querySelector('.epub-section-content') ||
+      shadow.querySelector('body') ||
+      shadow.firstElementChild ||
+      null;
+
+    await stabilizeScrollTop({
+      container,
+      getTargetScrollTop: () => {
+        const d = container.scrollHeight - container.clientHeight;
+        if (d <= 0) return 0;
+        return clampedRatio * d;
+      },
+      observeElements: contentEl ? [contentEl] : [container],
+      imageRoot: shadow,
+    });
+
+    state.currentPreciseProgress = state.currentPage + clampedRatio;
+    return true;
+  };
+
   const goToPage = async (page: number): Promise<void> => {
     if (!state.container) return;
     const intPage = Math.floor(page);
@@ -362,6 +440,9 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
   return {
     state,
     renderHorizontal,
+    updateThemeStyles,
+    getInstantPreciseProgress,
+    applyThemeUpdateAndRestoreAnchor,
     goToPage,
     goToHref,
     nextPage,
