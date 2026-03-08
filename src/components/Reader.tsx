@@ -147,6 +147,7 @@ export const Reader: React.FC = () => {
     listenSupported,
     isListening,
     handleToggleListen,
+    stopListenSilently,
     listenToastMsg,
     clearListenToast,
     notifyTtsDocumentUpdated,
@@ -750,6 +751,16 @@ export const Reader: React.FC = () => {
           setUiVisible(false);
         }}
         onChangeMode={async (mode) => {
+          if (mode === readingMode) {
+            setModeOverlayOpen(false);
+            setUiVisible(false);
+            return;
+          }
+
+          if (listenSupported) {
+            await stopListenSilently();
+          }
+
           // 更新书籍级阅读模式配置
           await setBookReadingMode(mode);
           // 同步更新本地 book 状态以触发 UI 更新

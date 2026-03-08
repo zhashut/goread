@@ -42,6 +42,7 @@ interface UseTTSReturn {
   isActive: boolean;
   /** 切换听书开关，返回结果和失败原因 */
   toggle: () => Promise<PlayResult | void>;
+  stop: () => Promise<void>;
   notifyDocumentUpdated: () => void;
 }
 
@@ -228,6 +229,12 @@ export const useTTS = ({ rendererRef, listenSupported, onReadingActivity }: UseT
     }
   }, [listenSupported, rendererRef, onReadingActivity]);
 
+  const stop = useCallback(async () => {
+    if (lockRef.current === 'starting' || controllerRef.current) {
+      await toggle();
+    }
+  }, [toggle]);
+
   const notifyDocumentUpdated = useCallback(() => {
     controllerRef.current?.notifyDocumentUpdated();
   }, []);
@@ -239,6 +246,7 @@ export const useTTS = ({ rendererRef, listenSupported, onReadingActivity }: UseT
     isPlaying,
     isActive,
     toggle,
+    stop,
     notifyDocumentUpdated,
-  }), [state, isPlaying, isActive, toggle, notifyDocumentUpdated]);
+  }), [state, isPlaying, isActive, toggle, stop, notifyDocumentUpdated]);
 };
