@@ -47,6 +47,66 @@ export function useMobiRender(context: MobiRenderContext): MobiRenderHook {
 
     const blobUrls = new Set<string>();
     let lastTocAnchor: string | null = null;
+    let mountedContainer: HTMLElement | null = null;
+    let mountedHost: HTMLElement | null = null;
+    let mountedBaseStyleEl: HTMLStyleElement | null = null;
+    let mountedBodyEl: HTMLElement | null = null;
+    let mountedFontSize: number | null = null;
+
+    const getNormalizedOptions = (options?: RenderOptions) => {
+        return {
+            theme: options?.theme || 'light',
+            pageGap: options?.pageGap ?? 4,
+            hideDivider: options?.hideDivider ?? false,
+            fontSize: options?.fontSize ?? 16,
+        };
+    };
+
+    const buildDefaultStyles = (options?: RenderOptions): string => {
+        const normalized = getNormalizedOptions(options);
+        const dividerHeight = normalized.pageGap * 2 + 1;
+        const baseFontSize = normalized.fontSize;
+        const paragraphMargin = baseFontSize * 0.8;
+        const dividerMargin = Math.max(normalized.pageGap * 2, paragraphMargin * 1.5);
+        const dividerColor = normalized.theme === 'dark' ? '#ffffff' : '#000000';
+        const themeStyles = themeHook.getThemeStyles(normalized.theme);
+
+        return `
+      :host {
+        display: block; width: 100%; height: 100%;
+        overflow-y: auto; overflow-x: hidden;
+        contain: content; position: relative;
+        scrollbar-width: none !important; -ms-overflow-style: none;
+        ${themeStyles}
+      }
+      :host::-webkit-scrollbar { width: 0 !important; height: 0 !important; }
+      .mobi-body { min-height: 100%; padding: 24px; box-sizing: border-box; max-width: 800px; margin: 0 auto; }
+      .mobi-section { margin-bottom: 0; padding-bottom: 0; }
+      .mobi-divider {
+        height: ${dividerHeight}px; background-color: ${dividerColor};
+        margin-top: ${dividerMargin}px; margin-bottom: ${dividerMargin}px;
+        width: calc(100% + 48px); margin-left: -24px; margin-right: -24px;
+        display: ${normalized.hideDivider ? 'none' : 'block'};
+      }
+      img { max-width: 100%; height: auto; }
+      a { color: #0969da; text-decoration: none; }
+      h1, h2, h3, h4, h5, h6 { margin-top: 24px; margin-bottom: 16px; font-weight: 600; line-height: 1.25; }
+      h1 { font-size: 2em; } h2 { font-size: 1.5em; } h3 { font-size: 1.25em; }
+      p { margin-top: 0; margin-bottom: 16px; line-height: 1.7; }
+      blockquote { margin: 0 0 16px; padding: 0 1em; border-left: 0.25em solid rgba(128,128,128,0.3); }
+      ul, ol { margin-top: 0; margin-bottom: 16px; padding-left: 2em; }
+      table { border-spacing: 0; border-collapse: collapse; margin: 16px 0; width: 100%; }
+      th, td { padding: 6px 13px; border: 1px solid rgba(128,128,128,0.3); }
+    `;
+    };
+
+    const applyDividerVisibility = (shadowRoot: ShadowRoot | null, hidden: boolean) => {
+        if (!shadowRoot) return;
+        const dividers = shadowRoot.querySelectorAll('.mobi-divider') as NodeListOf<HTMLElement>;
+        dividers.forEach(divider => {
+            divider.style.display = hidden ? 'none' : 'block';
+        });
+    };
 
     /**
      * 将 HTML 中的资源占位符替换为 Blob URL
@@ -405,6 +465,33 @@ export function useMobiRender(context: MobiRenderContext): MobiRenderHook {
     ): Promise<void> => {
         if (!bookId) throw new Error('文档未就绪');
 
+        const normalized = getNormalizedOptions(options);
+        const hostToReuse = mountedHost;
+        const styleToReuse = mountedBaseStyleEl;
+        const bodyToReuse = mountedBodyEl;
+
+        const canReuse =
+            mountedContainer === container &&
+            hostToReuse &&
+            hostToReuse.isConnected &&
+            container.contains(hostToReuse) &&
+            styleToReuse &&
+            styleToReuse.isConnected &&
+            bodyToReuse &&
+            bodyToReuse.isConnected &&
+            mountedFontSize === normalized.fontSize &&
+            state.scrollContainer === hostToReuse &&
+            state.shadowRoot;
+
+        if (canReuse) {
+            styleToReuse.textContent = buildDefaultStyles(options);
+            hostToReuse.style.fontSize = `${normalized.fontSize}px`;
+            container.style.overflow = 'hidden';
+            applyDividerVisibility(state.shadowRoot, normalized.hideDivider);
+            requestAnimationFrame(() => onPositionRestored?.());
+            return;
+        }
+
         container.innerHTML = '';
 
         // 创建 Shadow DOM 宿主
@@ -419,42 +506,7 @@ export function useMobiRender(context: MobiRenderContext): MobiRenderHook {
         state.shadowRoot = shadowRoot;
         state.scrollContainer = host;
 
-        // 样式构建
-        const dividerHeight = (options?.pageGap || 4) * 2 + 1;
-        const baseFontSize = options?.fontSize || 16;
-        const paragraphMargin = baseFontSize * 0.8;
-        const dividerMargin = Math.max((options?.pageGap || 4) * 2, paragraphMargin * 1.5);
-        const dividerColor = (options?.theme || 'light') === 'dark' ? '#ffffff' : '#000000';
-        const themeStyles = themeHook.getThemeStyles(options?.theme || 'light');
-
-        const defaultStyles = `
-      :host {
-        display: block; width: 100%; height: 100%;
-        overflow-y: auto; overflow-x: hidden;
-        contain: content; position: relative;
-        scrollbar-width: none !important; -ms-overflow-style: none;
-        ${themeStyles}
-      }
-      :host::-webkit-scrollbar { width: 0 !important; height: 0 !important; }
-      .mobi-body { min-height: 100%; padding: 24px; box-sizing: border-box; max-width: 800px; margin: 0 auto; }
-      .mobi-section { margin-bottom: 0; padding-bottom: 0; }
-      .mobi-divider {
-        height: ${dividerHeight}px; background-color: ${dividerColor};
-        margin-top: ${dividerMargin}px; margin-bottom: ${dividerMargin}px;
-        width: calc(100% + 48px); margin-left: -24px; margin-right: -24px;
-        display: ${options?.hideDivider ? 'none' : 'block'};
-      }
-      img { max-width: 100%; height: auto; }
-      a { color: #0969da; text-decoration: none; }
-      h1, h2, h3, h4, h5, h6 { margin-top: 24px; margin-bottom: 16px; font-weight: 600; line-height: 1.25; }
-      h1 { font-size: 2em; } h2 { font-size: 1.5em; } h3 { font-size: 1.25em; }
-      p { margin-top: 0; margin-bottom: 16px; line-height: 1.7; }
-      blockquote { margin: 0 0 16px; padding: 0 1em; border-left: 0.25em solid rgba(128,128,128,0.3); }
-      ul, ol { margin-top: 0; margin-bottom: 16px; padding-left: 2em; }
-      table { border-spacing: 0; border-collapse: collapse; margin: 16px 0; width: 100%; }
-      th, td { padding: 6px 13px; border: 1px solid rgba(128,128,128,0.3); }
-    `;
-
+        const defaultStyles = buildDefaultStyles(options);
         const styleEl = document.createElement('style');
         styleEl.textContent = defaultStyles;
         const bodyEl = document.createElement('div');
@@ -462,9 +514,13 @@ export function useMobiRender(context: MobiRenderContext): MobiRenderHook {
         shadowRoot.appendChild(styleEl);
         shadowRoot.appendChild(bodyEl);
 
-        if (options?.fontSize) {
-            host.style.fontSize = `${options.fontSize}px`;
-        }
+        host.style.fontSize = `${normalized.fontSize}px`;
+
+        mountedContainer = container;
+        mountedHost = host;
+        mountedBaseStyleEl = styleEl;
+        mountedBodyEl = bodyEl;
+        mountedFontSize = normalized.fontSize;
 
         _setupScrollListener(host, shadowRoot);
         container.style.overflow = 'hidden';
@@ -484,12 +540,7 @@ export function useMobiRender(context: MobiRenderContext): MobiRenderHook {
     };
 
     const updateDividerVisibility = (hidden: boolean) => {
-        const shadowRoot = state.shadowRoot;
-        if (!shadowRoot) return;
-        const dividers = shadowRoot.querySelectorAll('.mobi-divider') as NodeListOf<HTMLElement>;
-        dividers.forEach(divider => {
-            divider.style.display = hidden ? 'none' : 'block';
-        });
+        applyDividerVisibility(state.shadowRoot, hidden);
     };
 
     const reset = () => {
@@ -502,6 +553,11 @@ export function useMobiRender(context: MobiRenderContext): MobiRenderHook {
         state.scrollContainer = null;
         state.shadowRoot = null;
         lastTocAnchor = null;
+        mountedContainer = null;
+        mountedHost = null;
+        mountedBaseStyleEl = null;
+        mountedBodyEl = null;
+        mountedFontSize = null;
     };
 
     return { state, renderPage, reset, updateDividerVisibility };
