@@ -2,6 +2,10 @@ export class HighlightManager {
   #highlightStyleInjected = false;
   #highlightStyleEl: HTMLStyleElement | null = null;
   #highlightStyleRoot: ShadowRoot | Document | null = null;
+  #overlayRoot: HTMLDivElement | null = null;
+  #overlayHost: HTMLElement | null = null;
+  #overlayHostPrevPosition: string | null = null;
+  #overlayRects: HTMLDivElement[] = [];
 
   apply(range: Range): void {
     try {
@@ -9,6 +13,15 @@ export class HighlightManager {
         const hl = new (globalThis as any).Highlight(range);
         (CSS as any).highlights.set('tts-reading', hl);
         this.#injectHighlightStyle(range);
+        this.#clearOverlay();
+        return;
+      }
+    } catch {
+      // ignore
+    }
+
+    try {
+      if (this.#applyOverlay(range)) {
         return;
       }
     } catch {
@@ -36,6 +49,8 @@ export class HighlightManager {
     } catch {
       // ignore
     }
+
+    this.#clearOverlay();
 
     try {
       window.getSelection()?.removeAllRanges();
@@ -118,6 +133,112 @@ export class HighlightManager {
     } catch {
       // ignore
     }
+  }
+
+  #applyOverlay(range: Range): boolean {
+    const host = this.#getScrollContainer(range);
+    const hostEl = (host instanceof HTMLElement ? host : null) ?? range.startContainer.ownerDocument?.documentElement ?? null;
+    const doc = range.startContainer.ownerDocument;
+    if (!doc || !hostEl) return false;
+
+    this.#ensureOverlay(hostEl, doc);
+    if (!this.#overlayRoot) return false;
+
+    let rects: DOMRect[] = [];
+    try {
+      rects = Array.from(range.getClientRects());
+    } catch {
+      rects = [];
+    }
+
+    const hostRect = hostEl.getBoundingClientRect();
+    const scrollLeft = hostEl.scrollLeft || 0;
+    const scrollTop = hostEl.scrollTop || 0;
+
+    const filtered: DOMRect[] = [];
+    for (const r of rects) {
+      if (!r || r.width <= 0 || r.height <= 0) continue;
+      filtered.push(r);
+      if (filtered.length >= 64) break;
+    }
+
+    this.#overlayRoot.style.width = `${Math.max(hostEl.scrollWidth, hostEl.clientWidth)}px`;
+    this.#overlayRoot.style.height = `${Math.max(hostEl.scrollHeight, hostEl.clientHeight)}px`;
+
+    while (this.#overlayRects.length < filtered.length) {
+      const d = doc.createElement('div');
+      d.style.position = 'absolute';
+      d.style.backgroundColor = 'rgba(255, 200, 0, 0.35)';
+      d.style.borderRadius = '2px';
+      this.#overlayRoot.appendChild(d);
+      this.#overlayRects.push(d);
+    }
+    while (this.#overlayRects.length > filtered.length) {
+      const d = this.#overlayRects.pop();
+      try {
+        d?.parentNode?.removeChild(d);
+      } catch {
+        // ignore
+      }
+    }
+
+    for (let i = 0; i < filtered.length; i++) {
+      const r = filtered[i];
+      const d = this.#overlayRects[i];
+      const left = r.left - hostRect.left + scrollLeft;
+      const top = r.top - hostRect.top + scrollTop;
+      d.style.left = `${left}px`;
+      d.style.top = `${top}px`;
+      d.style.width = `${r.width}px`;
+      d.style.height = `${r.height}px`;
+    }
+
+    return filtered.length > 0;
+  }
+
+  #ensureOverlay(hostEl: HTMLElement, doc: Document): void {
+    if (this.#overlayRoot && this.#overlayHost === hostEl && this.#overlayRoot.isConnected) return;
+
+    this.#clearOverlay();
+
+    const hostPosition = window.getComputedStyle(hostEl).position;
+    if (hostPosition === 'static') {
+      this.#overlayHostPrevPosition = hostEl.style.position || '';
+      hostEl.style.position = 'relative';
+    }
+
+    const root = doc.createElement('div');
+    root.style.position = 'absolute';
+    root.style.left = '0';
+    root.style.top = '0';
+    root.style.pointerEvents = 'none';
+    root.style.zIndex = '2';
+    root.style.width = `${Math.max(hostEl.scrollWidth, hostEl.clientWidth)}px`;
+    root.style.height = `${Math.max(hostEl.scrollHeight, hostEl.clientHeight)}px`;
+
+    hostEl.appendChild(root);
+    this.#overlayRoot = root;
+    this.#overlayHost = hostEl;
+  }
+
+  #clearOverlay(): void {
+    this.#overlayRects = [];
+    try {
+      this.#overlayRoot?.parentNode?.removeChild(this.#overlayRoot);
+    } catch {
+      // ignore
+    }
+    this.#overlayRoot = null;
+
+    if (this.#overlayHost && this.#overlayHostPrevPosition != null) {
+      try {
+        this.#overlayHost.style.position = this.#overlayHostPrevPosition;
+      } catch {
+        // ignore
+      }
+    }
+    this.#overlayHost = null;
+    this.#overlayHostPrevPosition = null;
   }
 
   #getScrollContainer(range: Range): Element | null {
