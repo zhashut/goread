@@ -27,6 +27,7 @@ type NavigationProps = {
         readingMode: "horizontal" | "vertical";
         isExternal: boolean;
         markReadingActive: () => void;
+        onUserNavigate?: (pageNum: number) => void;
     };
 };
 
@@ -53,7 +54,7 @@ export const useNavigation = ({
         latestPreciseProgressRef,
     } = readerState;
     const { verticalCanvasRefs, rendererRef } = refs;
-    const { readingMode, isExternal, markReadingActive } = data;
+    const { readingMode, isExternal, markReadingActive, onUserNavigate } = data;
 
     const goToPage = useCallback(
         async (pageNum: number) => {
@@ -67,6 +68,7 @@ export const useNavigation = ({
             const isTxt = renderer && renderer instanceof TxtRenderer;
 
             markReadingActive();
+            onUserNavigate?.(pageNum);
 
             if (
                 isDomRender &&
@@ -167,6 +169,7 @@ export const useNavigation = ({
         [
             totalPages,
             markReadingActive,
+            onUserNavigate,
             setCurrentPage,
             isDomRender,
             rendererRef,

@@ -151,11 +151,13 @@ export const Reader: React.FC = () => {
     listenToastMsg,
     clearListenToast,
     notifyTtsDocumentUpdated,
+    markTtsViewOutOfSync,
   } = useReaderTTS({
     rendererRef,
     isEpubDom,
     isMobi,
     isTxt,
+    readingMode,
     onReadingActivity: !isExternal ? markReadingActive : undefined,
   });
 
@@ -313,7 +315,12 @@ export const Reader: React.FC = () => {
     pageRenderer,
     tocData: { toc: tocData.toc, activeNodeSignature: tocData.activeNodeSignature },
     refs: { verticalCanvasRefs, rendererRef },
-    data: { readingMode, isExternal, markReadingActive }
+    data: {
+      readingMode,
+      isExternal,
+      markReadingActive,
+      onUserNavigate: (pageNum) => markTtsViewOutOfSync(pageNum),
+    }
   });
 
   const undoJump = useUndoJump({

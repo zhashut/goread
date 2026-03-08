@@ -112,10 +112,23 @@ export function useEpubTTS(context: EpubTTSContext): EpubTTSHook {
 
   const getVisibleStartForTTS = (): { type: 'range'; range: Range } | null => {
     const mode = context.getReadingMode();
-    if (mode === 'horizontal') return null;
-
     const container = context.getContainer();
-    if (mode === 'vertical' && container) {
+    if (!container) return null;
+
+    if (mode === 'horizontal') {
+      const ttsDoc = getTTSDocument();
+      if (!ttsDoc) return null;
+
+      const content = ttsDoc.doc;
+      const range = findFirstVisibleTextRange(content as Element, container);
+      if (range) {
+        log('[TTS] getVisibleStartForTTS(epub-horizontal): 定位到可见文本位置', 'info');
+        return { type: 'range', range };
+      }
+      return null;
+    }
+
+    if (mode === 'vertical') {
       const ttsDoc = getTTSDocument();
       if (!ttsDoc) return null;
 

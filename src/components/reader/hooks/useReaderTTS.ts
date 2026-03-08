@@ -1,7 +1,9 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { IBookRenderer } from '../../../services/formats/types';
 import { useTTS } from '../../tts';
+import { EpubRenderer } from '../../../services/formats/epub/EpubRenderer';
+import { logError } from '../../../services';
 
 interface UseReaderTTSOptions {
     rendererRef: React.MutableRefObject<IBookRenderer | null>;
@@ -9,6 +11,7 @@ interface UseReaderTTSOptions {
     isEpubDom: boolean;
     isMobi: boolean;
     isTxt: boolean;
+    readingMode: "horizontal" | "vertical";
     onReadingActivity?: () => void;
 }
 
@@ -25,6 +28,7 @@ interface UseReaderTTSReturn {
     /** 清除 toast 消息 */
     clearListenToast: () => void;
     notifyTtsDocumentUpdated: () => void;
+    markTtsViewOutOfSync: (pageNum: number) => void;
 }
 
 /**
@@ -36,15 +40,55 @@ export const useReaderTTS = ({
     isEpubDom,
     isMobi,
     isTxt,
+    readingMode,
     onReadingActivity,
 }: UseReaderTTSOptions): UseReaderTTSReturn => {
     // 听书功能仅支持 epub / mobi / txt
     const listenSupported = isEpubDom || isMobi || isTxt;
+    const viewSyncRef = useRef({
+        outOfSync: false,
+        syncing: false,
+        lastPreciseProgress: 0,
+    });
+    const notifyDocumentUpdatedRef = useRef<(() => Promise<void>) | null>(null);
 
-    // 底层 TTS hook
-    const tts = useTTS({ rendererRef, listenSupported, onReadingActivity });
+    const handleTtsMark = useCallback(async (mark: string): Promise<void> => {
+        if (!isEpubDom || readingMode !== "horizontal") return;
 
-    // 听书状态提示
+        const renderer = rendererRef.current;
+        if (!(renderer instanceof EpubRenderer)) return;
+
+        const sync = viewSyncRef.current;
+
+        if (!sync.outOfSync) {
+            const p = renderer.getInstantPreciseProgress();
+            if (p > 0 && isFinite(p)) {
+                sync.lastPreciseProgress = p;
+            }
+            return;
+        }
+
+        if (sync.syncing) return;
+
+        const target = sync.lastPreciseProgress;
+        if (!(target > 0 && isFinite(target))) return;
+
+        sync.syncing = true;
+        try {
+            await renderer.goToPage(target);
+            await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+            await notifyDocumentUpdatedRef.current?.();
+            sync.outOfSync = false;
+        } catch (e) {
+            void logError('[TTS][Sync] EPUB 横向校准失败', { error: String(e), mark, target });
+        } finally {
+            sync.syncing = false;
+        }
+    }, [isEpubDom, readingMode, rendererRef]);
+
+    const tts = useTTS({ rendererRef, listenSupported, onReadingActivity, onMark: handleTtsMark });
+    notifyDocumentUpdatedRef.current = tts.notifyDocumentUpdated;
+
     const [listenToastMsg, setListenToastMsg] = useState("");
 
     const { t: tReader } = useTranslation('reader');
@@ -63,6 +107,23 @@ export const useReaderTTS = ({
         }
     }, [tts.toggle, tReader]);
 
+    const markTtsViewOutOfSync = useCallback((pageNum: number) => {
+        if (!tts.isActive) return;
+        if (!isEpubDom || readingMode !== "horizontal") return;
+        if (!isFinite(pageNum) || pageNum <= 0) return;
+        const renderer = rendererRef.current;
+        if (renderer instanceof EpubRenderer) {
+            const sync = viewSyncRef.current;
+            if (!(sync.lastPreciseProgress > 0) || !isFinite(sync.lastPreciseProgress)) {
+                const p = renderer.getInstantPreciseProgress();
+                if (p > 0 && isFinite(p)) {
+                    sync.lastPreciseProgress = p;
+                }
+            }
+        }
+        viewSyncRef.current.outOfSync = true;
+    }, [tts.isActive, isEpubDom, readingMode, rendererRef]);
+
     return {
         listenSupported,
         isListening: tts.isActive,
@@ -71,5 +132,6 @@ export const useReaderTTS = ({
         listenToastMsg,
         clearListenToast: () => setListenToastMsg(""),
         notifyTtsDocumentUpdated: tts.notifyDocumentUpdated,
+        markTtsViewOutOfSync,
     };
 };

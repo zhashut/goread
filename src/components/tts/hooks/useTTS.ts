@@ -31,6 +31,7 @@ interface UseTTSOptions {
   /** 是否支持听书 */
   listenSupported: boolean;
   onReadingActivity?: () => void;
+  onMark?: (mark: string) => void | Promise<void>;
 }
 
 interface UseTTSReturn {
@@ -43,7 +44,7 @@ interface UseTTSReturn {
   /** 切换听书开关，返回结果和失败原因 */
   toggle: () => Promise<PlayResult | void>;
   stop: () => Promise<void>;
-  notifyDocumentUpdated: () => void;
+  notifyDocumentUpdated: () => Promise<void>;
 }
 
 /** 尝试创建并初始化 TTS 客户端，Android 优先原生 TTS，其他平台 Web Speech 优先 */
@@ -105,7 +106,7 @@ async function createTTSClient(): Promise<{ client: ITTSClient | null; failReaso
  * TTS 状态管理 Hook
  * 连接 UI 层和 TTSController，管理 TTS 生命周期
  */
-export const useTTS = ({ rendererRef, listenSupported, onReadingActivity }: UseTTSOptions): UseTTSReturn => {
+export const useTTS = ({ rendererRef, listenSupported, onReadingActivity, onMark }: UseTTSOptions): UseTTSReturn => {
   const [state, setState] = useState<TTSState>('stopped');
   const controllerRef = useRef<TTSController | null>(null);
   const lockRef = useRef<ToggleLock>('idle');
@@ -185,7 +186,7 @@ export const useTTS = ({ rendererRef, listenSupported, onReadingActivity }: UseT
       }
 
       log(`[TTS] 客户端创建成功: ${client.name}，开始朗读`, 'info');
-      const controller = new TTSController(client, rendererRef.current!, setState, onReadingActivity);
+      const controller = new TTSController(client, rendererRef.current!, setState, onReadingActivity, onMark);
       controllerRef.current = controller;
 
       // 从持久化设置读取语速并应用到 TTS 引擎
@@ -227,7 +228,7 @@ export const useTTS = ({ rendererRef, listenSupported, onReadingActivity }: UseT
       pendingStopRef.current = false;
       lockRef.current = 'idle';
     }
-  }, [listenSupported, rendererRef, onReadingActivity]);
+  }, [listenSupported, rendererRef, onReadingActivity, onMark]);
 
   const stop = useCallback(async () => {
     if (lockRef.current === 'starting' || controllerRef.current) {
@@ -235,8 +236,8 @@ export const useTTS = ({ rendererRef, listenSupported, onReadingActivity }: UseT
     }
   }, [toggle]);
 
-  const notifyDocumentUpdated = useCallback(() => {
-    controllerRef.current?.notifyDocumentUpdated();
+  const notifyDocumentUpdated = useCallback(async (): Promise<void> => {
+    await controllerRef.current?.notifyDocumentUpdated();
   }, []);
 
   // 用 useMemo 保持返回对象引用稳定，避免 handleToggleListen 不必要的重建

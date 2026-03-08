@@ -20,6 +20,7 @@ export type TTSDocumentData = AdapterTTSDocumentData;
 
 /** 状态变化回调 */
 export type TTSStateChangeCallback = (state: TTSState) => void;
+export type TTSMarkCallback = (mark: string) => void | Promise<void>;
 
 /**
  * TTS 核心调度器
@@ -32,6 +33,7 @@ export class TTSController {
   #state: TTSState = 'stopped';
   #onStateChange?: TTSStateChangeCallback;
   #onReadingActivity?: () => void;
+  #onMark?: TTSMarkCallback;
 
   #domIterator: DomSSMLIterator | null = null;
   #textIterator: TextSSMLIterator | null = null;
@@ -67,12 +69,14 @@ export class TTSController {
     renderer: IBookRenderer,
     onStateChange?: TTSStateChangeCallback,
     onReadingActivity?: () => void,
+    onMark?: TTSMarkCallback,
   ) {
     this.#client = client;
     this.#renderer = renderer;
     this.#rendererAdapter = new TTSRendererAdapter(renderer);
     this.#onStateChange = onStateChange;
     this.#onReadingActivity = onReadingActivity;
+    this.#onMark = onMark;
   }
 
   get state(): TTSState {
@@ -496,6 +500,7 @@ export class TTSController {
           lastCode = event.code;
           if (event.code === 'boundary' && event.mark) {
             this.#emitReadingActivity(false);
+            await this.#onMark?.(event.mark);
             this.#setMarkFromCache(event.mark);
           }
         }
