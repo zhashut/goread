@@ -84,9 +84,14 @@ export class WebSpeechClient implements ITTSClient {
   #currentVoiceId = '';
   #rate = TTS_RATE_DEFAULT;
   #synth = window.speechSynthesis;
+  #allowRemoteVoices = true;
 
   /** 按语言缓存的语音映射 */
   #voiceByLang = new Map<string, WebSpeechVoice>();
+
+  constructor(options?: { allowRemoteVoices?: boolean }) {
+    this.#allowRemoteVoices = options?.allowRemoteVoices ?? true;
+  }
 
   async init(): Promise<boolean> {
     if (!this.#synth) {
@@ -147,6 +152,10 @@ export class WebSpeechClient implements ITTSClient {
     if (matched.length === 0 && filtered.length > 0) {
       log(`[TTS] 无中英文语音，放宽到全部 ${filtered.length} 个可用语音`, 'info');
       matched = filtered;
+    }
+
+    if (!this.#allowRemoteVoices) {
+      matched = matched.filter((v) => v.localService);
     }
 
     this.#voices = matched.map((v) => {

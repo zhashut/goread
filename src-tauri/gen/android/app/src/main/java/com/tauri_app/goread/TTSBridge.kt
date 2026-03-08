@@ -36,10 +36,21 @@ class TTSBridge(
                     tts?.language = Locale.CHINESE
                     tts?.setOnUtteranceProgressListener(createProgressListener())
                 }
+                val initStatus = if (!isReady) {
+                    "init_error"
+                } else {
+                    val r = tts?.isLanguageAvailable(Locale.CHINESE) ?: TextToSpeech.LANG_NOT_SUPPORTED
+                    when (r) {
+                        TextToSpeech.LANG_MISSING_DATA -> "missing_data"
+                        TextToSpeech.LANG_NOT_SUPPORTED -> "lang_not_supported"
+                        else -> "success"
+                    }
+                }
                 val voices = if (isReady) getVoicesJson() else "[]"
                 // 用 JSON.parse 包裹语音列表，避免特殊字符导致 JS 语法错误
-                val escapedVoices = voices.replace("\\", "\\\\").replace("'", "\\'")
-                notifyJS("window.__onTTSInit__($isReady, JSON.parse('$escapedVoices'))")
+                val escapedVoices = escapeForJS(voices)
+                val escapedStatus = escapeForJS(initStatus)
+                notifyJS("window.__onTTSInit__($isReady, JSON.parse('$escapedVoices'), '$escapedStatus')")
             }
         }
     }

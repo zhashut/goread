@@ -6,7 +6,7 @@ import { TTS_RATE_DEFAULT } from '../../constants/tts';
 declare global {
   interface Window {
     __TTS_BRIDGE_READY__?: boolean;
-    __onTTSInit__?: (success: boolean, voices: TTSVoice[]) => void;
+    __onTTSInit__?: (success: boolean, voices: TTSVoice[], status?: string) => void;
     __onTTSEvent__?: (code: string, utteranceId: string, error: string) => void;
     TTSBridge?: {
       init(): void;
@@ -27,6 +27,14 @@ type PluginInitResponse = {
   defaultEngine?: string;
   langCheck?: { requested: string; result: string };
   voices?: TTSVoice[];
+};
+
+export type NativeTTSInitInfo = {
+  mode: 'plugin' | 'bridge' | 'none';
+  status: string;
+  offlineReady: boolean;
+  defaultEngine?: string;
+  langCheck?: { requested: string; result: string };
 };
 
 type TTSEventPayload = {
@@ -65,6 +73,11 @@ export class NativeTTSClient implements ITTSClient {
   #rate = TTS_RATE_DEFAULT;
 
   #mode: 'plugin' | 'bridge' | 'none' = 'none';
+  #initInfo: NativeTTSInitInfo = {
+    mode: 'none',
+    status: 'unknown',
+    offlineReady: false,
+  };
   #pluginListener: any = null;
   #activeUtterances = new Map<string, { resolve: (ev: TTSMessageEvent) => void }>();
 
@@ -72,7 +85,13 @@ export class NativeTTSClient implements ITTSClient {
     return typeof window.TTSBridge !== 'undefined';
   }
 
+  getInitInfo(): NativeTTSInitInfo {
+    return { ...this.#initInfo };
+  }
+
   async init(): Promise<boolean> {
+    this.#mode = 'none';
+    this.#initInfo = { mode: 'none', status: 'unknown', offlineReady: false };
     const pluginOk = await this.#initPlugin();
     if (pluginOk) return true;
     return await this.#initBridge();
@@ -108,6 +127,13 @@ export class NativeTTSClient implements ITTSClient {
       if (!res.success) return false;
 
       this.#mode = 'plugin';
+      this.#initInfo = {
+        mode: 'plugin',
+        status: res.status || 'unknown',
+        offlineReady: res.status === 'success',
+        defaultEngine: res.defaultEngine,
+        langCheck: res.langCheck,
+      };
       const normalized = this.#normalizeVoices(res.voices);
       this.#voices = normalized.length > 0 ? normalized : [this.#defaultVoice()];
       await this.#setupPluginListener(core.addPluginListener);
@@ -155,15 +181,19 @@ export class NativeTTSClient implements ITTSClient {
     return new Promise<boolean>((resolve) => {
       let resolved = false;
 
-      window.__onTTSInit__ = (success: boolean, voices: TTSVoice[]) => {
+      window.__onTTSInit__ = (success: boolean, voices: TTSVoice[], status?: string) => {
         if (resolved) return;
         resolved = true;
         this.initialized = success;
         if (success) {
           this.#mode = 'bridge';
+          const s = status || 'success';
+          this.#initInfo = { mode: 'bridge', status: s, offlineReady: s === 'success' };
           const normalized = this.#normalizeVoices(voices);
           this.#voices =
             normalized.length > 0 ? normalized : this.#tryReadVoicesFromBridge();
+        } else {
+          this.#initInfo = { mode: 'none', status: status || 'init_error', offlineReady: false };
         }
         resolve(success);
       };

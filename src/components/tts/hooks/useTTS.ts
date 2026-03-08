@@ -56,21 +56,40 @@ async function createTTSClient(): Promise<{ client: ITTSClient | null; failReaso
   if (isAndroid) {
     const nativeTTS = new NativeTTSClient();
     const nativeInited = await nativeTTS.init();
-    if (nativeInited) {
+    const nativeInfo = nativeTTS.getInitInfo();
+    log(
+      `[TTS] Native init: inited=${nativeInited} mode=${nativeInfo.mode} status=${nativeInfo.status} offlineReady=${nativeInfo.offlineReady}`,
+      'info',
+    );
+    if (nativeInited && nativeInfo.offlineReady) {
       return { client: nativeTTS, failReason: 'listenFailedUnknown' };
+    }
+
+    const webSpeechLocal = new WebSpeechClient({ allowRemoteVoices: false });
+    const webLocalInited = await webSpeechLocal.init();
+    log(`[TTS] WebSpeech(localOnly) init 结果: ${webLocalInited}，语音数: ${webSpeechLocal.getVoices().length}`, 'info');
+    if (webLocalInited) {
+      return { client: webSpeechLocal, failReason: 'listenFailedUnknown' };
+    }
+
+    if (
+      nativeInited
+      && (nativeInfo.status === 'missing_data' || nativeInfo.status === 'lang_not_supported')
+    ) {
+      return { client: nativeTTS, failReason: 'listenFailedUnknown' };
+    }
+
+    const webSpeechAny = new WebSpeechClient({ allowRemoteVoices: true });
+    const webAnyInited = await webSpeechAny.init();
+    log(`[TTS] WebSpeech(any) init 结果: ${webAnyInited}，语音数: ${webSpeechAny.getVoices().length}`, 'info');
+    if (webAnyInited) {
+      return { client: webSpeechAny, failReason: 'listenFailedUnknown' };
     }
 
     const w = window as any;
     const tauriInvoke = w?.__TAURI__?.core?.invoke || w?.__TAURI__?.invoke;
     if (!NativeTTSClient.isAvailable() && typeof tauriInvoke !== 'function') {
       return { client: null, failReason: 'listenFailedNativeBridge' };
-    }
-
-    const webSpeech = new WebSpeechClient();
-    const webInited = await webSpeech.init();
-    log(`[TTS] WebSpeech init 结果: ${webInited}，语音数: ${webSpeech.getVoices().length}`, 'info');
-    if (webInited) {
-      return { client: webSpeech, failReason: 'listenFailedUnknown' };
     }
 
     return { client: null, failReason: 'listenFailedNativeInit' };
