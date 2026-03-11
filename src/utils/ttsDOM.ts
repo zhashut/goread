@@ -13,9 +13,9 @@
 export function findFirstVisibleTextRange(
   contentEl: Element,
   scrollContainer: Element,
+  axis: 'vertical' | 'horizontal' = 'vertical',
 ): Range | null {
   const containerRect = scrollContainer.getBoundingClientRect();
-  const viewportTop = containerRect.top;
 
   const ownerDoc = contentEl.ownerDocument;
   if (!ownerDoc) return null;
@@ -42,8 +42,16 @@ export function findFirstVisibleTextRange(
     range.selectNodeContents(node);
     const rect = range.getBoundingClientRect();
 
-    // 文本节点底部超过视口顶部，说明这是第一个可见（或部分可见）的文本
-    if (rect.bottom > viewportTop) {
+    let isVisible: boolean;
+    if (axis === 'horizontal') {
+      // 横向模式：文本节点水平方向有部分落在容器视口内
+      isVisible = rect.right > containerRect.left && rect.left < containerRect.right;
+    } else {
+      // 纵向模式（默认）：文本节点底部超过视口顶部
+      isVisible = rect.bottom > containerRect.top;
+    }
+
+    if (isVisible) {
       range.setStart(node, 0);
       return range;
     }

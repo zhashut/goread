@@ -184,27 +184,46 @@ export const useNavigation = ({
     );
 
     const nextPage = useCallback(() => {
-        // EPUB 横向模式下，始终按章节整数跳转
         const renderer = rendererRef.current;
         if (readingMode === "horizontal" && renderer && renderer instanceof EpubRenderer) {
-            const next = Math.floor(currentPage) + 1;
-            goToPage(next);
+            markReadingActive();
+            try {
+                const p =
+                    typeof (renderer as any).getInstantPreciseProgress === "function"
+                        ? (renderer as any).getInstantPreciseProgress()
+                        : typeof (renderer as any).getPreciseProgress === "function"
+                            ? (renderer as any).getPreciseProgress()
+                            : currentPage;
+                onUserNavigate?.(p);
+            } catch { }
+            void renderer.nextPage().catch(async (e) => {
+                await logError("EPUB 翻动失败", { error: String(e) });
+            });
             return;
         }
         goToPage(currentPage + 1);
-    }, [goToPage, currentPage, readingMode, rendererRef]);
+    }, [rendererRef, readingMode, markReadingActive, onUserNavigate, currentPage, goToPage]);
 
     const prevPage = useCallback(() => {
-        // EPUB 横向模式下，始终按章节整数跳转
         const renderer = rendererRef.current;
         if (readingMode === "horizontal" && renderer && renderer instanceof EpubRenderer) {
-            // 确保跳转到上一章的开头
-            const prev = Math.floor(currentPage) - 1;
-            goToPage(prev);
+            markReadingActive();
+            try {
+                const p =
+                    typeof (renderer as any).getInstantPreciseProgress === "function"
+                        ? (renderer as any).getInstantPreciseProgress()
+                        : typeof (renderer as any).getPreciseProgress === "function"
+                            ? (renderer as any).getPreciseProgress()
+                            : currentPage;
+                onUserNavigate?.(p);
+            } catch { }
+            void renderer.prevPage().catch(async (e) => {
+                await logError("EPUB 翻动失败", { error: String(e) });
+            });
             return;
         }
         goToPage(currentPage - 1);
-    }, [goToPage, currentPage, readingMode, rendererRef]);
+    }, [rendererRef, readingMode, markReadingActive, onUserNavigate, currentPage, goToPage]);
 
     const toggleFinish = useCallback(async () => {
         if (isExternal || !book) return;
@@ -279,7 +298,7 @@ export const useNavigation = ({
         rendererRef.current?.scrollToAnchor?.(anchor);
     }, [rendererRef]);
 
-    // EPUB 已有独立的章节跳转机制（prevPage/nextPage 对 EPUB 按 section 索引跳转），不走 anchor 分支
+    // EPUB 使用页码型章节跳转，不走 anchor 分支
     const isEpubRenderer = useCallback(() => {
         return rendererRef.current instanceof EpubRenderer;
     }, [rendererRef]);

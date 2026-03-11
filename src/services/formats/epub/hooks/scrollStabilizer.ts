@@ -4,18 +4,29 @@ export function stabilizeScrollTop(params: {
   observeElements: Element[];
   imageRoot: ParentNode | null;
   durationMs?: number;
+  axis?: 'x' | 'y';
 }): Promise<void> {
   const { container, getTargetScrollTop, observeElements, imageRoot } = params;
+  const axis = params.axis || 'y';
   const durationMs = typeof params.durationMs === 'number' ? params.durationMs : 550;
 
   const applyOnce = () => {
     if (!container.isConnected) return;
-    const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
+    const maxScrollTop = Math.max(
+      0,
+      axis === 'x'
+        ? container.scrollWidth - container.clientWidth
+        : container.scrollHeight - container.clientHeight
+    );
     let target = getTargetScrollTop();
     if (!isFinite(target)) return;
     if (target < 0) target = 0;
     if (target > maxScrollTop) target = maxScrollTop;
-    container.scrollTop = target;
+    if (axis === 'x') {
+      container.scrollLeft = target;
+    } else {
+      container.scrollTop = target;
+    }
   };
 
   return new Promise((resolve) => {

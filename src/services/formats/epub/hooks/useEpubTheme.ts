@@ -47,11 +47,34 @@ export function useEpubTheme(): EpubThemeHook {
    */
   const getThemeStyles = (options?: RenderOptions): string => {
     const theme = options?.theme || 'light';
+    const readingMode = options?.readingMode || 'vertical';
     const fontSize = options?.fontSize || 16;
     const lineHeight = options?.lineHeight || 1.6;
     const fontFamily = options?.fontFamily || 'serif';
 
     const { bgColor, textColor } = getThemeColors(theme);
+
+    const layoutCss = readingMode === 'horizontal'
+      ? `
+        .epub-section-content {
+          box-sizing: border-box;
+          width: 100%;
+          height: 100%;
+          padding: 16px;
+          max-width: none;
+          margin: 0;
+          column-width: var(--epub-page-width, 360px);
+          column-gap: var(--epub-page-gap, 16px);
+          column-fill: auto;
+        }
+      `
+      : `
+        .epub-section-content {
+          padding: 16px;
+          max-width: 800px;
+          margin: 0 auto;
+        }
+      `;
 
     return `
       :host {
@@ -66,10 +89,9 @@ export function useEpubTheme(): EpubThemeHook {
         font-size: ${fontSize}px;
         line-height: ${lineHeight};
         font-family: ${fontFamily};
-        padding: 16px;
-        max-width: 800px;
-        margin: 0 auto;
       }
+
+      ${layoutCss}
       
       .epub-section-content * {
         color: inherit;

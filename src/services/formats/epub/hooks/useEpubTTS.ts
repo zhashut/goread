@@ -120,7 +120,8 @@ export function useEpubTTS(context: EpubTTSContext): EpubTTSHook {
       if (!ttsDoc) return null;
 
       const content = ttsDoc.doc;
-      const range = findFirstVisibleTextRange(content as Element, container);
+      // 横向模式使用 X 轴判断可见性
+      const range = findFirstVisibleTextRange(content as Element, container, 'horizontal');
       if (range) {
         log('[TTS] getVisibleStartForTTS(epub-horizontal): 定位到可见文本位置', 'info');
         return { type: 'range', range };

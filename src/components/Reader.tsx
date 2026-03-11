@@ -478,7 +478,7 @@ export const Reader: React.FC = () => {
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            overflow: (isPdf && zoom.isZoomed) || tocOverlayOpen || modeOverlayOpen ? "hidden" : "auto",
+            overflow: (isPdf && zoom.isZoomed) || tocOverlayOpen || modeOverlayOpen || (isEpubDom && readingMode === "horizontal") ? "hidden" : "auto",
             padding: 0,
             position: "relative",
           }}
@@ -505,6 +505,7 @@ export const Reader: React.FC = () => {
                       }
                 ),
                 overflowY: isEpubDom && readingMode === "horizontal" ? "hidden" : "auto",
+                touchAction: isEpubDom && readingMode === "horizontal" ? "pan-y" : "auto",
                 backgroundColor: isEpubDom
                   ? effectiveTheme === "dark"
                     ? "#000000"

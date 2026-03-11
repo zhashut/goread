@@ -73,13 +73,38 @@ export const useAutoScroll = ({
 
         if (readingMode === "horizontal") {
             stopAll();
-            autoScrollTimerRef.current = window.setInterval(async () => {
-                if (currentPage >= totalPages) {
-                    stopAll();
-                    setAutoScroll(false);
-                    return;
-                }
-                await goToPage(currentPage + 1);
+            let running = false;
+            autoScrollTimerRef.current = window.setInterval(() => {
+                if (running) return;
+                running = true;
+                void (async () => {
+                    const r = rendererRef.current;
+                    if (r && r instanceof EpubRenderer) {
+                        const p =
+                            typeof (r as any).getInstantPreciseProgress === "function"
+                                ? (r as any).getInstantPreciseProgress()
+                                : typeof (r as any).getPreciseProgress === "function"
+                                    ? (r as any).getPreciseProgress()
+                                    : currentPage;
+                        if (p >= totalPages + 0.999999) {
+                            stopAll();
+                            setAutoScroll(false);
+                            return;
+                        }
+                        await r.nextPage();
+                        markReadingActive();
+                        return;
+                    }
+
+                    if (currentPage >= totalPages) {
+                        stopAll();
+                        setAutoScroll(false);
+                        return;
+                    }
+                    await goToPage(currentPage + 1);
+                })().finally(() => {
+                    running = false;
+                });
             }, AUTO_PAGE_INTERVAL_MS);
         } else {
             stopAll();
