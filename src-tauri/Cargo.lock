@@ -4976,6 +4976,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tauri",
+ "tauri-plugin",
  "thiserror 1.0.69",
 ]
 

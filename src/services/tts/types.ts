@@ -30,6 +30,10 @@ export interface TTSVoice {
   id: string;
   name: string;
   lang: string;
+  display?: {
+    zh?: string;
+    en?: string;
+  };
 }
 
 /** TTS 朗读起始位置信息 */

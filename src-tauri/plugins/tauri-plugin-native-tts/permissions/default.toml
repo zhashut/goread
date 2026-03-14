@@ -1,0 +1,25 @@
+"$schema" = "schemas/schema.json"
+
+[[permission]]
+identifier = "allow-all"
+description = "允许前端调用 native-tts 插件命令，并订阅插件事件。"
+commands.allow = [
+  "init",
+  "speak",
+  "pause",
+  "resume",
+  "stop",
+  "set_rate",
+  "set_voice",
+  "get_all_voices",
+  "open_tts_settings",
+  "install_tts_data",
+  "shutdown",
+  "register_listener",
+  "registerListener",
+  "remove_listener"
+]
+
+[default]
+description = "允许使用 native-tts 插件的基础能力与事件。"
+permissions = ["allow-all"]

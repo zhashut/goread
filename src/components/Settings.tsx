@@ -1,6 +1,6 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { getReaderSettings, saveReaderSettings, ReaderSettings, LanguageSetting, bookService } from "../services";
+import { getReaderSettings, saveReaderSettings, ReaderSettings, LanguageSetting, bookService, log } from "../services";
 import { cacheConfigService } from "../services/cacheConfigService";
 import type { ReaderTheme } from "../services";
 import { useAppNav } from "../router/useAppNav";
@@ -94,65 +94,179 @@ export const Settings: React.FC = () => {
     return () => clearTimeout(id);
   }, [settings]);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const load = async () => {
-      setTtsVoicesLoading(true);
-      try {
-        const loadNative = async (): Promise<TTSVoiceWithEngine[]> => {
-          const native = new NativeTTSClient();
-          const ok = await native.init().catch(() => false);
-          if (!ok) {
-            await native.shutdown().catch(() => {});
-            return [];
-          }
-          const voices = native.getVoices() || [];
+  const ttsLoadSeq = useRef(0);
+  const reloadTtsVoices = useCallback(async (reason: string) => {
+    const seq = ++ttsLoadSeq.current;
+    setTtsVoicesLoading(true);
+    try {
+      const loadNative = async (): Promise<TTSVoiceWithEngine[]> => {
+        const native = new NativeTTSClient();
+        const ok = await native.init().catch(() => false);
+        if (!ok) {
           await native.shutdown().catch(() => {});
-          return voices.map((v) => ({ ...v, engine: native.name }));
-        };
-
-        const loadWebSpeech = async (): Promise<TTSVoiceWithEngine[]> => {
-          const web = new WebSpeechClient({ allowRemoteVoices: true });
-          const ok = await web.init().catch(() => false);
-          if (!ok) {
-            await web.shutdown().catch(() => {});
-            return [];
+          void log(`[TTS][Settings] NativeTTS init 失败: reason=${reason}`, "warn");
+          return [];
+        }
+        const initInfo = native.getInitInfo?.();
+        void log(
+          `[TTS][Settings] NativeTTS init 成功: reason=${reason} mode=${initInfo?.mode} status=${initInfo?.status} offlineReady=${initInfo?.offlineReady} defaultEngine=${initInfo?.defaultEngine ?? ""}`,
+          "info",
+        );
+        const defaultEngine = initInfo?.defaultEngine;
+        if (defaultEngine) {
+          const current = getReaderSettings();
+          const prev = current.ttsNativeDefaultEngine;
+          if (prev && prev !== defaultEngine) {
+            void log(
+              `[TTS][Settings] 系统默认 TTS 引擎已变更: ${prev} -> ${defaultEngine}，清理 native-tts 语音选择`,
+              "warn",
+            );
+            saveReaderSettings({
+              ttsNativeDefaultEngine: defaultEngine,
+              ttsVoiceByEngine: {
+                ...(current.ttsVoiceByEngine || {}),
+                "native-tts": "default",
+              },
+            });
+            setSettings((s) => ({
+              ...s,
+              ttsNativeDefaultEngine: defaultEngine,
+              ttsVoiceByEngine: {
+                ...(s.ttsVoiceByEngine || {}),
+                "native-tts": "default",
+              },
+            }));
+          } else if (!prev) {
+            saveReaderSettings({ ttsNativeDefaultEngine: defaultEngine });
+            setSettings((s) => ({ ...s, ttsNativeDefaultEngine: defaultEngine }));
           }
-          const voices = web.getVoices() || [];
+        }
+        const voices = native.getVoices() || [];
+        await native.shutdown().catch(() => {});
+        void log(`[TTS][Settings] NativeTTS voices 数量: ${voices.length}`, "info");
+        return voices.map((v) => ({ ...v, engine: native.name }));
+      };
+
+      const loadWebSpeech = async (): Promise<TTSVoiceWithEngine[]> => {
+        const web = new WebSpeechClient({ allowRemoteVoices: true });
+        const ok = await web.init().catch(() => false);
+        if (!ok) {
           await web.shutdown().catch(() => {});
-          return voices.map((v) => ({ ...v, engine: web.name }));
-        };
-
-        const [nativeRes, webRes] = await Promise.allSettled([loadNative(), loadWebSpeech()]);
-        if (cancelled) return;
-
-        const combined = [
-          ...(nativeRes.status === "fulfilled" ? nativeRes.value : []),
-          ...(webRes.status === "fulfilled" ? webRes.value : []),
-        ];
-
-        const dedup = new Map<string, TTSVoiceWithEngine>();
-        for (const v of combined) {
-          if (!v?.id) continue;
-          const key = `${v.engine}::${v.id}`;
-          if (!dedup.has(key)) dedup.set(key, v);
+          void log(`[TTS][Settings] WebSpeech init 失败: reason=${reason}`, "warn");
+          return [];
         }
-        setTtsVoices(Array.from(dedup.values()));
+        const voices = web.getVoices() || [];
+        await web.shutdown().catch(() => {});
+        void log(`[TTS][Settings] WebSpeech voices 数量: ${voices.length}`, "info");
+        return voices.map((v) => ({ ...v, engine: web.name }));
+      };
+
+      const [nativeRes, webRes] = await Promise.allSettled([loadNative(), loadWebSpeech()]);
+      if (ttsLoadSeq.current !== seq) return;
+
+      const combined = [
+        ...(nativeRes.status === "fulfilled" ? nativeRes.value : []),
+        ...(webRes.status === "fulfilled" ? webRes.value : []),
+      ];
+      void log(
+        `[TTS][Settings] voices 合并完成: reason=${reason} native=${nativeRes.status === "fulfilled" ? nativeRes.value.length : 0}, web=${webRes.status === "fulfilled" ? webRes.value.length : 0}, total=${combined.length}`,
+        "info",
+      );
+
+      const dedup = new Map<string, TTSVoiceWithEngine>();
+      for (const v of combined) {
+        if (!v?.id) continue;
+        const key = `${v.engine}::${v.id}`;
+        if (!dedup.has(key)) dedup.set(key, v);
+      }
+      const list = Array.from(dedup.values());
+      setTtsVoices(list);
+      if (list.length === 0) {
+        void log("[TTS][Settings] voices 列表为空", "warn");
+      }
+    } catch {
+      if (ttsLoadSeq.current !== seq) return;
+      setTtsVoices([]);
+      void log("[TTS][Settings] voices 加载异常", "error");
+    } finally {
+      if (ttsLoadSeq.current === seq) setTtsVoicesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void reloadTtsVoices("initial");
+  }, [reloadTtsVoices]);
+
+  useEffect(() => {
+    let disposed = false;
+    let removeListener: any = null;
+
+    const setup = async () => {
+      const w = window as any;
+      const injected =
+        w?.__TAURI__?.core?.addPluginListener || w?.__TAURI__?.addPluginListener;
+      let addPluginListener: any = injected;
+      try {
+        const coreMod = await import("@tauri-apps/api/core").catch(() => null as any);
+        if (typeof (coreMod as any)?.addPluginListener === "function") {
+          addPluginListener = (coreMod as any).addPluginListener;
+        }
       } catch {
-        if (!cancelled) {
-          setTtsVoices([]);
-        }
-      } finally {
-        if (!cancelled) setTtsVoicesLoading(false);
+      }
+      if (typeof addPluginListener !== "function") return;
+
+      try {
+        removeListener = await addPluginListener(
+          "native-tts",
+          "tts_events",
+          (event: any) => {
+            if (disposed) return;
+            if ((event as any)?.code !== "engine_changed") return;
+            const nextEngine = (event as any)?.engine;
+            if (!nextEngine) return;
+            const prevEngine = (event as any)?.prevEngine;
+            const current = getReaderSettings();
+            if (current.ttsNativeDefaultEngine === nextEngine) return;
+
+            void log(
+              `[TTS][Settings] 系统默认 TTS 引擎已变更(事件): ${prevEngine ?? ""} -> ${nextEngine}，清理 native-tts 语音选择`,
+              "warn",
+            );
+            saveReaderSettings({
+              ttsNativeDefaultEngine: nextEngine,
+              ttsVoiceByEngine: {
+                ...(current.ttsVoiceByEngine || {}),
+                "native-tts": "default",
+              },
+            });
+            setSettings((s) => ({
+              ...s,
+              ttsNativeDefaultEngine: nextEngine,
+              ttsVoiceByEngine: {
+                ...(s.ttsVoiceByEngine || {}),
+                "native-tts": "default",
+              },
+            }));
+            void reloadTtsVoices("engine_changed");
+          },
+        );
+      } catch (e) {
+        void log("[TTS][Settings] 注册 native-tts 事件监听失败", "warn", {
+          error: String(e),
+        });
       }
     };
 
-    load();
+    void setup();
     return () => {
-      cancelled = true;
+      disposed = true;
+      try {
+        if (typeof removeListener === "function") removeListener();
+        else removeListener?.remove?.();
+      } catch {
+      }
     };
-  }, []);
+  }, [reloadTtsVoices]);
 
   // 缓存有效期变更时同步到后端
   const initialCacheExpiryDays = useRef(settings.cacheExpiryDays);
@@ -203,6 +317,74 @@ export const Settings: React.FC = () => {
     return s.trim();
   };
 
+  const safeLanguageDisplayName = (locale: 'zh' | 'en', langTag: string): string => {
+    try {
+      const dn = new Intl.DisplayNames([locale], { type: 'language' });
+      return dn.of(langTag) || '';
+    } catch {
+      return '';
+    }
+  };
+
+  const computeVoiceLangTokenCandidates = (v: TTSVoiceWithEngine): string[] => {
+    const langTag = (v.lang || '').trim();
+    const base = langTag ? langTag.split('-')[0] : '';
+    const tokens = new Set<string>();
+    const push = (s: string | undefined) => {
+      const v = String(s || '').trim();
+      if (v) tokens.add(v);
+    };
+    push(v.display?.zh);
+    push(v.display?.en);
+    if (langTag) {
+      push(safeLanguageDisplayName('zh', langTag));
+      push(safeLanguageDisplayName('en', langTag));
+    }
+    if (base) {
+      push(safeLanguageDisplayName('zh', base));
+      push(safeLanguageDisplayName('en', base));
+    }
+    return Array.from(tokens);
+  };
+
+  const normalizeVoiceName = (v: TTSVoiceWithEngine): string => {
+    const raw = String(v.name || '').trim();
+    if (!raw) return '';
+    const parts = raw.split(' - ').map((p) => p.trim()).filter(Boolean);
+    if (parts.length >= 2) {
+      const tokens = computeVoiceLangTokenCandidates(v)
+        .map((s) => s.toLowerCase())
+        .filter(Boolean);
+      let nextParts = [...parts];
+      while (nextParts.length > 1) {
+        const tail = nextParts[nextParts.length - 1].toLowerCase();
+        if (!tokens.includes(tail)) break;
+        nextParts = nextParts.slice(0, -1);
+      }
+      const joined =
+        nextParts.length >= 2 ? `${nextParts[0]} - ${nextParts[1]}` : nextParts[0] || '';
+      return toShortVoiceLabel(joined) || joined;
+    }
+    return toShortVoiceLabel(raw) || raw;
+  };
+
+  const getVoiceSourceLabel = (engine: string): string => {
+    return engine === 'native-tts' ? 'Native' : 'Web';
+  };
+
+  const getVoiceDisambiguator = (v: TTSVoiceWithEngine): string => {
+    const id = String(v.id || '').trim();
+    if (!id) return '';
+    const parts = id.split(/[-_]/).filter(Boolean);
+    const tail = parts.slice(-2).join('-');
+    const baseName = normalizeVoiceName(v);
+    if (tail && tail !== baseName) return tail;
+    if (id.length <= 16 && id !== baseName) return id;
+    const short = id.slice(-10);
+    if (short && short !== baseName) return short;
+    return '';
+  };
+
   const ttsVoiceOptions = (() => {
     const dedup = new Map<string, TTSVoiceWithEngine>();
     for (const v of ttsVoices) {
@@ -221,12 +403,19 @@ export const Settings: React.FC = () => {
       return [{ value: "none", label: t("ttsVoiceLoadFailed") }];
     }
 
-    const baseCount = new Map<string, number>();
+    const baseNameCount = new Map<string, number>();
+    const baseNameLangCount = new Map<string, number>();
+    const baseNameLangSourceCount = new Map<string, number>();
     for (const v of sorted) {
-      const source = v.engine === "native-tts" ? "原生" : "Web";
-      const baseName = toShortVoiceLabel(v.name) || v.name || v.id;
-      const base = `${baseName} · ${source}`;
-      baseCount.set(base, (baseCount.get(base) || 0) + 1);
+      const baseName = normalizeVoiceName(v) || v.name || v.id;
+      const langShort = String(v.lang || "").trim();
+      const source = getVoiceSourceLabel(v.engine);
+      const k1 = baseName;
+      const k2 = `${baseName}||${langShort}`;
+      const k3 = `${baseName}||${langShort}||${source}`;
+      baseNameCount.set(k1, (baseNameCount.get(k1) || 0) + 1);
+      baseNameLangCount.set(k2, (baseNameLangCount.get(k2) || 0) + 1);
+      baseNameLangSourceCount.set(k3, (baseNameLangSourceCount.get(k3) || 0) + 1);
     }
 
     const labelIndex = new Map<string, number>();
@@ -236,10 +425,26 @@ export const Settings: React.FC = () => {
       ...sorted.map((v) => ({
         value: `${v.engine}::${v.id}`,
         label: (() => {
-          const source = v.engine === "native-tts" ? "原生" : "Web";
-          const baseName = toShortVoiceLabel(v.name) || v.name || v.id;
-          const base = `${baseName} · ${source}`;
-          const labelBase = base;
+          const baseName = normalizeVoiceName(v) || v.name || v.id;
+          const langShort = String(v.lang || "").trim();
+          const source = getVoiceSourceLabel(v.engine);
+
+          const parts: string[] = [baseName];
+          const baseNameDup = (baseNameCount.get(baseName) || 0) > 1;
+          if (baseNameDup && langShort) parts.push(langShort);
+
+          const k2 = `${baseName}||${langShort}`;
+          const baseNameLangDup = (baseNameLangCount.get(k2) || 0) > 1;
+          if (baseNameLangDup) parts.push(source);
+
+          const k3 = `${baseName}||${langShort}||${source}`;
+          const baseNameLangSourceDup = (baseNameLangSourceCount.get(k3) || 0) > 1;
+          if (baseNameLangSourceDup) {
+            const disambiguator = getVoiceDisambiguator(v);
+            if (disambiguator) parts.push(disambiguator);
+          }
+
+          const labelBase = parts.join(" · ");
           const next = (labelIndex.get(labelBase) || 0) + 1;
           labelIndex.set(labelBase, next);
           return next > 1 ? `${labelBase} · ${next}` : labelBase;
@@ -718,6 +923,7 @@ export const Settings: React.FC = () => {
                 options={ttsVoiceOptions}
                 onChange={(val) => {
                   const raw = String(val);
+                  void log(`[TTS][Settings] 选择语音: ${raw}`, "info");
                   if (raw === "none") return;
                   if (raw === "default") {
                     setSettings((s) => ({
@@ -736,6 +942,7 @@ export const Settings: React.FC = () => {
                   const engine = raw.slice(0, idx);
                   const voiceId = raw.slice(idx + 2);
                   if (!engine || !voiceId) return;
+                  void log(`[TTS][Settings] 设置语音: engine=${engine} voiceId=${voiceId}`, "info");
                   setSettings((s) => ({
                     ...s,
                     ttsPreferredEngine: engine,

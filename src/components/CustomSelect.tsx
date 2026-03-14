@@ -34,6 +34,7 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
   const [isOpen, setIsOpen] = useState(false);
   const [computedMaxHeight, setComputedMaxHeight] = useState<number>(dropdownMaxHeight);
   const containerRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   const updateDropdownMaxHeight = useCallback(() => {
     if (!adaptiveMaxHeight) return;
@@ -47,6 +48,16 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
     const next = Math.max(0, Math.min(dropdownMaxHeight, available - viewportMargin));
     setComputedMaxHeight(next);
   }, [adaptiveMaxHeight, dropdownDirection, dropdownMaxHeight, viewportMargin]);
+
+  const scrollToSelected = useCallback(() => {
+    const dropdown = dropdownRef.current;
+    if (!dropdown) return;
+    const targetValue = String(value);
+    const children = Array.from(dropdown.children) as HTMLElement[];
+    const target = children.find((el) => el.dataset.value === targetValue);
+    if (!target) return;
+    target.scrollIntoView({ block: "nearest" });
+  }, [value]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent | TouchEvent) => {
@@ -69,11 +80,12 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
     if (disabled && isOpen) setIsOpen(false);
     if (!isOpen) return;
     updateDropdownMaxHeight();
+    requestAnimationFrame(() => scrollToSelected());
     window.addEventListener("resize", updateDropdownMaxHeight);
     return () => {
       window.removeEventListener("resize", updateDropdownMaxHeight);
     };
-  }, [disabled, isOpen, updateDropdownMaxHeight]);
+  }, [disabled, isOpen, scrollToSelected, updateDropdownMaxHeight]);
 
   const selectedOption = options.find((o) => o.value === value);
 
@@ -128,6 +140,7 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
             `}</style>
           )}
           <div
+            ref={dropdownRef}
             className={hideScrollbar ? "custom-select-hide-scrollbar" : undefined}
             style={{
               position: "absolute",
@@ -152,6 +165,7 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
             {options.map((option) => (
               <div
                 key={option.value}
+                data-value={String(option.value)}
                 onClick={() => {
                   onChange(option.value);
                   setIsOpen(false);

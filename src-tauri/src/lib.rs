@@ -99,7 +99,8 @@ use sqlx::SqlitePool;
 use std::str::FromStr;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use tauri::Manager;
+use tauri::{AppHandle, Manager, Runtime};
+use tauri_plugin_native_tts::NativeTtsExt;
 use tokio::sync::Mutex;
 
 #[tauri::command]
@@ -120,6 +121,53 @@ async fn show_status_bar() -> Result<(), String> {
 async fn hide_status_bar() -> Result<(), String> {
     // Android uses StatusBarBridge JavascriptInterface, iOS would need native implementation
     Ok(())
+}
+
+#[tauri::command]
+async fn native_tts_init<R: Runtime>(
+    app: AppHandle<R>,
+    payload: tauri_plugin_native_tts::InitArgs,
+) -> Result<tauri_plugin_native_tts::InitResponse, String> {
+    app.native_tts().init(payload).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn native_tts_speak<R: Runtime>(
+    app: AppHandle<R>,
+    payload: tauri_plugin_native_tts::SpeakArgs,
+) -> Result<tauri_plugin_native_tts::SpeakResponse, String> {
+    app.native_tts().speak(payload).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn native_tts_pause<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    app.native_tts().pause().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn native_tts_stop<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    app.native_tts().stop().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn native_tts_set_rate<R: Runtime>(
+    app: AppHandle<R>,
+    payload: tauri_plugin_native_tts::SetRateArgs,
+) -> Result<(), String> {
+    app.native_tts().set_rate(payload).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn native_tts_set_voice<R: Runtime>(
+    app: AppHandle<R>,
+    payload: tauri_plugin_native_tts::SetVoiceArgs,
+) -> Result<(), String> {
+    app.native_tts().set_voice(payload).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn native_tts_shutdown<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    app.native_tts().shutdown().map_err(|e| e.to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -286,6 +334,14 @@ pub fn run() {
             // Status bar control commands
             show_status_bar,
             hide_status_bar,
+            // Native TTS commands (avoid plugin invoke ACL)
+            native_tts_init,
+            native_tts_speak,
+            native_tts_pause,
+            native_tts_stop,
+            native_tts_set_rate,
+            native_tts_set_voice,
+            native_tts_shutdown,
             // Stats commands
             save_reading_session,
             get_stats_summary,

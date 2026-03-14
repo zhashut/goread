@@ -480,6 +480,10 @@ export class TTSController {
     // 检测语言并通知客户端
     const lang = parseSSMLLang(processed);
     this.#client.setPrimaryLang(lang);
+    log(
+      `[TTS] 播放参数: engine=${this.#client.name} voiceId=${this.#client.getVoiceId() || 'default'} lang=${lang} rate=${this.#client.getRate()}`,
+      'info',
+    );
 
     this.#abortController = new AbortController();
     const { signal } = this.#abortController;

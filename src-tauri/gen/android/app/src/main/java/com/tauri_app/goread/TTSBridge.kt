@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.webkit.JavascriptInterface
@@ -30,12 +31,16 @@ class TTSBridge(
     @JavascriptInterface
     fun init() {
         mainHandler.post {
+            val defaultEngine = try {
+                Settings.Secure.getString(context.contentResolver, Settings.Secure.TTS_DEFAULT_SYNTH) ?: ""
+            } catch (_: Exception) { "" }
+            println("[TTS][Bridge] init: start defaultEngine=$defaultEngine")
             tts = TextToSpeech(context) { status ->
                 isReady = status == TextToSpeech.SUCCESS
                 if (isReady) {
-                    tts?.language = Locale.CHINESE
                     tts?.setOnUtteranceProgressListener(createProgressListener())
                 }
+                val voicesCount = try { tts?.voices?.size ?: 0 } catch (_: Exception) { 0 }
                 val initStatus = if (!isReady) {
                     "init_error"
                 } else {
@@ -50,6 +55,7 @@ class TTSBridge(
                 // 用 JSON.parse 包裹语音列表，避免特殊字符导致 JS 语法错误
                 val escapedVoices = escapeForJS(voices)
                 val escapedStatus = escapeForJS(initStatus)
+                println("[TTS][Bridge] init: ready=$isReady status=$initStatus voices=$voicesCount")
                 notifyJS("window.__onTTSInit__($isReady, JSON.parse('$escapedVoices'), '$escapedStatus')")
             }
         }
@@ -61,21 +67,41 @@ class TTSBridge(
         mainHandler.post {
             if (!isReady || tts == null) {
                 val id = escapeForJS(utteranceId)
+                println("[TTS][Bridge] speak: not_ready utteranceId=$utteranceId")
                 notifyJS("window.__onTTSEvent__('error', '$id', 'TTS not ready')")
                 return@post
             }
 
-            val locale = when {
-                lang.startsWith("zh") -> Locale.CHINESE
-                lang.startsWith("en") -> Locale.ENGLISH
-                else -> Locale.CHINESE
+            val trimmedLang = lang.trim()
+            if (trimmedLang.isNotEmpty()) {
+                val locale = try {
+                    Locale.forLanguageTag(trimmedLang)
+                } catch (_: Exception) {
+                    null
+                }
+                if (locale != null && locale.toLanguageTag() != "und") {
+                    tts?.language = locale
+                } else {
+                    val fallback = when {
+                        trimmedLang.startsWith("zh") -> Locale.CHINESE
+                        trimmedLang.startsWith("en") -> Locale.ENGLISH
+                        else -> null
+                    }
+                    if (fallback != null) tts?.language = fallback
+                }
             }
-            tts?.language = locale
             currentRate = rate
             tts?.setSpeechRate(rate)
 
             val params = Bundle()
+            val defaultEngine = try {
+                Settings.Secure.getString(context.contentResolver, Settings.Secure.TTS_DEFAULT_SYNTH) ?: ""
+            } catch (_: Exception) { "" }
+            println("[TTS][Bridge] speak: utteranceId=$utteranceId defaultEngine=$defaultEngine lang=$lang rate=$rate textLen=${text.length}")
             tts?.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
+            val finalVoice = try { tts?.voice?.name ?: "" } catch (_: Exception) { "" }
+            val finalLocale = try { tts?.voice?.locale?.toLanguageTag() ?: "" } catch (_: Exception) { "" }
+            println("[TTS][Bridge] speak: queued utteranceId=$utteranceId finalVoice=$finalVoice finalLocale=$finalLocale")
         }
     }
 
@@ -83,6 +109,7 @@ class TTSBridge(
     @JavascriptInterface
     fun stop() {
         mainHandler.post {
+            println("[TTS][Bridge] stop")
             tts?.stop()
         }
     }
@@ -91,6 +118,7 @@ class TTSBridge(
     @JavascriptInterface
     fun pause(): Boolean {
         mainHandler.post {
+            println("[TTS][Bridge] pause")
             tts?.stop()
         }
         return true
@@ -105,6 +133,7 @@ class TTSBridge(
     // 获取可用语音列表（JSON 字符串）
     @JavascriptInterface
     fun getVoices(): String {
+        println("[TTS][Bridge] getVoices")
         return getVoicesJson()
     }
 
@@ -113,6 +142,7 @@ class TTSBridge(
     fun setRate(rate: Float) {
         currentRate = rate
         mainHandler.post {
+            println("[TTS][Bridge] setRate: $rate")
             tts?.setSpeechRate(rate)
         }
     }
@@ -121,6 +151,7 @@ class TTSBridge(
     @JavascriptInterface
     fun shutdown() {
         mainHandler.post {
+            println("[TTS][Bridge] shutdown")
             tts?.stop()
             tts?.shutdown()
             tts = null

@@ -28,6 +28,7 @@ export type ReaderSettings = {
   ttsRate?: number;
   ttsVoiceByEngine?: Record<string, string>;
   ttsPreferredEngine?: string;
+  ttsNativeDefaultEngine?: string;
 };
 
 const SETTINGS_KEY = 'reader_settings_v1';

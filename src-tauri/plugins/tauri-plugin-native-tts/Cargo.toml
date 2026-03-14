@@ -2,10 +2,14 @@
 name = "tauri-plugin-native-tts"
 version = "0.1.0"
 edition = "2021"
+links = "tauri-plugin-native-tts"
 
 [lib]
 name = "tauri_plugin_native_tts"
 path = "src/lib.rs"
+
+[build-dependencies]
+tauri-plugin = "2"
 
 [dependencies]
 tauri = { version = "2" }

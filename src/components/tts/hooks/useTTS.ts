@@ -5,7 +5,7 @@ import type { TTSState } from '../../../services/tts/types';
 import { TTSController } from '../../../services/tts/TTSController';
 import { WebSpeechClient } from '../../../services/tts/WebSpeechClient';
 import { NativeTTSClient } from '../../../services/tts/NativeTTSClient';
-import { log, logError, getReaderSettings } from '../../../services';
+import { log, logError, getReaderSettings, saveReaderSettings } from '../../../services';
 import { TTS_RATE_DEFAULT } from '../../../constants/tts';
 
 /** 操作锁状态：idle-空闲 / stopping-关闭中 / starting-开启中 */
@@ -51,7 +51,7 @@ interface UseTTSReturn {
 async function createTTSClient(
   preferredEngine?: string,
 ): Promise<{ client: ITTSClient | null; failReason: TTSFailReason }> {
-  log('[TTS] createTTSClient: 开始创建客户端', 'info');
+  log(`[TTS] createTTSClient: 开始创建客户端 preferredEngine=${preferredEngine ?? ''}`, 'info');
 
   const isAndroid = /android/i.test(navigator.userAgent || '');
 
@@ -224,7 +224,7 @@ export const useTTS = ({ rendererRef, listenSupported, onReadingActivity, onMark
     pendingStopRef.current = false;
     log('[TTS] toggle → 开启听书', 'info');
     try {
-      const readerSettings = getReaderSettings();
+      let readerSettings = getReaderSettings();
       const { client, failReason } = await createTTSClient(readerSettings.ttsPreferredEngine);
 
       // 启动过程中用户请求了停止
@@ -241,6 +241,34 @@ export const useTTS = ({ rendererRef, listenSupported, onReadingActivity, onMark
         return { success: false, failReason };
       }
 
+      if (client instanceof NativeTTSClient) {
+        const info = client.getInitInfo();
+        log(
+          `[TTS] Native 客户端就绪: mode=${info.mode} status=${info.status} offlineReady=${info.offlineReady} defaultEngine=${info.defaultEngine ?? ''}`,
+          'info',
+        );
+        if (info.defaultEngine) {
+          const prevEngine = readerSettings.ttsNativeDefaultEngine;
+          if (prevEngine && prevEngine !== info.defaultEngine) {
+            log(
+              `[TTS] 系统默认 TTS 引擎已变更: ${prevEngine} -> ${info.defaultEngine}，清理 native-tts 语音选择`,
+              'warn',
+            );
+            const nextVoiceByEngine = {
+              ...(readerSettings.ttsVoiceByEngine || {}),
+              'native-tts': 'default',
+            };
+            readerSettings = saveReaderSettings({
+              ttsNativeDefaultEngine: info.defaultEngine,
+              ttsVoiceByEngine: nextVoiceByEngine,
+            });
+            client.setVoice('default');
+          } else if (!prevEngine) {
+            readerSettings = saveReaderSettings({ ttsNativeDefaultEngine: info.defaultEngine });
+          }
+        }
+      }
+
       log(`[TTS] 客户端创建成功: ${client.name}，开始朗读`, 'info');
       const controller = new TTSController(client, rendererRef.current!, setState, onReadingActivity, onMark);
       controllerRef.current = controller;
@@ -251,6 +279,27 @@ export const useTTS = ({ rendererRef, listenSupported, onReadingActivity, onMark
       const voiceId = readerSettings.ttsVoiceByEngine?.[client.name];
       if (voiceId) {
         client.setVoice(voiceId);
+      }
+      const effectiveVoiceId = client.getVoiceId();
+      log(
+        `[TTS] 启动参数: engine=${client.name} voiceId=${voiceId ?? ''} effectiveVoiceId=${effectiveVoiceId || 'default'} rate=${ttsRate}`,
+        'info',
+      );
+      if (voiceId && voiceId !== 'default') {
+        const exists = (client.getVoices() || []).some((v) => v.id === voiceId);
+        if (!exists) {
+          log(
+            `[TTS] 选择的 voiceId 不存在于当前 voices: engine=${client.name} voiceId=${voiceId}，回退系统默认`,
+            'warn',
+          );
+          client.setVoice('default');
+          saveReaderSettings({
+            ttsVoiceByEngine: {
+              ...(readerSettings.ttsVoiceByEngine || {}),
+              [client.name]: 'default',
+            },
+          });
+        }
       }
 
       const success = await controller.start();

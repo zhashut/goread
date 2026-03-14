@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-install-tts-data"
+description = "Enables the install_tts_data command without any pre-configured scope."
+commands.allow = ["install_tts_data"]
+
+[[permission]]
+identifier = "deny-install-tts-data"
+description = "Denies the install_tts_data command without any pre-configured scope."
+commands.deny = ["install_tts_data"]

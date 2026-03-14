@@ -2,6 +2,7 @@ import type { ITTSClient } from './TTSClient';
 import type { TTSMessageEvent, TTSVoice } from './types';
 import { parseSSMLMarks } from './ssmlParser';
 import { TTS_RATE_DEFAULT } from '../../constants/tts';
+import { log, logError } from '../index';
 
 declare global {
   interface Window {
@@ -26,7 +27,7 @@ type PluginInitResponse = {
   status: string;
   defaultEngine?: string;
   langCheck?: { requested: string; result: string };
-  voices?: TTSVoice[];
+  voices?: (TTSVoice & { displayZh?: string; displayEn?: string })[];
 };
 
 export type NativeTTSInitInfo = {
@@ -52,13 +53,29 @@ async function loadTauriCore(): Promise<{
     handler: (payload: any) => void,
   ) => Promise<any>;
 } | null> {
+  const w = window as any;
+  const injectedInvoke = w?.__TAURI__?.core?.invoke || w?.__TAURI__?.invoke;
+  const injectedAddPluginListener = w?.__TAURI__?.core?.addPluginListener || w?.__TAURI__?.addPluginListener;
+  const invokeFromWindow = typeof injectedInvoke === 'function'
+    ? (injectedInvoke as (cmd: string, args?: any) => Promise<any>)
+    : null;
+  const addPluginListenerFromWindow = typeof injectedAddPluginListener === 'function'
+    ? injectedAddPluginListener
+    : null;
   try {
     const coreMod = await import('@tauri-apps/api/core').catch(() => null as any);
     const invoke = (coreMod as any)?.invoke;
-    if (typeof invoke !== 'function') return null;
     const addPluginListener = (coreMod as any)?.addPluginListener;
-    return { invoke, addPluginListener };
+    const finalInvoke = typeof invoke === 'function' ? invoke : invokeFromWindow;
+    const finalAddPluginListener = typeof addPluginListener === 'function'
+      ? addPluginListener
+      : addPluginListenerFromWindow;
+    if (typeof finalInvoke !== 'function') return null;
+    return { invoke: finalInvoke, addPluginListener: finalAddPluginListener || undefined };
   } catch {
+    if (invokeFromWindow) {
+      return { invoke: invokeFromWindow, addPluginListener: addPluginListenerFromWindow || undefined };
+    }
     return null;
   }
 }
@@ -114,10 +131,14 @@ export class NativeTTSClient implements ITTSClient {
 
   async #initPlugin(): Promise<boolean> {
     const core = await loadTauriCore();
-    if (!core?.addPluginListener) return false;
+    if (!core?.invoke) return false;
+    if (!core?.addPluginListener) {
+      log('[TTS][Native] 插件可用但缺少 addPluginListener，跳过 plugin 模式', 'warn');
+      return false;
+    }
 
     try {
-      const res = await core.invoke('plugin:native-tts|init', {
+      const res = await core.invoke('native_tts_init', {
         payload: { lang: this.#toBCP47(this.#primaryLang) },
       }) as PluginInitResponse;
 
@@ -137,8 +158,13 @@ export class NativeTTSClient implements ITTSClient {
       const normalized = this.#normalizeVoices(res.voices);
       this.#voices = normalized.length > 0 ? normalized : [this.#defaultVoice()];
       await this.#setupPluginListener(core.addPluginListener);
+      log(
+        `[TTS][Native] plugin 初始化成功: status=${this.#initInfo.status} defaultEngine=${this.#initInfo.defaultEngine ?? ''} voices=${this.#voices.length}`,
+        'info',
+      );
       return true;
-    } catch {
+    } catch (e) {
+      logError('[TTS][Native] plugin 初始化异常', e);
       return false;
     }
   }
@@ -151,25 +177,31 @@ export class NativeTTSClient implements ITTSClient {
     ) => Promise<any>,
   ): Promise<void> {
     if (this.#pluginListener) return;
-    this.#pluginListener = await addPluginListener(
-      'native-tts',
-      'tts_events',
-      (event: TTSEventPayload) => {
-        const utteranceId = (event as any)?.utteranceId;
-        if (!utteranceId) return;
-        const data = this.#activeUtterances.get(utteranceId);
-        if (!data) return;
-        const code = (event as any)?.code;
-        if (code !== 'end' && code !== 'error') return;
-        const message = (event as any)?.message;
-        const ev: TTSMessageEvent =
-          code === 'error'
-            ? { code: 'error', error: message || 'Native TTS error' }
-            : { code: 'end' };
-        this.#activeUtterances.delete(utteranceId);
-        data.resolve(ev);
-      },
-    );
+    try {
+      this.#pluginListener = await addPluginListener(
+        'native-tts',
+        'tts_events',
+        (event: TTSEventPayload) => {
+          const utteranceId = (event as any)?.utteranceId;
+          if (!utteranceId) return;
+          const data = this.#activeUtterances.get(utteranceId);
+          if (!data) return;
+          const code = (event as any)?.code;
+          if (code !== 'end' && code !== 'error') return;
+          const message = (event as any)?.message;
+          const ev: TTSMessageEvent =
+            code === 'error'
+              ? { code: 'error', error: message || 'Native TTS error' }
+              : { code: 'end' };
+          this.#activeUtterances.delete(utteranceId);
+          data.resolve(ev);
+        },
+      );
+      log('[TTS][Native] plugin 事件监听已注册', 'info');
+    } catch (e) {
+      logError('[TTS][Native] plugin 事件监听注册失败', e);
+      this.#pluginListener = null;
+    }
   }
 
   async #initBridge(): Promise<boolean> {
@@ -192,8 +224,10 @@ export class NativeTTSClient implements ITTSClient {
           const normalized = this.#normalizeVoices(voices);
           this.#voices =
             normalized.length > 0 ? normalized : this.#tryReadVoicesFromBridge();
+          log(`[TTS][Native] bridge 初始化成功: status=${s} voices=${this.#voices.length}`, 'info');
         } else {
           this.#initInfo = { mode: 'none', status: status || 'init_error', offlineReady: false };
+          log(`[TTS][Native] bridge 初始化失败: status=${status || 'init_error'}`, 'warn');
         }
         resolve(success);
       };
@@ -216,13 +250,20 @@ export class NativeTTSClient implements ITTSClient {
     const out: TTSVoice[] = [];
     for (const v of input) {
       if (!v || typeof v !== 'object') continue;
-      const maybe = v as Partial<TTSVoice>;
+      const maybe = v as Partial<TTSVoice> & { displayZh?: unknown; displayEn?: unknown };
       if (
         typeof maybe.id === 'string' &&
         typeof maybe.name === 'string' &&
         typeof maybe.lang === 'string'
       ) {
-        out.push({ id: maybe.id, name: maybe.name, lang: maybe.lang });
+        const displayZh = typeof maybe.displayZh === 'string' ? maybe.displayZh : undefined;
+        const displayEn = typeof maybe.displayEn === 'string' ? maybe.displayEn : undefined;
+        out.push({
+          id: maybe.id,
+          name: maybe.name,
+          lang: maybe.lang,
+          display: displayZh || displayEn ? { zh: displayZh, en: displayEn } : undefined,
+        });
       }
     }
     return out;
@@ -304,7 +345,14 @@ export class NativeTTSClient implements ITTSClient {
         }
       };
 
-      window.TTSBridge!.speak(text, lang, this.#rate, utteranceId);
+      if (this.#currentVoiceId) {
+        log(
+          `[TTS][Native] bridge 模式不支持选语音: voiceId=${this.#currentVoiceId || 'default'}`,
+          'warn',
+        );
+      }
+      const effectiveLang = this.#currentVoiceId ? lang : '';
+      window.TTSBridge!.speak(text, effectiveLang, this.#rate, utteranceId);
     });
   }
 
@@ -317,8 +365,13 @@ export class NativeTTSClient implements ITTSClient {
     if (!core) return { code: 'error', error: 'Native TTS unavailable' };
     if (signal.aborted) return { code: 'end' };
 
-    const result = await core.invoke('plugin:native-tts|speak', {
-      payload: { text, lang: this.#toBCP47(lang) },
+    const effectiveLang = this.#currentVoiceId ? this.#toBCP47(lang) : '';
+    log(
+      `[TTS][Native] plugin speak: voiceId=${this.#currentVoiceId || 'default'} lang=${effectiveLang || 'system'} rate=${this.#rate}`,
+      'info',
+    );
+    const result = await core.invoke('native_tts_speak', {
+      payload: { text, lang: effectiveLang },
     }) as { utteranceId?: string };
 
     const utteranceId = result?.utteranceId;
@@ -355,7 +408,7 @@ export class NativeTTSClient implements ITTSClient {
   async pause(): Promise<boolean> {
     if (this.#mode === 'plugin') {
       const core = await loadTauriCore();
-      await core?.invoke('plugin:native-tts|pause').catch(() => {});
+      await core?.invoke('native_tts_pause').catch(() => {});
       return true;
     }
     window.TTSBridge?.pause();
@@ -374,7 +427,7 @@ export class NativeTTSClient implements ITTSClient {
 
     if (this.#mode === 'plugin') {
       const core = await loadTauriCore();
-      await core?.invoke('plugin:native-tts|stop').catch(() => {});
+      await core?.invoke('native_tts_stop').catch(() => {});
       return;
     }
     window.TTSBridge?.stop();
@@ -400,13 +453,18 @@ export class NativeTTSClient implements ITTSClient {
   setVoice(voiceId: string): void {
     if (!voiceId || voiceId === 'default') {
       this.#currentVoiceId = '';
+      if (this.#mode === 'plugin') {
+        loadTauriCore()
+          .then((core) => core?.invoke('native_tts_set_voice', { payload: { voice: '' } }))
+          .catch(() => {});
+      }
       return;
     }
     const found = this.#voices.find((v) => v.id === voiceId);
     if (found) this.#currentVoiceId = found.id;
     if (this.#mode === 'plugin') {
       loadTauriCore()
-        .then((core) => core?.invoke('plugin:native-tts|set_voice', { payload: { voice: voiceId } }))
+        .then((core) => core?.invoke('native_tts_set_voice', { payload: { voice: voiceId } }))
         .catch(() => {});
     }
   }
@@ -415,7 +473,7 @@ export class NativeTTSClient implements ITTSClient {
     this.#rate = rate;
     if (this.#mode === 'plugin') {
       loadTauriCore()
-        .then((core) => core?.invoke('plugin:native-tts|set_rate', { payload: { rate } }))
+        .then((core) => core?.invoke('native_tts_set_rate', { payload: { rate } }))
         .catch(() => {});
       return;
     }
@@ -443,7 +501,7 @@ export class NativeTTSClient implements ITTSClient {
 
     if (this.#mode === 'plugin') {
       const core = await loadTauriCore();
-      await core?.invoke('plugin:native-tts|shutdown').catch(() => {});
+      await core?.invoke('native_tts_shutdown').catch(() => {});
       this.#mode = 'none';
       return;
     }
