@@ -1,4 +1,5 @@
 import React, { useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { useLongPress } from "../hooks/useLongPress";
 import { useInlineEdit } from "../hooks/useInlineEdit";
 import { SELECTION_LONGPRESS_DELAY_MS } from "../constants/interactions";
@@ -67,6 +68,7 @@ export const BookCard: React.FC<CommonBookCardProps> = ({
   outerProps,
   styleOverride,
 }) => {
+  const { t } = useTranslation("bookshelf");
   const cardRef = useRef<HTMLDivElement | null>(null);
   // 动态加载长按 hook，避免循环依赖
   if (onLongPress) {
@@ -313,7 +315,7 @@ export const BookCard: React.FC<CommonBookCardProps> = ({
             userSelect: "none",
           }}
         >
-          {isUnread ? "未读" : `已读 ${progress}%`}
+          {isUnread ? t("bookStatusUnread") : t("bookStatusReadPercent", { progress })}
         </div>
       </div>
     </div>

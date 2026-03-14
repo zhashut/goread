@@ -10,6 +10,7 @@ import { TOAST_DURATION_SHORT_MS } from "../../../constants/config";
  */
 export const useBookmarks = (book: IBook | null, isExternal: boolean) => {
     const { t: tCommon } = useTranslation("common");
+    const { t: tReader } = useTranslation("reader");
     const [bookmarks, setBookmarks] = useState<IBookmark[]>([]);
     const [bookmarkToastVisible, setBookmarkToastVisible] = useState(false);
     const [bookmarkToastText, setBookmarkToastText] = useState("");
@@ -51,7 +52,7 @@ export const useBookmarks = (book: IBook | null, isExternal: boolean) => {
                 const created = await bookmarkService.addBookmark(
                     book.id,
                     currentPage,
-                    title || `第 ${currentPage} 页`
+                    title || tReader("page", { page: currentPage })
                 );
                 setBookmarks((prev) =>
                     [...prev, created].sort((a, b) => a.page_number - b.page_number)
@@ -63,7 +64,7 @@ export const useBookmarks = (book: IBook | null, isExternal: boolean) => {
                 return false;
             }
         },
-        [book, isExternal, tCommon, showToast]
+        [book, isExternal, tCommon, tReader, showToast]
     );
 
     const deleteBookmark = useCallback(

@@ -44,6 +44,8 @@
   },
   "deleteBookFailedWithReason": "删除书籍失败，请重试\n\n原因：{{reason}}",
   "deleteFailed": "删除失败，请重试",
+  "bookStatusUnread": "未读",
+  "bookStatusReadPercent": "已读 {{progress}}%",
   "noBooks": "暂无书籍",
   "noGroups": "暂无分组",
   "importTip": "通过右上角“更多”中的“导入”添加书籍",

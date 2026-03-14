@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { IBook } from "../../../types";
 import { bookService, logError } from "../../../services";
 import {
@@ -21,6 +22,8 @@ export const useBookFontSize = ({
   supported,
   setBook,
 }: UseBookFontSizeOptions) => {
+  const { t } = useTranslation("reader");
+
   const initial = useMemo(() => {
     if (!supported) return READER_FONT_SIZE_DEFAULT;
     if (isExternal) return READER_FONT_SIZE_DEFAULT;
@@ -62,7 +65,7 @@ export const useBookFontSize = ({
       if (!supported) return;
       const finalSize = clampAndStep(next);
       setFontSizeState(finalSize);
-      setToastMsg(`字号: ${finalSize}`);
+      setToastMsg(t("fontSize", { size: finalSize }));
 
       if (!isExternal) {
         setBook((prev) => {

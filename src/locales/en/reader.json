@@ -35,5 +35,6 @@
   "listenFailedNativeBridge": "Listen failed: native TTS not supported on this platform",
   "listenFailedNativeInit": "Listen failed: native TTS engine init failed, please install a TTS engine",
   "listenFailedNoContent": "Listen failed: no readable content on current page",
-  "listenFailedUnknown": "Listen failed, please check device voice settings"
+  "listenFailedUnknown": "Listen failed, please check device voice settings",
+  "fontSize": "Font size: {{size}}"
 }

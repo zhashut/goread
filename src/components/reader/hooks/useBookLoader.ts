@@ -55,6 +55,7 @@ export const useBookLoader = (
     cleanupActions: CleanupActions
 ) => {
     const { t: tCommon } = useTranslation("common");
+    const { t: tReader } = useTranslation("reader");
     const nav = useAppNav();
     const {
         setBook,
@@ -299,7 +300,7 @@ export const useBookLoader = (
                     tocActions.loadToc(
                         renderer,
                         pageCount,
-                        targetBook.title || "目录",
+                        targetBook.title || tReader("toc"),
                         targetBook.file_path
                     );
                 });

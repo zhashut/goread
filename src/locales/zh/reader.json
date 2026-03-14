@@ -35,5 +35,6 @@
   "listenFailedNativeBridge": "听书启动失败：当前平台不支持原生语音",
   "listenFailedNativeInit": "听书启动失败：原生语音引擎初始化失败，请安装或启用 TTS 引擎",
   "listenFailedNoContent": "听书启动失败：当前页面无可朗读内容",
-  "listenFailedUnknown": "听书启动失败，请检查设备语音设置"
+  "listenFailedUnknown": "听书启动失败，请检查设备语音设置",
+  "fontSize": "字号: {{size}}"
 }

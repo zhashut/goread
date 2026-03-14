@@ -597,7 +597,7 @@ export const Bookshelf: React.FC = () => {
                               textAlign: "left",
                             }}
                           >
-                            共 {g.book_count} 本
+                            {tCommon("books", { count: g.book_count })}
                           </div>
                         </div>
                       </div>
@@ -769,7 +769,7 @@ export const Bookshelf: React.FC = () => {
                           textAlign: "left",
                         }}
                       >
-                        共 {g.book_count} 本
+                        {tCommon("books", { count: g.book_count })}
                       </div>
                     </div>
                   </div>

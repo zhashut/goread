@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { TocNode } from "../../reader/types";
 import { IBookRenderer } from "../../../services/formats";
 import { logError } from "../../../services";
@@ -65,6 +66,7 @@ export const useToc = (
     readingMode: "horizontal" | "vertical",
     isDomRender: boolean
 ) => {
+    const { t } = useTranslation("reader");
     const [toc, setToc] = useState<TocNode[]>([]);
     const [activeNodeSignature, setActiveNodeSignature] = useState<
         string | undefined
@@ -106,7 +108,7 @@ export const useToc = (
                     if (pageCount > 0) {
                         setToc([
                             {
-                                title: fallbackTitle || "目录",
+                                title: fallbackTitle || t("toc"),
                                 page: 1,
                                 children: [],
                                 expanded: true,
@@ -128,7 +130,7 @@ export const useToc = (
                 setToc([]);
             }
         },
-        []
+        [t]
     );
 
     return {

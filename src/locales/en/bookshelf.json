@@ -43,6 +43,8 @@
   },
   "deleteBookFailedWithReason": "Failed to delete book, please try again\n\nReason: {{reason}}",
   "deleteFailed": "Delete failed, please try again",
+  "bookStatusUnread": "Unread",
+  "bookStatusReadPercent": "Read {{progress}}%",
 "noBooks": "No books",
   "noGroups": "No groups",
   "importTip": "Add books via Import in the top right menu",
