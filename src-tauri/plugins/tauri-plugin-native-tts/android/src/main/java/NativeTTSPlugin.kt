@@ -232,6 +232,7 @@ class NativeTTSPlugin(private val activity: Activity) : Plugin(activity) {
       }
     } catch (_: Exception) {
     }
+    if (voiceId.isNotBlank()) return
     try {
       val locale = toLocale(lang)
       if (locale != null) {

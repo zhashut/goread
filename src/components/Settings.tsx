@@ -38,6 +38,10 @@ import { exportAppData, importAppData, exitApp } from "../services/dataBackupSer
 import { Toast } from "./Toast";
 import { IconInfo } from "./Icons";
 import { Loading } from "./Loading";
+import { NativeTTSClient, WebSpeechClient } from "../services/tts";
+import type { TTSVoice } from "../services/tts";
+
+type TTSVoiceWithEngine = TTSVoice & { engine: string };
 
 export const Settings: React.FC = () => {
   const { t } = useTranslation('settings');
@@ -47,6 +51,8 @@ export const Settings: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [loadingText, setLoadingText] = useState("");
   const isFirstRender = useRef(true);
+  const [ttsVoicesLoading, setTtsVoicesLoading] = useState(false);
+  const [ttsVoices, setTtsVoices] = useState<TTSVoiceWithEngine[]>([]);
 
   const nav = useAppNav();
 
@@ -88,6 +94,66 @@ export const Settings: React.FC = () => {
     return () => clearTimeout(id);
   }, [settings]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      setTtsVoicesLoading(true);
+      try {
+        const loadNative = async (): Promise<TTSVoiceWithEngine[]> => {
+          const native = new NativeTTSClient();
+          const ok = await native.init().catch(() => false);
+          if (!ok) {
+            await native.shutdown().catch(() => {});
+            return [];
+          }
+          const voices = native.getVoices() || [];
+          await native.shutdown().catch(() => {});
+          return voices.map((v) => ({ ...v, engine: native.name }));
+        };
+
+        const loadWebSpeech = async (): Promise<TTSVoiceWithEngine[]> => {
+          const web = new WebSpeechClient({ allowRemoteVoices: true });
+          const ok = await web.init().catch(() => false);
+          if (!ok) {
+            await web.shutdown().catch(() => {});
+            return [];
+          }
+          const voices = web.getVoices() || [];
+          await web.shutdown().catch(() => {});
+          return voices.map((v) => ({ ...v, engine: web.name }));
+        };
+
+        const [nativeRes, webRes] = await Promise.allSettled([loadNative(), loadWebSpeech()]);
+        if (cancelled) return;
+
+        const combined = [
+          ...(nativeRes.status === "fulfilled" ? nativeRes.value : []),
+          ...(webRes.status === "fulfilled" ? webRes.value : []),
+        ];
+
+        const dedup = new Map<string, TTSVoiceWithEngine>();
+        for (const v of combined) {
+          if (!v?.id) continue;
+          const key = `${v.engine}::${v.id}`;
+          if (!dedup.has(key)) dedup.set(key, v);
+        }
+        setTtsVoices(Array.from(dedup.values()));
+      } catch {
+        if (!cancelled) {
+          setTtsVoices([]);
+        }
+      } finally {
+        if (!cancelled) setTtsVoicesLoading(false);
+      }
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // 缓存有效期变更时同步到后端
   const initialCacheExpiryDays = useRef(settings.cacheExpiryDays);
   useEffect(() => {
@@ -127,6 +193,77 @@ export const Settings: React.FC = () => {
       <div>{right}</div>
     </div>
   );
+
+  const toShortVoiceLabel = (name?: string) => {
+    let s = String(name || "").trim();
+    if (!s) return "";
+    s = s.replace(/\s*\([^)]*\)\s*/g, " ").replace(/\s+/g, " ").trim();
+    const parts = s.split(" - ");
+    if (parts.length >= 2) s = `${parts[0]} - ${parts[1]}`.trim();
+    return s.trim();
+  };
+
+  const ttsVoiceOptions = (() => {
+    const dedup = new Map<string, TTSVoiceWithEngine>();
+    for (const v of ttsVoices) {
+      if (!v?.id) continue;
+      const key = `${v.engine}::${v.id}`;
+      if (!dedup.has(key)) dedup.set(key, v);
+    }
+
+    const sorted = Array.from(dedup.values()).sort((a, b) => {
+      const la = `${a.engine || ""} ${a.lang || ""} ${a.name || ""}`.toLowerCase();
+      const lb = `${b.engine || ""} ${b.lang || ""} ${b.name || ""}`.toLowerCase();
+      return la.localeCompare(lb);
+    });
+
+    if (sorted.length === 0) {
+      return [{ value: "none", label: t("ttsVoiceLoadFailed") }];
+    }
+
+    const baseCount = new Map<string, number>();
+    for (const v of sorted) {
+      const source = v.engine === "native-tts" ? "原生" : "Web";
+      const baseName = toShortVoiceLabel(v.name) || v.name || v.id;
+      const base = `${baseName} · ${source}`;
+      baseCount.set(base, (baseCount.get(base) || 0) + 1);
+    }
+
+    const labelIndex = new Map<string, number>();
+
+    return [
+      { value: "default", label: t("ttsVoiceSystemDefault") },
+      ...sorted.map((v) => ({
+        value: `${v.engine}::${v.id}`,
+        label: (() => {
+          const source = v.engine === "native-tts" ? "原生" : "Web";
+          const baseName = toShortVoiceLabel(v.name) || v.name || v.id;
+          const base = `${baseName} · ${source}`;
+          const labelBase = base;
+          const next = (labelIndex.get(labelBase) || 0) + 1;
+          labelIndex.set(labelBase, next);
+          return next > 1 ? `${labelBase} · ${next}` : labelBase;
+        })(),
+      })),
+    ];
+  })();
+
+  const selectedTtsVoiceValue = (() => {
+    if (ttsVoices.length === 0) return "none";
+    const voiceByEngine = settings.ttsVoiceByEngine || {};
+    const preferredEngine = settings.ttsPreferredEngine;
+    if (preferredEngine) {
+      const vid = voiceByEngine[preferredEngine];
+      if (vid && vid !== "default") return `${preferredEngine}::${vid}`;
+      return "default";
+    }
+    const order = ["native-tts", "web-speech"];
+    for (const eng of order) {
+      const vid = voiceByEngine[eng];
+      if (vid && vid !== "default") return `${eng}::${vid}`;
+    }
+    return "default";
+  })();
 
   return (
     <div
@@ -572,6 +709,53 @@ export const Settings: React.FC = () => {
             );
           })()}
           </div>
+
+          <Row
+            label={t("ttsVoice")}
+            right={
+              <CustomSelect
+                value={selectedTtsVoiceValue}
+                options={ttsVoiceOptions}
+                onChange={(val) => {
+                  const raw = String(val);
+                  if (raw === "none") return;
+                  if (raw === "default") {
+                    setSettings((s) => ({
+                      ...s,
+                      ttsPreferredEngine: undefined,
+                      ttsVoiceByEngine: {
+                        ...(s.ttsVoiceByEngine || {}),
+                        "native-tts": "default",
+                        "web-speech": "default",
+                      },
+                    }));
+                    return;
+                  }
+                  const idx = raw.indexOf("::");
+                  if (idx <= 0) return;
+                  const engine = raw.slice(0, idx);
+                  const voiceId = raw.slice(idx + 2);
+                  if (!engine || !voiceId) return;
+                  setSettings((s) => ({
+                    ...s,
+                    ttsPreferredEngine: engine,
+                    ttsVoiceByEngine: {
+                      ...(s.ttsVoiceByEngine || {}),
+                      [engine]: voiceId,
+                    },
+                  }));
+                }}
+                style={{
+                  opacity: ttsVoicesLoading ? 0.7 : 1,
+                }}
+                disabled={ttsVoices.length === 0}
+                dropdownDirection="up"
+                adaptiveMaxHeight
+                dropdownMaxHeight={220}
+                hideScrollbar
+              />
+            }
+          />
 
           <div style={{ padding: "12px 0" }}>
           <div

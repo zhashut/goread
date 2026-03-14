@@ -3,7 +3,6 @@ import type { TTSMessageEvent, TTSMark, TTSVoice } from './types';
 import { parseSSMLMarks } from './ssmlParser';
 import {
   WEB_SPEECH_BLACKLISTED_VOICES,
-  TTS_SUPPORTED_LANG_PREFIXES,
   TTS_RATE_DEFAULT,
   TTS_VOICE_LOAD_TIMEOUT,
   TTS_VOICE_RETRY_DELAY,
@@ -73,7 +72,7 @@ type WebSpeechVoice = SpeechSynthesisVoice & { id: string };
 
 /**
  * Web Speech API 客户端
- * 使用浏览器/系统原生 TTS 引擎朗读，仅支持中文和英文
+ * 使用浏览器/系统原生 TTS 引擎朗读
  */
 export class WebSpeechClient implements ITTSClient {
   readonly name = 'web-speech';
@@ -142,17 +141,7 @@ export class WebSpeechClient implements ITTSClient {
       (v) => !WEB_SPEECH_BLACKLISTED_VOICES.some((name) => v.name.includes(name)),
     );
 
-    // 优先使用中英文语音
-    let matched = filtered.filter((v) => {
-      const prefix = v.lang.substring(0, 2).toLowerCase();
-      return TTS_SUPPORTED_LANG_PREFIXES.includes(prefix);
-    });
-
-    // 如果中英文语音为空，放宽到全部可用语音（总比啥都没有强）
-    if (matched.length === 0 && filtered.length > 0) {
-      log(`[TTS] 无中英文语音，放宽到全部 ${filtered.length} 个可用语音`, 'info');
-      matched = filtered;
-    }
+    let matched = filtered;
 
     if (!this.#allowRemoteVoices) {
       matched = matched.filter((v) => v.localService);
@@ -199,17 +188,14 @@ export class WebSpeechClient implements ITTSClient {
 
   /** 根据语言获取最匹配的语音 */
   #getVoiceForLang(lang: string): SpeechSynthesisVoice | null {
+    if (this.#currentVoiceId) {
+      const selected = this.#voices.find((v) => v.id === this.#currentVoiceId);
+      if (selected) return selected;
+    }
+
     const prefix = lang.substring(0, 2).toLowerCase();
     const cached = this.#voiceByLang.get(prefix);
     if (cached) return cached;
-
-    // 如果有指定语音，优先用
-    if (this.#currentVoiceId) {
-      const selected = this.#voices.find((v) => v.id === this.#currentVoiceId);
-      if (selected && selected.lang.substring(0, 2).toLowerCase() === prefix) {
-        return selected;
-      }
-    }
 
     // 否则找该语言的第一个可用语音
     const match = this.#voices.find(
@@ -276,12 +262,17 @@ export class WebSpeechClient implements ITTSClient {
   }
 
   setVoice(voiceId: string): void {
-    const found = this.#voices.find((v) => v.id === voiceId);
-    if (found) {
-      this.#currentVoiceId = found.id;
-      // 清除缓存，让新语音生效
+    if (!voiceId || voiceId === 'default') {
+      this.#currentVoiceId = '';
       this.#voiceByLang.clear();
+      return;
     }
+
+    const found = this.#voices.find((v) => v.id === voiceId);
+    if (!found) return;
+
+    this.#currentVoiceId = found.id;
+    this.#voiceByLang.clear();
   }
 
   setRate(rate: number): void {

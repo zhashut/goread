@@ -26,6 +26,8 @@ export type ReaderSettings = {
   theme?: ReaderTheme;
   cacheExpiryDays?: number;
   ttsRate?: number;
+  ttsVoiceByEngine?: Record<string, string>;
+  ttsPreferredEngine?: string;
 };
 
 const SETTINGS_KEY = 'reader_settings_v1';

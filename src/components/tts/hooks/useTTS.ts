@@ -47,42 +47,74 @@ interface UseTTSReturn {
   notifyDocumentUpdated: () => Promise<void>;
 }
 
-/** 尝试创建并初始化 TTS 客户端，Android 优先原生 TTS，其他平台 Web Speech 优先 */
-async function createTTSClient(): Promise<{ client: ITTSClient | null; failReason: TTSFailReason }> {
+/** 尝试创建并初始化 TTS 客户端，支持优先选择指定引擎 */
+async function createTTSClient(
+  preferredEngine?: string,
+): Promise<{ client: ITTSClient | null; failReason: TTSFailReason }> {
   log('[TTS] createTTSClient: 开始创建客户端', 'info');
 
   const isAndroid = /android/i.test(navigator.userAgent || '');
 
-  if (isAndroid) {
-    const nativeTTS = new NativeTTSClient();
-    const nativeInited = await nativeTTS.init();
-    const nativeInfo = nativeTTS.getInitInfo();
+  const tryWebSpeech = async (allowRemoteVoices: boolean): Promise<ITTSClient | null> => {
+    const web = new WebSpeechClient({ allowRemoteVoices });
+    const ok = await web.init();
     log(
-      `[TTS] Native init: inited=${nativeInited} mode=${nativeInfo.mode} status=${nativeInfo.status} offlineReady=${nativeInfo.offlineReady}`,
+      `[TTS] WebSpeech(${allowRemoteVoices ? 'any' : 'localOnly'}) init 结果: ${ok}，语音数: ${web.getVoices().length}`,
       'info',
     );
-    if (nativeInited && nativeInfo.offlineReady) {
+    if (ok) return web;
+    await web.shutdown().catch(() => {});
+    return null;
+  };
+
+  const tryNative = async (): Promise<NativeTTSClient | null> => {
+    const native = new NativeTTSClient();
+    const ok = await native.init();
+    const info = native.getInitInfo();
+    log(
+      `[TTS] Native init: inited=${ok} mode=${info.mode} status=${info.status} offlineReady=${info.offlineReady}`,
+      'info',
+    );
+    if (ok) return native;
+    await native.shutdown().catch(() => {});
+    return null;
+  };
+
+  if (isAndroid) {
+    if (preferredEngine === 'web-speech') {
+      const web = await tryWebSpeech(true);
+      if (web) return { client: web, failReason: 'listenFailedUnknown' };
+    }
+    if (preferredEngine === 'native-tts') {
+      const native = await tryNative();
+      const info = native?.getInitInfo();
+      if (native && info?.offlineReady) return { client: native, failReason: 'listenFailedUnknown' };
+      await native?.shutdown().catch(() => {});
+    }
+
+    const nativeTTS = await tryNative();
+    const nativeInfo = nativeTTS?.getInitInfo();
+    if (nativeTTS && nativeInfo?.offlineReady) {
       return { client: nativeTTS, failReason: 'listenFailedUnknown' };
     }
 
-    const webSpeechLocal = new WebSpeechClient({ allowRemoteVoices: false });
-    const webLocalInited = await webSpeechLocal.init();
-    log(`[TTS] WebSpeech(localOnly) init 结果: ${webLocalInited}，语音数: ${webSpeechLocal.getVoices().length}`, 'info');
-    if (webLocalInited) {
+    const webSpeechLocal = await tryWebSpeech(false);
+    if (webSpeechLocal) {
+      await nativeTTS?.shutdown().catch(() => {});
       return { client: webSpeechLocal, failReason: 'listenFailedUnknown' };
     }
 
     if (
-      nativeInited
+      nativeTTS
+      && nativeInfo
       && (nativeInfo.status === 'missing_data' || nativeInfo.status === 'lang_not_supported')
     ) {
       return { client: nativeTTS, failReason: 'listenFailedUnknown' };
     }
 
-    const webSpeechAny = new WebSpeechClient({ allowRemoteVoices: true });
-    const webAnyInited = await webSpeechAny.init();
-    log(`[TTS] WebSpeech(any) init 结果: ${webAnyInited}，语音数: ${webSpeechAny.getVoices().length}`, 'info');
-    if (webAnyInited) {
+    const webSpeechAny = await tryWebSpeech(true);
+    if (webSpeechAny) {
+      await nativeTTS?.shutdown().catch(() => {});
       return { client: webSpeechAny, failReason: 'listenFailedUnknown' };
     }
 
@@ -95,10 +127,17 @@ async function createTTSClient(): Promise<{ client: ITTSClient | null; failReaso
     return { client: null, failReason: 'listenFailedNativeInit' };
   }
 
-  const webSpeech = new WebSpeechClient();
-  const webInited = await webSpeech.init();
-  log(`[TTS] WebSpeech init 结果: ${webInited}，语音数: ${webSpeech.getVoices().length}`, 'info');
-  if (webInited) {
+  if (preferredEngine === 'native-tts') {
+    const native = await tryNative();
+    if (native) return { client: native, failReason: 'listenFailedUnknown' };
+  }
+  if (preferredEngine === 'web-speech') {
+    const web = await tryWebSpeech(true);
+    if (web) return { client: web, failReason: 'listenFailedUnknown' };
+  }
+
+  const webSpeech = await tryWebSpeech(true);
+  if (webSpeech) {
     return { client: webSpeech, failReason: 'listenFailedUnknown' };
   }
   log('[TTS] WebSpeech 初始化失败，尝试 NativeTTS...', 'warn');
@@ -111,11 +150,8 @@ async function createTTSClient(): Promise<{ client: ITTSClient | null; failReaso
     return { client: null, failReason: reason };
   }
 
-  const nativeTTS = new NativeTTSClient();
-  const nativeInited = await nativeTTS.init();
-  if (nativeInited) {
-    return { client: nativeTTS, failReason: 'listenFailedUnknown' };
-  }
+  const nativeTTS = await tryNative();
+  if (nativeTTS) return { client: nativeTTS, failReason: 'listenFailedUnknown' };
 
         log('[TTS] NativeTTS 初始化失败', 'warn');
   return { client: null, failReason: 'listenFailedNativeInit' };
@@ -188,7 +224,8 @@ export const useTTS = ({ rendererRef, listenSupported, onReadingActivity, onMark
     pendingStopRef.current = false;
     log('[TTS] toggle → 开启听书', 'info');
     try {
-      const { client, failReason } = await createTTSClient();
+      const readerSettings = getReaderSettings();
+      const { client, failReason } = await createTTSClient(readerSettings.ttsPreferredEngine);
 
       // 启动过程中用户请求了停止
       if (pendingStopRef.current) {
@@ -208,9 +245,13 @@ export const useTTS = ({ rendererRef, listenSupported, onReadingActivity, onMark
       const controller = new TTSController(client, rendererRef.current!, setState, onReadingActivity, onMark);
       controllerRef.current = controller;
 
-      // 从持久化设置读取语速并应用到 TTS 引擎
-      const ttsRate = getReaderSettings().ttsRate ?? TTS_RATE_DEFAULT;
+      const ttsRate = readerSettings.ttsRate ?? TTS_RATE_DEFAULT;
       controller.setRate(ttsRate);
+
+      const voiceId = readerSettings.ttsVoiceByEngine?.[client.name];
+      if (voiceId) {
+        client.setVoice(voiceId);
+      }
 
       const success = await controller.start();
       log(`[TTS] controller.start() 结果: ${success}`, 'info');

@@ -14,6 +14,9 @@
   "importing": "正在导入...",
   "scrollSpeed": "滚动速度",
   "pageGap": "页面间隙",
+  "ttsVoice": "语音选择",
+  "ttsVoiceSystemDefault": "系统默认",
+  "ttsVoiceLoadFailed": "无可用语音",
   "ttsRate": "听书语速",
   "unlimited": "不限",
   "cacheExpiry": {

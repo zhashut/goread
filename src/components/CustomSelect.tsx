@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import { SELECT_MIN_WIDTH } from "../constants/ui";
 
 interface Option {
@@ -11,6 +11,12 @@ interface CustomSelectProps {
   options: Option[];
   onChange: (value: string | number) => void;
   style?: React.CSSProperties;
+  dropdownDirection?: "down" | "up";
+  dropdownMaxHeight?: number;
+  adaptiveMaxHeight?: boolean;
+  viewportMargin?: number;
+  hideScrollbar?: boolean;
+  disabled?: boolean;
 }
 
 export const CustomSelect: React.FC<CustomSelectProps> = ({
@@ -18,9 +24,29 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
   options,
   onChange,
   style,
+  dropdownDirection = "down",
+  dropdownMaxHeight = 250,
+  adaptiveMaxHeight = false,
+  viewportMargin = 12,
+  hideScrollbar = false,
+  disabled = false,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [computedMaxHeight, setComputedMaxHeight] = useState<number>(dropdownMaxHeight);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const updateDropdownMaxHeight = useCallback(() => {
+    if (!adaptiveMaxHeight) return;
+    const el = containerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const available =
+      dropdownDirection === "up"
+        ? rect.top
+        : window.innerHeight - rect.bottom;
+    const next = Math.max(0, Math.min(dropdownMaxHeight, available - viewportMargin));
+    setComputedMaxHeight(next);
+  }, [adaptiveMaxHeight, dropdownDirection, dropdownMaxHeight, viewportMargin]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent | TouchEvent) => {
@@ -39,6 +65,16 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
     };
   }, []);
 
+  useEffect(() => {
+    if (disabled && isOpen) setIsOpen(false);
+    if (!isOpen) return;
+    updateDropdownMaxHeight();
+    window.addEventListener("resize", updateDropdownMaxHeight);
+    return () => {
+      window.removeEventListener("resize", updateDropdownMaxHeight);
+    };
+  }, [disabled, isOpen, updateDropdownMaxHeight]);
+
   const selectedOption = options.find((o) => o.value === value);
 
   return (
@@ -51,18 +87,22 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
       }}
     >
       <div
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => {
+          if (disabled) return;
+          setIsOpen(!isOpen);
+        }}
         style={{
           padding: "6px 12px",
           border: "1px solid #ddd",
           borderRadius: "4px",
           backgroundColor: "#fff",
-          cursor: "pointer",
+          cursor: disabled ? "not-allowed" : "pointer",
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
           fontSize: "14px",
           color: "#333",
+          opacity: disabled ? 0.6 : 1,
           userSelect: "none",
         }}
       >
@@ -81,44 +121,56 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
         </span>
       </div>
       {isOpen && (
-        <div
-          style={{
-            position: "absolute",
-            top: "100%",
-            right: 0,
-            zIndex: 1000,
-            backgroundColor: "#fff",
-            border: "1px solid #eee",
-            borderRadius: "4px",
-            boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-            marginTop: "4px",
-            maxHeight: "250px",
-            overflowY: "auto",
-            minWidth: "100%",
-            width: "max-content",
-          }}
-        >
-          {options.map((option) => (
-            <div
-              key={option.value}
-              onClick={() => {
-                onChange(option.value);
-                setIsOpen(false);
-              }}
-              style={{
-                padding: "8px 16px",
-                cursor: "pointer",
-                backgroundColor: option.value === value ? "#f5f5f5" : "#fff",
-                color: option.value === value ? "#d15158" : "#333",
-                fontSize: "14px",
-                whiteSpace: "nowrap",
-                borderBottom: "1px solid #f9f9f9",
-              }}
-            >
-              {option.label}
-            </div>
-          ))}
-        </div>
+        <>
+          {hideScrollbar && (
+            <style>{`
+              .custom-select-hide-scrollbar::-webkit-scrollbar { display: none; }
+            `}</style>
+          )}
+          <div
+            className={hideScrollbar ? "custom-select-hide-scrollbar" : undefined}
+            style={{
+              position: "absolute",
+              ...(dropdownDirection === "up"
+                ? { bottom: "100%", marginBottom: "4px" }
+                : { top: "100%", marginTop: "4px" }),
+              right: 0,
+              zIndex: 1000,
+              backgroundColor: "#fff",
+              border: "1px solid #eee",
+              borderRadius: "4px",
+              boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+              maxHeight: `${adaptiveMaxHeight ? computedMaxHeight : dropdownMaxHeight}px`,
+              overflowY: "auto",
+              ...(hideScrollbar
+                ? { scrollbarWidth: "none", msOverflowStyle: "none" }
+                : null),
+              minWidth: "100%",
+              width: "max-content",
+            }}
+          >
+            {options.map((option) => (
+              <div
+                key={option.value}
+                onClick={() => {
+                  onChange(option.value);
+                  setIsOpen(false);
+                }}
+                style={{
+                  padding: "8px 16px",
+                  cursor: "pointer",
+                  backgroundColor: option.value === value ? "#f5f5f5" : "#fff",
+                  color: option.value === value ? "#d15158" : "#333",
+                  fontSize: "14px",
+                  whiteSpace: "nowrap",
+                  borderBottom: "1px solid #f9f9f9",
+                }}
+              >
+                {option.label}
+              </div>
+            ))}
+          </div>
+        </>
       )}
     </div>
   );
