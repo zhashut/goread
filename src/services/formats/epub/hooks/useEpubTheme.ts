@@ -115,22 +115,25 @@ export function useEpubTheme(): EpubThemeHook {
         text-indent: 2em;
       }
       
-      .epub-section-content a {
+      .epub-section-content a[href] {
         color: #58a6ff;
         text-decoration: none;
+        cursor: pointer;
       }
       
-      .epub-section-content a:hover {
+      .epub-section-content a[href]:hover {
         text-decoration: underline;
+      }
+
+      .epub-section-content a:not([href]) {
+        color: inherit;
+        text-decoration: inherit;
+        cursor: inherit;
       }
       
       .epub-section-content img {
         max-width: 100%;
         height: auto;
-      }
-      
-      .epub-section-content a {
-        cursor: pointer;
       }
       
       .epub-section-content pre {
