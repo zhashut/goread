@@ -181,6 +181,24 @@ fn convert_toc(navpoints: &[NavPoint]) -> Vec<TocItem> {
     convert_toc_level(navpoints, 0)
 }
 
+/// 按优先级选择目录来源：EPUB3 nav → NCX。
+/// 环境变量 GOREAD_EPUB_DISABLE_NAV=1 可临时关闭 nav 分支以便故障回退。
+fn resolve_toc<R: std::io::Read + std::io::Seek>(doc: &mut EpubDoc<R>) -> Vec<TocItem> {
+    let nav_disabled = std::env::var("GOREAD_EPUB_DISABLE_NAV")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+
+    if !nav_disabled {
+        if let Some(nav_toc) = super::nav::parse_nav_toc(doc) {
+            if !nav_toc.is_empty() {
+                return nav_toc;
+            }
+        }
+    }
+
+    convert_toc(&doc.toc)
+}
+
 /// 从章节 HTML 中提取内联 <style> 标签和外链 CSS 引用的样式内容，同时收集 CSS 中引用的资源路径
 fn extract_styles_from_html<R: std::io::Read + std::io::Seek>(
     doc: &mut EpubDoc<R>,
@@ -459,9 +477,16 @@ pub fn prepare_book(file_path: &str) -> Result<EpubPreparedBook, String> {
         cover_image,
     };
 
-    let toc = convert_toc(&doc.toc);
+    let toc = resolve_toc(&mut doc);
 
     let (sections, spine, resources, section_count) = extract_sections_and_resources(&mut doc)?;
+
+    // 若 nav/ncx 均无目录，基于 spine 生成伪目录作为最后兜底，保证目录抽屉可用
+    let toc = if toc.is_empty() {
+        super::nav::build_spine_fallback_toc(&spine)
+    } else {
+        toc
+    };
 
     Ok(EpubPreparedBook {
         book_info,

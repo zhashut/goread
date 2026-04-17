@@ -137,7 +137,14 @@ pub struct MetadataCacheEntry {
     pub section_count: u32,
     pub spine: Vec<String>,
     pub last_access_time: u64,
+    /// 缓存结构版本，用于在解析能力升级后主动淘汰旧缓存
+    #[serde(default)]
+    pub schema_version: u32,
 }
+
+/// 当前 EPUB 元数据缓存版本号。
+/// 1：新增 EPUB3 nav.xhtml 目录解析能力；老版本（0）缓存若目录为空需要重建。
+pub const EPUB_METADATA_SCHEMA_VERSION: u32 = 1;
 
 /// 默认磁盘缓存上限（字节），前端未下发时的 fallback
 const DEFAULT_DISK_CACHE_MAX_BYTES: usize = 256 * 1024 * 1024;
@@ -711,6 +718,7 @@ impl EpubCacheManager {
             section_count,
             spine,
             last_access_time: Self::now_millis(),
+            schema_version: EPUB_METADATA_SCHEMA_VERSION,
         };
 
         let meta_path = cache_dir.join(format!("{}.json", book_hash));
@@ -744,6 +752,12 @@ impl EpubCacheManager {
                 return Ok(None);
             }
 
+            // 解析能力升级兜底：旧版本缓存且目录为空时主动淘汰，触发下次重建
+            if entry.schema_version < EPUB_METADATA_SCHEMA_VERSION && entry.toc.is_empty() {
+                let _ = fs::remove_file(&meta_path).await;
+                return Ok(None);
+            }
+
             let updated_entry = MetadataCacheEntry {
                 last_access_time: Self::now_millis(),
                 ..entry.clone()
@@ -772,6 +786,12 @@ impl EpubCacheManager {
         };
 
         if self.is_expired(entry.last_access_time) {
+            let _ = fs::remove_file(&legacy_meta_path).await;
+            return Ok(None);
+        }
+
+        // 与主分支保持一致：旧版本缓存 + 空目录直接淘汰
+        if entry.schema_version < EPUB_METADATA_SCHEMA_VERSION && entry.toc.is_empty() {
             let _ = fs::remove_file(&legacy_meta_path).await;
             return Ok(None);
         }
