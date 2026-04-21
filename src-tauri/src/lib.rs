@@ -86,7 +86,8 @@ use commands::{
     update_group,
     read_file_base64,
     read_file_chunked,
-    get_file_stats
+    get_file_stats,
+    fs_quick_fingerprint
 };
 use epub_commands::*;
 use html_commands::*;
@@ -294,6 +295,7 @@ pub fn run() {
             read_file_base64,
             read_file_chunked,
             get_file_stats,
+            fs_quick_fingerprint,
             // PDF相关命令
             pdf_load_document,
             pdf_render_page,

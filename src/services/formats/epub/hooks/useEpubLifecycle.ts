@@ -4,7 +4,7 @@
  */
 import { BookInfo, TocItem } from '../../types';
 import { logError, getInvoke } from '../../../index';
-import { generateQuickBookId } from '../../../../utils/bookId';
+import { generateContentAwareBookId } from '../../../../utils/bookId';
 import { epubCacheService } from '../epubCacheService';
 
 export interface EpubLifecycleState {
@@ -119,7 +119,7 @@ export function useEpubLifecycle(): EpubLifecycleHook {
 
   const loadDocument = async (filePath: string, _options?: LoadDocumentOptions | string | null): Promise<BookInfo> => {
     state.filePath = filePath;
-    state.bookId = generateQuickBookId(filePath);
+    state.bookId = await generateContentAwareBookId(filePath);
     const bookId = state.bookId;
 
     const bookInfo = await loadFromBackend(filePath, bookId);

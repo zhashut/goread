@@ -108,3 +108,28 @@ export function generateQuickBookId(filePath: string): string {
   const pathHash = simpleHash(filePath).toString(16).padStart(8, '0');
   return `${sanitized}#${pathHash}`;
 }
+
+/**
+ * 提取文件路径对应的稳定逻辑 ID
+ * 同一本书在不同路径下仍可得到相同逻辑 ID（仅取文件名 + sanitize）
+ */
+export function extractLogicalIdFromPath(filePath: string): string {
+  const parts = filePath.replace(/\\/g, '/').split('/');
+  const fileName = parts[parts.length - 1] || 'unknown';
+  const name = fileName.replace(/\.[^.]+$/, '');
+  return sanitizeId(name);
+}
+
+/**
+ * 生成内容感知的 bookId
+ * 格式：逻辑ID#内容指纹（指纹由文件 size + mtime + 首部字节哈希构成）
+ * 文件内容变化时，指纹随之变化，老缓存自然失效
+ *
+ * 注意：本函数仅用于 EPUB 入口，不影响 MOBI / PDF / TXT 的既有 bookId 生成规则
+ */
+export async function generateContentAwareBookId(filePath: string): Promise<string> {
+  const { getFileFingerprint } = await import('./fileFingerprint');
+  const logicalId = extractLogicalIdFromPath(filePath);
+  const fingerprint = await getFileFingerprint(filePath);
+  return `${logicalId}#${fingerprint}`;
+}

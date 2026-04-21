@@ -917,6 +917,73 @@ pub struct FileStats {
     pub is_dir: bool,
 }
 
+/// 轻量文件指纹返回结果
+/// size：文件字节数
+/// mtime_ms：最后修改时间（毫秒，UNIX 时间戳）
+/// head_hash：文件首部最多 64KB 字节的 64 位 FNV-1a 哈希（十六进制）
+#[derive(serde::Serialize)]
+pub struct FileFingerprint {
+    pub size: u64,
+    pub mtime_ms: i64,
+    pub head_hash: String,
+}
+
+/// 计算文件首部字节的 FNV-1a 64 位哈希
+fn fnv1a_64(bytes: &[u8]) -> u64 {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for b in bytes {
+        hash ^= *b as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
+}
+
+/// 获取文件的轻量指纹
+/// 只读取文件首部（最多 64KB）配合 size + mtime，足以在绝大多数场景下识别内容变化
+/// 性能：50MB 文件耗时通常在 5ms 以内，远快于全文件 SHA-256
+#[tauri::command]
+pub async fn fs_quick_fingerprint(path: String) -> Result<FileFingerprint, String> {
+    use tokio::io::AsyncReadExt;
+
+    const HEAD_BYTES_LIMIT: usize = 64 * 1024;
+
+    let file_path = PathBuf::from(&path);
+    if !file_path.exists() {
+        return Err(format!("文件不存在: {}", path));
+    }
+
+    let metadata = tokio::fs::metadata(&file_path)
+        .await
+        .map_err(|e| format!("获取文件信息失败: {}", e))?;
+
+    let size = metadata.len();
+    let mtime_ms = metadata
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+
+    let read_len = std::cmp::min(size as usize, HEAD_BYTES_LIMIT);
+    let mut head = vec![0u8; read_len];
+    if read_len > 0 {
+        let mut file = tokio::fs::File::open(&file_path)
+            .await
+            .map_err(|e| format!("打开文件失败: {}", e))?;
+        file.read_exact(&mut head)
+            .await
+            .map_err(|e| format!("读取文件首部失败: {}", e))?;
+    }
+
+    let head_hash = format!("{:016x}", fnv1a_64(&head));
+
+    Ok(FileFingerprint {
+        size,
+        mtime_ms,
+        head_hash,
+    })
+}
+
 /// 以 Base64 编码读取文件（优化内存占用）
 /// 用于 EPUB 等大文件读取场景，避免 number[] 在 JS 中占用过多内存
 #[tauri::command]

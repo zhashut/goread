@@ -28,5 +28,7 @@ export { EpubResourceCacheManager } from './EpubResourceCacheManager';
 export {
   generateBookId,
   generateQuickBookId,
+  generateContentAwareBookId,
   extractLogicalId,
+  extractLogicalIdFromPath,
 } from '../../../../utils/bookId';

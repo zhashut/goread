@@ -2,7 +2,7 @@ import { bookService, groupService, getInvoke, log, logError } from "./index";
 import { pathToTitle, waitNextFrame } from "./importUtils";
 import { getBookFormat, BookFormat } from "./formats";
 import { resolveLocalPathFromUri } from "./resolveLocalPath";
-import { generateQuickBookId } from "./formats/epub/cache";
+import { generateQuickBookId, generateContentAwareBookId } from "./formats/epub/cache";
 import { txtPreloader } from "./formats/txt/txtPreloader";
 import { parseCoverImage, migrateBookCover } from "../utils/coverUtils";
 
@@ -195,7 +195,7 @@ async function importEpubBook(filePath: string, _invoke: any, _logError: any, _o
           section_count: number;
         }>('epub_prepare_book', {
           filePath,
-          bookId: generateQuickBookId(filePath),
+          bookId: await generateContentAwareBookId(filePath),
         });
 
         const bookInfo = result?.book_info;

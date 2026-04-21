@@ -5,7 +5,7 @@
  */
 
 import { logError, getInvoke } from '../../index';
-import { generateQuickBookId } from './cache';
+import { generateContentAwareBookId } from './cache';
 import { evictOldestEntry } from '../../../utils/lruCacheUtils';
 import { EPUB_PRELOADER_MAX_MEMORY_MB } from '../../../constants/cache';
 
@@ -26,6 +26,8 @@ interface PreloadCacheEntry {
 class EpubPreloader {
   /** 预加载缓存（bookId -> entry） */
   private _cache = new Map<string, PreloadCacheEntry>();
+  /** 文件路径 -> bookId 反查表，用于同步的 has / clear */
+  private _pathToBookId = new Map<string, string>();
 
   /** 空闲过期时间（秒），0 表示不过期 */
   private _timeToIdleSecs = 0;
@@ -87,6 +89,7 @@ class EpubPreloader {
         Date.now() - entry.lastAccessTime > this._timeToIdleSecs * 1000
       ) {
         this._cache.delete(key);
+        this._pathToBookId.delete(entry.filePath);
         this._currentMemoryMB -= entry.estimatedSizeMB;
         if (this._currentMemoryMB < 0) {
           this._currentMemoryMB = 0;
@@ -98,6 +101,7 @@ class EpubPreloader {
       while (this._cache.size > 0 && this._currentMemoryMB > this._maxMemoryMB) {
         const removed = evictOldestEntry(this._cache, {
           onEvict: (entry) => {
+            this._pathToBookId.delete(entry.filePath);
             this._currentMemoryMB -= entry.estimatedSizeMB;
             if (this._currentMemoryMB < 0) {
               this._currentMemoryMB = 0;
@@ -117,17 +121,32 @@ class EpubPreloader {
    * @param filePath - EPUB 文件路径
    */
   preload(filePath: string): void {
-    const bookId = generateQuickBookId(filePath);
-
     this._cleanup();
 
-    if (this._cache.has(bookId)) {
-      return;
-    }
+    // 异步生成内容感知 bookId 后再进入预加载主流程
+    void (async () => {
+      try {
+        const bookId = await generateContentAwareBookId(filePath);
+        const previousBookId = this._pathToBookId.get(filePath);
 
-    // 检查元数据缓存是否存在，如果存在则跳过预加载
-    // 因为 EpubRenderer.loadDocument 会直接从元数据缓存启动
-    this._checkMetadataCacheAndPreload(filePath, bookId);
+        // 文件内容变化导致 bookId 变了，先清理旧预加载条目
+        if (previousBookId && previousBookId !== bookId) {
+          this._removeEntry(previousBookId);
+        }
+        this._pathToBookId.set(filePath, bookId);
+
+        if (this._cache.has(bookId)) {
+          return;
+        }
+
+        await this._checkMetadataCacheAndPreload(filePath, bookId);
+      } catch (e) {
+        logError('[EpubPreloader] 预加载准备失败', {
+          error: String(e),
+          filePath,
+        }).catch(() => {});
+      }
+    })();
   }
 
   /**
@@ -184,14 +203,8 @@ class EpubPreloader {
     // 处理加载失败的情况
     loadPromise.catch(() => {
       // 加载失败时立即清理
-      const entry = this._cache.get(bookId);
-      if (entry) {
-        this._cache.delete(bookId);
-        this._currentMemoryMB -= entry.estimatedSizeMB;
-        if (this._currentMemoryMB < 0) {
-          this._currentMemoryMB = 0;
-        }
-      }
+      this._removeEntry(bookId);
+      this._pathToBookId.delete(filePath);
     });
 
     logError(`[EpubPreloader] 开始预加载: ${filePath}`).catch(() => {});
@@ -202,7 +215,8 @@ class EpubPreloader {
    * @param filePath - EPUB 文件路径
    */
   has(filePath: string): boolean {
-    const bookId = generateQuickBookId(filePath);
+    const bookId = this._pathToBookId.get(filePath);
+    if (!bookId) return false;
     const entry = this._cache.get(bookId);
     if (!entry) return false;
 
@@ -210,11 +224,7 @@ class EpubPreloader {
       this._timeToIdleSecs > 0 &&
       Date.now() - entry.lastAccessTime > this._timeToIdleSecs * 1000
     ) {
-      this._cache.delete(bookId);
-      this._currentMemoryMB -= entry.estimatedSizeMB;
-      if (this._currentMemoryMB < 0) {
-        this._currentMemoryMB = 0;
-      }
+      this._removeEntry(bookId);
       return false;
     }
 
@@ -226,14 +236,10 @@ class EpubPreloader {
    * @param filePath - EPUB 文件路径
    */
   clear(filePath: string): void {
-    const bookId = generateQuickBookId(filePath);
-    const entry = this._cache.get(bookId);
-    if (!entry) return;
-    this._cache.delete(bookId);
-    this._currentMemoryMB -= entry.estimatedSizeMB;
-    if (this._currentMemoryMB < 0) {
-      this._currentMemoryMB = 0;
-    }
+    const bookId = this._pathToBookId.get(filePath);
+    if (!bookId) return;
+    this._removeEntry(bookId);
+    this._pathToBookId.delete(filePath);
   }
 
   /**
@@ -241,7 +247,21 @@ class EpubPreloader {
    */
   clearAll(): void {
     this._cache.clear();
+    this._pathToBookId.clear();
     this._currentMemoryMB = 0;
+  }
+
+  /**
+   * 从缓存中移除指定 bookId 对应的条目，并回收其内存计数
+   */
+  private _removeEntry(bookId: string): void {
+    const entry = this._cache.get(bookId);
+    if (!entry) return;
+    this._cache.delete(bookId);
+    this._currentMemoryMB -= entry.estimatedSizeMB;
+    if (this._currentMemoryMB < 0) {
+      this._currentMemoryMB = 0;
+    }
   }
 
   /**

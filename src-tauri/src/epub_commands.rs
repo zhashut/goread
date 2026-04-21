@@ -250,6 +250,16 @@ pub async fn epub_prepare_book(
         .await
         .map_err(|e| format!("保存元数据失败: {}", e))?;
 
+    // 清理同一本书旧指纹的历史缓存，避免占用磁盘空间
+    if let Ok(stale) = manager.prune_stale_versions(&book_id).await {
+        if stale > 0 {
+            println!(
+                "[backend] EPUB 清理旧版本缓存: book_id={}, 清理数量={}",
+                book_id, stale
+            );
+        }
+    }
+
     Ok(EpubPrepareResult {
         book_info: prepared.book_info,
         toc: prepared.toc,

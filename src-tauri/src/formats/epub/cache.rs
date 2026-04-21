@@ -832,6 +832,106 @@ impl EpubCacheManager {
         Ok(())
     }
 
+    /// 提取逻辑 ID：book_id 中第一个 `#` 之前的部分
+    /// 格式约定：`逻辑ID#内容指纹`；没有 `#` 时返回原字符串
+    fn extract_logical_id(book_id: &str) -> &str {
+        match book_id.find('#') {
+            Some(idx) => &book_id[..idx],
+            None => book_id,
+        }
+    }
+
+    /// 清理与当前 book_id 共享同一逻辑 ID 但指纹不同的旧版本缓存
+    /// 仅在 EPUB 缓存范围内工作，不会影响其他格式
+    /// 返回清理掉的旧版本数量
+    pub async fn prune_stale_versions(&self, current_book_id: &str) -> Result<usize, String> {
+        let current_logical = Self::extract_logical_id(current_book_id);
+        // 退化为不带内容指纹的旧版本 bookId（未启用新机制的场景）直接跳过，避免误删
+        if current_logical == current_book_id {
+            return Ok(0);
+        }
+
+        let mut stale_ids: Vec<String> = Vec::new();
+
+        // 1) 从元数据目录读取所有 book_id，挑出同一逻辑 ID 但完整 ID 不同的
+        let metadata_dir = epub_metadata_cache_dir();
+        if metadata_dir.exists() {
+            if let Ok(mut entries) = fs::read_dir(&metadata_dir).await {
+                while let Some(entry) = entries.next_entry().await.ok().flatten() {
+                    let path = entry.path();
+                    if !path.extension().map_or(false, |ext| ext == "json") {
+                        continue;
+                    }
+                    let Ok(meta_json) = fs::read_to_string(&path).await else {
+                        continue;
+                    };
+                    let Ok(meta) = serde_json::from_str::<MetadataCacheEntry>(&meta_json) else {
+                        continue;
+                    };
+                    let logical = Self::extract_logical_id(&meta.book_id);
+                    if logical == current_logical && meta.book_id != current_book_id {
+                        stale_ids.push(meta.book_id);
+                    }
+                }
+            }
+        }
+
+        // 2) 扫描 sections / resources 目录中可能残留的孤儿 bookId
+        //    依据目录内任意一个 *.meta.json 里的 book_id 字段回溯
+        for subdir in ["sections", "resources"] {
+            let mut root = epub_cache_root();
+            root.push(subdir);
+            if !root.exists() {
+                continue;
+            }
+            let Ok(mut entries) = fs::read_dir(&root).await else {
+                continue;
+            };
+            while let Some(entry) = entries.next_entry().await.ok().flatten() {
+                let path = entry.path();
+                if !path.is_dir() {
+                    continue;
+                }
+                if let Some(book_id) = Self::probe_book_id_in_dir(&path).await {
+                    let logical = Self::extract_logical_id(&book_id);
+                    if logical == current_logical
+                        && book_id != current_book_id
+                        && !stale_ids.contains(&book_id)
+                    {
+                        stale_ids.push(book_id);
+                    }
+                }
+            }
+        }
+
+        let mut cleaned = 0usize;
+        for stale_id in stale_ids {
+            if self.clear_book_cache(&stale_id).await.is_ok() {
+                cleaned += 1;
+            }
+        }
+
+        Ok(cleaned)
+    }
+
+    /// 在章节/资源子目录中寻找任意一个 meta.json，读取其 book_id
+    async fn probe_book_id_in_dir(dir: &PathBuf) -> Option<String> {
+        let mut entries = fs::read_dir(dir).await.ok()?;
+        while let Some(entry) = entries.next_entry().await.ok().flatten() {
+            let path = entry.path();
+            if path.extension().map_or(false, |ext| ext == "json") {
+                let meta_json = fs::read_to_string(&path).await.ok()?;
+                if let Ok(meta) = serde_json::from_str::<SectionCacheMeta>(&meta_json) {
+                    return Some(meta.book_id);
+                }
+                if let Ok(meta) = serde_json::from_str::<ResourceCacheMeta>(&meta_json) {
+                    return Some(meta.book_id);
+                }
+            }
+        }
+        None
+    }
+
     /// 清理过期的元数据缓存
     pub async fn cleanup_expired_metadata(&self) -> Result<usize, String> {
         let days = self.expiry_days.load(Ordering::Relaxed);
