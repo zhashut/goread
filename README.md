@@ -164,11 +164,11 @@ npm run tauri ios dev
 
 ```bash
 # Build Android packages (APK/AAB)
-npm run tauri android build -- --target aarch64
+npm run tauri -- android build -- --target aarch64
 
 # Build iOS packages (IPA)
 # Option: app-store, ad-hoc, enterprise, development
-npm run tauri ios build -- --export-method development
+npm run tauri -- ios build -- --export-method development
 ```
 
 To generate a signing key for Android, you can use a command similar to:

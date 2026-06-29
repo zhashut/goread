@@ -161,11 +161,11 @@ npm run tauri ios dev
 
 ```bash
 # 构建 Android 安装包（APK/AAB）
-npm run tauri android build -- --target aarch64
+npm run tauri -- android build -- --target aarch64
 
 # 构建 iOS 安装包（IPA）
 # 选项: app-store, ad-hoc, enterprise, development
-npm run tauri ios build -- --export-method development
+npm run tauri -- ios build -- --export-method development
 ```
 
 如需为 Android 生成签名密钥，可参考如下命令：
