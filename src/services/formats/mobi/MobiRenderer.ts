@@ -13,6 +13,12 @@ import {
   SearchResult,
 } from '../types';
 import { registerRenderer } from '../registry';
+import type {
+  TTSContentProvider,
+  TTSReadingPosition,
+} from '../../tts/providers/TTSContentProvider';
+import { MobiContentProvider } from '../../tts/providers/MobiContentProvider';
+import { findFirstVisibleTextRange, rangeToTextQuote } from '../../../utils/ttsDOM';
 
 // Hooks
 import {
@@ -20,12 +26,10 @@ import {
   useMobiRender,
   useMobiNavigation,
   useMobiTheme,
-  useMobiTTS,
   MobiLifecycleHook,
   MobiRenderHook,
   MobiNavigationHook,
   MobiThemeHook,
-  MobiTTSHook,
 } from './hooks';
 
 /**
@@ -45,16 +49,11 @@ export class MobiRenderer implements IBookRenderer {
   private _themeHook: MobiThemeHook;
   private _renderHook: MobiRenderHook | null = null;
   private _navigationHook: MobiNavigationHook | null = null;
-  private _ttsHook: MobiTTSHook;
   private _currentHideDivider: boolean = false;
 
   constructor() {
     this._lifecycleHook = useMobiLifecycle();
     this._themeHook = useMobiTheme();
-    this._ttsHook = useMobiTTS({
-      getShadowRoot: () => this._renderHook?.state.shadowRoot || null,
-      getScrollContainer: () => this._renderHook?.state.scrollContainer || null,
-    });
   }
 
   private _initHooks(): void {
@@ -173,28 +172,63 @@ export class MobiRenderer implements IBookRenderer {
   }
 
   /**
-   * 获取当前可见的 MOBI section 的 DOM 元素，供 TTS 朗读
-   * 定位到用户视口中心所在的 .mobi-section，避免返回整个 .mobi-body
+   * 创建 MOBI TTS 内容供给方
+   * 内容拉取统一走 Rust 端 tts_get_segments
    */
-  getTTSDocument(): { type: 'dom'; doc: Document | Element } | null {
-    return this._ttsHook.getTTSDocument();
+  createTTSContentProvider(): TTSContentProvider {
+    return new MobiContentProvider({
+      getBookId: () => this._lifecycleHook.state.bookId,
+      getFilePath: () => this._lifecycleHook.state.filePath,
+      getSectionCount: () => this._lifecycleHook.state.sectionCount,
+      getShadowRoot: () => this._renderHook?.state.shadowRoot || null,
+      getScrollContainer: () => this._renderHook?.state.scrollContainer || null,
+      getVisibleStartPosition: () => this.getVisibleStartPositionForTTS(),
+    });
   }
 
   /**
-   * 获取当前视口可见区域的起始位置，供 TTS 从用户阅读处开始朗读
-   * MOBI 为纵向滚动渲染，在当前 section 中定位第一个可见文本节点
+   * 计算"当前视口顶部"对应的 .mobi-section 索引和文本 anchor
+   * 找到中心点所在的 section 后，在该 section 内用 findFirstVisibleTextRange 取顶部
    */
-  getVisibleStartForTTS():
-    | { type: 'range'; range: Range }
-    | null {
-    return this._ttsHook.getVisibleStartForTTS();
-  }
+  private getVisibleStartPositionForTTS(): TTSReadingPosition | null {
+    const shadowRoot = this._renderHook?.state.shadowRoot;
+    const scrollContainer = this._renderHook?.state.scrollContainer;
+    if (!shadowRoot || !scrollContainer) return null;
 
-  /**
-   * TTS 自动前进：滚动到下一个 .mobi-section
-   */
-  async advanceForTTS(): Promise<boolean> {
-    return this._ttsHook.advanceForTTS();
+    const sections = Array.from(
+      shadowRoot.querySelectorAll('.mobi-section'),
+    ) as HTMLElement[];
+    if (sections.length === 0) return null;
+
+    const center = scrollContainer.scrollTop + scrollContainer.clientHeight / 2;
+    let visibleIndex = 0;
+    for (let i = 0; i < sections.length; i++) {
+      const el = sections[i]!;
+      const top = el.offsetTop;
+      const bottom = top + el.offsetHeight;
+      if (center >= top && center < bottom) {
+        visibleIndex = i;
+        break;
+      }
+    }
+
+    const sectionEl = sections[visibleIndex];
+    if (!sectionEl) return { sectionIndex: visibleIndex, anchor: null };
+
+    const range = findFirstVisibleTextRange(sectionEl, scrollContainer, 'vertical');
+    if (!range) return { sectionIndex: visibleIndex, anchor: null };
+
+    const quote = rangeToTextQuote(range, {
+      quoteLength: 24,
+      contextLength: 24,
+      searchRoot: sectionEl,
+    });
+    if (!quote) return { sectionIndex: visibleIndex, anchor: null };
+
+    return {
+      sectionIndex: visibleIndex,
+      anchor: { quote: quote.quote, prefix: quote.prefix, suffix: quote.suffix },
+    };
   }
 
   onPageChange?: (page: number) => void;
@@ -210,3 +244,4 @@ registerRenderer({
   factory: () => new MobiRenderer(),
   displayName: 'MOBI',
 });
+

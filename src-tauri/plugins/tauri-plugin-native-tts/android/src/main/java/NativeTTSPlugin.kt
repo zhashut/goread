@@ -14,19 +14,13 @@ import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
+import androidx.core.content.ContextCompat
 import java.util.Locale
-import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 @InvokeArg
 class InitArgs {
-  var lang: String? = null
-}
-
-@InvokeArg
-class SpeakArgs {
-  var text: String? = ""
   var lang: String? = null
 }
 
@@ -38,6 +32,58 @@ class SetRateArgs {
 @InvokeArg
 class SetVoiceArgs {
   var voice: String? = ""
+}
+
+@InvokeArg
+class SetMediaSessionActiveArgs {
+  var active: Boolean? = null
+  var keepAppInForeground: Boolean? = null
+  var notificationTitle: String? = null
+  var notificationText: String? = null
+  var foregroundServiceTitle: String? = null
+  var foregroundServiceText: String? = null
+}
+
+@InvokeArg
+class TTSSessionAnchorArgs {
+  var quote: String? = null
+  var prefix: String? = null
+  var suffix: String? = null
+}
+
+@InvokeArg
+class TTSSessionSegmentArgs {
+  var id: String? = null
+  var text: String? = null
+  var lang: String? = null
+  var sectionIndex: Int? = null
+  var chunkIndex: Int? = null
+  var cursor: String? = null
+  var anchor: TTSSessionAnchorArgs? = null
+}
+
+@InvokeArg
+class TTSSessionStartArgs {
+  var segments: Array<TTSSessionSegmentArgs>? = null
+  var lang: String? = null
+  var rate: Float? = 1.0f
+  var voiceId: String? = null
+  var endOfBook: Boolean? = null
+}
+
+@InvokeArg
+class TTSSessionPushArgs {
+  var segments: Array<TTSSessionSegmentArgs>? = null
+}
+
+@InvokeArg
+class TTSSessionSetEndOfBookArgs {
+  var endOfBook: Boolean? = null
+}
+
+@InvokeArg
+class TTSSessionStopArgs {
+  var emitStoppedEvent: Boolean? = true
 }
 
 @TauriPlugin
@@ -52,6 +98,17 @@ class NativeTTSPlugin(private val activity: Activity) : Plugin(activity) {
   private var textToSpeech: TextToSpeech? = null
   private val defaultEngineObserverRegistered = AtomicBoolean(false)
   private val lastKnownDefaultEngine = AtomicReference<String?>(null)
+  private val sessionRunner = TTSEngineRunner(
+    getTextToSpeech = { textToSpeech },
+    getRate = { currentRate.get() },
+    setRate = { rate -> currentRate.set(rate) },
+    getVoiceId = { currentVoiceId.get() },
+    setVoiceId = { voiceId -> currentVoiceId.set(voiceId) },
+    applyVoiceAndLang = { lang -> applyVoiceAndLang(lang) },
+    keepServiceActive = { keepBackgroundServiceActive() },
+    stopService = { stopBackgroundService() },
+    emitEvent = { data -> trigger(CHANNEL_NAME, data) },
+  )
 
   private val defaultEngineObserver = object : ContentObserver(Handler(Looper.getMainLooper())) {
     override fun onChange(selfChange: Boolean) {
@@ -63,6 +120,7 @@ class NativeTTSPlugin(private val activity: Activity) : Plugin(activity) {
       if (textToSpeech != null) {
         try {
           println("[TTS][Plugin] defaultEngine changed: $prev -> $next，重置 TTS 实例")
+          sessionRunner.stop()
           isInitialized.set(false)
           currentVoiceId.set("")
           textToSpeech?.shutdown()
@@ -115,13 +173,43 @@ class NativeTTSPlugin(private val activity: Activity) : Plugin(activity) {
     )
   }
 
+  private fun setBackgroundPlaybackActive(args: SetMediaSessionActiveArgs) {
+    val title = args.foregroundServiceTitle ?: args.notificationTitle ?: MediaPlaybackService.DEFAULT_TITLE
+    val text = args.foregroundServiceText ?: args.notificationText ?: MediaPlaybackService.DEFAULT_TEXT
+    val intent = Intent(activity, MediaPlaybackService::class.java).apply {
+      putExtra(MediaPlaybackService.EXTRA_TITLE, title)
+      putExtra(MediaPlaybackService.EXTRA_TEXT, text)
+    }
+
+    if (args.active == true && args.keepAppInForeground == true) {
+      println("[TTS][Plugin] background playback enable request channelId=${MediaPlaybackService.CHANNEL_ID} title=$title text=$text")
+      ContextCompat.startForegroundService(activity, intent)
+      println("[TTS][Plugin] background playback enabled")
+      return
+    }
+
+    println("[TTS][Plugin] background playback disable request channelId=${MediaPlaybackService.CHANNEL_ID}")
+    activity.stopService(intent)
+    println("[TTS][Plugin] background playback disabled")
+  }
+
+  private fun keepBackgroundServiceActive() {
+    val args = SetMediaSessionActiveArgs().apply {
+      active = true
+      keepAppInForeground = true
+      foregroundServiceTitle = MediaPlaybackService.DEFAULT_TITLE
+      foregroundServiceText = MediaPlaybackService.DEFAULT_TEXT
+    }
+    setBackgroundPlaybackActive(args)
+  }
+
+  private fun stopBackgroundService() {
+    activity.stopService(Intent(activity, MediaPlaybackService::class.java))
+  }
+
   private fun ensureInitialized(requestedLang: String?, onDone: (InitResult) -> Unit) {
     if (isInitialized.get() && textToSpeech != null) {
-      val result = buildInitResult(
-        success = true,
-        status = "success",
-        requestedLang = requestedLang
-      )
+      val result = buildInitResult(success = true, status = "success", requestedLang = requestedLang)
       println("[TTS][Plugin] ensureInitialized: 已初始化 requestedLang=${requestedLang ?: ""} defaultEngine=${result.defaultEngine ?: ""} voices=${result.voices?.size ?: 0}")
       onDone(result)
       return
@@ -134,31 +222,19 @@ class NativeTTSPlugin(private val activity: Activity) : Plugin(activity) {
         if (status == TextToSpeech.SUCCESS) {
           isInitialized.set(true)
           setupListener()
-          val result = buildInitResult(
-            success = true,
-            status = "success",
-            requestedLang = requestedLang
-          )
+          val result = buildInitResult(success = true, status = "success", requestedLang = requestedLang)
           println("[TTS][Plugin] ensureInitialized: 初始化成功 requestedLang=${requestedLang ?: ""} defaultEngine=${result.defaultEngine ?: ""} status=${result.status} voices=${result.voices?.size ?: 0}")
           onDone(result)
         } else {
           isInitialized.set(false)
-          val result = buildInitResult(
-            success = false,
-            status = "init_error",
-            requestedLang = requestedLang
-          )
+          val result = buildInitResult(success = false, status = "init_error", requestedLang = requestedLang)
           println("[TTS][Plugin] ensureInitialized: 初始化失败 requestedLang=${requestedLang ?: ""} defaultEngine=${result.defaultEngine ?: ""} status=${result.status}")
           onDone(result)
         }
       }, engine)
     } catch (_: Exception) {
       isInitialized.set(false)
-      val result = buildInitResult(
-        success = false,
-        status = "init_error",
-        requestedLang = requestedLang
-      )
+      val result = buildInitResult(success = false, status = "init_error", requestedLang = requestedLang)
       println("[TTS][Plugin] ensureInitialized: 初始化异常 requestedLang=${requestedLang ?: ""} defaultEngine=${result.defaultEngine ?: ""} status=${result.status}")
       onDone(result)
     }
@@ -167,7 +243,7 @@ class NativeTTSPlugin(private val activity: Activity) : Plugin(activity) {
   private fun buildInitResult(
     success: Boolean,
     status: String,
-    requestedLang: String?
+    requestedLang: String?,
   ): InitResult {
     val engine = resolveDefaultEngine()
     val langCheck = checkLang(requestedLang)
@@ -182,7 +258,7 @@ class NativeTTSPlugin(private val activity: Activity) : Plugin(activity) {
       status = finalStatus,
       defaultEngine = engine,
       langCheck = langCheck,
-      voices = voices
+      voices = voices,
     )
     println("[TTS][Plugin] buildInitResult: success=$success status=$finalStatus requestedLang=${requestedLang ?: ""} defaultEngine=${engine ?: ""} langCheck=${langCheck?.requested ?: ""}/${langCheck?.result ?: ""} voices=${voices?.size ?: 0} currentVoiceId=${currentVoiceId.get()}")
     return out
@@ -190,7 +266,7 @@ class NativeTTSPlugin(private val activity: Activity) : Plugin(activity) {
 
   private data class LangCheckResult(
     val requested: String,
-    val result: String
+    val result: String,
   )
 
   private data class VoiceResult(
@@ -207,7 +283,7 @@ class NativeTTSPlugin(private val activity: Activity) : Plugin(activity) {
     val status: String,
     val defaultEngine: String?,
     val langCheck: LangCheckResult?,
-    val voices: List<VoiceResult>?
+    val voices: List<VoiceResult>?,
   )
 
   private fun checkLang(requestedLang: String?): LangCheckResult? {
@@ -245,7 +321,7 @@ class NativeTTSPlugin(private val activity: Activity) : Plugin(activity) {
           lang = v.locale.toLanguageTag(),
           displayZh = try { locale.getDisplayName(Locale.SIMPLIFIED_CHINESE) } catch (_: Exception) { null },
           displayEn = try { locale.getDisplayName(Locale.ENGLISH) } catch (_: Exception) { null },
-          disabled = false
+          disabled = false,
         )
       }
 
@@ -261,46 +337,23 @@ class NativeTTSPlugin(private val activity: Activity) : Plugin(activity) {
     textToSpeech?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
       override fun onStart(utteranceId: String?) {
         val id = utteranceId ?: return
-        println("[TTS][Plugin] event: onStart utteranceId=$id")
-        val data = JSObject().apply {
-          put("utteranceId", id)
-          put("code", "boundary")
-          put("message", "start")
-        }
-        trigger(CHANNEL_NAME, data)
+        sessionRunner.onStart(id)
       }
 
       override fun onDone(utteranceId: String?) {
         val id = utteranceId ?: return
-        println("[TTS][Plugin] event: onDone utteranceId=$id")
-        val data = JSObject().apply {
-          put("utteranceId", id)
-          put("code", "end")
-        }
-        trigger(CHANNEL_NAME, data)
+        sessionRunner.onDone(id)
       }
 
       @Deprecated("Deprecated in Java")
       override fun onError(utteranceId: String?) {
         val id = utteranceId ?: return
-        println("[TTS][Plugin] event: onError utteranceId=$id error=tts_error")
-        val data = JSObject().apply {
-          put("utteranceId", id)
-          put("code", "error")
-          put("message", "tts_error")
-        }
-        trigger(CHANNEL_NAME, data)
+        sessionRunner.onError(id, "tts_error")
       }
 
       override fun onError(utteranceId: String?, errorCode: Int) {
         val id = utteranceId ?: return
-        println("[TTS][Plugin] event: onError utteranceId=$id error=tts_error_$errorCode")
-        val data = JSObject().apply {
-          put("utteranceId", id)
-          put("code", "error")
-          put("message", "tts_error_$errorCode")
-        }
-        trigger(CHANNEL_NAME, data)
+        sessionRunner.onError(id, "tts_error_$errorCode")
       }
     })
   }
@@ -366,86 +419,6 @@ class NativeTTSPlugin(private val activity: Activity) : Plugin(activity) {
   }
 
   @Command
-  fun speak(invoke: Invoke) {
-    val args = invoke.parseArgs(SpeakArgs::class.java)
-    val text = args.text ?: ""
-    if (text.isBlank()) {
-      invoke.reject("Text cannot be empty")
-      return
-    }
-
-    ensureInitialized(args.lang) { initResult ->
-      if (!initResult.success) {
-        invoke.reject("TTS init failed")
-        return@ensureInitialized
-      }
-
-      val utteranceId = UUID.randomUUID().toString()
-      val tts = textToSpeech
-      if (tts == null) {
-        invoke.reject("TTS not ready")
-        return@ensureInitialized
-      }
-
-      try {
-        println("[TTS][Plugin] speak: utteranceId=$utteranceId defaultEngine=${initResult.defaultEngine ?: ""} lang=${args.lang ?: ""} rate=${currentRate.get()} voiceId=${currentVoiceId.get()} textLen=${text.length}")
-        applyVoiceAndLang(args.lang)
-        tts.setSpeechRate(currentRate.get())
-        val params = android.os.Bundle().apply {
-          putString(TextToSpeech.Engine.KEY_PARAM_UTTERANCE_ID, utteranceId)
-        }
-        val r = tts.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
-        if (r != TextToSpeech.SUCCESS) {
-          println("[TTS][Plugin] speak: 调用失败 utteranceId=$utteranceId result=$r")
-          val data = JSObject().apply {
-            put("utteranceId", utteranceId)
-            put("code", "error")
-            put("message", "speak_failed")
-          }
-          trigger(CHANNEL_NAME, data)
-        }
-        val finalVoice = try { tts.voice?.name ?: "" } catch (_: Exception) { "" }
-        val finalLocale = try { tts.voice?.locale?.toLanguageTag() ?: "" } catch (_: Exception) { "" }
-        println("[TTS][Plugin] speak: 已下发 utteranceId=$utteranceId finalVoice=$finalVoice finalLocale=$finalLocale")
-        val out = JSObject().apply {
-          put("utteranceId", utteranceId)
-        }
-        invoke.resolve(out)
-      } catch (e: Exception) {
-        println("[TTS][Plugin] speak: 异常 utteranceId=$utteranceId error=${e.message ?: ""}")
-        invoke.reject("Failed to speak: ${e.message}")
-      }
-    }
-  }
-
-  @Command
-  fun stop(invoke: Invoke) {
-    try {
-      println("[TTS][Plugin] stop")
-      textToSpeech?.stop()
-      invoke.resolve()
-    } catch (e: Exception) {
-      invoke.reject("Failed to stop: ${e.message}")
-    }
-  }
-
-  @Command
-  fun pause(invoke: Invoke) {
-    try {
-      println("[TTS][Plugin] pause")
-      textToSpeech?.stop()
-      invoke.resolve()
-    } catch (e: Exception) {
-      invoke.reject("Failed to pause: ${e.message}")
-    }
-  }
-
-  @Command
-  fun resume(invoke: Invoke) {
-    invoke.resolve()
-  }
-
-  @Command
   fun set_rate(invoke: Invoke) {
     val args = invoke.parseArgs(SetRateArgs::class.java)
     val rate = args.rate ?: 1.0f
@@ -503,6 +476,17 @@ class NativeTTSPlugin(private val activity: Activity) : Plugin(activity) {
   }
 
   @Command
+  fun set_media_session_active(invoke: Invoke) {
+    try {
+      val args = invoke.parseArgs(SetMediaSessionActiveArgs::class.java)
+      setBackgroundPlaybackActive(args)
+      invoke.resolve()
+    } catch (e: Exception) {
+      invoke.reject("Failed to set media session active: ${e.message}")
+    }
+  }
+
+  @Command
   fun open_tts_settings(invoke: Invoke) {
     try {
       val intent = Intent("com.android.settings.TTS_SETTINGS").apply {
@@ -532,6 +516,8 @@ class NativeTTSPlugin(private val activity: Activity) : Plugin(activity) {
   fun shutdown(invoke: Invoke) {
     try {
       println("[TTS][Plugin] shutdown")
+      sessionRunner.stop()
+      stopBackgroundService()
       isInitialized.set(false)
       textToSpeech?.shutdown()
       textToSpeech = null
@@ -540,5 +526,106 @@ class NativeTTSPlugin(private val activity: Activity) : Plugin(activity) {
       invoke.reject("Failed to shutdown: ${e.message}")
     }
   }
-}
 
+  @Command
+  fun tts_session_start(invoke: Invoke) {
+    val args = invoke.parseArgs(TTSSessionStartArgs::class.java)
+    val segments = sessionRunner.toSegmentList(args.segments)
+    if (segments.isEmpty()) {
+      invoke.reject("Session segments cannot be empty")
+      return
+    }
+
+    ensureInitialized(args.lang) { initResult ->
+      if (!initResult.success) {
+        invoke.reject("TTS init failed")
+        return@ensureInitialized
+      }
+
+      try {
+        sessionRunner.start(
+          segments = segments,
+          rate = args.rate ?: 1.0f,
+          voiceId = args.voiceId,
+          endOfBookFlag = args.endOfBook ?: false,
+        )
+        invoke.resolve()
+      } catch (e: Exception) {
+        invoke.reject("Failed to start session: ${e.message}")
+      }
+    }
+  }
+
+  @Command
+  fun tts_session_push(invoke: Invoke) {
+    val args = invoke.parseArgs(TTSSessionPushArgs::class.java)
+    val segments = sessionRunner.toSegmentList(args.segments)
+    if (segments.isEmpty()) {
+      invoke.resolve()
+      return
+    }
+    try {
+      sessionRunner.push(segments)
+      invoke.resolve()
+    } catch (e: Exception) {
+      invoke.reject("Failed to push session segments: ${e.message}")
+    }
+  }
+
+  @Command
+  fun tts_session_stop(invoke: Invoke) {
+    try {
+      val args = invoke.parseArgs(TTSSessionStopArgs::class.java)
+      sessionRunner.stop(args.emitStoppedEvent ?: true)
+      try {
+        textToSpeech?.stop()
+      } catch (_: Exception) {
+      }
+      invoke.resolve()
+    } catch (e: Exception) {
+      invoke.reject("Failed to stop session: ${e.message}")
+    }
+  }
+
+  @Command
+  fun tts_session_pause(invoke: Invoke) {
+    try {
+      sessionRunner.pause()
+      invoke.resolve()
+    } catch (e: Exception) {
+      invoke.reject("Failed to pause session: ${e.message}")
+    }
+  }
+
+  @Command
+  fun tts_session_resume(invoke: Invoke) {
+    try {
+      sessionRunner.resume()
+      invoke.resolve()
+    } catch (e: Exception) {
+      invoke.reject("Failed to resume session: ${e.message}")
+    }
+  }
+
+  @Command
+  fun tts_session_set_rate(invoke: Invoke) {
+    val args = invoke.parseArgs(SetRateArgs::class.java)
+    val rate = args.rate ?: 1.0f
+    sessionRunner.setSessionRate(rate)
+    invoke.resolve()
+  }
+
+  @Command
+  fun tts_session_set_voice(invoke: Invoke) {
+    val args = invoke.parseArgs(SetVoiceArgs::class.java)
+    sessionRunner.setSessionVoice(args.voice)
+    invoke.resolve()
+  }
+
+  @Command
+  fun tts_session_set_end_of_book(invoke: Invoke) {
+    val args = invoke.parseArgs(TTSSessionSetEndOfBookArgs::class.java)
+    sessionRunner.setEndOfBook(args.endOfBook ?: false)
+    invoke.resolve()
+  }
+}

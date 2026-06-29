@@ -367,6 +367,18 @@
           "markdownDescription": "Denies the resume command without any pre-configured scope."
         },
         {
+          "description": "Enables the set_media_session_active command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-media-session-active",
+          "markdownDescription": "Enables the set_media_session_active command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_media_session_active command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-media-session-active",
+          "markdownDescription": "Denies the set_media_session_active command without any pre-configured scope."
+        },
+        {
           "description": "Enables the set_rate command without any pre-configured scope.",
           "type": "string",
           "const": "allow-set-rate",
@@ -425,6 +437,102 @@
           "type": "string",
           "const": "deny-stop",
           "markdownDescription": "Denies the stop command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the tts_session_pause command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-tts-session-pause",
+          "markdownDescription": "Enables the tts_session_pause command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the tts_session_pause command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-tts-session-pause",
+          "markdownDescription": "Denies the tts_session_pause command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the tts_session_push command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-tts-session-push",
+          "markdownDescription": "Enables the tts_session_push command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the tts_session_push command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-tts-session-push",
+          "markdownDescription": "Denies the tts_session_push command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the tts_session_resume command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-tts-session-resume",
+          "markdownDescription": "Enables the tts_session_resume command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the tts_session_resume command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-tts-session-resume",
+          "markdownDescription": "Denies the tts_session_resume command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the tts_session_set_end_of_book command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-tts-session-set-end-of-book",
+          "markdownDescription": "Enables the tts_session_set_end_of_book command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the tts_session_set_end_of_book command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-tts-session-set-end-of-book",
+          "markdownDescription": "Denies the tts_session_set_end_of_book command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the tts_session_set_rate command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-tts-session-set-rate",
+          "markdownDescription": "Enables the tts_session_set_rate command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the tts_session_set_rate command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-tts-session-set-rate",
+          "markdownDescription": "Denies the tts_session_set_rate command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the tts_session_set_voice command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-tts-session-set-voice",
+          "markdownDescription": "Enables the tts_session_set_voice command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the tts_session_set_voice command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-tts-session-set-voice",
+          "markdownDescription": "Denies the tts_session_set_voice command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the tts_session_start command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-tts-session-start",
+          "markdownDescription": "Enables the tts_session_start command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the tts_session_start command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-tts-session-start",
+          "markdownDescription": "Denies the tts_session_start command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the tts_session_stop command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-tts-session-stop",
+          "markdownDescription": "Enables the tts_session_stop command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the tts_session_stop command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-tts-session-stop",
+          "markdownDescription": "Denies the tts_session_stop command without any pre-configured scope."
         },
         {
           "description": "允许使用 native-tts 插件的基础能力与事件。\n#### This default permission set includes:\n\n- `allow-all`",

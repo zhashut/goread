@@ -5,60 +5,134 @@
 
 /**
  * 在指定 DOM 元素中查找视口顶部第一个可见的文本 Range
- * 使用 TreeWalker 遍历文本节点，通过 getBoundingClientRect 判断是否进入视口
+ * 横向模式（CSS columns 布局）：按当前内页可视区域扫描首个可见字符
+ * 纵向模式：TreeWalker 遍历文本节点，按底部超过 viewport top 判定
  * @param contentEl 内容根元素（如 .epub-section-content 或 .mobi-section）
  * @param scrollContainer 滚动容器
- * @returns 指向第一个可见文本节点的 Range，或 null
  */
 export function findFirstVisibleTextRange(
   contentEl: Element,
   scrollContainer: Element,
   axis: 'vertical' | 'horizontal' = 'vertical',
 ): Range | null {
-  const containerRect = scrollContainer.getBoundingClientRect();
-
   const ownerDoc = contentEl.ownerDocument;
   if (!ownerDoc) return null;
 
-  const walker = ownerDoc.createTreeWalker(
-    contentEl,
-    NodeFilter.SHOW_TEXT,
-    {
-      acceptNode: (node) => {
-        if (!node.textContent?.trim()) return NodeFilter.FILTER_REJECT;
-        const parent = node.parentElement;
-        if (parent) {
-          const tag = parent.tagName.toLowerCase();
-          if (tag === 'script' || tag === 'style') return NodeFilter.FILTER_REJECT;
-        }
-        return NodeFilter.FILTER_ACCEPT;
-      },
+  const containerRect = scrollContainer.getBoundingClientRect();
+
+  if (axis === 'horizontal') {
+    return findFirstVisibleTextRangeHorizontal(ownerDoc, contentEl, containerRect);
+  }
+
+  return findFirstVisibleTextRangeVertical(ownerDoc, contentEl, containerRect);
+}
+
+/** 横向（columns 布局）下按当前内页可视区域定位首个可见字符 */
+const findFirstVisibleTextRangeHorizontal = (
+  ownerDoc: Document,
+  contentEl: Element,
+  containerRect: DOMRect,
+): Range | null => {
+  const walker = createVisibleTextWalker(ownerDoc, contentEl);
+  let bestRange: Range | null = null;
+  let bestTop = Number.POSITIVE_INFINITY;
+  let bestLeft = Number.POSITIVE_INFINITY;
+
+  let node: Node | null;
+  while ((node = walker.nextNode())) {
+    const range = findVisibleTextStartInNode(ownerDoc, node, containerRect);
+    if (!range) continue;
+    const rect = range.getBoundingClientRect();
+    if (!isRectVisibleInHorizontalViewport(rect, containerRect)) continue;
+    if (
+      rect.top < bestTop ||
+      (Math.abs(rect.top - bestTop) < 1 && rect.left < bestLeft)
+    ) {
+      bestRange = range;
+      bestTop = rect.top;
+      bestLeft = rect.left;
+    }
+  }
+  return bestRange;
+};
+
+/** 纵向滚动下沿 TreeWalker 找第一个底部越过 viewport top 的文本节点 */
+const findFirstVisibleTextRangeVertical = (
+  ownerDoc: Document,
+  contentEl: Element,
+  containerRect: DOMRect,
+): Range | null => {
+  const walker = ownerDoc.createTreeWalker(contentEl, NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) => {
+      if (!node.textContent?.trim()) return NodeFilter.FILTER_REJECT;
+      const parent = node.parentElement;
+      if (parent) {
+        const tag = parent.tagName.toLowerCase();
+        if (tag === 'script' || tag === 'style') return NodeFilter.FILTER_REJECT;
+      }
+      return NodeFilter.FILTER_ACCEPT;
     },
-  );
+  });
 
   let node: Node | null;
   while ((node = walker.nextNode())) {
     const range = ownerDoc.createRange();
     range.selectNodeContents(node);
     const rect = range.getBoundingClientRect();
-
-    let isVisible: boolean;
-    if (axis === 'horizontal') {
-      // 横向模式：文本节点水平方向有部分落在容器视口内
-      isVisible = rect.right > containerRect.left && rect.left < containerRect.right;
-    } else {
-      // 纵向模式（默认）：文本节点底部超过视口顶部
-      isVisible = rect.bottom > containerRect.top;
-    }
-
-    if (isVisible) {
+    if (rect.bottom > containerRect.top) {
       range.setStart(node, 0);
       return range;
     }
   }
-
   return null;
-}
+};
+
+const createVisibleTextWalker = (ownerDoc: Document, root: Element) => {
+  return ownerDoc.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) => {
+      if (!node.textContent?.trim()) return NodeFilter.FILTER_REJECT;
+      const parent = node.parentElement;
+      if (parent) {
+        const tag = parent.tagName.toLowerCase();
+        if (tag === 'script' || tag === 'style') return NodeFilter.FILTER_REJECT;
+      }
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
+};
+
+const findVisibleTextStartInNode = (
+  ownerDoc: Document,
+  node: Node,
+  containerRect: DOMRect,
+): Range | null => {
+  const text = node.textContent ?? '';
+  for (let i = 0; i < text.length; i++) {
+    if (!text[i]?.trim()) continue;
+    const range = ownerDoc.createRange();
+    try {
+      range.setStart(node, i);
+      range.setEnd(node, Math.min(text.length, i + 1));
+    } catch {
+      continue;
+    }
+    const rect = range.getBoundingClientRect();
+    if (!isRectVisibleInHorizontalViewport(rect, containerRect)) continue;
+    return range;
+  }
+  return null;
+};
+
+const isRectVisibleInHorizontalViewport = (
+  rect: DOMRect,
+  containerRect: DOMRect,
+): boolean => {
+  if (!isFinite(rect.left) || !isFinite(rect.top)) return false;
+  if (rect.width <= 0 || rect.height <= 0) return false;
+  if (rect.right <= containerRect.left || rect.left >= containerRect.right) return false;
+  if (rect.bottom <= containerRect.top || rect.top >= containerRect.bottom) return false;
+  return true;
+};
 
 export type TextQuote = {
   quote: string;
@@ -240,6 +314,78 @@ export const rangeFromTextOffsets = (
   }
 };
 
+/**
+ * 把 DOM Range 转成 TextQuote 形态的 anchor
+ * 取 quote 长度上限内的可读文字，并用前后 contextLength 字符作为 prefix/suffix
+ */
+export const rangeToTextQuote = (
+  range: Range,
+  options?: { quoteLength?: number; contextLength?: number; searchRoot?: Element | null },
+): TextQuote | null => {
+  const quoteLength = options?.quoteLength ?? 24;
+  const contextLength = options?.contextLength ?? 24;
+
+  const startNode = range.startContainer;
+  const ownerDoc = startNode.ownerDocument;
+  if (!ownerDoc) return null;
+
+  const searchRoot = options?.searchRoot ?? inferSearchRootFromRange(range);
+  if (!searchRoot) return null;
+
+  const cache = createTextContentSearchCache(searchRoot);
+  if (!cache) return null;
+
+  const offset = locateRangeStartOffset(cache, range);
+  if (offset == null) return null;
+
+  const raw = cache.rawText;
+  const quoteEnd = Math.min(raw.length, offset + quoteLength);
+  const quote = raw.slice(offset, quoteEnd).trim();
+  if (!quote) return null;
+  const prefix = raw.slice(Math.max(0, offset - contextLength), offset);
+  const suffix = raw.slice(quoteEnd, Math.min(raw.length, quoteEnd + contextLength));
+  return { quote, prefix, suffix };
+};
+
+/** 未显式指定 searchRoot 时，从 range 起点向上推断一个范围尽量大的搜索根 */
+const inferSearchRootFromRange = (range: Range): Element | null => {
+  const startNode = range.startContainer;
+  const root = startNode.getRootNode?.();
+  const ownerDoc = startNode.ownerDocument;
+  if (!ownerDoc) return null;
+
+  const rootElement = (root instanceof ShadowRoot ? root : ownerDoc) as ParentNode;
+  const containerEl =
+    range.commonAncestorContainer.nodeType === 1
+      ? (range.commonAncestorContainer as Element)
+      : (range.commonAncestorContainer.parentElement ?? null);
+  const candidate = containerEl ?? (rootElement as Element);
+  return candidate instanceof Element ? candidate : null;
+};
+
+/** 计算 Range.startContainer + startOffset 在 cache.rawText 中的字符偏移 */
+const locateRangeStartOffset = (
+  cache: TextContentSearchCache,
+  range: Range,
+): number | null => {
+  const ownerDoc = cache.root.ownerDocument;
+  if (!ownerDoc) return null;
+  const walker = createTextWalker(ownerDoc, cache.root);
+  let node: Node | null;
+  let cursor = 0;
+  while ((node = walker.nextNode())) {
+    if (node === range.startContainer) {
+      const offsetInNode = Math.max(
+        0,
+        Math.min(range.startOffset, (node.textContent ?? '').length),
+      );
+      return cursor + offsetInNode;
+    }
+    cursor += (node.textContent ?? '').length;
+  }
+  return null;
+};
+
 export const findRangeByTextQuote = (
   cache: TextContentSearchCache,
   quote: TextQuote,
@@ -248,3 +394,4 @@ export const findRangeByTextQuote = (
   if (!offsets) return null;
   return rangeFromTextOffsets(cache.root, offsets.start, offsets.end);
 };
+

@@ -174,6 +174,32 @@ Denies the resume command without any pre-configured scope.
 <tr>
 <td>
 
+`native-tts:allow-set-media-session-active`
+
+</td>
+<td>
+
+Enables the set_media_session_active command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-tts:deny-set-media-session-active`
+
+</td>
+<td>
+
+Denies the set_media_session_active command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `native-tts:allow-set-rate`
 
 </td>
@@ -297,6 +323,214 @@ Enables the stop command without any pre-configured scope.
 <td>
 
 Denies the stop command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-tts:allow-tts-session-pause`
+
+</td>
+<td>
+
+Enables the tts_session_pause command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-tts:deny-tts-session-pause`
+
+</td>
+<td>
+
+Denies the tts_session_pause command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-tts:allow-tts-session-push`
+
+</td>
+<td>
+
+Enables the tts_session_push command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-tts:deny-tts-session-push`
+
+</td>
+<td>
+
+Denies the tts_session_push command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-tts:allow-tts-session-resume`
+
+</td>
+<td>
+
+Enables the tts_session_resume command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-tts:deny-tts-session-resume`
+
+</td>
+<td>
+
+Denies the tts_session_resume command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-tts:allow-tts-session-set-end-of-book`
+
+</td>
+<td>
+
+Enables the tts_session_set_end_of_book command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-tts:deny-tts-session-set-end-of-book`
+
+</td>
+<td>
+
+Denies the tts_session_set_end_of_book command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-tts:allow-tts-session-set-rate`
+
+</td>
+<td>
+
+Enables the tts_session_set_rate command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-tts:deny-tts-session-set-rate`
+
+</td>
+<td>
+
+Denies the tts_session_set_rate command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-tts:allow-tts-session-set-voice`
+
+</td>
+<td>
+
+Enables the tts_session_set_voice command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-tts:deny-tts-session-set-voice`
+
+</td>
+<td>
+
+Denies the tts_session_set_voice command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-tts:allow-tts-session-start`
+
+</td>
+<td>
+
+Enables the tts_session_start command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-tts:deny-tts-session-start`
+
+</td>
+<td>
+
+Denies the tts_session_start command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-tts:allow-tts-session-stop`
+
+</td>
+<td>
+
+Enables the tts_session_stop command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-tts:deny-tts-session-stop`
+
+</td>
+<td>
+
+Denies the tts_session_stop command without any pre-configured scope.
 
 </td>
 </tr>

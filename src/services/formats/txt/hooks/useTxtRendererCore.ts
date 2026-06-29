@@ -416,9 +416,12 @@ export function useTxtRendererCore(): TxtRendererCore {
   /**
    * 创建页面 wrapper 容器
    */
-  const createPageWrapper = (pageIndex: number): HTMLDivElement => {
+  const createPageWrapper = (pageIndex: number, chapterIndex?: number): HTMLDivElement => {
     const wrapper = document.createElement('div');
     wrapper.setAttribute('data-page-index', String(pageIndex));
+    if (typeof chapterIndex === 'number') {
+      wrapper.setAttribute('data-chapter-index', String(chapterIndex));
+    }
     return wrapper;
   };
 
@@ -497,7 +500,7 @@ export function useTxtRendererCore(): TxtRendererCore {
       if (lastWrapper && lastWrapper.hasAttribute('data-page-index')) {
         wrapper = lastWrapper;
       } else {
-        wrapper = createPageWrapper(startPageIndex);
+        wrapper = createPageWrapper(startPageIndex, pages[0]?.chapterIndex);
         container.appendChild(wrapper);
       }
 
@@ -550,7 +553,7 @@ export function useTxtRendererCore(): TxtRendererCore {
     if (lastWrapper && lastWrapper.getAttribute('data-page-index') === String(firstPageGlobalIndex)) {
       currentWrapper = lastWrapper;
     } else {
-      currentWrapper = createPageWrapper(firstPageGlobalIndex);
+      currentWrapper = createPageWrapper(firstPageGlobalIndex, pages[pageIndex]?.chapterIndex);
       container.appendChild(currentWrapper);
     }
 
@@ -573,7 +576,7 @@ export function useTxtRendererCore(): TxtRendererCore {
 
         pageIndex++;
         const globalIndex = startPageIndex + pageIndex;
-        currentWrapper = createPageWrapper(globalIndex);
+        currentWrapper = createPageWrapper(globalIndex, pages[pageIndex]?.chapterIndex);
         container.appendChild(currentWrapper);
       }
 

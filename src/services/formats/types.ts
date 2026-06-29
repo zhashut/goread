@@ -170,30 +170,10 @@ export interface IBookRenderer {
   close(): Promise<void>;
 
   /**
-   * 获取当前可见内容的文档数据，供 TTS 使用
-   * EPUB/MOBI 返回 DOM 类型，TXT 返回纯文本类型
-   * 不支持 TTS 的格式无需实现（返回 null 或不实现）
+   * 创建 TTS 内容供给方
+   * 仅支持 TTS 的格式实现该方法，未实现或返回 null 表示该格式不支持听书
    */
-  getTTSDocument?():
-    | { type: 'dom'; doc: Document | Element }
-    | { type: 'text'; text: string }
-    | null;
-
-  /**
-   * 获取当前视口可见区域的起始位置信息，供 TTS 定位朗读起点
-   * DOM 渲染器返回 Range，Text 渲染器返回字符偏移量
-   * 不支持的格式返回 null，TTS 将降级为从头开始
-   */
-  getVisibleStartForTTS?():
-    | { type: 'range'; range: Range }
-    | { type: 'offset'; offset: number }
-    | null;
-
-  /**
-   * TTS 朗读自动前进：当前页/章节内容朗读完毕后，切换到下一页/下一章
-   * 返回 true 表示成功前进，false 表示已到末尾
-   */
-  advanceForTTS?(): Promise<boolean>;
+  createTTSContentProvider?(): import('../tts/providers/TTSContentProvider').TTSContentProvider | null;
 
   /** 页面变化回调 */
   onPageChange?: (page: number) => void;
@@ -209,3 +189,4 @@ export interface RendererRegistration {
   factory: () => IBookRenderer;
   displayName: string;
 }
+

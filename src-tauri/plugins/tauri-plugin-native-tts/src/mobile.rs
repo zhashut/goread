@@ -27,33 +27,30 @@ impl<R: Runtime> NativeTts<R> {
         self.0.run_mobile_plugin("init", payload).map_err(Into::into)
     }
 
-    pub fn speak(&self, payload: SpeakArgs) -> crate::Result<SpeakResponse> {
-        self.0.run_mobile_plugin("speak", payload).map_err(Into::into)
-    }
-
-    pub fn pause(&self) -> crate::Result<()> {
-        self.0.run_mobile_plugin("pause", ()).map_err(Into::into)
-    }
-
-    pub fn resume(&self) -> crate::Result<()> {
-        self.0.run_mobile_plugin("resume", ()).map_err(Into::into)
-    }
-
-    pub fn stop(&self) -> crate::Result<()> {
-        self.0.run_mobile_plugin("stop", ()).map_err(Into::into)
-    }
-
     pub fn set_rate(&self, payload: SetRateArgs) -> crate::Result<()> {
-        self.0.run_mobile_plugin("set_rate", payload).map_err(Into::into)
+        self.0
+            .run_mobile_plugin("set_rate", payload)
+            .map_err(Into::into)
     }
 
     pub fn set_voice(&self, payload: SetVoiceArgs) -> crate::Result<()> {
-        self.0.run_mobile_plugin("set_voice", payload).map_err(Into::into)
+        self.0
+            .run_mobile_plugin("set_voice", payload)
+            .map_err(Into::into)
     }
 
     pub fn get_all_voices(&self) -> crate::Result<GetVoicesResponse> {
         self.0
             .run_mobile_plugin("get_all_voices", ())
+            .map_err(Into::into)
+    }
+
+    pub fn set_media_session_active(
+        &self,
+        payload: SetMediaSessionActiveRequest,
+    ) -> crate::Result<()> {
+        self.0
+            .run_mobile_plugin("set_media_session_active", payload)
             .map_err(Into::into)
     }
 
@@ -70,6 +67,69 @@ impl<R: Runtime> NativeTts<R> {
     }
 
     pub fn shutdown(&self) -> crate::Result<()> {
-        self.0.run_mobile_plugin("shutdown", ()).map_err(Into::into)
+        self.0
+            .run_mobile_plugin("shutdown", ())
+            .map_err(Into::into)
+    }
+
+    pub fn tts_session_start(&self, payload: TTSSessionStartRequest) -> crate::Result<()> {
+        self.0
+            .run_mobile_plugin("tts_session_start", payload)
+            .map_err(Into::into)
+    }
+
+    pub fn tts_session_push(&self, payload: TTSSessionPushRequest) -> crate::Result<()> {
+        self.0
+            .run_mobile_plugin("tts_session_push", payload)
+            .map_err(Into::into)
+    }
+
+    pub fn tts_session_stop(&self) -> crate::Result<()> {
+        self.tts_session_stop_with_request(TTSSessionStopRequest {
+            emit_stopped_event: true,
+        })
+    }
+
+    pub fn tts_session_stop_with_request(
+        &self,
+        payload: TTSSessionStopRequest,
+    ) -> crate::Result<()> {
+        self.0
+            .run_mobile_plugin("tts_session_stop", payload)
+            .map_err(Into::into)
+    }
+
+    pub fn tts_session_pause(&self) -> crate::Result<()> {
+        self.0
+            .run_mobile_plugin("tts_session_pause", ())
+            .map_err(Into::into)
+    }
+
+    pub fn tts_session_resume(&self) -> crate::Result<()> {
+        self.0
+            .run_mobile_plugin("tts_session_resume", ())
+            .map_err(Into::into)
+    }
+
+    pub fn tts_session_set_rate(&self, payload: SetRateArgs) -> crate::Result<()> {
+        self.0
+            .run_mobile_plugin("tts_session_set_rate", payload)
+            .map_err(Into::into)
+    }
+
+    pub fn tts_session_set_voice(&self, payload: SetVoiceArgs) -> crate::Result<()> {
+        self.0
+            .run_mobile_plugin("tts_session_set_voice", payload)
+            .map_err(Into::into)
+    }
+
+    pub fn tts_session_set_end_of_book(
+        &self,
+        payload: TTSSessionSetEndOfBookRequest,
+    ) -> crate::Result<()> {
+        self.0
+            .run_mobile_plugin("tts_session_set_end_of_book", payload)
+            .map_err(Into::into)
     }
 }
+

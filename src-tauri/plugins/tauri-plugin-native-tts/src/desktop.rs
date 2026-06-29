@@ -16,18 +16,6 @@ impl<R: Runtime> NativeTts<R> {
     pub fn init(&self, _payload: InitArgs) -> crate::Result<InitResponse> {
         Err(crate::Error::UnsupportedPlatformError)
     }
-    pub fn speak(&self, _payload: SpeakArgs) -> crate::Result<SpeakResponse> {
-        Err(crate::Error::UnsupportedPlatformError)
-    }
-    pub fn pause(&self) -> crate::Result<()> {
-        Err(crate::Error::UnsupportedPlatformError)
-    }
-    pub fn resume(&self) -> crate::Result<()> {
-        Err(crate::Error::UnsupportedPlatformError)
-    }
-    pub fn stop(&self) -> crate::Result<()> {
-        Err(crate::Error::UnsupportedPlatformError)
-    }
     pub fn set_rate(&self, _payload: SetRateArgs) -> crate::Result<()> {
         Err(crate::Error::UnsupportedPlatformError)
     }
@@ -37,6 +25,12 @@ impl<R: Runtime> NativeTts<R> {
     pub fn get_all_voices(&self) -> crate::Result<GetVoicesResponse> {
         Err(crate::Error::UnsupportedPlatformError)
     }
+    pub fn set_media_session_active(
+        &self,
+        _payload: SetMediaSessionActiveRequest,
+    ) -> crate::Result<()> {
+        Err(crate::Error::UnsupportedPlatformError)
+    }
     pub fn open_tts_settings(&self) -> crate::Result<()> {
         Err(crate::Error::UnsupportedPlatformError)
     }
@@ -44,6 +38,39 @@ impl<R: Runtime> NativeTts<R> {
         Err(crate::Error::UnsupportedPlatformError)
     }
     pub fn shutdown(&self) -> crate::Result<()> {
+        Err(crate::Error::UnsupportedPlatformError)
+    }
+    pub fn tts_session_start(&self, _payload: TTSSessionStartRequest) -> crate::Result<()> {
+        Err(crate::Error::UnsupportedPlatformError)
+    }
+    pub fn tts_session_push(&self, _payload: TTSSessionPushRequest) -> crate::Result<()> {
+        Err(crate::Error::UnsupportedPlatformError)
+    }
+    pub fn tts_session_stop(&self) -> crate::Result<()> {
+        Err(crate::Error::UnsupportedPlatformError)
+    }
+    pub fn tts_session_stop_with_request(
+        &self,
+        _payload: TTSSessionStopRequest,
+    ) -> crate::Result<()> {
+        Err(crate::Error::UnsupportedPlatformError)
+    }
+    pub fn tts_session_pause(&self) -> crate::Result<()> {
+        Err(crate::Error::UnsupportedPlatformError)
+    }
+    pub fn tts_session_resume(&self) -> crate::Result<()> {
+        Err(crate::Error::UnsupportedPlatformError)
+    }
+    pub fn tts_session_set_rate(&self, _payload: SetRateArgs) -> crate::Result<()> {
+        Err(crate::Error::UnsupportedPlatformError)
+    }
+    pub fn tts_session_set_voice(&self, _payload: SetVoiceArgs) -> crate::Result<()> {
+        Err(crate::Error::UnsupportedPlatformError)
+    }
+    pub fn tts_session_set_end_of_book(
+        &self,
+        _payload: TTSSessionSetEndOfBookRequest,
+    ) -> crate::Result<()> {
         Err(crate::Error::UnsupportedPlatformError)
     }
 }

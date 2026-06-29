@@ -5,16 +5,21 @@ identifier = "allow-all"
 description = "允许前端调用 native-tts 插件命令，并订阅插件事件。"
 commands.allow = [
   "init",
-  "speak",
-  "pause",
-  "resume",
-  "stop",
   "set_rate",
   "set_voice",
   "get_all_voices",
+  "set_media_session_active",
   "open_tts_settings",
   "install_tts_data",
   "shutdown",
+  "tts_session_start",
+  "tts_session_push",
+  "tts_session_stop",
+  "tts_session_pause",
+  "tts_session_resume",
+  "tts_session_set_rate",
+  "tts_session_set_voice",
+  "tts_session_set_end_of_book",
   "register_listener",
   "registerListener",
   "remove_listener"
@@ -23,3 +28,4 @@ commands.allow = [
 [default]
 description = "允许使用 native-tts 插件的基础能力与事件。"
 permissions = ["allow-all"]
+

@@ -25,12 +25,6 @@ export {
 } from './useTxtProgressController';
 
 export {
-  useTxtTTS,
-  type TxtTTSContext,
-  type TxtTTSHook,
-} from './useTxtTTS';
-
-export {
   useTxtChapterWindowJump,
   type TxtChapterWindowJumpContext,
   type TxtChapterWindowJumpHook,
@@ -42,3 +36,4 @@ export {
   type TxtChapterTitleMapContext,
   type TxtChapterTitleMapHook,
 } from './useTxtChapterTitleMap';
+

@@ -1,17 +1,16 @@
 import type { ITTSClient } from './TTSClient';
-import type { TTSMessageEvent, TTSVoice } from './types';
-import { parseSSMLMarks } from './ssmlParser';
+import type { TTSVoice } from './types';
 import { TTS_RATE_DEFAULT } from '../../constants/tts';
+import { loadTauriCore } from './core/tauriCore';
+import { NativeSessionDriver } from './drivers/NativeSessionDriver';
 import { log, logError } from '../index';
 
 declare global {
   interface Window {
     __TTS_BRIDGE_READY__?: boolean;
     __onTTSInit__?: (success: boolean, voices: TTSVoice[], status?: string) => void;
-    __onTTSEvent__?: (code: string, utteranceId: string, error: string) => void;
     TTSBridge?: {
       init(): void;
-      speak(text: string, lang: string, rate: number, utteranceId: string): void;
       stop(): void;
       pause(): boolean;
       isAvailable(): boolean;
@@ -22,6 +21,7 @@ declare global {
   }
 }
 
+/** 原生 TTS 插件 init 响应 */
 type PluginInitResponse = {
   success: boolean;
   status: string;
@@ -30,6 +30,7 @@ type PluginInitResponse = {
   voices?: (TTSVoice & { displayZh?: string; displayEn?: string })[];
 };
 
+/** 客户端可对外暴露的初始化信息 */
 export type NativeTTSInitInfo = {
   mode: 'plugin' | 'bridge' | 'none';
   status: string;
@@ -38,48 +39,22 @@ export type NativeTTSInitInfo = {
   langCheck?: { requested: string; result: string };
 };
 
-type TTSEventPayload = {
-  utteranceId: string;
-  code: string;
-  message?: string;
-  mark?: string;
+/** 前台服务参数 */
+type SetMediaSessionActivePayload = {
+  active: boolean;
+  keepAppInForeground: boolean;
+  notificationTitle?: string;
+  notificationText?: string;
+  foregroundServiceTitle?: string;
+  foregroundServiceText?: string;
 };
 
-async function loadTauriCore(): Promise<{
-  invoke: (cmd: string, args?: any) => Promise<any>;
-  addPluginListener?: (
-    plugin: string,
-    event: string,
-    handler: (payload: any) => void,
-  ) => Promise<any>;
-} | null> {
-  const w = window as any;
-  const injectedInvoke = w?.__TAURI__?.core?.invoke || w?.__TAURI__?.invoke;
-  const injectedAddPluginListener = w?.__TAURI__?.core?.addPluginListener || w?.__TAURI__?.addPluginListener;
-  const invokeFromWindow = typeof injectedInvoke === 'function'
-    ? (injectedInvoke as (cmd: string, args?: any) => Promise<any>)
-    : null;
-  const addPluginListenerFromWindow = typeof injectedAddPluginListener === 'function'
-    ? injectedAddPluginListener
-    : null;
-  try {
-    const coreMod = await import('@tauri-apps/api/core').catch(() => null as any);
-    const invoke = (coreMod as any)?.invoke;
-    const addPluginListener = (coreMod as any)?.addPluginListener;
-    const finalInvoke = typeof invoke === 'function' ? invoke : invokeFromWindow;
-    const finalAddPluginListener = typeof addPluginListener === 'function'
-      ? addPluginListener
-      : addPluginListenerFromWindow;
-    if (typeof finalInvoke !== 'function') return null;
-    return { invoke: finalInvoke, addPluginListener: finalAddPluginListener || undefined };
-  } catch {
-    if (invokeFromWindow) {
-      return { invoke: invokeFromWindow, addPluginListener: addPluginListenerFromWindow || undefined };
-    }
-    return null;
-  }
-}
-
+/**
+ * 原生 TTS 客户端
+ * 仅负责：引擎初始化 / 语音查询与配置 / 前台服务保活 / 关闭
+ * 实际朗读统一由 createSessionDriver() 返回的 NativeSessionDriver 经会话协议驱动
+ * 该 driver 自行订阅 native-tts 的 tts_events，无需 client 转发
+ */
 export class NativeTTSClient implements ITTSClient {
   readonly name = 'native-tts';
   initialized = false;
@@ -95,8 +70,8 @@ export class NativeTTSClient implements ITTSClient {
     status: 'unknown',
     offlineReady: false,
   };
-  #pluginListener: any = null;
-  #activeUtterances = new Map<string, { resolve: (ev: TTSMessageEvent) => void }>();
+  #backgroundPlaybackActive = false;
+  #sessionDriver: NativeSessionDriver | null = null;
 
   static isAvailable(): boolean {
     return typeof window.TTSBridge !== 'undefined';
@@ -114,323 +89,18 @@ export class NativeTTSClient implements ITTSClient {
     return await this.#initBridge();
   }
 
-  #defaultVoice(lang?: string): TTSVoice {
-    return {
-      id: 'default',
-      name: '系统默认',
-      lang: lang || this.#primaryLang,
-    };
-  }
-
-  #toBCP47(lang: string): string {
-    const p = lang.substring(0, 2).toLowerCase();
-    if (p === 'zh') return 'zh-CN';
-    if (p === 'en') return 'en-US';
-    return lang;
-  }
-
-  async #initPlugin(): Promise<boolean> {
-    const core = await loadTauriCore();
-    if (!core?.invoke) return false;
-    if (!core?.addPluginListener) {
-      log('[TTS][Native] 插件可用但缺少 addPluginListener，跳过 plugin 模式', 'warn');
-      return false;
-    }
-
-    try {
-      const res = await core.invoke('native_tts_init', {
-        payload: { lang: this.#toBCP47(this.#primaryLang) },
-      }) as PluginInitResponse;
-
-      if (!res || typeof res.success !== 'boolean') return false;
-
-      this.initialized = res.success;
-      if (!res.success) return false;
-
-      this.#mode = 'plugin';
-      this.#initInfo = {
-        mode: 'plugin',
-        status: res.status || 'unknown',
-        offlineReady: res.status === 'success',
-        defaultEngine: res.defaultEngine,
-        langCheck: res.langCheck,
-      };
-      const normalized = this.#normalizeVoices(res.voices);
-      this.#voices = normalized.length > 0 ? normalized : [this.#defaultVoice()];
-      await this.#setupPluginListener(core.addPluginListener);
-      log(
-        `[TTS][Native] plugin 初始化成功: status=${this.#initInfo.status} defaultEngine=${this.#initInfo.defaultEngine ?? ''} voices=${this.#voices.length}`,
-        'info',
-      );
-      return true;
-    } catch (e) {
-      logError('[TTS][Native] plugin 初始化异常', e);
-      return false;
-    }
-  }
-
-  async #setupPluginListener(
-    addPluginListener: (
-      plugin: string,
-      event: string,
-      handler: (payload: any) => void,
-    ) => Promise<any>,
-  ): Promise<void> {
-    if (this.#pluginListener) return;
-    try {
-      this.#pluginListener = await addPluginListener(
-        'native-tts',
-        'tts_events',
-        (event: TTSEventPayload) => {
-          const utteranceId = (event as any)?.utteranceId;
-          if (!utteranceId) return;
-          const data = this.#activeUtterances.get(utteranceId);
-          if (!data) return;
-          const code = (event as any)?.code;
-          if (code !== 'end' && code !== 'error') return;
-          const message = (event as any)?.message;
-          const ev: TTSMessageEvent =
-            code === 'error'
-              ? { code: 'error', error: message || 'Native TTS error' }
-              : { code: 'end' };
-          this.#activeUtterances.delete(utteranceId);
-          data.resolve(ev);
-        },
-      );
-      log('[TTS][Native] plugin 事件监听已注册', 'info');
-    } catch (e) {
-      logError('[TTS][Native] plugin 事件监听注册失败', e);
-      this.#pluginListener = null;
-    }
-  }
-
-  async #initBridge(): Promise<boolean> {
-    if (!NativeTTSClient.isAvailable()) {
-      this.initialized = false;
-      return false;
-    }
-
-    return new Promise<boolean>((resolve) => {
-      let resolved = false;
-
-      window.__onTTSInit__ = (success: boolean, voices: TTSVoice[], status?: string) => {
-        if (resolved) return;
-        resolved = true;
-        this.initialized = success;
-        if (success) {
-          this.#mode = 'bridge';
-          const s = status || 'success';
-          this.#initInfo = { mode: 'bridge', status: s, offlineReady: s === 'success' };
-          const normalized = this.#normalizeVoices(voices);
-          this.#voices =
-            normalized.length > 0 ? normalized : this.#tryReadVoicesFromBridge();
-          log(`[TTS][Native] bridge 初始化成功: status=${s} voices=${this.#voices.length}`, 'info');
-        } else {
-          this.#initInfo = { mode: 'none', status: status || 'init_error', offlineReady: false };
-          log(`[TTS][Native] bridge 初始化失败: status=${status || 'init_error'}`, 'warn');
-        }
-        resolve(success);
-      };
-
-      setTimeout(() => {
-        if (!resolved) {
-          resolved = true;
-          this.initialized = false;
-          window.__onTTSInit__ = undefined;
-          resolve(false);
-        }
-      }, 5000);
-
-      window.TTSBridge!.init();
-    });
-  }
-
-  #normalizeVoices(input: unknown): TTSVoice[] {
-    if (!Array.isArray(input)) return [];
-    const out: TTSVoice[] = [];
-    for (const v of input) {
-      if (!v || typeof v !== 'object') continue;
-      const maybe = v as Partial<TTSVoice> & { displayZh?: unknown; displayEn?: unknown };
-      if (
-        typeof maybe.id === 'string' &&
-        typeof maybe.name === 'string' &&
-        typeof maybe.lang === 'string'
-      ) {
-        const displayZh = typeof maybe.displayZh === 'string' ? maybe.displayZh : undefined;
-        const displayEn = typeof maybe.displayEn === 'string' ? maybe.displayEn : undefined;
-        out.push({
-          id: maybe.id,
-          name: maybe.name,
-          lang: maybe.lang,
-          display: displayZh || displayEn ? { zh: displayZh, en: displayEn } : undefined,
-        });
-      }
-    }
-    return out;
-  }
-
-  #tryReadVoicesFromBridge(): TTSVoice[] {
-    try {
-      const raw = window.TTSBridge?.getVoices?.();
-      if (!raw) return [];
-      const parsed = JSON.parse(raw) as unknown;
-      return this.#normalizeVoices(parsed);
-    } catch {
-      return [];
-    }
-  }
-
-  async *speak(ssml: string, signal: AbortSignal): AsyncGenerator<TTSMessageEvent> {
-    const { marks } = parseSSMLMarks(ssml, this.#primaryLang);
-
-    for (let i = 0; i < marks.length; i++) {
-      if (signal.aborted) return;
-
-      const mark = marks[i]!;
-      yield { code: 'boundary', mark: mark.name };
-
-      const result =
-        this.#mode === 'plugin'
-          ? await this.#speakAndWaitPlugin(mark.text, mark.language, signal)
-          : await this.#speakAndWaitBridge(mark.text, mark.language, mark.name, signal);
-
-      if (signal.aborted) return;
-
-      if (result.code === 'error') {
-        yield result;
-        break;
-      }
-
-      yield result;
-    }
-  }
-
-  #speakAndWaitBridge(
-    text: string,
-    lang: string,
-    markName: string,
-    signal: AbortSignal,
-  ): Promise<TTSMessageEvent> {
-    return new Promise<TTSMessageEvent>((resolve) => {
-      if (signal.aborted) {
-        resolve({ code: 'end' });
-        return;
-      }
-
-      const safeName = String(markName).replace(/[^a-zA-Z0-9_]/g, '');
-      const utteranceId = `mark_${safeName}_${Date.now()}`;
-
-      const cleanup = () => {
-        window.__onTTSEvent__ = undefined;
-        signal.removeEventListener('abort', onAbort);
-      };
-
-      const onAbort = () => {
-        cleanup();
-        window.TTSBridge?.stop();
-        resolve({ code: 'end' });
-      };
-
-      signal.addEventListener('abort', onAbort, { once: true });
-
-      window.__onTTSEvent__ = (code: string, id: string, error: string) => {
-        if (id !== utteranceId) return;
-
-        if (code === 'end') {
-          cleanup();
-          resolve({ code: 'end' });
-        } else if (code === 'error') {
-          cleanup();
-          resolve({ code: 'error', error: error || 'Native TTS error' });
-        }
-      };
-
-      if (this.#currentVoiceId) {
-        log(
-          `[TTS][Native] bridge 模式不支持选语音: voiceId=${this.#currentVoiceId || 'default'}`,
-          'warn',
-        );
-      }
-      const effectiveLang = this.#currentVoiceId ? lang : '';
-      window.TTSBridge!.speak(text, effectiveLang, this.#rate, utteranceId);
-    });
-  }
-
-  async #speakAndWaitPlugin(
-    text: string,
-    lang: string,
-    signal: AbortSignal,
-  ): Promise<TTSMessageEvent> {
-    const core = await loadTauriCore();
-    if (!core) return { code: 'error', error: 'Native TTS unavailable' };
-    if (signal.aborted) return { code: 'end' };
-
-    const effectiveLang = this.#currentVoiceId ? this.#toBCP47(lang) : '';
-    log(
-      `[TTS][Native] plugin speak: voiceId=${this.#currentVoiceId || 'default'} lang=${effectiveLang || 'system'} rate=${this.#rate}`,
-      'info',
-    );
-    const result = await core.invoke('native_tts_speak', {
-      payload: { text, lang: effectiveLang },
-    }) as { utteranceId?: string };
-
-    const utteranceId = result?.utteranceId;
-    if (!utteranceId) return { code: 'error', error: 'Native TTS speak failed' };
-
-    return new Promise<TTSMessageEvent>((resolve) => {
-      const cleanup = () => {
-        this.#activeUtterances.delete(utteranceId);
-        signal.removeEventListener('abort', onAbort);
-        clearTimeout(timeoutId);
-      };
-
-      const onAbort = () => {
-        cleanup();
-        this.stop();
-        resolve({ code: 'end' });
-      };
-
-      const timeoutId = window.setTimeout(() => {
-        cleanup();
-        resolve({ code: 'error', error: 'Native TTS timeout' });
-      }, 30000);
-
-      signal.addEventListener('abort', onAbort, { once: true });
-      this.#activeUtterances.set(utteranceId, {
-        resolve: (ev) => {
-          cleanup();
-          resolve(ev);
-        },
+  /** 创建（或复用）一个会话驱动 */
+  createSessionDriver(): NativeSessionDriver {
+    if (!this.#sessionDriver) {
+      this.#sessionDriver = new NativeSessionDriver({
+        isPluginMode: () => this.#mode === 'plugin',
+        toBCP47: (lang) => this.#toBCP47(lang),
+        getPrimaryLang: () => this.#primaryLang,
+        getRate: () => this.#rate,
+        getVoiceId: () => this.#currentVoiceId,
       });
-    });
-  }
-
-  async pause(): Promise<boolean> {
-    if (this.#mode === 'plugin') {
-      const core = await loadTauriCore();
-      await core?.invoke('native_tts_pause').catch(() => {});
-      return true;
     }
-    window.TTSBridge?.pause();
-    return true;
-  }
-
-  async resume(): Promise<boolean> {
-    return false;
-  }
-
-  async stop(): Promise<void> {
-    for (const [, v] of this.#activeUtterances) {
-      v.resolve({ code: 'end' });
-    }
-    this.#activeUtterances.clear();
-
-    if (this.#mode === 'plugin') {
-      const core = await loadTauriCore();
-      await core?.invoke('native_tts_stop').catch(() => {});
-      return;
-    }
-    window.TTSBridge?.stop();
+    return this.#sessionDriver;
   }
 
   getVoices(lang?: string): TTSVoice[] {
@@ -485,28 +155,181 @@ export class NativeTTSClient implements ITTSClient {
   }
 
   async shutdown(): Promise<void> {
-    await this.stop();
     this.initialized = false;
     this.#voices = [];
 
-    if (this.#pluginListener) {
+    if (this.#sessionDriver) {
       try {
-        const l = this.#pluginListener;
-        if (typeof l === 'function') l();
-        else if (typeof l?.unlisten === 'function') l.unlisten();
-        else if (typeof l?.unregister === 'function') l.unregister();
+        await this.#sessionDriver.detach();
       } catch {}
-      this.#pluginListener = null;
+      this.#sessionDriver = null;
     }
 
     if (this.#mode === 'plugin') {
+      await this.#setBackgroundPlaybackActive(false);
       const core = await loadTauriCore();
       await core?.invoke('native_tts_shutdown').catch(() => {});
       this.#mode = 'none';
       return;
     }
-
     window.TTSBridge?.shutdown();
     this.#mode = 'none';
   }
+
+  #defaultVoice(lang?: string): TTSVoice {
+    return {
+      id: 'default',
+      name: '系统默认',
+      lang: lang || this.#primaryLang,
+    };
+  }
+
+  #toBCP47(lang: string): string {
+    const p = lang.substring(0, 2).toLowerCase();
+    if (p === 'zh') return 'zh-CN';
+    if (p === 'en') return 'en-US';
+    return lang;
+  }
+
+  async #initPlugin(): Promise<boolean> {
+    const core = await loadTauriCore();
+    if (!core?.invoke) return false;
+    if (!core?.addPluginListener) {
+      log('[TTS][Native] 插件可用但缺少 addPluginListener，跳过 plugin 模式', 'warn');
+      return false;
+    }
+    try {
+      const res = await core.invoke('native_tts_init', {
+        payload: { lang: this.#toBCP47(this.#primaryLang) },
+      }) as PluginInitResponse;
+      if (!res || typeof res.success !== 'boolean') return false;
+
+      this.initialized = res.success;
+      if (!res.success) return false;
+
+      this.#mode = 'plugin';
+      this.#initInfo = {
+        mode: 'plugin',
+        status: res.status || 'unknown',
+        offlineReady: res.status === 'success',
+        defaultEngine: res.defaultEngine,
+        langCheck: res.langCheck,
+      };
+      const normalized = this.#normalizeVoices(res.voices);
+      this.#voices = normalized.length > 0 ? normalized : [this.#defaultVoice()];
+      await this.#setBackgroundPlaybackActive(true);
+      log(
+        `[TTS][Native] plugin init ok status=${this.#initInfo.status} defaultEngine=${this.#initInfo.defaultEngine ?? ''} voices=${this.#voices.length}`,
+        'info',
+      );
+      return true;
+    } catch (e) {
+      logError('[TTS][Native] plugin 初始化异常', e);
+      return false;
+    }
+  }
+
+  async #initBridge(): Promise<boolean> {
+    if (!NativeTTSClient.isAvailable()) {
+      this.initialized = false;
+      return false;
+    }
+
+    return new Promise<boolean>((resolve) => {
+      let resolved = false;
+
+      window.__onTTSInit__ = (success: boolean, voices: TTSVoice[], status?: string) => {
+        if (resolved) return;
+        resolved = true;
+        this.initialized = success;
+        if (success) {
+          this.#mode = 'bridge';
+          const s = status || 'success';
+          this.#initInfo = { mode: 'bridge', status: s, offlineReady: s === 'success' };
+          const normalized = this.#normalizeVoices(voices);
+          this.#voices = normalized.length > 0 ? normalized : this.#tryReadVoicesFromBridge();
+          log(`[TTS][Native] bridge init ok status=${s} voices=${this.#voices.length}`, 'info');
+        } else {
+          this.#initInfo = { mode: 'none', status: status || 'init_error', offlineReady: false };
+          log(`[TTS][Native] bridge init failed status=${status || 'init_error'}`, 'warn');
+        }
+        resolve(success);
+      };
+
+      setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          this.initialized = false;
+          window.__onTTSInit__ = undefined;
+          resolve(false);
+        }
+      }, 5000);
+
+      window.TTSBridge!.init();
+    });
+  }
+
+  #normalizeVoices(input: unknown): TTSVoice[] {
+    if (!Array.isArray(input)) return [];
+    const out: TTSVoice[] = [];
+    for (const v of input) {
+      if (!v || typeof v !== 'object') continue;
+      const maybe = v as Partial<TTSVoice> & { displayZh?: unknown; displayEn?: unknown };
+      if (
+        typeof maybe.id === 'string' &&
+        typeof maybe.name === 'string' &&
+        typeof maybe.lang === 'string'
+      ) {
+        const displayZh = typeof maybe.displayZh === 'string' ? maybe.displayZh : undefined;
+        const displayEn = typeof maybe.displayEn === 'string' ? maybe.displayEn : undefined;
+        out.push({
+          id: maybe.id,
+          name: maybe.name,
+          lang: maybe.lang,
+          display: displayZh || displayEn ? { zh: displayZh, en: displayEn } : undefined,
+        });
+      }
+    }
+    return out;
+  }
+
+  #tryReadVoicesFromBridge(): TTSVoice[] {
+    try {
+      const raw = window.TTSBridge?.getVoices?.();
+      if (!raw) return [];
+      const parsed = JSON.parse(raw) as unknown;
+      return this.#normalizeVoices(parsed);
+    } catch {
+      return [];
+    }
+  }
+
+  async #setBackgroundPlaybackActive(active: boolean): Promise<void> {
+    if (this.#backgroundPlaybackActive === active) return;
+    const core = await loadTauriCore();
+    if (!core?.invoke) return;
+
+    const payload: SetMediaSessionActivePayload = active
+      ? {
+          active: true,
+          keepAppInForeground: true,
+          notificationTitle: 'GoRead TTS',
+          notificationText: 'Reading in background',
+          foregroundServiceTitle: 'GoRead TTS',
+          foregroundServiceText: 'Reading in background',
+        }
+      : {
+          active: false,
+          keepAppInForeground: false,
+        };
+
+    try {
+      await core.invoke('native_tts_set_media_session_active', { payload });
+      this.#backgroundPlaybackActive = active;
+      log(`[TTS][Native] 后台保活已${active ? '开启' : '关闭'}`, 'info');
+    } catch (e) {
+      logError(`[TTS][Native] 后台保活${active ? '开启' : '关闭'}失败`, e);
+    }
+  }
 }
+

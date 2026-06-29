@@ -9,7 +9,7 @@ use std::sync::Mutex;
 use once_cell::sync::Lazy;
 
 /// 元数据缓存（用于章节加载时复用）
-static METADATA_CACHE: Lazy<Mutex<HashMap<String, TxtBookMeta>>> = Lazy::new(|| {
+pub(crate) static METADATA_CACHE: Lazy<Mutex<HashMap<String, TxtBookMeta>>> = Lazy::new(|| {
     Mutex::new(HashMap::new())
 });
 

@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-tts-session-start"
+description = "Enables the tts_session_start command without any pre-configured scope."
+commands.allow = ["tts_session_start"]
+
+[[permission]]
+identifier = "deny-tts-session-start"
+description = "Denies the tts_session_start command without any pre-configured scope."
+commands.deny = ["tts_session_start"]

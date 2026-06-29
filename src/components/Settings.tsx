@@ -750,6 +750,55 @@ export const Settings: React.FC = () => {
         />
 
         <Row
+            label={t("ttsVoice")}
+            right={
+              <CustomSelect
+                value={selectedTtsVoiceValue}
+                options={ttsVoiceOptions}
+                onChange={(val) => {
+                  const raw = String(val);
+                  void log(`[TTS][Settings] 选择语音: ${raw}`, "info");
+                  if (raw === "none") return;
+                  if (raw === "default") {
+                    setSettings((s) => ({
+                      ...s,
+                      ttsPreferredEngine: undefined,
+                      ttsVoiceByEngine: {
+                        ...(s.ttsVoiceByEngine || {}),
+                        "native-tts": "default",
+                        "web-speech": "default",
+                      },
+                    }));
+                    return;
+                  }
+                  const idx = raw.indexOf("::");
+                  if (idx <= 0) return;
+                  const engine = raw.slice(0, idx);
+                  const voiceId = raw.slice(idx + 2);
+                  if (!engine || !voiceId) return;
+                  void log(`[TTS][Settings] 设置语音: engine=${engine} voiceId=${voiceId}`, "info");
+                  setSettings((s) => ({
+                    ...s,
+                    ttsPreferredEngine: engine,
+                    ttsVoiceByEngine: {
+                      ...(s.ttsVoiceByEngine || {}),
+                      [engine]: voiceId,
+                    },
+                  }));
+                }}
+                style={{
+                  opacity: ttsVoicesLoading ? 0.7 : 1,
+                }}
+                disabled={ttsVoices.length === 0}
+                dropdownDirection="up"
+                adaptiveMaxHeight
+                dropdownMaxHeight={220}
+                hideScrollbar
+              />
+            }
+          />
+
+        <Row
           label={t('dataManagement')}
           right={
             <div style={{ display: "flex", gap: 10 }}>
@@ -914,55 +963,6 @@ export const Settings: React.FC = () => {
             );
           })()}
           </div>
-
-          <Row
-            label={t("ttsVoice")}
-            right={
-              <CustomSelect
-                value={selectedTtsVoiceValue}
-                options={ttsVoiceOptions}
-                onChange={(val) => {
-                  const raw = String(val);
-                  void log(`[TTS][Settings] 选择语音: ${raw}`, "info");
-                  if (raw === "none") return;
-                  if (raw === "default") {
-                    setSettings((s) => ({
-                      ...s,
-                      ttsPreferredEngine: undefined,
-                      ttsVoiceByEngine: {
-                        ...(s.ttsVoiceByEngine || {}),
-                        "native-tts": "default",
-                        "web-speech": "default",
-                      },
-                    }));
-                    return;
-                  }
-                  const idx = raw.indexOf("::");
-                  if (idx <= 0) return;
-                  const engine = raw.slice(0, idx);
-                  const voiceId = raw.slice(idx + 2);
-                  if (!engine || !voiceId) return;
-                  void log(`[TTS][Settings] 设置语音: engine=${engine} voiceId=${voiceId}`, "info");
-                  setSettings((s) => ({
-                    ...s,
-                    ttsPreferredEngine: engine,
-                    ttsVoiceByEngine: {
-                      ...(s.ttsVoiceByEngine || {}),
-                      [engine]: voiceId,
-                    },
-                  }));
-                }}
-                style={{
-                  opacity: ttsVoicesLoading ? 0.7 : 1,
-                }}
-                disabled={ttsVoices.length === 0}
-                dropdownDirection="up"
-                adaptiveMaxHeight
-                dropdownMaxHeight={220}
-                hideScrollbar
-              />
-            }
-          />
 
           <div style={{ padding: "12px 0" }}>
           <div

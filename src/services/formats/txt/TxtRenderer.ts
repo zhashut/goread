@@ -17,11 +17,17 @@ import {
 } from '../types';
 import { registerRenderer } from '../registry';
 import { logError } from '../../index';
+import type {
+  TTSContentProvider,
+  TTSReadingPosition,
+} from '../../tts/providers/TTSContentProvider';
+import { TxtContentProvider } from '../../tts/providers/TxtContentProvider';
+import { findFirstVisibleTextRange, rangeToTextQuote } from '../../../utils/ttsDOM';
+import { generateTxtBookId } from './txtPreloader';
 import {
   useTxtRendererCore,
   useTxtDocumentLoader,
   useTxtProgressController,
-  useTxtTTS,
   useTxtChapterWindowJump,
   useTxtChapterTitleMap,
   type PageRange,
@@ -29,7 +35,6 @@ import {
   type TxtChapterCacheHook,
   type TxtDocumentLoader,
   type TxtProgressController,
-  type TxtTTSHook,
   type ChapterTitleMap,
   type TxtChapterWindowJumpHook,
   type TxtChapterWindowOptions,
@@ -71,6 +76,8 @@ export class TxtRenderer implements IBookRenderer {
   private _toc: TocItem[] = [];
   private _currentPage: number = 1;
   private _container: HTMLElement | null = null;
+  private _filePath: string | null = null;
+  private _bookId: string | null = null;
   private _isReady: boolean = false;
   private _lastRenderOptions: RenderOptions | null = null;
   private _isVerticalMode: boolean = false;
@@ -78,7 +85,6 @@ export class TxtRenderer implements IBookRenderer {
   private _core: TxtRendererCore;
   private _loader: TxtDocumentLoader;
   private _progress: TxtProgressController;
-  private _ttsHook: TxtTTSHook;
   private _windowJump: TxtChapterWindowJumpHook;
   private _titleMap: TxtChapterTitleMapHook;
   // 精确进度（浮点数），用于撤回跳转等场景的精确定位
@@ -169,25 +175,6 @@ export class TxtRenderer implements IBookRenderer {
       goToPage: (page) => this.goToPage(page),
       goToChapter: (chapterIndex) => this.goToChapter(chapterIndex),
       getChapterIndexByPage: (pageIndex) => this.getChapterIndexByPage(pageIndex),
-    });
-
-    this._ttsHook = useTxtTTS({
-      getIsReady: () => this._isReady,
-      getContent: () => this._content,
-      getPages: () => this._pages,
-      getIsVerticalMode: () => this._isVerticalMode,
-      getContainer: () => this._container,
-      getCurrentPage: () => this._currentPage,
-      setCurrentPage: (page) => {
-        this._currentPage = page;
-      },
-      getVerticalPageTops: () => this._verticalPageTops,
-      getUseChapterMode: () => this._useChapterMode,
-      getBookMeta: () => this._bookMeta,
-      getCurrentChapterIndex: () => this._currentChapterIndex,
-      goToPage: (page) => this.goToPage(page),
-      goToChapter: (chapterIndex) => this.goToChapter(chapterIndex),
-      appendNextChapter: () => this.appendNextChapter(),
     });
 
     this._windowJump = useTxtChapterWindowJump({
@@ -282,6 +269,8 @@ export class TxtRenderer implements IBookRenderer {
 
   /** 加载 TXT 文档 */
   async loadDocument(filePath: string, options?: TxtLoadOptions): Promise<BookInfo> {
+    this._filePath = filePath;
+    this._bookId = generateTxtBookId(filePath);
     return await this._loader.loadDocument(filePath, options);
   }
 
@@ -539,7 +528,7 @@ export class TxtRenderer implements IBookRenderer {
    */
   private _estimatePages(
     content: string,
-    _chapterIndex: number,
+    chapterIndex: number,
     _baseOffset: number
   ): PageRange[] {
     // 用现有分页数据估算平均每页字符数
@@ -556,6 +545,7 @@ export class TxtRenderer implements IBookRenderer {
         index: pageIndex,
         startOffset: offset,
         endOffset: end,
+        chapterIndex,
       });
       offset = end;
       pageIndex++;
@@ -566,6 +556,7 @@ export class TxtRenderer implements IBookRenderer {
         index: 0,
         startOffset: 0,
         endOffset: content.length,
+        chapterIndex,
       });
     }
     return pages;
@@ -915,29 +906,66 @@ export class TxtRenderer implements IBookRenderer {
   }
 
   /**
-   * 获取当前可见内容的文档数据，供 TTS 朗读
+   * 创建 TXT 新版 TTS 内容供给方
    */
-  getTTSDocument():
-    | { type: 'dom'; doc: Document | Element }
-    | { type: 'text'; text: string }
-    | null {
-    return this._ttsHook.getTTSDocument();
+  createTTSContentProvider(): TTSContentProvider {
+    return new TxtContentProvider({
+      getBookId: () => this._bookId || (this._filePath ? generateTxtBookId(this._filePath) : 'txt_unknown'),
+      getFilePath: () => this._filePath,
+      isVerticalMode: () => this._isVerticalMode,
+      getContent: () => this._content,
+      getPages: () => this._pages,
+      getCurrentPage: () => this._currentPage,
+      getCurrentChapterIndex: () => this._currentChapterIndex,
+      getContainer: () => this._container,
+      goToPage: (page) => this.goToPage(page),
+      getVisibleStartPosition: () => this.getVisibleStartPositionForTTS(),
+    });
   }
 
   /**
-   * 获取当前视口可见区域的起始位置，供 TTS 从用户阅读处开始朗读
+   * 计算当前视口顶部对应的章节索引与 anchor
+   * 仅纵向模式需要 anchor，横向模式以当前页为单位不需要 anchor
    */
-  getVisibleStartForTTS():
-    | { type: 'range'; range: Range }
-    | null {
-    return this._ttsHook.getVisibleStartForTTS();
-  }
+  private getVisibleStartPositionForTTS(): TTSReadingPosition | null {
+    const container = this._container;
+    if (!container) return null;
 
-  /**
-   * TTS 自动前进：横向模式翻到下一页，纵向模式滚动到下一区域
-   */
-  async advanceForTTS(): Promise<boolean> {
-    return await this._ttsHook.advanceForTTS();
+    if (!this._isVerticalMode) {
+      const pageIndex = Math.max(0, this._currentPage - 1);
+      return { sectionIndex: pageIndex, anchor: null };
+    }
+
+    const wrappers = Array.from(
+      container.querySelectorAll('[data-page-index]'),
+    ) as HTMLElement[];
+    if (wrappers.length === 0) return null;
+
+    const scrollTop = container.scrollTop + 1;
+    let visibleIndex = 0;
+    for (let i = 0; i < wrappers.length; i++) {
+      const top = wrappers[i]?.offsetTop ?? 0;
+      if (top <= scrollTop) visibleIndex = i;
+      else break;
+    }
+
+    const wrapper = wrappers[visibleIndex];
+    if (!wrapper) return { sectionIndex: visibleIndex, anchor: null };
+
+    const range = findFirstVisibleTextRange(wrapper, container, 'vertical');
+    if (!range) return { sectionIndex: visibleIndex, anchor: null };
+
+    const quote = rangeToTextQuote(range, {
+      quoteLength: 24,
+      contextLength: 24,
+      searchRoot: wrapper,
+    });
+    if (!quote) return { sectionIndex: visibleIndex, anchor: null };
+
+    return {
+      sectionIndex: this.getChapterIndexByPage(visibleIndex),
+      anchor: { quote: quote.quote, prefix: quote.prefix, suffix: quote.suffix },
+    };
   }
 
   /** 关闭并释放资源 */
@@ -977,3 +1005,4 @@ registerRenderer({
   factory: () => new TxtRenderer(),
   displayName: 'TXT',
 });
+

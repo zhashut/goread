@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-tts-session-pause"
+description = "Enables the tts_session_pause command without any pre-configured scope."
+commands.allow = ["tts_session_pause"]
+
+[[permission]]
+identifier = "deny-tts-session-pause"
+description = "Denies the tts_session_pause command without any pre-configured scope."
+commands.deny = ["tts_session_pause"]

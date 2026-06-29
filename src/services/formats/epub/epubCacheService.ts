@@ -74,6 +74,13 @@ export interface EpubPersistedStats {
   totalSizeBytes: number;
 }
 
+export type EpubSectionResolveSource = 'memory-cache' | 'db-cache';
+
+export interface EpubResolvedSectionEntry {
+  entry: EpubSectionCacheEntry;
+  source: EpubSectionResolveSource;
+}
+
 /** 后端缓存统计信息 */
 interface BackendCacheStats {
   total_size: number;
@@ -161,6 +168,34 @@ class EpubCacheService {
       // 后端调用失败时静默返回 null
       return null;
     }
+  }
+
+  /**
+   * 按内存缓存优先的顺序获取章节缓存
+   */
+  async resolveSectionFromMemoryOrDB(
+    bookId: string,
+    sectionIndex: number,
+    sectionCache?: IEpubSectionCache | null,
+  ): Promise<EpubResolvedSectionEntry | null> {
+    const memoryEntry = sectionCache?.getSection(bookId, sectionIndex);
+    if (memoryEntry) {
+      return {
+        entry: memoryEntry,
+        source: 'memory-cache',
+      };
+    }
+
+    const dbEntry = await this.loadSectionFromDB(bookId, sectionIndex);
+    if (!dbEntry) {
+      return null;
+    }
+
+    sectionCache?.setSection(dbEntry);
+    return {
+      entry: dbEntry,
+      source: 'db-cache',
+    };
   }
 
   /**

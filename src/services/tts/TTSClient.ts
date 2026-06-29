@@ -1,8 +1,9 @@
-import type { TTSMessageEvent, TTSVoice } from './types';
+import type { TTSVoice } from './types';
 
 /**
- * TTS 客户端接口
- * 定义语音合成引擎的统一协议
+ * TTS 客户端协议
+ * 仅负责"引擎初始化、语音/语速配置、关闭"
+ * 实际朗读由 IBackendSessionDriver 接管
  */
 export interface ITTSClient {
   /** 引擎名称 */
@@ -13,18 +14,6 @@ export interface ITTSClient {
 
   /** 初始化引擎 */
   init(): Promise<boolean>;
-
-  /** 朗读 SSML 内容，返回异步事件迭代器 */
-  speak(ssml: string, signal: AbortSignal): AsyncIterable<TTSMessageEvent>;
-
-  /** 停止当前朗读 */
-  stop(): Promise<void>;
-
-  /** 暂停朗读 */
-  pause(): Promise<boolean>;
-
-  /** 恢复朗读 */
-  resume(): Promise<boolean>;
 
   /** 获取可用语音列表 */
   getVoices(lang?: string): TTSVoice[];
@@ -47,3 +36,4 @@ export interface ITTSClient {
   /** 关闭引擎，释放资源 */
   shutdown(): Promise<void>;
 }
+

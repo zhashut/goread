@@ -36,8 +36,3 @@ export {
   type HorizontalRenderHook,
 } from './useHorizontalRender';
 
-export {
-  useEpubTTS,
-  type EpubTTSContext,
-  type EpubTTSHook,
-} from './useEpubTTS';

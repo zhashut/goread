@@ -90,7 +90,8 @@ export class HighlightManager {
         typeof performance !== 'undefined' && typeof performance.now === 'function'
           ? performance.now()
           : Date.now();
-      const minIntervalMs = useHorizontalFollow ? 260 : 80;
+      // 横向翻页节流 260ms；纵向用 instant 滚动，节流 150ms 防止同一句多次触发
+      const minIntervalMs = useHorizontalFollow ? 260 : 150;
       if (this.#lastFollowContainer === container && now - this.#lastFollowTs < minIntervalMs) {
         return;
       }
@@ -137,10 +138,11 @@ export class HighlightManager {
 
         if (Math.abs(dy) < 1) return;
 
+        // 用 instant 避免多次 smooth 动画叠加导致滚动位置混乱
         if (isDocScroller) {
-          window.scrollBy({ top: dy, behavior: 'smooth' });
+          window.scrollBy({ top: dy, behavior: 'instant' as ScrollBehavior });
         } else {
-          (container as any).scrollBy?.({ top: dy, behavior: 'smooth' });
+          (container as any).scrollBy?.({ top: dy, behavior: 'instant' });
         }
       }
 
@@ -329,4 +331,5 @@ export class HighlightManager {
     return document.scrollingElement || document.documentElement;
   }
 }
+
 

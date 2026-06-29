@@ -35,16 +35,21 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
     Builder::new("native-tts")
         .invoke_handler(tauri::generate_handler![
             commands::init,
-            commands::speak,
-            commands::stop,
-            commands::pause,
-            commands::resume,
             commands::set_rate,
             commands::set_voice,
             commands::get_all_voices,
+            commands::set_media_session_active,
             commands::open_tts_settings,
             commands::install_tts_data,
             commands::shutdown,
+            commands::tts_session_start,
+            commands::tts_session_push,
+            commands::tts_session_stop,
+            commands::tts_session_pause,
+            commands::tts_session_resume,
+            commands::tts_session_set_rate,
+            commands::tts_session_set_voice,
+            commands::tts_session_set_end_of_book,
         ])
         .setup(|app, api| {
             #[cfg(any(target_os = "android", target_os = "ios"))]
@@ -56,3 +61,4 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
         })
         .build()
 }
+

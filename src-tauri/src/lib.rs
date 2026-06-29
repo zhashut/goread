@@ -7,6 +7,8 @@ mod markdown_commands;
 mod models;
 mod pdf;
 mod pdf_commands;
+mod tts;
+mod tts_commands;
 mod txt_commands;
 mod mobi_commands;
 
@@ -94,6 +96,7 @@ use html_commands::*;
 use markdown_commands::*;
 use pdf_commands::*;
 use txt_commands::{txt_load_document, txt_load_metadata, txt_load_chapter, txt_clear_metadata_cache, txt_get_cache_stats};
+use tts_commands::tts_get_segments;
 use mobi_commands::*;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
 use sqlx::SqlitePool;
@@ -103,6 +106,7 @@ use std::sync::Arc;
 use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_native_tts::NativeTtsExt;
 use tokio::sync::Mutex;
+use tts::session_manager::ManagedTtsSessionState;
 
 #[tauri::command]
 fn exit_app() {
@@ -133,24 +137,6 @@ async fn native_tts_init<R: Runtime>(
 }
 
 #[tauri::command]
-async fn native_tts_speak<R: Runtime>(
-    app: AppHandle<R>,
-    payload: tauri_plugin_native_tts::SpeakArgs,
-) -> Result<tauri_plugin_native_tts::SpeakResponse, String> {
-    app.native_tts().speak(payload).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn native_tts_pause<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
-    app.native_tts().pause().map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-async fn native_tts_stop<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
-    app.native_tts().stop().map_err(|e| e.to_string())
-}
-
-#[tauri::command]
 async fn native_tts_set_rate<R: Runtime>(
     app: AppHandle<R>,
     payload: tauri_plugin_native_tts::SetRateArgs,
@@ -167,8 +153,147 @@ async fn native_tts_set_voice<R: Runtime>(
 }
 
 #[tauri::command]
+async fn native_tts_set_media_session_active<R: Runtime>(
+    app: AppHandle<R>,
+    payload: tauri_plugin_native_tts::SetMediaSessionActiveRequest,
+) -> Result<(), String> {
+    app.native_tts()
+        .set_media_session_active(payload)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn native_tts_shutdown<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     app.native_tts().shutdown().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn native_tts_session_start<R: Runtime>(
+    app: AppHandle<R>,
+    payload: tauri_plugin_native_tts::TTSSessionStartRequest,
+) -> Result<(), String> {
+    app.native_tts()
+        .tts_session_start(payload)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn native_tts_session_push<R: Runtime>(
+    app: AppHandle<R>,
+    payload: tauri_plugin_native_tts::TTSSessionPushRequest,
+) -> Result<(), String> {
+    app.native_tts()
+        .tts_session_push(payload)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn native_tts_session_stop<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    app.native_tts()
+        .tts_session_stop()
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn native_tts_session_pause<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    app.native_tts()
+        .tts_session_pause()
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn native_tts_session_resume<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    app.native_tts()
+        .tts_session_resume()
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn native_tts_session_set_rate<R: Runtime>(
+    app: AppHandle<R>,
+    payload: tauri_plugin_native_tts::SetRateArgs,
+) -> Result<(), String> {
+    app.native_tts()
+        .tts_session_set_rate(payload)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn native_tts_session_set_voice<R: Runtime>(
+    app: AppHandle<R>,
+    payload: tauri_plugin_native_tts::SetVoiceArgs,
+) -> Result<(), String> {
+    app.native_tts()
+        .tts_session_set_voice(payload)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn native_tts_session_set_end_of_book<R: Runtime>(
+    app: AppHandle<R>,
+    payload: tauri_plugin_native_tts::TTSSessionSetEndOfBookRequest,
+) -> Result<(), String> {
+    app.native_tts()
+        .tts_session_set_end_of_book(payload)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn tts_managed_session_start<R: Runtime>(
+    app: AppHandle<R>,
+    state: tauri::State<'_, Arc<ManagedTtsSessionState>>,
+    payload: tts::types::TtsManagedSessionStartRequest,
+) -> Result<(), String> {
+    state.inner().start(app, payload).await
+}
+
+#[tauri::command]
+async fn tts_managed_session_stop<R: Runtime>(
+    app: AppHandle<R>,
+    state: tauri::State<'_, Arc<ManagedTtsSessionState>>,
+) -> Result<(), String> {
+    state.inner().stop(app).await
+}
+
+#[tauri::command]
+async fn tts_managed_session_pause<R: Runtime>(
+    app: AppHandle<R>,
+    state: tauri::State<'_, Arc<ManagedTtsSessionState>>,
+) -> Result<(), String> {
+    state.inner().pause(app).await
+}
+
+#[tauri::command]
+async fn tts_managed_session_resume<R: Runtime>(
+    app: AppHandle<R>,
+    state: tauri::State<'_, Arc<ManagedTtsSessionState>>,
+) -> Result<(), String> {
+    state.inner().resume(app).await
+}
+
+#[tauri::command]
+async fn tts_managed_session_set_rate<R: Runtime>(
+    app: AppHandle<R>,
+    state: tauri::State<'_, Arc<ManagedTtsSessionState>>,
+    payload: tts::types::TtsManagedSessionSetRateRequest,
+) -> Result<(), String> {
+    state.inner().set_rate(app, payload).await
+}
+
+#[tauri::command]
+async fn tts_managed_session_set_voice<R: Runtime>(
+    app: AppHandle<R>,
+    state: tauri::State<'_, Arc<ManagedTtsSessionState>>,
+    payload: tts::types::TtsManagedSessionSetVoiceRequest,
+) -> Result<(), String> {
+    state.inner().set_voice(app, payload).await
+}
+
+#[tauri::command]
+async fn tts_managed_session_status(
+    state: tauri::State<'_, Arc<ManagedTtsSessionState>>,
+) -> Result<tts::types::TtsManagedSessionStatus, String> {
+    Ok(state.inner().status().await)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -179,6 +304,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_native_tts::init())
         .setup(|app| {
+            app.manage(Arc::new(ManagedTtsSessionState::new()));
             // 设置数据库连接
             tauri::async_runtime::block_on(async {
                 let app_data_dir = app.path().app_data_dir().unwrap();
@@ -321,6 +447,13 @@ pub fn run() {
             pdf_render_pages_with_threads,
             exit_app,
             // Markdown commands
+            tts_managed_session_start,
+            tts_managed_session_stop,
+            tts_managed_session_pause,
+            tts_managed_session_resume,
+            tts_managed_session_set_rate,
+            tts_managed_session_set_voice,
+            tts_managed_session_status,
             markdown_load_document,
             markdown_get_content,
             markdown_get_toc,
@@ -338,12 +471,20 @@ pub fn run() {
             hide_status_bar,
             // Native TTS commands (avoid plugin invoke ACL)
             native_tts_init,
-            native_tts_speak,
-            native_tts_pause,
-            native_tts_stop,
             native_tts_set_rate,
             native_tts_set_voice,
+            native_tts_set_media_session_active,
             native_tts_shutdown,
+            native_tts_session_start,
+            native_tts_session_push,
+            native_tts_session_stop,
+            native_tts_session_pause,
+            native_tts_session_resume,
+            native_tts_session_set_rate,
+            native_tts_session_set_voice,
+            native_tts_session_set_end_of_book,
+            // TTS 统一取片接口
+            tts_get_segments,
             // Stats commands
             save_reading_session,
             get_stats_summary,
@@ -399,3 +540,4 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
+
