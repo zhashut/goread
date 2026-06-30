@@ -98,6 +98,7 @@ export interface VerticalRenderHook {
 export function useVerticalRender(context: VerticalRenderContext): VerticalRenderHook {
   const { sectionCount, resourceHook, themeHook } = context;
   const MAX_RATIO = 0.999999;
+  const MIN_SECTION_HEIGHT = 200;
 
   // 内部状态
   const state: VerticalRenderState = {
@@ -116,12 +117,123 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
   // 观察器引用
   let sectionObserver: IntersectionObserver | null = null;
   let navigationHook: EpubNavigationHook | null = null;
+  const wrapperHeightRafIds = new Map<number, number[]>();
+  const wrapperResizeObservers = new Map<number, ResizeObserver>();
+  const wrapperImageCleanupFns = new Map<number, Array<() => void>>();
 
   /**
    * 设置导航 hook
    */
   const setNavigationHook = (hook: EpubNavigationHook): void => {
     navigationHook = hook;
+  };
+
+  const clearWrapperHeightSync = (index: number): void => {
+    const rafIds = wrapperHeightRafIds.get(index) || [];
+    rafIds.forEach((rafId) => {
+      try {
+        cancelAnimationFrame(rafId);
+      } catch { }
+    });
+    wrapperHeightRafIds.delete(index);
+
+    const resizeObserver = wrapperResizeObservers.get(index);
+    if (resizeObserver) {
+      try {
+        resizeObserver.disconnect();
+      } catch { }
+      wrapperResizeObservers.delete(index);
+    }
+
+    const cleanups = wrapperImageCleanupFns.get(index) || [];
+    cleanups.forEach((cleanup) => {
+      try {
+        cleanup();
+      } catch { }
+    });
+    wrapperImageCleanupFns.delete(index);
+  };
+
+  const clearAllWrapperHeightSync = (): void => {
+    Array.from(wrapperHeightRafIds.keys()).forEach((index) => clearWrapperHeightSync(index));
+    Array.from(wrapperResizeObservers.keys()).forEach((index) => clearWrapperHeightSync(index));
+    Array.from(wrapperImageCleanupFns.keys()).forEach((index) => clearWrapperHeightSync(index));
+  };
+
+  const measureWrapperContentHeight = (content: HTMLElement): number => {
+    const rectHeight = Math.ceil(content.getBoundingClientRect().height);
+    const scrollHeight = Math.ceil(content.scrollHeight);
+    const offsetHeight = Math.ceil(content.offsetHeight);
+    return Math.max(MIN_SECTION_HEIGHT, rectHeight, scrollHeight, offsetHeight);
+  };
+
+  const applyWrapperHeight = (wrapper: HTMLElement, content: HTMLElement): void => {
+    const nextHeight = measureWrapperContentHeight(content);
+    if (!isFinite(nextHeight) || nextHeight <= 0) return;
+
+    const currentHeight = Math.ceil(wrapper.getBoundingClientRect().height);
+    if (Math.abs(currentHeight - nextHeight) <= 1 && wrapper.style.height) {
+      return;
+    }
+
+    wrapper.style.height = `${nextHeight}px`;
+  };
+
+  const trackWrapperHeightRaf = (index: number, callback: () => void): void => {
+    const rafId = requestAnimationFrame(() => {
+      const rafIds = wrapperHeightRafIds.get(index) || [];
+      wrapperHeightRafIds.set(index, rafIds.filter((id) => id !== rafId));
+      callback();
+    });
+    const rafIds = wrapperHeightRafIds.get(index) || [];
+    rafIds.push(rafId);
+    wrapperHeightRafIds.set(index, rafIds);
+  };
+
+  const setupWrapperHeightSync = (
+    index: number,
+    wrapper: HTMLElement,
+    content: HTMLElement,
+  ): void => {
+    clearWrapperHeightSync(index);
+    applyWrapperHeight(wrapper, content);
+
+    // 首帧后再同步一次，覆盖样式完成后的真实高度。
+    trackWrapperHeightRaf(index, () => {
+      applyWrapperHeight(wrapper, content);
+      // 第二帧补一次，兼容 Shadow DOM 中延迟完成的布局计算。
+      trackWrapperHeightRaf(index, () => {
+        applyWrapperHeight(wrapper, content);
+      });
+    });
+
+    if (typeof ResizeObserver !== 'undefined') {
+      const resizeObserver = new ResizeObserver(() => {
+        applyWrapperHeight(wrapper, content);
+      });
+      resizeObserver.observe(content);
+      wrapperResizeObservers.set(index, resizeObserver);
+    }
+
+    const cleanups: Array<() => void> = [];
+    content.querySelectorAll('img').forEach((image) => {
+      if (!(image instanceof HTMLImageElement) || image.complete) return;
+
+      const handleImageLayout = () => {
+        applyWrapperHeight(wrapper, content);
+      };
+
+      image.addEventListener('load', handleImageLayout, { passive: true });
+      image.addEventListener('error', handleImageLayout, { passive: true });
+      cleanups.push(() => {
+        image.removeEventListener('load', handleImageLayout);
+        image.removeEventListener('error', handleImageLayout);
+      });
+    });
+
+    if (cleanups.length > 0) {
+      wrapperImageCleanupFns.set(index, cleanups);
+    }
   };
 
   /**
@@ -385,6 +497,7 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
         try {
           // 使用 shadow DOM 隔离样式（复用已存在的 Shadow Root 或创建新的）
           let shadow = wrapper.shadowRoot;
+          clearWrapperHeightSync(index);
           if (shadow) {
             // 清空已存在的 Shadow Root 内容
             shadow.innerHTML = '';
@@ -464,6 +577,7 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
           content.className = 'epub-section-content';
           content.innerHTML = extractBodyContent(restoredHtml);
           shadow.appendChild(content);
+          setupWrapperHeightSync(index, wrapper, content);
 
           // 处理链接点击事件
           if (navigationHook) {
@@ -701,7 +815,9 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
       wrapper.className = 'epub-section-wrapper';
       wrapper.dataset.sectionIndex = String(i);
       wrapper.style.cssText = `
-        min-height: 200px;
+        min-height: ${MIN_SECTION_HEIGHT}px;
+        height: auto;
+        overflow: visible;
         padding: 0 16px;
         box-sizing: border-box;
       `;
@@ -836,6 +952,7 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
     }
 
     state.verticalContinuousMode = false;
+    clearAllWrapperHeightSync();
     state.sectionContainers.clear();
     state.renderedSections.clear();
     state.renderingInProgress.clear();
@@ -887,7 +1004,9 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
         const wrapper = document.createElement('div');
         wrapper.dataset.sectionIndex = String(index);
         wrapper.style.cssText = `
-          min-height: 200px;
+          min-height: ${MIN_SECTION_HEIGHT}px;
+          height: auto;
+          overflow: visible;
           padding: 0 16px;
           box-sizing: border-box;
         `;
@@ -908,6 +1027,7 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
 
       log(`[EPUB预热] 预热流程完成`).catch(() => { });
     } finally {
+      indices.forEach((index) => clearWrapperHeightSync(index));
       // 清理临时容器
       offscreenContainer.remove();
 
@@ -919,13 +1039,17 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
 
   const updateThemeStyles = (options?: RenderOptions) => {
     const next = themeHook.getThemeStyles(options);
-    for (const wrapper of state.sectionContainers.values()) {
+    for (const [index, wrapper] of state.sectionContainers.entries()) {
       const shadow = wrapper.shadowRoot;
       if (!shadow) continue;
       const styleEl =
         shadow.querySelector('style[data-epub-theme-style]') || shadow.querySelector('style');
       if (!styleEl) continue;
       styleEl.textContent = next;
+      const content = shadow.querySelector('.epub-section-content');
+      if (content instanceof HTMLElement) {
+        setupWrapperHeightSync(index, wrapper, content);
+      }
     }
   };
 
