@@ -47,6 +47,12 @@ const tryNative = async (): Promise<NativeTTSClient | null> => {
 
 const isAndroid = (): boolean => /android/i.test(navigator.userAgent || '');
 
+const isIOS = (): boolean => {
+  const ua = navigator.userAgent || '';
+  const platform = navigator.platform || '';
+  return /iphone|ipad|ipod/i.test(ua) || (platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+};
+
 /** Android 平台尝试链 */
 async function pickClientOnAndroid(
   preferred: TTSEnginePreference,
@@ -96,6 +102,34 @@ async function pickClientOnAndroid(
   return { client: null, failReason: 'listenFailedNativeInit' };
 }
 
+/** iOS 平台尝试链 */
+async function pickClientOnIOS(
+  preferred: TTSEnginePreference,
+): Promise<CreateTTSClientResult> {
+  if (preferred === 'web-speech') {
+    const web = await tryWebSpeech(true);
+    if (web) return { client: web, failReason: 'listenFailedUnknown' };
+  }
+  if (preferred === 'native-tts') {
+    const native = await tryNative();
+    if (native) return { client: native, failReason: 'listenFailedUnknown' };
+  }
+
+  // 中文注释：iOS 优先走原生插件，保证后台朗读和会话事件链路与 Android 尽量一致。
+  const native = await tryNative();
+  if (native) return { client: native, failReason: 'listenFailedUnknown' };
+
+  const web = await tryWebSpeech(true);
+  if (web) return { client: web, failReason: 'listenFailedUnknown' };
+
+  return {
+    client: null,
+    failReason: NativeTTSClient.isAvailable()
+      ? 'listenFailedNativeInit'
+      : 'listenFailedNoVoice',
+  };
+}
+
 /** 桌面 / iOS 平台尝试链 */
 async function pickClientOnDesktop(
   preferred: TTSEnginePreference,
@@ -127,6 +161,8 @@ export async function createTTSClient(
   const normalized: TTSEnginePreference =
     preferred === 'native-tts' || preferred === 'web-speech' ? preferred : undefined;
   log(`[TTS] createTTSClient: 开始创建客户端 preferred=${normalized ?? ''}`, 'info');
-  return isAndroid() ? pickClientOnAndroid(normalized) : pickClientOnDesktop(normalized);
+  if (isAndroid()) return pickClientOnAndroid(normalized);
+  if (isIOS()) return pickClientOnIOS(normalized);
+  return pickClientOnDesktop(normalized);
 }
 
