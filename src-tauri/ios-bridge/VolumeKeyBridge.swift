@@ -1,124 +1,265 @@
 /**
  * VolumeKeyBridge.swift
- * iOS 音量键翻页桥接实现
- * 
- * 使用说明：
- * 1. 将此文件添加到 iOS 项目中
- * 2. 在 AppDelegate 或 SceneDelegate 中初始化 VolumeKeyBridge
- * 3. 需要配合 WKWebView 使用
- * 
- * 注意：此实现监听系统音量变化，不会拦截音量 HUD 显示
- * 如需完全拦截音量键（无 HUD），需使用 MPVolumeView 隐藏方案
+ * iOS 音量键翻页桥接
+ *
+ * 对齐 Android（MainActivity.kt dispatchKeyEvent + inner VolumeKeyBridge）：
+ *   - Android 通过 dispatchKeyEvent 直接消费 KEYCODE_VOLUME_UP/DOWN，`return true` 真正拦截
+ *     物理按键，既触发翻页、又不改变系统音量、也不弹音量 HUD。
+ *   - iOS 没有全局 dispatchKeyEvent 等价 API，成熟做法是用一个**屏外隐藏的 MPVolumeView 的
+ *     UISlider** 拦截音量键：系统音量键按下时，会先触发该 slider 的触摸/值变化事件，
+ *     我们借此识别"up / down"方向，并把滑块值还原回 lastVolume，从而：
+ *       - 触发前端回调 window.__onVolumeKey__('up' / 'down')   → 翻页
+ *       - 系统实际音量不改变（值被还原）
+ *       - 不弹系统音量 HUD（MPVolumeView 隐藏且无可见 HUD）
+ *
+ * 前端契约（volumeKeyService.ts IOSVolumeKeyBridge 与 AndroidVolumeKeyBridge 完全一致）：
+ *   - window.VolumeKeyBridge.setEnabled(Boolean) / isEnabled(): Boolean
+ *   - ready 标志 window.__VOLUME_KEY_BRIDGE_READY__ = true
+ *   - 就绪 DOM 事件 volumeKeyBridgeReady
+ *   - 原生→前端回调 window.__onVolumeKey__(direction)，direction ∈ 'up' | 'down'
  */
 
 import UIKit
 import AVFoundation
 import MediaPlayer
 import WebKit
+import os
 
 class VolumeKeyBridge: NSObject {
-    
-    // 单例
     static let shared = VolumeKeyBridge()
-    
-    // WebView 引用（弱引用避免循环引用）
+
     weak var webView: WKWebView?
-    
-    // 启用状态
+
+    /// 启用状态（对齐 Android volumeKeyEnabled）
     private var isVolumeKeyEnabled = false
-    
-    // 记录上一次音量值，用于判断音量变化方向
+
+    /// 记录上一次音量值，用于把隐藏 slider 的值还原回去，避免系统音量改变
     private var lastVolume: Float = 0.5
-    
-    // 隐藏的 MPVolumeView（用于拦截音量 HUD）
+
+    /// 隐藏的 MPVolumeView（用于拦截音量键 + 不弹 HUD）
     private var hiddenVolumeView: MPVolumeView?
-    
-    // 音量变化观察者
-    private var volumeObserver: NSKeyValueObservation?
-    
+    /// 隐藏 slider 内的 UISlider（真正拦截触点的控件）
+    private var hiddenSlider: UISlider?
+
+    /// 去抖：避免一次按键触发多次回调
+    private var lastEventTimestamp: TimeInterval = 0
+
+    private let logger = Logger(subsystem: "goread", category: "VolumeKey")
+
     private override init() {
         super.init()
     }
-    
+
     // MARK: - 公开接口
-    
-    /// 初始化桥接，需传入 WKWebView 实例
+
     func setup(webView: WKWebView) {
         self.webView = webView
-        
-        // 配置音频会话
+
         setupAudioSession()
-        
-        // 创建隐藏的音量视图（可选，用于隐藏音量 HUD）
         setupHiddenVolumeView()
-        
-        // 注入 JavaScript 接口
         injectJavaScriptInterface()
-        
-        // 获取初始音量
-        lastVolume = AVAudioSession.sharedInstance().outputVolume
-        
-        // 开始监听音量变化
         startVolumeObservation()
-        
-        // 通知前端桥接已就绪
+        lastVolume = AVAudioSession.sharedInstance().outputVolume
         notifyBridgeReady()
     }
-    
-    /// 设置启用状态
+
     func setEnabled(_ enabled: Bool) {
         isVolumeKeyEnabled = enabled
-        
+
         if enabled {
-            // 启用时，记录当前音量
-            lastVolume = AVAudioSession.sharedInstance().outputVolume
+            // 启用时记录当前音量作为还原基准
+            let current = AVAudioSession.sharedInstance().outputVolume
+            lastVolume = current
         }
     }
-    
-    /// 获取启用状态
+
     func getEnabled() -> Bool {
         return isVolumeKeyEnabled
     }
-    
-    /// 清理资源
+
     func cleanup() {
         volumeObserver?.invalidate()
         volumeObserver = nil
+        hiddenSlider?.removeTarget(self, action: nil, for: UIControl.Event.allEvents)
         hiddenVolumeView?.removeFromSuperview()
         hiddenVolumeView = nil
+        hiddenSlider = nil
     }
-    
-    // MARK: - 私有方法
-    
-    /// 配置音频会话
+
+    // MARK: - 私有：音频会话
+
     private func setupAudioSession() {
         do {
-            try AVAudioSession.sharedInstance().setCategory(.playback, options: .mixWithOthers)
+            // .ambient 让音量键可被监听，同时不接管媒体播放的主音频，
+            // 与 TTS 的 .playback .mixWithOthers 不冲突。
+            try AVAudioSession.sharedInstance().setCategory(.ambient, options: .mixWithOthers)
             try AVAudioSession.sharedInstance().setActive(true)
         } catch {
-            print("[VolumeKey:iOS] Failed to setup audio session: \(error)")
+            logger.error("setupAudioSession failed: \(error)")
         }
     }
-    
-    /// 创建隐藏的音量视图（隐藏系统音量 HUD）
+
+    // MARK: - 私有：隐藏 MPVolumeView（拦截音量键的核心）
+
     private func setupHiddenVolumeView() {
-        // 创建一个在屏幕外的 MPVolumeView
-        let volumeView = MPVolumeView(frame: CGRect(x: -1000, y: -1000, width: 1, height: 1))
-        volumeView.alpha = 0.01
-        
-        // 添加到窗口
-        if let window = UIApplication.shared.windows.first {
-            window.addSubview(volumeView)
+        // 保证在 Main 线程创建并挂到窗口
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+
+            // 先移除旧的，避免重复 setup 叠加
+            self.hiddenVolumeView?.removeFromSuperview()
+
+            let volumeView = MPVolumeView(frame: CGRect(x: -100, y: -400, width: 1, height: 1))
+            volumeView.isHidden = true
+            volumeView.alpha = 0.01
+            // 放在窗口之外而非窗口内，尽量隔离，同时保留与 window 同时存在的生命周期
+            // （MPVolumeView 必须加入 window 层级才会响应硬件音量键）
+
+            if let window = self.mainWindow() {
+                window.addSubview(volumeView)
+                self.hiddenVolumeView = volumeView
+
+                // 找到内嵌的 UISlider 并挂拦截
+                self.findAndConfigureSlider(in: volumeView)
+            } else {
+                logger.error("No key window available to host MPVolumeView")
+            }
+
+            // 确保摄像头内容不被遮挡时也能收到按键：MPVolumeView 需要参与 hitTest
+            // 但因为 alpha 很低且在屏外，不影响用户交互
         }
-        
-        hiddenVolumeView = volumeView
     }
-    
-    /// 注入 JavaScript 接口
+
+    /// 主窗口（适配 iOS 13+ 的 UIWindowScene；兼容旧用法退回到 windows.first）
+    private func mainWindow() -> UIWindow? {
+        if #available(iOS 13.0, *) {
+            let scene = UIApplication.shared.connectedScenes
+                .compactMap { $0 as? UIWindowScene }
+                .first(where: { $0.activationState == .foregroundActive || $0.activationState == .foregroundInactive })
+            return scene?.windows.first
+        }
+        return UIApplication.shared.windows.first
+    }
+
+    /// 从 MPVolumeView 内找出 UISlider，configure 为可响应并挂 target
+    private func findAndConfigureSlider(in volumeView: MPVolumeView) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            guard let self = self else { return }
+            if let slider = self.findSlider(in: volumeView) {
+                self.hiddenSlider = slider
+
+                // 亮度/音量 slider 默认 userInteractionEnabled 可为 true，
+                // 确保它能收到按键映射的触摸事件
+                slider.isUserInteractionEnabled = true
+
+                // 触摸开始：此时 value 尚未改变，用触摸点位置判定方向
+                slider.addTarget(self, action: #selector(sliderTouchDown(_:for:)), for: .touchDown)
+
+                // 值变化：作为兜底，如果 touchDown 未判定（例如系统直接改值），可用差值判方向
+                slider.addTarget(self, action: #selector(sliderValueChanged(_:)), for: .valueChanged)
+            } else {
+                // 某些系统版本 slider 延迟生成，稍后重试一次
+                logger.warning("Could not find MPVolumeSlider yet; will retry")
+            }
+        }
+    }
+
+    private func findSlider(in volumeView: MPVolumeView) -> UISlider? {
+        // 深度优先遍历子视图找 UISlider
+        var stack: [UIView] = volumeView.subviews
+        while let view = stack.popLast() {
+            if let slider = view as? UISlider {
+                return slider
+            }
+            stack.append(contentsOf: view.subviews)
+        }
+        return nil
+    }
+
+    // MARK: - 隐藏 slider 的事件：判定 up/down 并还原音量
+
+    /// touchDown：位置位于左侧一半 → down，右侧一半 → up（常见方案）
+    @objc private func sliderTouchDown(_ slider: UISlider, for event: UIEvent) {
+        guard isVolumeKeyEnabled else { return }
+
+        var direction: String?
+        if let touch = event.allTouches?.first {
+            let location = touch.location(in: slider)
+            let midX = slider.bounds.midX
+            direction = location.x < midX ? "down" : "up"
+        } else {
+            // 无法取触点位置时，退化为按触摸次数奇偶（不推荐），这里退回用差值
+            triggerWithFallbackDirection()
+            return
+        }
+
+        if let dir = direction {
+            debounceAndNotify(dir)
+        }
+        restoreLastVolume()
+    }
+
+    /// valueChanged：若 touchDown 未给出方向（如系统直接改值），用新值与 lastVolume 差值判方向
+    @objc private func sliderValueChanged(_ slider: UISlider) {
+        guard isVolumeKeyEnabled else { return }
+        let newVolume = slider.value
+        if newVolume != lastVolume {
+            let direction = newVolume > lastVolume ? "up" : "down"
+            debounceAndNotify(direction)
+        }
+        // 无论如何都还原音量
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) { [weak self] in
+            self?.restoreLastVolume()
+        }
+    }
+
+    /// 无法判定方向时的退化处理（根据当前与记录的偏移粗判）
+    private func triggerWithFallbackDirection() {
+        let current = AVAudioSession.sharedInstance().outputVolume
+        let direction = current > lastVolume ? "up" : (current < lastVolume ? "down" : nil)
+        if let dir = direction {
+            debounceAndNotify(dir)
+        }
+        lastVolume = AVAudioSession.sharedInstance().outputVolume
+    }
+
+    /// 去抖并通知前端
+    private func debounceAndNotify(_ direction: String) {
+        let now = Date().timeIntervalSince1970
+        // 50ms 内重复不处理
+        if now - lastEventTimestamp < 0.05 {
+            return
+        }
+        lastEventTimestamp = now
+        notifyVolumeKey(direction: direction)
+    }
+
+    /// 把音量还原为 lastVolume，真正阻止系统音量改变
+    private func restoreLastVolume() {
+        guard let slider = hiddenSlider else { return }
+        slider.value = lastVolume
+    }
+
+    // MARK: - 音量观察（兜底信息记录，不用于主判定）
+
+    private var volumeObserver: NSKeyValueObservation?
+
+    private func startVolumeObservation() {
+        volumeObserver = AVAudioSession.sharedInstance().observe(
+            \.outputVolume,
+            options: [.new]
+        ) { [weak self] _, _ in
+            // 仅记录基准，方向判定以 slider 事件为准（stabilize）
+            guard let self = self else { return }
+            self.lastVolume = AVAudioSession.sharedInstance().outputVolume
+        }
+    }
+
+    // MARK: - 前端 JS 接口
+
     private func injectJavaScriptInterface() {
         guard let webView = webView else { return }
-        
-        // 注入 VolumeKeyBridge 对象
+
         let js = """
         window.VolumeKeyBridge = {
             _enabled: false,
@@ -136,64 +277,19 @@ class VolumeKeyBridge: NSObject {
         window.__VOLUME_KEY_BRIDGE_READY__ = true;
         window.dispatchEvent(new Event('volumeKeyBridgeReady'));
         """
-        
+
         webView.evaluateJavaScript(js) { _, error in
             if let error = error {
                 print("[VolumeKey:iOS] Failed to inject JS interface: \(error)")
             }
         }
-        
-        // 添加消息处理器
+
         webView.configuration.userContentController.add(self, name: "volumeKeyBridge")
     }
-    
-    /// 开始监听音量变化
-    private func startVolumeObservation() {
-        volumeObserver = AVAudioSession.sharedInstance().observe(
-            \.outputVolume,
-            options: [.new, .old]
-        ) { [weak self] session, change in
-            self?.handleVolumeChange(session.outputVolume)
-        }
-    }
-    
-    /// 处理音量变化
-    private func handleVolumeChange(_ newVolume: Float) {
-        guard isVolumeKeyEnabled else { return }
-        
-        let direction: String
-        if newVolume > lastVolume {
-            direction = "up"
-        } else if newVolume < lastVolume {
-            direction = "down"
-        } else {
-            return // 音量未变化
-        }
-        
-        // 记录当前音量
-        lastVolume = newVolume
-        
-        // 调用前端回调
-        notifyVolumeKey(direction: direction)
-        
-        // 可选：恢复原音量（真正拦截音量变化）
-        // restoreVolume()
-    }
-    
-    /// 恢复音量（可选，用于真正拦截音量键）
-    private func restoreVolume() {
-        // 通过 MPVolumeView 的滑块设置音量
-        if let slider = hiddenVolumeView?.subviews.first(where: { $0 is UISlider }) as? UISlider {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) { [weak self] in
-                slider.value = self?.lastVolume ?? 0.5
-            }
-        }
-    }
-    
-    /// 通知前端音量键事件
+
     private func notifyVolumeKey(direction: String) {
         let js = "window.__onVolumeKey__ && window.__onVolumeKey__('\(direction)');"
-        
+
         DispatchQueue.main.async { [weak self] in
             self?.webView?.evaluateJavaScript(js) { _, error in
                 if let error = error {
@@ -202,8 +298,7 @@ class VolumeKeyBridge: NSObject {
             }
         }
     }
-    
-    /// 通知前端桥接已就绪
+
     private func notifyBridgeReady() {
         print("[VolumeKey:iOS] Bridge ready")
     }
@@ -218,7 +313,7 @@ extension VolumeKeyBridge: WKScriptMessageHandler {
               let action = body["action"] as? String else {
             return
         }
-        
+
         switch action {
         case "setEnabled":
             if let enabled = body["value"] as? Bool {
@@ -229,26 +324,3 @@ extension VolumeKeyBridge: WKScriptMessageHandler {
         }
     }
 }
-
-// MARK: - 使用示例
-/*
- 
- 在 AppDelegate 或 SceneDelegate 中：
- 
- class AppDelegate: UIResponder, UIApplicationDelegate {
-     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-         // ... 其他初始化代码
-         return true
-     }
- }
- 
- 在创建 WKWebView 后：
- 
- let webView = WKWebView(frame: .zero, configuration: config)
- VolumeKeyBridge.shared.setup(webView: webView)
- 
- 在 App 退出或 WebView 销毁时：
- 
- VolumeKeyBridge.shared.cleanup()
- 
- */
