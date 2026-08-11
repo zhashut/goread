@@ -207,7 +207,7 @@ export const useBookLoader = (
                 }
 
                 let bookInfo;
-                let pageCount;
+                let pageCount: number;
                 if (renderer instanceof TxtRenderer) {
                     // 章节模式下 precise_progress 格式为 chapterIndex+1+offset（如 3.5 表示第3章50%位置）
                     // 直接用整数部分作为章节索引，避免 0-1 比例映射导致的精度损失

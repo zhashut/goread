@@ -81,6 +81,7 @@ export function useEpubTheme(): EpubThemeHook {
         display: block;
         background-color: ${bgColor};
         color: ${textColor};
+        font-size: ${fontSize}px;
       }
       
       .epub-section-content {

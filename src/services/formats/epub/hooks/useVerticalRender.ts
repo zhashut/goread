@@ -16,7 +16,7 @@ import {
 import { epubCacheService } from '../epubCacheService';
 import { createDividerEl, toggleDividerVisibility, updateDividerStyle } from '../../../../components/reader/PageDivider';
 import { getTocHrefForSection } from './tocMapping';
-import { extractBodyContent } from '../../../../utils/htmlUtils';
+import { extractBodyContent, normalizeBookCssForShadow } from '../../../../utils/htmlUtils';
 import { stabilizeScrollTop } from './scrollStabilizer';
 
 /** 纵向渲染上下文 */
@@ -567,6 +567,8 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
 
           // 注入经过占位符替换的原文档样式
           if (stylesText) {
+            // 归一化书籍 CSS：html/:root->:host、剥离根 font-size、rem->em，保证 rem 随阅读器字号缩放
+            stylesText = normalizeBookCssForShadow(stylesText);
             const originalStyleEl = document.createElement('style');
             originalStyleEl.textContent = stylesText;
             shadow.appendChild(originalStyleEl);

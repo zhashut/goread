@@ -12,7 +12,7 @@ import { epubCacheService } from '../epubCacheService';
 import { EpubThemeHook } from './useEpubTheme';
 import { EpubResourceHook } from './useEpubResource';
 import { getTocHrefForSection, getSpineIndexForHref } from './tocMapping';
-import { extractBodyContent } from '../../../../utils/htmlUtils';
+import { extractBodyContent, normalizeBookCssForShadow } from '../../../../utils/htmlUtils';
 import { stabilizeScrollTop } from './scrollStabilizer';
 
 /** 横向渲染上下文 */
@@ -472,6 +472,8 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
           stylesText = stylesText.split(placeholder).join(blobUrl);
         }
       }
+      // 归一化书籍 CSS：html/:root->:host、剥离根 font-size、rem->em，保证 rem 随阅读器字号缩放
+      stylesText = normalizeBookCssForShadow(stylesText);
       const originalStyle = document.createElement('style');
       originalStyle.textContent = stylesText;
       shadow.appendChild(originalStyle);

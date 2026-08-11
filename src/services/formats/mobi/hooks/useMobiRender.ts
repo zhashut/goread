@@ -6,6 +6,7 @@ import { logError } from '../../../index';
 import { RenderOptions } from '../../types';
 import { MobiThemeHook } from './useMobiTheme';
 import { mobiCacheService } from '../mobiCacheService';
+import { normalizeBookCssForShadow } from '../../../../utils/htmlUtils';
 
 const RESOURCE_PREFIX = '__MOBI_RES__:';
 
@@ -190,10 +191,10 @@ export function useMobiRender(context: MobiRenderContext): MobiRenderHook {
             styles = resolvedStyles;
         }
 
-        // 注入样式
+        // 注入样式（归一化书籍 CSS：html/:root->:host、剥离根 font-size、rem->em，保证 rem 随阅读器字号缩放）
         if (styles.length > 0) {
             const styleEl = document.createElement('style');
-            styleEl.textContent = styles.join('\n');
+            styleEl.textContent = normalizeBookCssForShadow(styles.join('\n'));
             sectionEl.appendChild(styleEl);
         }
 
