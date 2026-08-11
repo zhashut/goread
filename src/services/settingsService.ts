@@ -16,6 +16,8 @@ export type ReaderSettings = {
   clickTurnPage: boolean;
   showStatusBar: boolean;
   recentDisplayCount: number;
+  defaultFontSize?: number;
+  defaultReadingMode?: 'horizontal' | 'vertical';
   scrollSpeed: number;
   pageGap: number;
   fontSize?: number;

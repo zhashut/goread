@@ -1,4 +1,5 @@
 import { TTS_RATE_DEFAULT } from './tts';
+import { READER_FONT_SIZE_DEFAULT } from './font';
 
 export const RENDER_QUALITY_OPTIONS = [
   { label: "极速(Thumbnail)", value: "thumbnail" },
@@ -20,6 +21,10 @@ export const QUALITY_SCALE_MAP: Record<string, number> = {
 export const RECENT_DISPLAY_COUNT_OPTIONS = [5, 7, 9, 12, 15];
 export const RECENT_DISPLAY_COUNT_UNLIMITED = 0;
 
+// 默认阅读方式选项（仅作用于新导入的书籍）
+export const READING_MODE_OPTIONS = ['horizontal', 'vertical'] as const;
+export const DEFAULT_READING_MODE = 'vertical' as const;
+
 // 滚动速度配置
 export const SCROLL_SPEED_MIN = 10;
 export const SCROLL_SPEED_MAX = 300;
@@ -39,6 +44,8 @@ export const DEFAULT_SETTINGS = {
   clickTurnPage: true,
   showStatusBar: false,
   recentDisplayCount: 9,
+  defaultFontSize: READER_FONT_SIZE_DEFAULT,
+  defaultReadingMode: DEFAULT_READING_MODE,
   scrollSpeed: 120,
   pageGap: 2,
   readingMode: 'vertical' as const,

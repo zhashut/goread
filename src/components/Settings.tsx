@@ -11,6 +11,7 @@ import { getSystemAppLanguage } from "../services/systemLanguageService";
 import {
   RECENT_DISPLAY_COUNT_OPTIONS,
   RECENT_DISPLAY_COUNT_UNLIMITED,
+  DEFAULT_READING_MODE,
   SCROLL_SPEED_MIN,
   SCROLL_SPEED_MAX,
   SCROLL_SPEED_STEP,
@@ -25,6 +26,12 @@ import {
   TTS_RATE_DEFAULT,
   TTS_RATE_STEP,
 } from "../constants/tts";
+import {
+  READER_FONT_SIZE_MIN,
+  READER_FONT_SIZE_MAX,
+  READER_FONT_SIZE_DEFAULT,
+  READER_FONT_SIZE_STEP,
+} from "../constants/font";
 import {
   SETTINGS_BUTTON_PADDING,
   SETTINGS_BUTTON_FONT_SIZE,
@@ -579,6 +586,118 @@ export const Settings: React.FC = () => {
                 setSettings((s) => ({
                   ...s,
                   recentDisplayCount: Number(val),
+                }))
+              }
+            />
+          }
+        />
+
+        <Row
+          label={t('defaultFontSize')}
+          right={
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <button
+                style={{
+                  width: 28,
+                  height: 28,
+                  padding: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  border: "1px solid #ddd",
+                  borderRadius: "50%",
+                  background: "#fff",
+                  color: "#333",
+                  fontSize: 16,
+                  lineHeight: 1,
+                  cursor: "pointer",
+                  userSelect: "none",
+                  opacity:
+                    (settings.defaultFontSize ?? READER_FONT_SIZE_DEFAULT) <= READER_FONT_SIZE_MIN
+                      ? 0.4
+                      : 1,
+                  pointerEvents:
+                    (settings.defaultFontSize ?? READER_FONT_SIZE_DEFAULT) <= READER_FONT_SIZE_MIN
+                      ? "none"
+                      : "auto",
+                }}
+                onClick={() =>
+                  setSettings((s) => ({
+                    ...s,
+                    defaultFontSize: Math.max(
+                      READER_FONT_SIZE_MIN,
+                      (s.defaultFontSize ?? READER_FONT_SIZE_DEFAULT) - READER_FONT_SIZE_STEP
+                    ),
+                  }))
+                }
+              >
+                −
+              </button>
+              <span
+                style={{
+                  minWidth: 30,
+                  textAlign: "center",
+                  color: "#333",
+                  fontSize: "15px",
+                  fontWeight: 500,
+                }}
+              >
+                {settings.defaultFontSize ?? READER_FONT_SIZE_DEFAULT}
+              </span>
+              <button
+                style={{
+                  width: 28,
+                  height: 28,
+                  padding: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  border: "1px solid #ddd",
+                  borderRadius: "50%",
+                  background: "#fff",
+                  color: "#333",
+                  fontSize: 16,
+                  lineHeight: 1,
+                  cursor: "pointer",
+                  userSelect: "none",
+                  opacity:
+                    (settings.defaultFontSize ?? READER_FONT_SIZE_DEFAULT) >= READER_FONT_SIZE_MAX
+                      ? 0.4
+                      : 1,
+                  pointerEvents:
+                    (settings.defaultFontSize ?? READER_FONT_SIZE_DEFAULT) >= READER_FONT_SIZE_MAX
+                      ? "none"
+                      : "auto",
+                }}
+                onClick={() =>
+                  setSettings((s) => ({
+                    ...s,
+                    defaultFontSize: Math.min(
+                      READER_FONT_SIZE_MAX,
+                      (s.defaultFontSize ?? READER_FONT_SIZE_DEFAULT) + READER_FONT_SIZE_STEP
+                    ),
+                  }))
+                }
+              >
+                +
+              </button>
+            </div>
+          }
+        />
+
+        <Row
+          label={t('defaultReadingMode')}
+          right={
+            <CustomSelect
+              value={settings.defaultReadingMode ?? DEFAULT_READING_MODE}
+              options={[
+                { value: "vertical", label: t('verticalReading') },
+                { value: "horizontal", label: t('horizontalReading') },
+              ]}
+              onChange={(val) =>
+                setSettings((s) => ({
+                  ...s,
+                  defaultReadingMode: String(val) as 'horizontal' | 'vertical',
                 }))
               }
             />

@@ -1,4 +1,6 @@
-import { bookService, groupService, getInvoke, log, logError } from "./index";
+import { bookService, groupService, getInvoke, log, logError, getReaderSettings } from "./index";
+import { READER_FONT_SIZE_DEFAULT } from "../constants/font";
+import { DEFAULT_READING_MODE } from "../constants/config";
 import { pathToTitle, waitNextFrame } from "./importUtils";
 import { getBookFormat, BookFormat } from "./formats";
 import { resolveLocalPathFromUri } from "./resolveLocalPath";
@@ -398,6 +400,31 @@ export const importPathsToExistingGroup = async (
       coverImage,
       totalPages,
     );
+
+    // 新书入库后写入全局默认字号 / 默认阅读方式（不影响存量书籍）
+    try {
+      const readerSettings = getReaderSettings();
+      const defaultFontSize =
+        typeof readerSettings.defaultFontSize === "number"
+          ? readerSettings.defaultFontSize
+          : READER_FONT_SIZE_DEFAULT;
+      // 部分格式不支持横向阅读（仅纵向），配置了默认横向也不生效，强制回退为纵向
+      const horizontalUnsupported =
+        format === 'mobi' || format === 'markdown' || format === 'html' || format === 'txt';
+      const defaultReadingMode = horizontalUnsupported
+        ? 'vertical'
+        : (readerSettings.defaultReadingMode ?? DEFAULT_READING_MODE);
+      await Promise.all([
+        bookService.updateBookFontSize(saved.id, defaultFontSize),
+        bookService.updateBookReadingMode(saved.id, defaultReadingMode),
+      ]);
+    } catch (err) {
+      await logError("[Import] 写入默认字号/阅读方式失败", {
+        error: String(err),
+        filePath,
+        bookId: saved.id,
+      });
+    }
 
     try {
       const coverInfo = parseCoverImage(saved.cover_image);
