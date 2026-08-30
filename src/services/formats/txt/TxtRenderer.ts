@@ -482,6 +482,172 @@ export class TxtRenderer implements IBookRenderer {
   }
 
   /**
+   * 章节精确进度 → 全局字符偏移
+   * offset 语义 = 章内字符比例：offset = (charOffset - char_start) / (char_end - char_start)
+   * 注意：返回值为 JS 字符串索引语义（与 PageRange.startOffset 一致）；
+   * 中文（BMP）下与后端 char_start/char_end（Unicode 字符数）数值一致
+   */
+  getCharOffsetFromProgress(progress: number): number {
+    if (!this._bookMeta || this._bookMeta.chapters.length === 0) {
+      return 0;
+    }
+    const chapters = this._bookMeta.chapters;
+    const chapterCount = chapters.length;
+    const chapterInt = Math.min(
+      Math.max(1, Math.floor(progress)),
+      chapterCount
+    );
+    const offset = Math.min(
+      TXT_CHAPTER_OFFSET_MAX,
+      Math.max(0, progress - chapterInt)
+    );
+    const chapter = chapters[chapterInt - 1]!;
+    const span = Math.max(1, chapter.char_end - chapter.char_start);
+    return chapter.char_start + Math.floor(offset * span);
+  }
+
+  /**
+   * 全局字符偏移 → 章节精确进度（chapterIndex + 1 + 章内字符比例）
+   * 章节边界按字符偏移与 char_start/char_end 精确比较，无浮点抖动
+   */
+  getProgressFromCharOffset(charOffset: number): number {
+    if (!this._bookMeta || this._bookMeta.chapters.length === 0) {
+      return 1;
+    }
+    const chapters = this._bookMeta.chapters;
+    const totalChars = this._bookMeta.total_chars || 1;
+    const clamped = Math.min(Math.max(0, charOffset), totalChars);
+    // 二分查找字符偏移所在章节
+    let lo = 0;
+    let hi = chapters.length - 1;
+    let chapterIndex = 0;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (clamped >= chapters[mid]!.char_start) {
+        chapterIndex = mid;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    const chapter = chapters[chapterIndex]!;
+    const span = Math.max(1, chapter.char_end - chapter.char_start);
+    const ratio = (clamped - chapter.char_start) / span;
+    const offset = Math.min(TXT_CHAPTER_OFFSET_MAX, Math.max(0, ratio));
+    return chapterIndex + 1 + offset;
+  }
+
+  /**
+   * 取当前视口/页面对应的全局字符偏移（模式无关，保存进度用）
+   * - 纵向：视口顶部段落（data-char-offset）+ 段内滚动比例，段落边界精确、段内近似
+   * - 横向：当前页首字符偏移（精确）
+   */
+  getCharOffsetFromViewport(): number | null {
+    const container = this._container;
+    if (!container) return null;
+
+    if (this._isVerticalMode) {
+      const scrollTop = container.scrollTop + 1;
+      const els = container.querySelectorAll('[data-char-offset]');
+      if (els.length === 0) return null;
+      // 找最后一个 offsetTop <= scrollTop 的段落（视口顶部所在段）
+      let idx = 0;
+      for (let i = 0; i < els.length; i++) {
+        const top = (els[i] as HTMLElement).offsetTop;
+        if (top <= scrollTop) idx = i;
+        else break;
+      }
+      const el = els[idx] as HTMLElement | undefined;
+      if (!el) return null;
+      const start = Number(el.getAttribute('data-char-offset')) || 0;
+      const len = Number(el.getAttribute('data-char-length')) || 0;
+      // 段内比例：视口顶部在段落内的相对位置 → 字符偏移
+      const elTop = el.offsetTop;
+      const elHeight = el.offsetHeight || 1;
+      const ratio = Math.max(0, Math.min(1, (scrollTop - elTop) / elHeight));
+      return start + Math.floor(ratio * len);
+    }
+
+    // 横向：当前页首字符偏移
+    const pageIndex = Math.max(0, this._currentPage - 1);
+    const page = this._pages[pageIndex];
+    return page ? page.startOffset : null;
+  }
+
+  /**
+   * 定位到指定字符偏移（纵向：滚动到对应段落；横向：翻到对应页）
+   * 纵向段内按比例换算滚动位置（段落边界精确、段内近似）
+   */
+  async scrollToCharOffset(charOffset: number): Promise<void> {
+    const container = this._container;
+    if (!container) return;
+
+    if (this._isVerticalMode) {
+      const els = container.querySelectorAll('[data-char-offset]');
+      if (els.length === 0) return;
+      // 找包含 charOffset 的段落（最后一个 start <= charOffset）
+      let idx = 0;
+      for (let i = 0; i < els.length; i++) {
+        const start = Number((els[i] as HTMLElement).getAttribute('data-char-offset')) || 0;
+        if (start <= charOffset) idx = i;
+        else break;
+      }
+      const el = els[idx] as HTMLElement | undefined;
+      if (!el) return;
+      const start = Number(el.getAttribute('data-char-offset')) || 0;
+      const len = Number(el.getAttribute('data-char-length')) || 0;
+      const ratio = len <= 0 ? 0 : Math.min(1, Math.max(0, (charOffset - start) / len));
+      // 目标位于视口顶部
+      container.scrollTop = Math.max(0, el.offsetTop + el.offsetHeight * ratio);
+      // 同步进度基准（滚动监听随后会按真实 scrollTop 校正）
+      if (this._useChapterMode) {
+        this._bookPreciseProgress = this.getProgressFromCharOffset(charOffset);
+      } else {
+        this._currentPreciseProgress = this.getProgressFromCharOffset(charOffset);
+      }
+      return;
+    }
+
+    // 横向：字符偏移 → 当前章分页二分 → 页
+    if (this._pages.length === 0 && container) {
+      await this._calculatePages(container, this._lastRenderOptions || {});
+    }
+    if (this._pages.length === 0) return;
+    let pageIndex = 0;
+    for (let i = 0; i < this._pages.length; i++) {
+      if (charOffset < (this._pages[i]!.endOffset ?? 0)) {
+        pageIndex = i;
+        break;
+      }
+    }
+    await this.goToPage(pageIndex + 1);
+  }
+
+  /**
+   * 模式无关的精确跳转：字符偏移 → 目标章节 → 该模式视图定位
+   * 用于进入阅读 / 模式切换 / 进度恢复
+   */
+  async jumpToCharOffset(charOffset: number): Promise<void> {
+    if (!this._isReady) return;
+
+    if (this._useChapterMode && this._bookMeta) {
+      const progress = this.getProgressFromCharOffset(charOffset);
+      const targetChapterIndex = Math.min(
+        Math.max(0, Math.floor(progress) - 1),
+        this._bookMeta.chapters.length - 1
+      );
+      if (targetChapterIndex !== this._currentChapterIndex) {
+        await this.goToChapter(
+          targetChapterIndex,
+          this._isVerticalMode ? 'vertical' : 'horizontal'
+        );
+      }
+    }
+
+    await this.scrollToCharOffset(charOffset);
+  }
+
+  /**
    * 章节精确进度 → 章内页码（1-based）
    * offset ∈ [0, 0.9999) 映射到章内页 [1, N]，供横向模式恢复精确位置
    */

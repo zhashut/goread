@@ -98,9 +98,16 @@ function applyContainerStyles(
     `;
 }
 
+/**
+ * 创建段落元素
+ * @param charOffset 该行在全文中的字符起始偏移（用于进度精确换算，渲染时标注到 DOM）
+ * @param charLength 该行文本长度（不含换行符）
+ */
 function createParagraphElement(
   text: string,
-  isVertical: boolean = false
+  isVertical: boolean = false,
+  charOffset?: number,
+  charLength?: number
 ): HTMLParagraphElement {
   const p = document.createElement('p');
   p.style.cssText = `
@@ -112,6 +119,11 @@ function createParagraphElement(
         white-space: pre-wrap;
       `;
   p.textContent = text;
+  // 标注字符区间，供进度换算（视口/页 ↔ 字符偏移）精确定位
+  if (typeof charOffset === 'number') {
+    p.setAttribute('data-char-offset', String(charOffset));
+    p.setAttribute('data-char-length', String(charLength ?? text.length));
+  }
   return p;
 }
 
@@ -119,7 +131,9 @@ function createParagraphElement(
 function createChapterTitleElement(
   text: string,
   level: number,
-  isVertical: boolean = false
+  isVertical: boolean = false,
+  charOffset?: number,
+  charLength?: number
 ): HTMLElement {
   const h = document.createElement('h3');
   h.style.cssText = `
@@ -140,6 +154,11 @@ function createChapterTitleElement(
   }
   h.textContent = text;
   h.setAttribute('data-chapter-title', 'true');
+  // 标注字符区间（标题行也参与进度精确换算）
+  if (typeof charOffset === 'number') {
+    h.setAttribute('data-char-offset', String(charOffset));
+    h.setAttribute('data-char-length', String(charLength ?? text.length));
+  }
   return h;
 }
 
@@ -403,11 +422,12 @@ export function useTxtRendererCore(): TxtRendererCore {
 
     for (const line of lines) {
       const titleLevel = chapterTitles?.get(line.startOffset);
+      const charLength = line.endOffset - line.startOffset;
       if (titleLevel !== undefined) {
-        const el = createChapterTitleElement(line.text, titleLevel, isVertical);
+        const el = createChapterTitleElement(line.text, titleLevel, isVertical, line.startOffset, charLength);
         container.appendChild(el);
       } else {
-        const p = createParagraphElement(line.text, isVertical);
+        const p = createParagraphElement(line.text, isVertical, line.startOffset, charLength);
         container.appendChild(p);
       }
     }
@@ -506,11 +526,12 @@ export function useTxtRendererCore(): TxtRendererCore {
 
       for (const line of lines) {
         const titleLevel = chapterTitles?.get(line.startOffset);
+        const charLength = line.endOffset - line.startOffset;
         if (titleLevel !== undefined) {
-          const el = createChapterTitleElement(line.text, titleLevel, true);
+          const el = createChapterTitleElement(line.text, titleLevel, true, line.startOffset, charLength);
           wrapper.appendChild(el);
         } else {
-          const p = createParagraphElement(line.text, true);
+          const p = createParagraphElement(line.text, true, line.startOffset, charLength);
           wrapper.appendChild(p);
         }
       }
@@ -582,11 +603,12 @@ export function useTxtRendererCore(): TxtRendererCore {
 
       // 将行添加到当前页（标题行使用标题样式）
       const titleLevel = chapterTitles?.get(line.startOffset);
+      const charLength = line.endOffset - line.startOffset;
       if (titleLevel !== undefined) {
-        const el = createChapterTitleElement(line.text, titleLevel, true);
+        const el = createChapterTitleElement(line.text, titleLevel, true, line.startOffset, charLength);
         currentWrapper.appendChild(el);
       } else {
-        const p = createParagraphElement(line.text, true);
+        const p = createParagraphElement(line.text, true, line.startOffset, charLength);
         currentWrapper.appendChild(p);
       }
     }
