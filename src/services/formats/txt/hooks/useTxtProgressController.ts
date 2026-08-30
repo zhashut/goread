@@ -1,3 +1,5 @@
+import { TXT_CHAPTER_OFFSET_MAX, TXT_PROGRESS_MAX_DELTA } from '../constants';
+
 export interface TxtProgressContext {
   getUseChapterMode: () => boolean;
   getChapterCount: () => number;
@@ -17,7 +19,14 @@ export interface TxtProgressContext {
   getCurrentPage: () => number;
   setCurrentPage: (value: number) => void;
   goToPage: (page: number) => Promise<void>;
-  goToChapter: (chapterIndex: number) => Promise<void>;
+  goToChapter: (
+    chapterIndex: number,
+    renderMode?: 'vertical' | 'horizontal'
+  ) => Promise<void>;
+  /** 横向章节模式：跳到指定章节的指定章内页 */
+  goToChapterPage?: (chapterIndex: number, pageInChapter: number) => Promise<void>;
+  /** 横向章节模式：章节精确进度 → 章内页码 */
+  getChapterPageFromPrecise?: (precise: number) => number;
   getChapterIndexByPage?: (pageIndex: number) => number;
 }
 
@@ -37,7 +46,7 @@ export interface TxtProgressController {
 function clampChapterOffset(offset: number): number {
   if (!isFinite(offset)) return 0;
   if (offset < 0) return 0;
-  if (offset > 0.9999) return 0.9999;
+  if (offset > TXT_CHAPTER_OFFSET_MAX) return TXT_CHAPTER_OFFSET_MAX;
   return offset;
 }
 
@@ -54,14 +63,14 @@ export function useTxtProgressController(
   const updatePreciseProgress = (progress: number): void => {
     if (context.getUseChapterMode()) {
       const total = context.getChapterCount() || 1;
-      const max = total + 0.999999;
+      const max = total + TXT_PROGRESS_MAX_DELTA;
       const value = Math.max(1, Math.min(progress, max));
       context.setBookPreciseProgress(value);
       return;
     }
     const total = context.getPageCount() || 1;
     // 允许精确进度略超过整数页数（最后一页内的小数偏移），与章节模式保持一致
-    const max = total + 0.999999;
+    const max = total + TXT_PROGRESS_MAX_DELTA;
     const value = Math.max(1, Math.min(progress, max));
     context.setCurrentPreciseProgress(value);
   };
@@ -114,7 +123,7 @@ export function useTxtProgressController(
     const top = tops[pageIndex] || 0;
     const height = heights[pageIndex] || 1;
     const rawOffset = height <= 0 ? 0 : (scrollTop - top) / height;
-    const offset = Math.max(0, Math.min(0.999999, rawOffset));
+    const offset = Math.max(0, Math.min(TXT_PROGRESS_MAX_DELTA, rawOffset));
     return pageIndex + 1 + offset;
   };
 
@@ -142,14 +151,14 @@ export function useTxtProgressController(
       // 如果找到了该章节的页面范围，精确映射
       if (chapterFirstPage !== -1) {
         const chapterPageCount = chapterLastPage - chapterFirstPage + 1;
-        const ratio = chapterOffset / 0.9999;
+        const ratio = chapterOffset / TXT_CHAPTER_OFFSET_MAX;
         const pageWithinChapter = ratio * chapterPageCount;
         return chapterFirstPage + 1 + pageWithinChapter;
       }
     }
 
     // 回退：只有单章时使用简单映射
-    const ratio = chapterOffset / 0.9999;
+    const ratio = chapterOffset / TXT_CHAPTER_OFFSET_MAX;
     return 1 + ratio * (virtualTotal - 1);
   };
 
@@ -182,7 +191,7 @@ export function useTxtProgressController(
     const chapterPageCount = chapterLastPage - chapterFirstPage + 1;
     const pageWithinChapter = pageIndex - chapterFirstPage + pageOffset;
     const chapterOffset = chapterPageCount > 0
-      ? clampChapterOffset((pageWithinChapter / chapterPageCount) * 0.9999)
+      ? clampChapterOffset((pageWithinChapter / chapterPageCount) * TXT_CHAPTER_OFFSET_MAX)
       : 0;
 
     // 触底修正：最后一章且滚到底部时，强制进度到达上限
@@ -194,7 +203,7 @@ export function useTxtProgressController(
           container.scrollTop + container.clientHeight >=
           container.scrollHeight - 50;
         if (atBottom) {
-          return chapterCount + 0.9999;
+          return chapterCount + TXT_PROGRESS_MAX_DELTA;
         }
       }
     }
@@ -269,7 +278,11 @@ export function useTxtProgressController(
     if (chapterInt > chapterCount) chapterInt = chapterCount;
     const targetChapterIndex = chapterInt - 1;
     if (targetChapterIndex !== context.getCurrentChapterIndex()) {
-      await context.goToChapter(targetChapterIndex);
+      // 按当前模式渲染目标章节：横向模式切章时渲染章首页（而非整章）
+      await context.goToChapter(
+        targetChapterIndex,
+        context.isVerticalMode() ? 'vertical' : 'horizontal',
+      );
     }
     updatePreciseProgress(progress);
     const container = context.getContainer();
@@ -277,6 +290,10 @@ export function useTxtProgressController(
       const viewportHeight = container.clientHeight;
       const virtualPrecise = convertChapterPreciseToVirtualPrecise(progress);
       scrollToVirtualPage(virtualPrecise, viewportHeight);
+    } else if (context.goToChapterPage && context.getChapterPageFromPrecise) {
+      // 横向章节模式：章内精确定位（offset → 章内页码）
+      const pageInChapter = context.getChapterPageFromPrecise(progress);
+      await context.goToChapterPage(targetChapterIndex, pageInChapter);
     }
   };
 

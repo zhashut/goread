@@ -37,6 +37,8 @@ interface UseTTSReturn {
   isActive: boolean;
   toggle: () => Promise<PlayResult | void>;
   stop: () => Promise<void>;
+  /** 先回写朗读位置再停止（供模式切换等场景保持进度连续） */
+  stopAndRestorePosition: () => Promise<void>;
   notifyDocumentUpdated: () => Promise<void>;
 }
 
@@ -242,6 +244,18 @@ export const useTTS = ({
     }
   }, [toggle]);
 
+  /** 模式切换等场景：先把最后朗读位置写回阅读器，再停止会话 */
+  const stopAndRestorePosition = useCallback(async (): Promise<void> => {
+    if (lockRef.current === 'starting' || sessionRef.current || clientRef.current) {
+      try {
+        await sessionRef.current?.restoreReadingPosition();
+      } catch (e) {
+        logError('[TTS] restoreReadingPosition 失败', e);
+      }
+      await toggle();
+    }
+  }, [toggle]);
+
   const notifyDocumentUpdated = useCallback(async (): Promise<void> => {
     sessionRef.current?.notifyDocumentUpdated();
   }, []);
@@ -253,6 +267,7 @@ export const useTTS = ({
     isActive,
     toggle,
     stop,
+    stopAndRestorePosition,
     notifyDocumentUpdated,
-  }), [state, isPlaying, isActive, toggle, stop, notifyDocumentUpdated]);
+  }), [state, isPlaying, isActive, toggle, stop, stopAndRestorePosition, notifyDocumentUpdated]);
 };

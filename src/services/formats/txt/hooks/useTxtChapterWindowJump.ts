@@ -1,6 +1,7 @@
 import type { PageRange } from './useTxtRendererCore';
 import type { TxtChapterCacheHook } from './useTxtChapterCache';
 import type { TxtBookMeta } from '../txtCacheService';
+import { TXT_PROGRESS_MAX_DELTA } from '../constants';
 
 export type TxtChapterWindowOptions = {
   includePrev?: boolean;
@@ -64,7 +65,7 @@ export function useTxtChapterWindowJump(ctx: TxtChapterWindowJumpContext): TxtCh
     }
 
     const chapterCount = Math.max(1, bookMeta.chapters.length);
-    const max = chapterCount + 0.999999;
+    const max = chapterCount + TXT_PROGRESS_MAX_DELTA;
     const clampedProgress = Math.max(1, Math.min(progress, max));
 
     let chapterInt = Math.floor(clampedProgress);

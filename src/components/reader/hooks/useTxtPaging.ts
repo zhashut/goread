@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { TxtRenderer } from '../../../services/formats/txt/TxtRenderer';
+import { TXT_CHAPTER_OFFSET_MAX, TXT_PROGRESS_MAX_DELTA } from '../../../services/formats/txt/constants';
 import { IBookRenderer, RenderOptions, TocItem } from '../../../services/formats';
 import { bookService, log } from '../../../services';
 import { useReaderState } from './useReaderState';
@@ -155,14 +156,14 @@ export const useTxtPaging = ({
 
           if (chapterMode) {
             if (value < 1) value = 1;
-            const max = total + 0.999999;
+            const max = total + TXT_PROGRESS_MAX_DELTA;
             if (value > max) value = max;
 
             if (!isExternal && book && book.status !== 1 && total > 1) {
               const oldTotal = book.total_pages || 1;
               const atLegacyEnd = oldTotal > 1 && raw >= oldTotal - 0.0001;
               if (atLegacyEnd) {
-                value = Math.min(value, (total - 1) + 0.9999);
+                value = Math.min(value, (total - 1) + TXT_CHAPTER_OFFSET_MAX);
               }
             }
           } else {
@@ -182,20 +183,16 @@ export const useTxtPaging = ({
             Math.max(0, Math.floor(preciseProgress) - 1),
             chapterCount - 1
           );
-          await txtRenderer.goToChapter(targetChapterIndex);
+          // 显式传入目标模式：模式切换后 _isVerticalMode 可能是旧值，
+          // 不传会导致横向被误渲染为整章滚动
+          await txtRenderer.goToChapter(
+            targetChapterIndex,
+            readingMode === 'vertical' ? 'vertical' : 'horizontal'
+          );
         }
 
         await txtRenderer.ensurePagination(container!, options);
         const unifiedTotalPages = txtRenderer.getPageCount();
-
-        if (chapterMode && readingMode !== 'vertical') {
-          const chapterCount = Math.max(1, txtRenderer.getChapterCount());
-          const chapterInt = Math.min(
-            Math.max(1, Math.floor(preciseProgress)),
-            chapterCount
-          );
-          preciseProgress = chapterInt;
-        }
 
         savedPageAtOpenRef.current = preciseProgress;
         txtRenderer.updatePreciseProgress(preciseProgress);
@@ -249,21 +246,42 @@ export const useTxtPaging = ({
             }
           }
         } else {
-          const targetPage = chapterMode
-            ? 1
-            : Math.min(
+          if (chapterMode) {
+            // 横向章节模式：按章节精确进度定位到章内页，保证与纵向进度一致
+            const chapterCount = Math.max(1, txtRenderer.getChapterCount());
+            const chapterInt = Math.min(
+              Math.max(1, Math.floor(preciseProgress)),
+              chapterCount
+            );
+            const targetChapterIndex = chapterInt - 1;
+
+            // 先更新 ref，避免 setCurrentPage 触发页码变化监听时产生二次渲染
+            lastPageRef.current = chapterInt;
+            if (latestPreciseProgressRef) {
+              latestPreciseProgressRef.current = preciseProgress;
+            }
+
+            // 按章节精确进度定位章内页（内部先切章分页再换算，跨章页数安全）
+            await txtRenderer.goToChapterPageAtProgress(
+              targetChapterIndex,
+              preciseProgress
+            );
+            setCurrentPage(chapterInt);
+          } else {
+            const targetPage = Math.min(
               Math.max(1, Math.floor(preciseProgress)),
               unifiedTotalPages > 0 ? unifiedTotalPages : 1
             );
 
-          // 先更新 ref，避免 setCurrentPage 触发页码变化监听时产生二次渲染
-          lastPageRef.current = chapterMode ? Math.floor(preciseProgress) : targetPage;
-          if (latestPreciseProgressRef) {
-            latestPreciseProgressRef.current = preciseProgress;
-          }
+            // 先更新 ref，避免 setCurrentPage 触发页码变化监听时产生二次渲染
+            lastPageRef.current = targetPage;
+            if (latestPreciseProgressRef) {
+              latestPreciseProgressRef.current = preciseProgress;
+            }
 
-          await txtRenderer.renderPage(targetPage, container!, options);
-          setCurrentPage(chapterMode ? Math.floor(preciseProgress) : targetPage);
+            await txtRenderer.renderPage(targetPage, container!, options);
+            setCurrentPage(targetPage);
+          }
         }
         setContentReady(true);
         onAfterRerender?.();
@@ -315,7 +333,7 @@ export const useTxtPaging = ({
           && targetChapterIndex <= maxLoadedIndex;
         if (!isAlreadyLoaded) {
           renderer
-            .goToChapter(targetChapterIndex)
+            .goToChapter(targetChapterIndex, 'vertical')
             .then(() => {
               const viewportHeight = container.clientHeight;
               const preciseProgress = latestPreciseProgressRef?.current ?? currentPage;
@@ -350,7 +368,16 @@ export const useTxtPaging = ({
           Math.max(0, currentPage - 1),
           chapterCount - 1
         );
-        renderer.goToChapter(targetChapterIndex).catch(() => { });
+        // 横向章节模式：跨章跳转按精确进度定位章内页
+        // （普通跨章 offset=0 → 章首页；章首向前翻页时调用方写入章末进度 → 上一章末页）
+        if (typeof renderer.goToChapterPageAtProgress === 'function') {
+          const precise = latestPreciseProgressRef?.current ?? currentPage;
+          renderer.goToChapterPageAtProgress(targetChapterIndex, precise).catch(() => { });
+        } else if (typeof renderer.goToChapterPage === 'function') {
+          renderer.goToChapterPage(targetChapterIndex, 1).catch(() => { });
+        } else {
+          renderer.goToChapter(targetChapterIndex, 'horizontal').catch(() => { });
+        }
       } else {
         renderer.goToPage(currentPage).catch(() => { });
       }
@@ -485,7 +512,7 @@ export const useTxtPaging = ({
                     lastPageRef.current = prevChapterPage;
                     setCurrentPage(prevChapterPage);
                     if (latestPreciseProgressRef) {
-                      latestPreciseProgressRef.current = prevChapterPage + 0.9999;
+                      latestPreciseProgressRef.current = prevChapterPage + TXT_CHAPTER_OFFSET_MAX;
                     }
 
                     if (!isExternal && book) {
@@ -648,6 +675,8 @@ export const useTxtPaging = ({
     const rerender = async () => {
       try {
         const chapterMode = txtRenderer.isChapterMode();
+        // 字号/主题/页距等排版参数变化后旧分页不再适用，强制失效重算
+        txtRenderer.invalidatePagination();
         if (readingMode === 'vertical') {
           let preciseProgress =
             latestPreciseProgressRef.current ?? savedPageAtOpenRef.current ?? 1;
@@ -655,7 +684,7 @@ export const useTxtPaging = ({
           if (chapterMode) {
             const chapterCount = Math.max(1, txtRenderer.getChapterCount());
             if (preciseProgress < 1) preciseProgress = 1;
-            const max = chapterCount + 0.999999;
+            const max = chapterCount + TXT_PROGRESS_MAX_DELTA;
             if (preciseProgress > max) preciseProgress = max;
 
             // 不调用 goToChapter，避免清空连续滚动已追加的章节内容
@@ -704,19 +733,28 @@ export const useTxtPaging = ({
         } else {
           if (chapterMode) {
             const chapterCount = Math.max(1, txtRenderer.getChapterCount());
-            let chapterInt = currentPage || 1;
-            if (chapterInt < 1) chapterInt = 1;
-            if (chapterInt > chapterCount) chapterInt = chapterCount;
+            let preciseProgress =
+              latestPreciseProgressRef.current ??
+              savedPageAtOpenRef.current ??
+              (currentPage || 1);
+            if (preciseProgress < 1) preciseProgress = 1;
+            const max = chapterCount + TXT_PROGRESS_MAX_DELTA;
+            if (preciseProgress > max) preciseProgress = max;
 
+            const chapterInt = Math.min(
+              Math.max(1, Math.floor(preciseProgress)),
+              chapterCount
+            );
             const targetChapterIndex = chapterInt - 1;
-            if (txtRenderer.getCurrentChapterIndex() !== targetChapterIndex) {
-              await txtRenderer.goToChapter(targetChapterIndex);
-            }
 
-            await txtRenderer.renderPage(1, container, options);
+            // 横向章节模式：按精确进度定位章内页，字号/主题变化重排后位置保持
+            await txtRenderer.goToChapterPageAtProgress(
+              targetChapterIndex,
+              preciseProgress
+            );
             setCurrentPage(chapterInt);
             if (latestPreciseProgressRef) {
-              latestPreciseProgressRef.current = chapterInt;
+              latestPreciseProgressRef.current = preciseProgress;
             }
           } else {
             const total = txtRenderer.getPageCount() || 1;

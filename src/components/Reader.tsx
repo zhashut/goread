@@ -147,7 +147,7 @@ export const Reader: React.FC = () => {
     listenSupported,
     isListening,
     handleToggleListen,
-    stopListenSilently,
+    stopListenAndRestore,
     listenToastMsg,
     clearListenToast,
     notifyTtsDocumentUpdated,
@@ -504,8 +504,8 @@ export const Reader: React.FC = () => {
                         height: "100%",
                       }
                 ),
-                overflowY: isEpubDom && readingMode === "horizontal" ? "hidden" : "auto",
-                touchAction: isEpubDom && readingMode === "horizontal" ? "pan-y" : "auto",
+                overflowY: (isEpubDom || isTxt) && readingMode === "horizontal" ? "hidden" : "auto",
+                touchAction: (isEpubDom || isTxt) && readingMode === "horizontal" ? "pan-y" : "auto",
                 backgroundColor: isEpubDom
                   ? effectiveTheme === "dark"
                     ? "#000000"
@@ -753,7 +753,7 @@ export const Reader: React.FC = () => {
       <ModeOverlay
         visible={modeOverlayOpen}
         readingMode={readingMode}
-        horizontalDisabled={isMobi || isMarkdown || isHtml || isTxt}
+        horizontalDisabled={isMobi || isMarkdown || isHtml}
         onClose={() => {
           setModeOverlayOpen(false);
           setUiVisible(false);
@@ -766,7 +766,8 @@ export const Reader: React.FC = () => {
           }
 
           if (listenSupported) {
-            await stopListenSilently();
+            // 朗读中切换模式：先把朗读位置写回阅读器，再停止，保证进度连续
+            await stopListenAndRestore();
           }
 
           // 更新书籍级阅读模式配置

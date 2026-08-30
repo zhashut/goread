@@ -24,6 +24,7 @@ import type {
 import { TxtContentProvider } from '../../tts/providers/TxtContentProvider';
 import { findFirstVisibleTextRange, rangeToTextQuote } from '../../../utils/ttsDOM';
 import { generateTxtBookId } from './txtPreloader';
+import { TXT_CHAPTER_OFFSET_MAX } from './constants';
 import {
   useTxtRendererCore,
   useTxtDocumentLoader,
@@ -108,6 +109,9 @@ export class TxtRenderer implements IBookRenderer {
 
   // 分页版本号，每次异步精确分页替换后自增，用于 scroll handler 检测数据变化
   private _pagesVersion: number = 0;
+  // 当前分页所属的渲染模式（横向/纵向），模式切换时用于失效旧分页
+  // 横纵容器样式不同（padding / overflow），跨模式复用分页会导致边界错误
+  private _pagesMode: 'vertical' | 'horizontal' | null = null;
 
   // 目录更新回调，分页完成后触发，用于通知 UI 层刷新目录数据
   onTocUpdated?: (toc: TocItem[]) => void;
@@ -173,7 +177,12 @@ export class TxtRenderer implements IBookRenderer {
         this._currentPage = value;
       },
       goToPage: (page) => this.goToPage(page),
-      goToChapter: (chapterIndex) => this.goToChapter(chapterIndex),
+      goToChapter: (chapterIndex, renderMode) =>
+        this.goToChapter(chapterIndex, renderMode),
+      // 横向章节模式：章节精确进度 → 章内页精确定位（供 jumpToPreciseProgress 使用）
+      goToChapterPage: (chapterIndex, pageInChapter) =>
+        this.goToChapterPage(chapterIndex, pageInChapter),
+      getChapterPageFromPrecise: (precise) => this.getChapterPageFromPrecise(precise),
       getChapterIndexByPage: (pageIndex) => this.getChapterIndexByPage(pageIndex),
     });
 
@@ -364,6 +373,11 @@ export class TxtRenderer implements IBookRenderer {
       return;
     }
     this._currentPage = intPage;
+    // 章节模式下回写章节精确进度（章内页码 → 章节进度），
+    // 保证横向/纵向共用同一进度坐标系，切换模式时位置不丢
+    if (this._useChapterMode && this._pages.length > 0) {
+      this._bookPreciseProgress = this.getPreciseFromChapterPage(intPage);
+    }
     // 确保有容器时才渲染
     if (this._container) {
       await this.renderPage(intPage, this._container, this._lastRenderOptions || {});
@@ -371,8 +385,143 @@ export class TxtRenderer implements IBookRenderer {
     this.onPageChange?.(intPage);
   }
 
-  /** 跳转到指定章节（章节模式） */
-  async goToChapter(chapterIndex: number): Promise<void> {
+  /**
+   * 跳转到指定章节的指定章内页（横向模式）
+   * 与 goToChapter 的区别：支持章内多页定位，并回写章节精确进度
+   */
+  async goToChapterPage(
+    chapterIndex: number,
+    pageInChapter: number
+  ): Promise<void> {
+    if (!this._useChapterMode || !this._chapterCache || !this._bookMeta) {
+      return;
+    }
+    if (chapterIndex < 0 || chapterIndex >= this._bookMeta.chapters.length) {
+      return;
+    }
+
+    // 章节变化时先切换章节（内部会清空分页并按横向模式渲染章首页）
+    if (chapterIndex !== this._currentChapterIndex) {
+      await this.goToChapter(chapterIndex, 'horizontal');
+    } else if (this._pages.length === 0 && this._container) {
+      // 同章但分页未计算（如首次进入横向），先补算分页
+      await this._calculatePages(this._container, this._lastRenderOptions || {});
+    }
+
+    // 横向模式：渲染目标章内页（goToPage 内部会回写章节精确进度）
+    if (this._container && this._pages.length > 0) {
+      const validPage = Math.min(
+        Math.max(1, pageInChapter),
+        this._pages.length
+      );
+      await this.goToPage(validPage);
+    }
+  }
+
+  /**
+   * 按章节精确进度定位章内页（跨章安全）
+   * 与 goToChapterPage 的区别：先把 _pages 切到目标章再换算页号，
+   * 避免调用方在目标章页数未知时用当前章页数算错
+   */
+  async goToChapterPageAtProgress(
+    chapterIndex: number,
+    precise: number
+  ): Promise<void> {
+    if (!this._useChapterMode || !this._chapterCache || !this._bookMeta) {
+      return;
+    }
+    if (chapterIndex < 0 || chapterIndex >= this._bookMeta.chapters.length) {
+      return;
+    }
+
+    // 切章（若不同）：goToChapter 会清空分页并按横向模式渲染章首页
+    if (chapterIndex !== this._currentChapterIndex) {
+      await this.goToChapter(chapterIndex, 'horizontal');
+    } else if (this._pages.length === 0 && this._container) {
+      // 同章但分页未计算（如重排后失效），先补算
+      await this._calculatePages(this._container, this._lastRenderOptions || {});
+    }
+
+    // 此时 _pages 已是目标章分页，用精确进度换算章内页
+    if (this._container && this._pages.length > 0) {
+      const pageInChapter = this.getChapterPageFromPrecise(precise);
+      await this.goToPage(pageInChapter);
+    }
+  }
+
+  /** 当前章内是否还有下一页（横向章节模式） */
+  hasNextPageInChapter(): boolean {
+    if (this._useChapterMode && !this._isVerticalMode) {
+      return this._currentPage < this._pages.length;
+    }
+    return false;
+  }
+
+  /** 翻到章内下一页（横向章节模式）；章末返回 false */
+  async goToNextPageInChapter(): Promise<boolean> {
+    if (!this._useChapterMode || this._isVerticalMode) return false;
+    if (this._currentPage >= this._pages.length) return false;
+    await this.goToPage(this._currentPage + 1);
+    return true;
+  }
+
+  /** 当前章内是否还有上一页（横向章节模式） */
+  hasPrevPageInChapter(): boolean {
+    if (this._useChapterMode && !this._isVerticalMode) {
+      return this._currentPage > 1;
+    }
+    return false;
+  }
+
+  /** 翻到章内上一页（横向章节模式）；章首返回 false */
+  async goToPrevPageInChapter(): Promise<boolean> {
+    if (!this._useChapterMode || this._isVerticalMode) return false;
+    if (this._currentPage <= 1) return false;
+    await this.goToPage(this._currentPage - 1);
+    return true;
+  }
+
+  /**
+   * 章节精确进度 → 章内页码（1-based）
+   * offset ∈ [0, 0.9999) 映射到章内页 [1, N]，供横向模式恢复精确位置
+   */
+  getChapterPageFromPrecise(precise: number): number {
+    const chapterInt = Math.floor(precise);
+    const offset = precise - chapterInt;
+    const total = Math.max(1, this._pages.length);
+    const page = Math.floor(offset * total) + 1;
+    return Math.min(Math.max(1, page), total);
+  }
+
+  /**
+   * 章内页码 → 章节精确进度（chapterIndex + 1 + offset）
+   * offset = (page - 1) / N，与纵向虚拟页换算的 clamp 上限保持一致
+   */
+  getPreciseFromChapterPage(pageInChapter: number): number {
+    const total = Math.max(1, this._pages.length);
+    const page = Math.min(Math.max(1, pageInChapter), total);
+    const offset = total <= 1 ? 0 : (page - 1) / total;
+    return this._currentChapterIndex + 1 + Math.min(TXT_CHAPTER_OFFSET_MAX, offset);
+  }
+
+  /**
+   * 使分页缓存失效，下次渲染时重新计算
+   * 模式切换 / 字号变化 / 容器尺寸变化时由上层调用
+   */
+  invalidatePagination(): void {
+    this._pages = [];
+    this._pagesVersion++;
+  }
+
+  /** 跳转到指定章节（章节模式）
+   * @param renderMode 目标渲染模式；缺省时沿用当前内部模式（_isVerticalMode）
+   * 注意：模式切换后 _isVerticalMode 可能是旧模式的残留值，
+   * 调用方应显式传入目标模式，避免切到横向时误渲染整章
+   */
+  async goToChapter(
+    chapterIndex: number,
+    renderMode?: 'vertical' | 'horizontal'
+  ): Promise<void> {
     if (!this._useChapterMode || !this._chapterCache || !this._bookMeta) {
       return;
     }
@@ -407,9 +556,10 @@ export class TxtRenderer implements IBookRenderer {
     this._chapterContentOffsets.set(chapterIndex, 0);
     this._invalidateTitleMapCache();
 
-    // 如果有容器，重新渲染
+    // 如果有容器，按目标模式重新渲染
     if (this._container) {
-      if (this._isVerticalMode) {
+      const targetMode = renderMode ?? (this._isVerticalMode ? 'vertical' : 'horizontal');
+      if (targetMode === 'vertical') {
         await this.renderFullContent(this._container, this._lastRenderOptions || {});
       } else {
         await this.renderPage(1, this._container, this._lastRenderOptions || {});
@@ -717,6 +867,13 @@ export class TxtRenderer implements IBookRenderer {
     this._lastRenderOptions = mergedOptions;
     this._isVerticalMode = false;
 
+    // 模式切换检测：旧分页基于另一种模式的容器样式计算，必须失效重算
+    if (this._pagesMode !== null && this._pagesMode !== 'horizontal') {
+      this._pages = [];
+      this._pagesVersion++;
+    }
+    this._pagesMode = 'horizontal';
+
     // 如果还没有分页，先进行分页计算
     if (this._pages.length === 0) {
       await this._calculatePages(container, mergedOptions);
@@ -744,6 +901,13 @@ export class TxtRenderer implements IBookRenderer {
     const mergedOptions = this._mergeRenderOptions(options);
     this._lastRenderOptions = mergedOptions;
     this._isVerticalMode = true;
+
+    // 模式切换检测：横向分页（章内页、padding 16px）不适用于纵向容器
+    if (this._pagesMode !== null && this._pagesMode !== 'vertical') {
+      this._pages = [];
+      this._pagesVersion++;
+    }
+    this._pagesMode = 'vertical';
 
     if (this._pages.length === 0) {
       await this._calculatePages(container, mergedOptions);
@@ -919,21 +1083,41 @@ export class TxtRenderer implements IBookRenderer {
       getCurrentChapterIndex: () => this._currentChapterIndex,
       getContainer: () => this._container,
       goToPage: (page) => this.goToPage(page),
+      // 横向恢复朗读位置：切章并渲染章内页
+      goToChapterPage: (chapterIndex, pageInChapter) =>
+        this.goToChapterPage(chapterIndex, pageInChapter),
       getVisibleStartPosition: () => this.getVisibleStartPositionForTTS(),
     });
   }
 
   /**
    * 计算当前视口顶部对应的章节索引与 anchor
-   * 仅纵向模式需要 anchor，横向模式以当前页为单位不需要 anchor
+   * 横纵模式统一返回 { sectionIndex: 章节索引, anchor: 章内文本引用 }
+   * anchor 用于 TTS 章内精确定位/裁前缀
    */
   private getVisibleStartPositionForTTS(): TTSReadingPosition | null {
     const container = this._container;
     if (!container) return null;
 
     if (!this._isVerticalMode) {
+      // 横向：当前章内页 → 章节索引 + 当前页首行文本引用
       const pageIndex = Math.max(0, this._currentPage - 1);
-      return { sectionIndex: pageIndex, anchor: null };
+      const chapterIndex = this.getChapterIndexByPage(pageIndex);
+      const range = findFirstVisibleTextRange(container, container, 'horizontal');
+      if (range) {
+        const quote = rangeToTextQuote(range, {
+          quoteLength: 24,
+          contextLength: 24,
+          searchRoot: container,
+        });
+        if (quote) {
+          return {
+            sectionIndex: chapterIndex,
+            anchor: { quote: quote.quote, prefix: quote.prefix, suffix: quote.suffix },
+          };
+        }
+      }
+      return { sectionIndex: chapterIndex, anchor: null };
     }
 
     const wrappers = Array.from(
@@ -980,6 +1164,7 @@ export class TxtRenderer implements IBookRenderer {
     this._lastRenderOptions = null;
     this._isVerticalMode = false;
     this._scrollHeight = 0;
+    this._pagesMode = null;
     this._currentPreciseProgress = 1;
     this._bookPreciseProgress = 1;
     this._pagesVersion = 0;

@@ -6,6 +6,7 @@ import { MobiRenderer } from "../../../services/formats/mobi/MobiRenderer";
 import { EpubRenderer } from "../../../services/formats/epub/EpubRenderer";
 import { HtmlRenderer } from "../../../services/formats/html/HtmlRenderer";
 import { TxtRenderer } from "../../../services/formats/txt/TxtRenderer";
+import { TXT_CHAPTER_OFFSET_MAX } from "../../../services/formats/txt/constants";
 import { useReaderState } from "./useReaderState";
 import { usePageRenderer } from "./usePageRenderer";
 import { useToc } from "./useToc";
@@ -201,8 +202,32 @@ export const useNavigation = ({
             });
             return;
         }
+        // TXT 横向章节模式：先翻章内页，章末才跨章
+        if (readingMode === "horizontal" && renderer && renderer instanceof TxtRenderer) {
+            markReadingActive();
+            if (
+                renderer.isChapterMode?.() &&
+                typeof renderer.hasNextPageInChapter === "function" &&
+                renderer.hasNextPageInChapter()
+            ) {
+                onUserNavigate?.(currentPage);
+                void renderer.goToNextPageInChapter().catch(async (e) => {
+                    await logError("TXT 章内翻页失败", { error: String(e) });
+                });
+                if (latestPreciseProgressRef) {
+                    const precise = renderer.getPreciseProgress();
+                    latestPreciseProgressRef.current = precise ?? 1;
+                }
+                if (!isExternal && book) {
+                    bookService
+                        .updateBookProgress(book.id, latestPreciseProgressRef.current ?? 1)
+                        .catch(() => { });
+                }
+                return;
+            }
+        }
         goToPage(currentPage + 1);
-    }, [rendererRef, readingMode, markReadingActive, onUserNavigate, currentPage, goToPage]);
+    }, [rendererRef, readingMode, markReadingActive, onUserNavigate, currentPage, goToPage, latestPreciseProgressRef, isExternal, book]);
 
     const prevPage = useCallback(() => {
         const renderer = rendererRef.current;
@@ -222,8 +247,50 @@ export const useNavigation = ({
             });
             return;
         }
+        // TXT 横向章节模式：先翻章内页，章首向前接上一章末页，第一章章首不翻
+        if (readingMode === "horizontal" && renderer && renderer instanceof TxtRenderer) {
+            markReadingActive();
+            if (renderer.isChapterMode?.()) {
+                if (
+                    typeof renderer.hasPrevPageInChapter === "function" &&
+                    renderer.hasPrevPageInChapter()
+                ) {
+                    onUserNavigate?.(currentPage);
+                    void renderer.goToPrevPageInChapter().catch(async (e) => {
+                        await logError("TXT 章内翻页失败", { error: String(e) });
+                    });
+                    if (latestPreciseProgressRef) {
+                        const precise = renderer.getPreciseProgress();
+                        latestPreciseProgressRef.current = precise ?? 1;
+                    }
+                    if (!isExternal && book) {
+                        bookService
+                            .updateBookProgress(book.id, latestPreciseProgressRef.current ?? 1)
+                            .catch(() => { });
+                    }
+                    return;
+                }
+                // 章首向前：跳转上一章末页（写入章末进度，由 useTxtPaging 页码监听定位）
+                const currentChapterIndex = renderer.getCurrentChapterIndex?.() ?? 0;
+                if (currentChapterIndex > 0) {
+                    const prevChapter = currentChapterIndex - 1;
+                    const chapterEndProgress = prevChapter + 1 + TXT_CHAPTER_OFFSET_MAX;
+                    onUserNavigate?.(currentChapterIndex + 1);
+                    if (latestPreciseProgressRef) {
+                        latestPreciseProgressRef.current = chapterEndProgress;
+                    }
+                    setCurrentPage(prevChapter + 1);
+                    if (!isExternal && book) {
+                        bookService
+                            .updateBookProgress(book.id, chapterEndProgress)
+                            .catch(() => { });
+                    }
+                }
+                return;
+            }
+        }
         goToPage(currentPage - 1);
-    }, [rendererRef, readingMode, markReadingActive, onUserNavigate, currentPage, goToPage]);
+    }, [rendererRef, readingMode, markReadingActive, onUserNavigate, currentPage, goToPage, latestPreciseProgressRef, isExternal, book]);
 
     const toggleFinish = useCallback(async () => {
         if (isExternal || !book) return;

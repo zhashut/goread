@@ -12,13 +12,11 @@ import {
   sliceTextToSegments,
   findAnchorStartOffset,
 } from '../../../utils/ttsSegmentSlicer';
-import {
-  decodePageCursor,
-  decodeSectionCursor,
-  encodePageCursor,
-  encodeSectionCursor,
-} from '../../../utils/ttsSegment';
+import { encodeSectionCursor, decodeSectionCursor } from '../../../utils/ttsSegment';
 import { log } from '../../index';
+import { txtCacheService, type TxtChapterContent } from '../../formats/txt/txtCacheService';
+import { txtPreloader } from '../../formats/txt/txtPreloader';
+import { getInvoke } from '../../index';
 
 /** TXT 横向分页页范围 */
 export interface TxtPageRange {
@@ -31,34 +29,41 @@ export interface TxtContentProviderContext {
   getBookId: () => string;
   getFilePath: () => string | null;
   isVerticalMode: () => boolean;
-  /** 整本纯文本（横向 / 纵向兜底） */
+  /** 当前已加载文本（横向=当前章；纵向=已加载章节窗口拼接） */
   getContent: () => string;
+  /** 当前内容的页范围（横向=当前章分页；纵向=窗口估算页） */
   getPages: () => TxtPageRange[];
-  /** 横向当前页码（1-based） */
+  /** 当前页码（横向=章内页码，1-based） */
   getCurrentPage: () => number;
-  /** 当前章节索引（仅纵向章节模式有意义） */
+  /** 当前章节索引（0-based） */
   getCurrentChapterIndex?: () => number;
   /** 纵向滚动容器 */
   getContainer: () => HTMLElement | null;
   goToPage: (page: number) => Promise<void>;
-  /** 取当前视口顶部位置（仅纵向模式有意义） */
+  /** 横向：切章并渲染章内页（供恢复朗读位置使用） */
+  goToChapterPage?: (chapterIndex: number, pageInChapter: number) => Promise<void>;
+  /** 取当前视口顶部位置（横纵均返回 { sectionIndex: 章节索引, anchor }） */
   getVisibleStartPosition?: () => TTSReadingPosition | null;
 }
 
-const MAX_PAGES_PER_BATCH = 6;
-const MAX_VERTICAL_WRAPPERS_PER_BATCH = 4;
+/** 单批次最多跨越的 TXT 章节数（与后端 txt.rs 保持一致） */
+const MAX_CHAPTERS_PER_BATCH = 4;
 
 /**
  * TXT 格式的 TTS 内容供给方
- * 横向模式：从 `getContent()` + `getPages()` 切片，cursor 用 `page:N`
- * 纵向模式：从 `[data-page-index]` wrapper 抽文本，cursor 继续使用 `wrapperIndex:chunkIndex`
- * 但对外暴露给 TTS 的 sectionIndex 统一为章节索引
+ * 统一按章节粒度取片（与后端托管会话一致）：
+ * - sectionIndex 恒为章节索引（横纵模式统一契约）
+ * - cursor = sectionIndex:chunkIndex
+ * - anchor 为章内文本引用，用于章内精确定位/裁前缀
+ * 横向/纵向仅影响"起点定位"与"恢复定位"两个环节
  */
 export class TxtContentProvider implements TTSContentProvider {
   readonly format: BookFormat = 'txt';
 
   #ctx: TxtContentProviderContext;
   #anchorLocator = new AnchorLocator();
+  /** 会话内章节文本缓存（避免重复调用后端加载） */
+  #chapterTextCache = new Map<number, string>();
 
   constructor(ctx: TxtContentProviderContext) {
     this.#ctx = ctx;
@@ -67,10 +72,7 @@ export class TxtContentProvider implements TTSContentProvider {
   async getSegments(
     req: TTSContentProviderGetSegmentsRequest,
   ): Promise<TTSContentProviderBatch> {
-    if (this.#ctx.isVerticalMode()) {
-      return this.#getVerticalSegments(req);
-    }
-    return this.#getHorizontalSegments(req);
+    return await this.#getChapterSegments(req);
   }
 
   buildBackendRequest(
@@ -79,11 +81,10 @@ export class TxtContentProvider implements TTSContentProvider {
     const filePath = this.#ctx.getFilePath();
     if (!filePath) return null;
     const startPosition = this.#resolveStartPosition(req);
+    // 注意：fallbackSectionIndex 恒为章节索引（后端 txt.rs 按章节取片）
     const fallbackSectionIndex =
       startPosition?.sectionIndex ??
-      (this.#ctx.isVerticalMode()
-        ? Math.max(0, this.#ctx.getCurrentChapterIndex?.() ?? 0)
-        : Math.max(0, this.#ctx.getCurrentPage() - 1));
+      (this.#ctx.getCurrentChapterIndex?.() ?? 0);
     return {
       bookId: this.#ctx.getBookId(),
       filePath,
@@ -92,6 +93,7 @@ export class TxtContentProvider implements TTSContentProvider {
       maxSegments: req.maxSegments,
       startPosition,
       fallbackSectionIndex,
+      readingMode: this.#ctx.isVerticalMode() ? 'vertical' : 'horizontal',
     };
   }
 
@@ -100,12 +102,18 @@ export class TxtContentProvider implements TTSContentProvider {
     anchor: TTSReadingAnchor | null | undefined,
   ): Range | null {
     if (!anchor) return null;
-    if (!this.#ctx.isVerticalMode()) return null;
-    for (const root of this.#resolveVerticalSectionRoots(sectionIndex)) {
-      const range = this.#anchorLocator.locate(root, anchor);
-      if (range) return range;
+    if (this.#ctx.isVerticalMode()) {
+      // 纵向：按章节对应的 DOM wrapper 定位（仅已加载窗口内可命中）
+      for (const root of this.#resolveVerticalSectionRoots(sectionIndex)) {
+        const range = this.#anchorLocator.locate(root, anchor);
+        if (range) return range;
+      }
+      return null;
     }
-    return null;
+    // 横向：当前章页已渲染，anchor 在当前页内则命中，否则返回 null（高亮跳过）
+    const container = this.#ctx.getContainer();
+    if (!container) return null;
+    return this.#anchorLocator.locate(container, anchor);
   }
 
   async restoreReadingPosition(position: TTSReadingPosition): Promise<void> {
@@ -120,135 +128,224 @@ export class TxtContentProvider implements TTSContentProvider {
       roots[0]?.scrollIntoView({ block: 'start', behavior: 'auto' });
       return;
     }
-    const targetPage = position.sectionIndex + 1;
-    if (targetPage <= 0) return;
-    try {
-      await this.#ctx.goToPage(targetPage);
-    } catch (e) {
-      log(`[TTS][Txt] restoreReadingPosition 失败: ${(e as Error).message ?? ''}`, 'warn');
-    }
+    await this.#restoreHorizontal(position);
   }
 
   notifyDocumentUpdated(): void {
     this.#anchorLocator.invalidate();
   }
 
-  #getHorizontalSegments(req: TTSContentProviderGetSegmentsRequest): TTSContentProviderBatch {
-    const content = this.#ctx.getContent();
+  /**
+   * 朗读进度推进时的章节级对齐（横向模式专用）
+   * - 跨章：自动切章并渲染章首页，实现听书跟读翻章
+   * - 同章：朗读位置已越过当前渲染页时自动翻页
+   * 返回 true 表示执行了翻页/切章
+   */
+  async followProgressPosition(
+    position: TTSReadingPosition,
+    previousSectionIndex: number,
+  ): Promise<boolean> {
+    if (this.#ctx.isVerticalMode()) return false;
+
+    const chapterIndex = position.sectionIndex;
+    const currentChapter = this.#ctx.getCurrentChapterIndex?.() ?? 0;
+
+    // 跨章：朗读推进到新章节时切章（渲染章首页）
+    if (chapterIndex !== currentChapter) {
+      const goToChapterPage = this.#ctx.goToChapterPage;
+      if (!goToChapterPage) return false;
+      try {
+        await goToChapterPage(chapterIndex, 1);
+        return true;
+      } catch (e) {
+        log(`[TTS][Txt] 跟读切章失败: ${(e as Error).message ?? ''}`, 'warn');
+        return false;
+      }
+    }
+
+    // 同章：朗读位置所在页 > 当前渲染页时自动翻页（跨章由上层章节变化驱动）
+    if (chapterIndex !== previousSectionIndex) return false;
     const pages = this.#ctx.getPages();
-    if (!content || pages.length === 0) {
-      return { segments: [], cursor: null, hasMore: false };
-    }
-    const startPage = decodePageCursor(req.cursor) ?? Math.max(0, this.#ctx.getCurrentPage() - 1);
-
-    const segments: TTSSegment[] = [];
-    let nextPage = startPage;
-    let hasMore = false;
-
-    for (let i = 0; i < MAX_PAGES_PER_BATCH; i++) {
-      const pageIndex = startPage + i;
-      if (pageIndex >= pages.length) break;
-      const remaining = req.maxSegments - segments.length;
-      if (remaining <= 0) {
-        hasMore = true;
-        nextPage = pageIndex;
+    const content = this.#ctx.getContent();
+    if (pages.length <= 1 || !position.anchor) return false;
+    const offset = findAnchorStartOffset(content, position.anchor);
+    if (offset <= 0 || offset >= content.length) return false;
+    let targetPage = 1;
+    for (let i = 0; i < pages.length; i++) {
+      if (offset < (pages[i]!.endOffset ?? 0)) {
+        targetPage = i + 1;
         break;
       }
-      const range = pages[pageIndex]!;
-      const text = content.slice(range.startOffset, range.endOffset).trim();
-      if (!text) {
-        nextPage = pageIndex + 1;
-        continue;
-      }
-      const result = sliceTextToSegments({
-        idPrefix: `txt-h:${pageIndex}`,
-        text,
-        sectionIndex: pageIndex,
-        startChunkIndex: 0,
-        maxSegments: remaining,
-        encodeCursor: (sectionIndex) => encodePageCursor(sectionIndex + 1),
-      });
-      segments.push(...result.segments);
-      if (result.hasMoreInText) {
-        hasMore = true;
-        nextPage = pageIndex;
-        break;
-      }
-      nextPage = pageIndex + 1;
     }
-
-    if (!hasMore) hasMore = nextPage < pages.length;
-    const cursor = hasMore ? encodePageCursor(nextPage) : null;
-    log(
-      `[TTS][Txt][H] startPage=${startPage} nextPage=${nextPage} produced=${segments.length} hasMore=${hasMore}`,
-      segments.length > 0 ? 'info' : 'warn',
-    );
-    return { segments, cursor, hasMore };
+    const currentPage = this.#ctx.getCurrentPage();
+    if (targetPage > currentPage) {
+      try {
+        await this.#ctx.goToPage(targetPage);
+        return true;
+      } catch (e) {
+        log(`[TTS][Txt] 跟读翻页失败: ${(e as Error).message ?? ''}`, 'warn');
+      }
+    }
+    return false;
   }
 
-  #getVerticalSegments(req: TTSContentProviderGetSegmentsRequest): TTSContentProviderBatch {
-    const wrappers = this.#getVerticalWrappers();
-    if (wrappers.length === 0) {
+  // ======================== 章节粒度取片 ========================
+
+  /** 统一取片入口：逐章加载文本并切片，章末自动续下一章（跨章朗读） */
+  async #getChapterSegments(
+    req: TTSContentProviderGetSegmentsRequest,
+  ): Promise<TTSContentProviderBatch> {
+    const filePath = this.#ctx.getFilePath();
+    if (!filePath) {
       return { segments: [], cursor: null, hasMore: false };
     }
-    const startPosition = this.#resolveStartPosition(req);
-    const { startWrapperIndex, startChunkIndex } = this.#resolveVerticalStart(
-      req,
-      wrappers,
-      startPosition,
-    );
+
+    const bookId = this.#ctx.getBookId();
+    // 元数据（章节总数）优先走缓存，未命中时从后端解析
+    let meta = txtCacheService.getMetadata(bookId);
+    if (!meta) {
+      try {
+        meta = await txtPreloader.getOrLoad(filePath);
+      } catch {
+        return { segments: [], cursor: null, hasMore: false };
+      }
+    }
+    const totalChapters = meta.chapters.length;
+    if (totalChapters === 0) {
+      return { segments: [], cursor: null, hasMore: false };
+    }
+
+    // 起点解析：cursor 优先，其次 startPosition，最后当前阅读位置
+    const cursor = decodeSectionCursor(req.cursor);
+    let startChapter: number;
+    let startChunk: number;
+    if (cursor) {
+      startChapter = Math.max(0, Math.min(cursor.sectionIndex, totalChapters - 1));
+      startChunk = Math.max(0, cursor.chunkIndex);
+    } else {
+      const startPosition = this.#resolveStartPosition(req);
+      const fallback = this.#ctx.getCurrentChapterIndex?.() ?? 0;
+      startChapter = Math.max(
+        0,
+        Math.min(startPosition?.sectionIndex ?? fallback, totalChapters - 1),
+      );
+      startChunk = 0;
+    }
 
     const segments: TTSSegment[] = [];
-    let nextSectionIndex = startWrapperIndex;
-    let nextChunkIndex = startChunkIndex;
+    let nextSection = startChapter;
+    let nextChunk = startChunk;
     let hasMore = false;
 
-    for (let i = 0; i < MAX_VERTICAL_WRAPPERS_PER_BATCH; i++) {
-      const idx = startWrapperIndex + i;
-      if (idx >= wrappers.length) break;
-      const wrapper = wrappers[idx];
-      const chapterIndex = this.#getWrapperChapterIndex(wrapper, idx);
+    for (let i = 0; i < MAX_CHAPTERS_PER_BATCH; i++) {
+      const idx = startChapter + i;
+      if (idx >= totalChapters) break;
       const remaining = req.maxSegments - segments.length;
       if (remaining <= 0) {
         hasMore = true;
-        nextSectionIndex = idx;
-        nextChunkIndex = idx === startWrapperIndex ? startChunkIndex : 0;
+        nextSection = idx;
+        nextChunk = idx === startChapter ? startChunk : 0;
         break;
       }
-      const rawText = (wrapper?.textContent || '').trim();
-      const text = this.#trimByAnchorIfStart(rawText, idx, chapterIndex, startPosition, req.cursor);
-      if (!text) {
-        nextSectionIndex = idx + 1;
-        nextChunkIndex = 0;
+
+      const rawText = (await this.#loadChapterText(filePath, bookId, idx)).trim();
+      if (!rawText) {
+        nextSection = idx + 1;
+        nextChunk = 0;
         continue;
       }
-      const sliceStart = idx === startWrapperIndex ? startChunkIndex : 0;
+
+      const text = this.#trimByAnchorIfStart(rawText, idx, startChapter, startChunk, req);
+      if (!text) {
+        nextSection = idx + 1;
+        nextChunk = 0;
+        continue;
+      }
+
+      const sliceStart = idx === startChapter ? startChunk : 0;
       const result = sliceTextToSegments({
-        idPrefix: `txt-v:${idx}`,
+        idPrefix: `txt:${idx}`,
         text,
-        sectionIndex: chapterIndex,
+        sectionIndex: idx,
         startChunkIndex: sliceStart,
         maxSegments: remaining,
-        encodeCursor: (_sectionIndex, chunkIndex) => encodeSectionCursor(idx, chunkIndex),
+        encodeCursor: (sectionIndex, chunkIndex) =>
+          encodeSectionCursor(sectionIndex, chunkIndex),
       });
       segments.push(...result.segments);
       if (result.hasMoreInText) {
         hasMore = true;
-        nextSectionIndex = idx;
-        nextChunkIndex = result.nextChunkIndex;
+        nextSection = idx;
+        nextChunk = result.nextChunkIndex;
         break;
       }
-      nextSectionIndex = idx + 1;
-      nextChunkIndex = 0;
+      nextSection = idx + 1;
+      nextChunk = 0;
     }
 
-    if (!hasMore) hasMore = nextSectionIndex < wrappers.length;
-    const cursor = hasMore ? encodeSectionCursor(nextSectionIndex, nextChunkIndex) : null;
+    if (!hasMore) hasMore = nextSection < totalChapters;
+    const outCursor = hasMore
+      ? encodeSectionCursor(nextSection, nextChunk)
+      : null;
     log(
-      `[TTS][Txt][V] startWrapper=${startWrapperIndex} startChunk=${startChunkIndex} produced=${segments.length} hasMore=${hasMore}`,
+      `[TTS][Txt] startChapter=${startChapter} startChunk=${startChunk} nextSection=${nextSection} produced=${segments.length} hasMore=${hasMore}`,
       segments.length > 0 ? 'info' : 'warn',
     );
-    return { segments, cursor, hasMore };
+    return { segments, cursor: outCursor, hasMore };
+  }
+
+  /** 加载指定章节文本：会话缓存 → 全局缓存 → 后端命令 */
+  async #loadChapterText(
+    filePath: string,
+    bookId: string,
+    chapterIndex: number,
+  ): Promise<string> {
+    const cached = this.#chapterTextCache.get(chapterIndex);
+    if (cached !== undefined) return cached;
+
+    const serviceCached = txtCacheService.getChapter(bookId, chapterIndex);
+    if (serviceCached) {
+      this.#chapterTextCache.set(chapterIndex, serviceCached.content);
+      return serviceCached.content;
+    }
+
+    try {
+      const invoke = await getInvoke();
+      const chapters = await invoke<TxtChapterContent[]>('txt_load_chapter', {
+        filePath,
+        chapterIndex,
+        extraChapters: null,
+      });
+      if (chapters.length > 0) {
+        const chapter = chapters[0]!;
+        txtCacheService.setChapter(bookId, chapter);
+        this.#chapterTextCache.set(chapterIndex, chapter.content);
+        return chapter.content;
+      }
+    } catch (e) {
+      log(`[TTS][Txt] 章节 ${chapterIndex} 加载失败: ${String(e)}`, 'warn');
+    }
+    return '';
+  }
+
+  /** 仅当起点章命中 startPosition 时按 anchor 裁前缀（cursor 续读不裁） */
+  #trimByAnchorIfStart(
+    text: string,
+    chapterIndex: number,
+    startChapter: number,
+    startChunk: number,
+    req: TTSContentProviderGetSegmentsRequest,
+  ): string {
+    if (!text) return text;
+    if (req.cursor) return text;
+    if (startChunk > 0) return text;
+    if (chapterIndex !== startChapter) return text;
+    const startPosition = this.#resolveStartPosition(req);
+    if (!startPosition?.anchor) return text;
+    if (startPosition.sectionIndex !== chapterIndex) return text;
+    const offset = findAnchorStartOffset(text, startPosition.anchor);
+    if (offset <= 0 || offset >= text.length) return text;
+    return text.slice(offset).trim();
   }
 
   /** cursor=null 时优先用调用方传入的 startPosition，否则用 ctx 提供的视口起点 */
@@ -260,70 +357,54 @@ export class TxtContentProvider implements TTSContentProvider {
     return this.#ctx.getVisibleStartPosition?.() ?? null;
   }
 
-  /** 仅当首章节命中 startPosition 时按 anchor 裁前缀 */
-  #trimByAnchorIfStart(
-    text: string,
-    wrapperIndex: number,
-    chapterIndex: number,
-    startPosition: TTSReadingPosition | null,
-    cursor: string | null,
-  ): string {
-    if (!text) return text;
-    if (cursor) return text;
-    if (!startPosition?.anchor) return text;
-    if (startPosition.sectionIndex !== chapterIndex) return text;
-    const startWrapperIndex = this.#findStartWrapperIndexByPosition(
-      this.#getVerticalWrappers(),
-      startPosition,
-    );
-    if (startWrapperIndex !== wrapperIndex) return text;
-    const offset = findAnchorStartOffset(text, startPosition.anchor);
-    if (offset <= 0 || offset >= text.length) return text;
-    return text.slice(offset).trim();
-  }
+  // ======================== 横向恢复定位 ========================
 
-  #resolveVerticalStart(
-    req: TTSContentProviderGetSegmentsRequest,
-    wrappers: HTMLElement[],
-    startPosition: TTSReadingPosition | null,
-  ): { startWrapperIndex: number; startChunkIndex: number } {
-    const cursor = decodeSectionCursor(req.cursor);
-    if (cursor) {
-      return {
-        startWrapperIndex: Math.max(0, Math.min(cursor.sectionIndex, wrappers.length - 1)),
-        startChunkIndex: Math.max(0, cursor.chunkIndex),
-      };
+  /** 横向恢复：章节 + anchor → 章内字符偏移 → 章内页 → goToPage */
+  async #restoreHorizontal(position: TTSReadingPosition): Promise<void> {
+    const { sectionIndex } = position;
+    if (sectionIndex < 0) return;
+
+    // 目标章节与当前不同 → 先切章（渲染章首页）
+    const currentChapter = this.#ctx.getCurrentChapterIndex?.() ?? 0;
+    if (sectionIndex !== currentChapter) {
+      const goToChapterPage = this.#ctx.goToChapterPage;
+      if (!goToChapterPage) return;
+      try {
+        await goToChapterPage(sectionIndex, 1);
+      } catch (e) {
+        log(`[TTS][Txt] 横向恢复切章失败: ${(e as Error).message ?? ''}`, 'warn');
+        return;
+      }
     }
-    const fallback =
-      startPosition
-        ? this.#findStartWrapperIndexByPosition(wrappers, startPosition)
-        : this.#findVisibleWrapperIndex(wrappers);
-    return {
-      startWrapperIndex: Math.max(0, Math.min(fallback, wrappers.length - 1)),
-      startChunkIndex: 0,
-    };
-  }
 
-  #getVerticalWrappers(): HTMLElement[] {
-    const container = this.#ctx.getContainer();
-    if (!container) return [];
-    return Array.from(
-      container.querySelectorAll('[data-page-index]'),
-    ) as HTMLElement[];
-  }
+    const pages = this.#ctx.getPages();
+    if (pages.length === 0) return;
 
-  #findVisibleWrapperIndex(wrappers: HTMLElement[]): number {
-    const container = this.#ctx.getContainer();
-    if (!container) return 0;
-    const scrollTop = container.scrollTop + 1;
-    let best = 0;
-    for (let i = 0; i < wrappers.length; i++) {
-      const top = wrappers[i]?.offsetTop ?? 0;
-      if (top <= scrollTop) best = i;
-      else break;
+    // anchor → 章内字符偏移 → 章内页码
+    let targetPage = 1;
+    if (position.anchor) {
+      const content = this.#ctx.getContent();
+      const offset = findAnchorStartOffset(content, position.anchor);
+      if (offset > 0 && offset < content.length) {
+        for (let i = 0; i < pages.length; i++) {
+          if (offset < (pages[i]!.endOffset ?? 0)) {
+            targetPage = i + 1;
+            break;
+          }
+        }
+        const lastEnd = pages[pages.length - 1]?.endOffset ?? 0;
+        if (offset >= lastEnd) targetPage = pages.length;
+      }
     }
-    return best;
+
+    try {
+      await this.#ctx.goToPage(targetPage);
+    } catch (e) {
+      log(`[TTS][Txt] 横向恢复失败: ${(e as Error).message ?? ''}`, 'warn');
+    }
   }
+
+  // ======================== 纵向 DOM 辅助（恢复定位/高亮） ========================
 
   #resolveVerticalSectionRoots(sectionIndex: number): HTMLElement[] {
     if (!this.#ctx.isVerticalMode()) return [];
@@ -332,35 +413,6 @@ export class TxtContentProvider implements TTSContentProvider {
     return Array.from(
       container.querySelectorAll(`[data-chapter-index="${sectionIndex}"]`),
     ) as HTMLElement[];
-  }
-
-  #findStartWrapperIndexByPosition(
-    wrappers: HTMLElement[],
-    startPosition: TTSReadingPosition | null,
-  ): number {
-    if (!startPosition) return this.#findVisibleWrapperIndex(wrappers);
-    const byChapter = wrappers
-      .map((wrapper, index) => ({ wrapper, index }))
-      .filter(({ wrapper, index }) => this.#getWrapperChapterIndex(wrapper, index) === startPosition.sectionIndex);
-    if (byChapter.length === 0) {
-      return this.#findVisibleWrapperIndex(wrappers);
-    }
-    if (!startPosition.anchor) {
-      return byChapter[0]!.index;
-    }
-    for (const item of byChapter) {
-      const range = this.#anchorLocator.locate(item.wrapper, startPosition.anchor);
-      if (range) {
-        return item.index;
-      }
-    }
-    return byChapter[0]!.index;
-  }
-
-  #getWrapperChapterIndex(wrapper: HTMLElement | undefined, fallbackIndex: number): number {
-    const raw = wrapper?.getAttribute('data-chapter-index');
-    const parsed = raw == null ? Number.NaN : Number(raw);
-    return Number.isFinite(parsed) ? parsed : fallbackIndex;
   }
 
   #scrollRangeIntoView(range: Range): void {
@@ -372,4 +424,3 @@ export class TxtContentProvider implements TTSContentProvider {
     target?.scrollIntoView({ block: 'start', behavior: 'auto' });
   }
 }
-

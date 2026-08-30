@@ -18,6 +18,8 @@ interface UseReaderTTSReturn {
     isListening: boolean;
     handleToggleListen: () => void;
     stopListenSilently: () => Promise<void>;
+    /** 模式切换前调用：先回写朗读位置再停止，保证切换后进度连续 */
+    stopListenAndRestore: () => Promise<void>;
     listenToastMsg: string;
     clearListenToast: () => void;
     notifyTtsDocumentUpdated: () => void;
@@ -67,6 +69,7 @@ export const useReaderTTS = ({
         isListening: tts.isActive,
         handleToggleListen,
         stopListenSilently: tts.stop,
+        stopListenAndRestore: tts.stopAndRestorePosition,
         listenToastMsg,
         clearListenToast: () => setListenToastMsg(''),
         notifyTtsDocumentUpdated: tts.notifyDocumentUpdated,

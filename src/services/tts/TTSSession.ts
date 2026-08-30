@@ -246,6 +246,15 @@ export class TTSSession {
     }
   }
 
+  /**
+   * 把最后朗读位置写回阅读器视图（主动调用，如模式切换前）
+   * 仅当本会话成功播放过才生效；未播放过则为 no-op
+   */
+  async restoreReadingPosition(): Promise<void> {
+    if (this.#disposed) return;
+    await this.#restoreLatestReadingPosition();
+  }
+
   /** 主动停止时保持当前页面位置，不再做停止后的回跳恢复 */
   async shutdown(): Promise<void> {
     if (this.#disposed) return;
