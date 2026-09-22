@@ -170,7 +170,8 @@ export class TxtContentProvider implements TTSContentProvider {
     if (pages.length <= 1 || !position.anchor) return false;
     const offset = findAnchorStartOffset(content, position.anchor);
     if (offset <= 0 || offset >= content.length) return false;
-    let targetPage = 1;
+    // 章末边界（offset 落在最后一行行尾之后）兜底为最后一页，避免误翻第一页
+    let targetPage = pages.length;
     for (let i = 0; i < pages.length; i++) {
       if (offset < (pages[i]!.endOffset ?? 0)) {
         targetPage = i + 1;

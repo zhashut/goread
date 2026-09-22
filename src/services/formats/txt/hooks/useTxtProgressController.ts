@@ -27,6 +27,10 @@ export interface TxtProgressContext {
   goToChapterPage?: (chapterIndex: number, pageInChapter: number) => Promise<void>;
   /** 横向章节模式：章节精确进度 → 章内页码 */
   getChapterPageFromPrecise?: (precise: number) => number;
+  /** 章节精确进度 → 全局字符偏移 */
+  getCharOffsetFromProgress?: (progress: number) => number;
+  /** 模式无关精确跳转：字符偏移 → 目标章节 → 当前模式视图定位 */
+  jumpToCharOffset?: (charOffset: number) => Promise<void>;
   getChapterIndexByPage?: (pageIndex: number) => number;
 }
 
@@ -277,6 +281,14 @@ export function useTxtProgressController(
     if (!isFinite(chapterInt) || chapterInt < 1) chapterInt = 1;
     if (chapterInt > chapterCount) chapterInt = chapterCount;
     const targetChapterIndex = chapterInt - 1;
+
+    // 统一走字符偏移精确跳转（模式无关：切章 + 当前模式视图定位）
+    if (context.getCharOffsetFromProgress && context.jumpToCharOffset) {
+      const charOffset = context.getCharOffsetFromProgress(progress);
+      await context.jumpToCharOffset(charOffset);
+      return;
+    }
+
     if (targetChapterIndex !== context.getCurrentChapterIndex()) {
       // 按当前模式渲染目标章节：横向模式切章时渲染章首页（而非整章）
       await context.goToChapter(

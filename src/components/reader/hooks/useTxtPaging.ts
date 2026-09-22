@@ -123,6 +123,19 @@ export const useTxtPaging = ({
       const txtRenderer = renderer as TxtRenderer;
       const chapterMode = txtRenderer.isChapterMode();
 
+      // 显式同步渲染模式：模式切换后 _isVerticalMode 可能是旧值，
+      // 且同章切模式时 goToChapter early return 不渲染，会导致后续定位误走旧模式分支
+      if (typeof txtRenderer.switchMode === 'function') {
+        txtRenderer.switchMode(
+          readingMode === 'vertical' ? 'vertical' : 'horizontal'
+        );
+      }
+      // 应用当前渲染参数（字号/主题/页距）并使分页失效，
+      // 确保后续分页计算与渲染使用最新参数（横向路径必须）
+      if (typeof txtRenderer.applyRenderOptions === 'function') {
+        txtRenderer.applyRenderOptions(options);
+      }
+
       // 注册目录更新回调，分页完成后将字符偏移量转换为真实页码
       if (setToc) {
         txtRenderer.onTocUpdated = (updatedToc: TocItem[]) => {
@@ -229,8 +242,10 @@ export const useTxtPaging = ({
           setCurrentPage(pageInt);
           if (viewportHeight > 0) {
             if (chapterMode) {
-              const virtualPrecise = txtRenderer.convertChapterPreciseToVirtualPrecise(preciseProgress);
-              txtRenderer.scrollToVirtualPage(virtualPrecise, viewportHeight);
+              // 字符偏移精确恢复（替代虚拟页换算，消除窗口映射退化误差）
+              await txtRenderer.jumpToCharOffset(
+                txtRenderer.getCharOffsetFromProgress(preciseProgress)
+              );
             } else {
               txtRenderer.scrollToVirtualPage(preciseProgress, viewportHeight);
             }
@@ -253,7 +268,6 @@ export const useTxtPaging = ({
               Math.max(1, Math.floor(preciseProgress)),
               chapterCount
             );
-            const targetChapterIndex = chapterInt - 1;
 
             // 先更新 ref，避免 setCurrentPage 触发页码变化监听时产生二次渲染
             lastPageRef.current = chapterInt;
@@ -261,10 +275,9 @@ export const useTxtPaging = ({
               latestPreciseProgressRef.current = preciseProgress;
             }
 
-            // 按章节精确进度定位章内页（内部先切章分页再换算，跨章页数安全）
-            await txtRenderer.goToChapterPageAtProgress(
-              targetChapterIndex,
-              preciseProgress
+            // 横向：章节精确进度 → 字符偏移 → 页（字符偏移语义，跨章/页数安全）
+            await txtRenderer.jumpToCharOffset(
+              txtRenderer.getCharOffsetFromProgress(preciseProgress)
             );
             setCurrentPage(chapterInt);
           } else {
@@ -334,11 +347,18 @@ export const useTxtPaging = ({
         if (!isAlreadyLoaded) {
           renderer
             .goToChapter(targetChapterIndex, 'vertical')
-            .then(() => {
+            .then(async () => {
               const viewportHeight = container.clientHeight;
               const preciseProgress = latestPreciseProgressRef?.current ?? currentPage;
-              const virtualPrecise = renderer.convertChapterPreciseToVirtualPrecise(preciseProgress);
-              renderer.scrollToVirtualPage(virtualPrecise, viewportHeight);
+              // 字符偏移精确定位（替代虚拟页换算）
+              if (typeof renderer.jumpToCharOffset === 'function') {
+                await renderer.jumpToCharOffset(
+                  renderer.getCharOffsetFromProgress(preciseProgress)
+                );
+              } else {
+                const virtualPrecise = renderer.convertChapterPreciseToVirtualPrecise(preciseProgress);
+                renderer.scrollToVirtualPage(virtualPrecise, viewportHeight);
+              }
               lastScrollTopRef.current = container.scrollTop;
             })
             .catch(() => { });
@@ -370,7 +390,12 @@ export const useTxtPaging = ({
         );
         // 横向章节模式：跨章跳转按精确进度定位章内页
         // （普通跨章 offset=0 → 章首页；章首向前翻页时调用方写入章末进度 → 上一章末页）
-        if (typeof renderer.goToChapterPageAtProgress === 'function') {
+        if (typeof renderer.jumpToCharOffset === 'function') {
+          const precise = latestPreciseProgressRef?.current ?? currentPage;
+          renderer
+            .jumpToCharOffset(renderer.getCharOffsetFromProgress(precise))
+            .catch(() => { });
+        } else if (typeof renderer.goToChapterPageAtProgress === 'function') {
           const precise = latestPreciseProgressRef?.current ?? currentPage;
           renderer.goToChapterPageAtProgress(targetChapterIndex, precise).catch(() => { });
         } else if (typeof renderer.goToChapterPage === 'function') {
@@ -544,16 +569,23 @@ export const useTxtPaging = ({
         }
 
         const virtualPrecise = renderer.getVirtualPreciseByScrollTop(scrollTop);
-        const virtualTotalPages = Math.max(1, renderer.getPageCount());
-        const ratio =
-          virtualTotalPages <= 1
-            ? 0
-            : Math.max(0, Math.min(1, (virtualPrecise - 1) / (virtualTotalPages - 1)));
+        // 章节模式优先用字符偏移精确进度（视口顶部段落 → 全书字符偏移 → 章节进度），
+        // 消除 wrapper 高度比例近似的误差；无段落标注时回退到虚拟页换算
+        const charOffset = renderer.getCharOffsetFromViewport();
 
         if (chapterMode) {
           const now = Date.now();
           const chapterCount = Math.max(1, renderer.getChapterCount());
+          const chapterPrecise =
+            charOffset !== null
+              ? renderer.getProgressFromCharOffset(charOffset)
+              : renderer.convertVirtualPreciseToChapterPrecise(virtualPrecise);
           const currentChapterIndex = renderer.getCurrentChapterIndex();
+          // 预加载启发式：按章节进度比例（字符偏移精确）判断接近章节边界
+          const ratio =
+            chapterCount <= 1
+              ? 0
+              : Math.max(0, Math.min(1, (chapterPrecise - 1) / (chapterCount - 1)));
           let targetIndex: number | null = null;
           if (ratio >= 0.8 && currentChapterIndex < chapterCount - 1) {
             targetIndex = currentChapterIndex + 1;
@@ -570,7 +602,6 @@ export const useTxtPaging = ({
             renderer.preloadAdjacentChapters(targetIndex).catch(() => { });
           }
 
-          const chapterPrecise = renderer.convertVirtualPreciseToChapterPrecise(virtualPrecise);
           const chapterPage = Math.floor(chapterPrecise);
           renderer.updatePreciseProgress(chapterPrecise);
 
@@ -638,14 +669,19 @@ export const useTxtPaging = ({
         if (renderer.isVerticalMode()) {
           const viewportHeight = container.clientHeight;
           if (viewportHeight > 0) {
-            const scrollTop = container.scrollTop;
             const chapterModeCurrent = renderer.isChapterMode();
-            const virtualPrecise = renderer.getVirtualPreciseByScrollTop(scrollTop);
-            if (chapterModeCurrent) {
-              progressToSave =
-                renderer.convertVirtualPreciseToChapterPrecise(virtualPrecise);
+            // 字符偏移精确进度优先（视口顶部段落 → 全书字符偏移 → 章节进度）
+            const charOffset = renderer.getCharOffsetFromViewport();
+            if (charOffset !== null) {
+              progressToSave = chapterModeCurrent
+                ? renderer.getProgressFromCharOffset(charOffset)
+                : charOffset;
             } else {
-              progressToSave = virtualPrecise;
+              const scrollTop = container.scrollTop;
+              const virtualPrecise = renderer.getVirtualPreciseByScrollTop(scrollTop);
+              progressToSave = chapterModeCurrent
+                ? renderer.convertVirtualPreciseToChapterPrecise(virtualPrecise)
+                : virtualPrecise;
             }
             if (latestPreciseProgressRef) {
               latestPreciseProgressRef.current = progressToSave;
@@ -673,10 +709,26 @@ export const useTxtPaging = ({
     const txtRenderer = renderer;
 
     const rerender = async () => {
+      console.log('[useTxtPaging] rerender', {
+        fontSize: options?.fontSize,
+        theme: options?.theme,
+        pageGap: options?.pageGap,
+        readingMode,
+      });
       try {
         const chapterMode = txtRenderer.isChapterMode();
-        // 字号/主题/页距等排版参数变化后旧分页不再适用，强制失效重算
-        txtRenderer.invalidatePagination();
+        // 应用新渲染参数（字号/主题/页距）并失效分页；
+        // 同步渲染模式（模式切换时 init 已同步，此处兜底）
+        if (typeof txtRenderer.applyRenderOptions === 'function') {
+          txtRenderer.applyRenderOptions(options);
+        } else {
+          txtRenderer.invalidatePagination();
+        }
+        if (typeof txtRenderer.switchMode === 'function') {
+          txtRenderer.switchMode(
+            readingMode === 'vertical' ? 'vertical' : 'horizontal'
+          );
+        }
         if (readingMode === 'vertical') {
           let preciseProgress =
             latestPreciseProgressRef.current ?? savedPageAtOpenRef.current ?? 1;
@@ -710,8 +762,10 @@ export const useTxtPaging = ({
 
             setCurrentPage(chapterInt);
 
-            const virtualPrecise = txtRenderer.convertChapterPreciseToVirtualPrecise(preciseProgress);
-            txtRenderer.scrollToVirtualPage(virtualPrecise, viewportHeight);
+            // 字符偏移精确定位（重排后位置保持，替代虚拟页换算）
+            await txtRenderer.jumpToCharOffset(
+              txtRenderer.getCharOffsetFromProgress(preciseProgress)
+            );
           } else {
             const total = txtRenderer.getPageCount() || 1;
             let precisePage = preciseProgress;
@@ -745,12 +799,10 @@ export const useTxtPaging = ({
               Math.max(1, Math.floor(preciseProgress)),
               chapterCount
             );
-            const targetChapterIndex = chapterInt - 1;
 
-            // 横向章节模式：按精确进度定位章内页，字号/主题变化重排后位置保持
-            await txtRenderer.goToChapterPageAtProgress(
-              targetChapterIndex,
-              preciseProgress
+            // 横向：按精确进度定位章内页（字符偏移语义），字号/主题变化重排后位置保持
+            await txtRenderer.jumpToCharOffset(
+              txtRenderer.getCharOffsetFromProgress(preciseProgress)
             );
             setCurrentPage(chapterInt);
             if (latestPreciseProgressRef) {
@@ -770,7 +822,10 @@ export const useTxtPaging = ({
           }
         }
         onAfterRerender?.();
-      } catch {
+      } catch (err) {
+        // 横向重排链路（applyRenderOptions→jumpToCharOffset→_calculatePages→renderPage）
+        // 任一环节抛异常都会导致字号/主题不生效，必须记录日志以便定位
+        console.error('[useTxtPaging] rerender failed', err);
       }
     };
 

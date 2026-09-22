@@ -51,7 +51,8 @@ export interface TxtRendererCore {
     pages: PageRange[],
     options?: RenderOptions,
     startPageIndex?: number,
-    chapterTitles?: ChapterTitleMap
+    chapterTitles?: ChapterTitleMap,
+    charOffsetBase?: number
   ): void;
   prependContentWithPageDividers(
     container: HTMLElement,
@@ -59,7 +60,8 @@ export interface TxtRendererCore {
     pages: PageRange[],
     options?: RenderOptions,
     startPageIndex?: number,
-    chapterTitles?: ChapterTitleMap
+    chapterTitles?: ChapterTitleMap,
+    charOffsetBase?: number
   ): void;
 }
 
@@ -464,6 +466,7 @@ export function useTxtRendererCore(): TxtRendererCore {
   /**
    * 追加内容带分页分隔符
    * 用于连续滚动模式，不清空容器，直接追加新内容
+   * @param charOffsetBase 追加内容在拼接 _content 中的起始字符偏移（用于段落标注与进度换算）
    */
   const appendContentWithPageDividers = (
     container: HTMLElement,
@@ -471,7 +474,8 @@ export function useTxtRendererCore(): TxtRendererCore {
     pages: PageRange[],
     options?: RenderOptions,
     startPageIndex: number = 0,
-    chapterTitles?: ChapterTitleMap
+    chapterTitles?: ChapterTitleMap,
+    charOffsetBase: number = 0
   ): void => {
     // 在旧内容和新内容之间插入章节分隔符
     if (container.lastElementChild) {
@@ -496,11 +500,12 @@ export function useTxtRendererCore(): TxtRendererCore {
       container.appendChild(divider);
     }
 
-    _renderContentInternal(container, content, pages, options, startPageIndex, chapterTitles);
+    _renderContentInternal(container, content, pages, options, startPageIndex, chapterTitles, charOffsetBase);
   };
 
   /**
    * 内部渲染逻辑，支持追加模式
+   * @param charOffsetBase 该段内容在拼接 _content 中的起始字符偏移
    */
   const _renderContentInternal = (
     container: HTMLElement,
@@ -508,7 +513,8 @@ export function useTxtRendererCore(): TxtRendererCore {
     pages: PageRange[],
     options: RenderOptions | undefined,
     startPageIndex: number,
-    chapterTitles?: ChapterTitleMap
+    chapterTitles?: ChapterTitleMap,
+    charOffsetBase: number = 0
   ): void => {
     const lines = splitContentIntoLines(content);
 
@@ -527,11 +533,12 @@ export function useTxtRendererCore(): TxtRendererCore {
       for (const line of lines) {
         const titleLevel = chapterTitles?.get(line.startOffset);
         const charLength = line.endOffset - line.startOffset;
+        const charOffset = charOffsetBase + line.startOffset;
         if (titleLevel !== undefined) {
-          const el = createChapterTitleElement(line.text, titleLevel, true, line.startOffset, charLength);
+          const el = createChapterTitleElement(line.text, titleLevel, true, charOffset, charLength);
           wrapper.appendChild(el);
         } else {
-          const p = createParagraphElement(line.text, true, line.startOffset, charLength);
+          const p = createParagraphElement(line.text, true, charOffset, charLength);
           wrapper.appendChild(p);
         }
       }
@@ -604,11 +611,12 @@ export function useTxtRendererCore(): TxtRendererCore {
       // 将行添加到当前页（标题行使用标题样式）
       const titleLevel = chapterTitles?.get(line.startOffset);
       const charLength = line.endOffset - line.startOffset;
+      const charOffset = charOffsetBase + line.startOffset;
       if (titleLevel !== undefined) {
-        const el = createChapterTitleElement(line.text, titleLevel, true, line.startOffset, charLength);
+        const el = createChapterTitleElement(line.text, titleLevel, true, charOffset, charLength);
         currentWrapper.appendChild(el);
       } else {
-        const p = createParagraphElement(line.text, true, line.startOffset, charLength);
+        const p = createParagraphElement(line.text, true, charOffset, charLength);
         currentWrapper.appendChild(p);
       }
     }
@@ -616,6 +624,7 @@ export function useTxtRendererCore(): TxtRendererCore {
 
   /**
    * 向容器前方插入内容，保持现有内容不变
+   * @param charOffsetBase 插入内容在拼接 _content 中的起始字符偏移（prepend 后新章位于 0）
    */
   const prependContentWithPageDividers = (
     container: HTMLElement,
@@ -623,11 +632,12 @@ export function useTxtRendererCore(): TxtRendererCore {
     pages: PageRange[],
     options?: RenderOptions,
     startPageIndex: number = 0,
-    chapterTitles?: ChapterTitleMap
+    chapterTitles?: ChapterTitleMap,
+    charOffsetBase: number = 0
   ): void => {
     const fragment = document.createDocumentFragment();
     const tempDiv = document.createElement('div');
-    _renderContentInternal(tempDiv, content, pages, options, startPageIndex, chapterTitles);
+    _renderContentInternal(tempDiv, content, pages, options, startPageIndex, chapterTitles, charOffsetBase);
     while (tempDiv.firstChild) {
       fragment.appendChild(tempDiv.firstChild);
     }

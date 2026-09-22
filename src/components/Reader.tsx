@@ -506,13 +506,11 @@ export const Reader: React.FC = () => {
                 ),
                 overflowY: (isEpubDom || isTxt) && readingMode === "horizontal" ? "hidden" : "auto",
                 touchAction: (isEpubDom || isTxt) && readingMode === "horizontal" ? "pan-y" : "auto",
-                backgroundColor: isEpubDom
-                  ? effectiveTheme === "dark"
-                    ? "#000000"
-                    : "#ffffff"
-                  : effectiveTheme === "dark"
-                  ? "#000000"
-                  : "#1a1a1a",
+                backgroundColor: isTxt
+                  ? "transparent"
+                  : isEpubDom
+                    ? effectiveTheme === "dark" ? "#000000" : "#ffffff"
+                    : effectiveTheme === "dark" ? "#000000" : "#1a1a1a",
                 pointerEvents: "auto",
               }}
             />
