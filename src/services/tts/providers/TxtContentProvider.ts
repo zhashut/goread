@@ -10,7 +10,7 @@ import type {
 import { AnchorLocator } from './AnchorLocator';
 import {
   sliceTextToSegments,
-  findAnchorStartOffset,
+  findAnchorStartOffsetWithContext,
 } from '../../../utils/ttsSegmentSlicer';
 import { encodeSectionCursor, decodeSectionCursor } from '../../../utils/ttsSegment';
 import { log } from '../../index';
@@ -37,6 +37,8 @@ export interface TxtContentProviderContext {
   getCurrentPage: () => number;
   /** 当前章节索引（0-based） */
   getCurrentChapterIndex?: () => number;
+  /** 指定章节在拼接内容窗口中的字符区间（纵向窗口多章拼接时用于按内容偏移精确定位） */
+  getChapterContentRange?: (chapterIndex: number) => { start: number; end: number } | null;
   /** 纵向滚动容器 */
   getContainer: () => HTMLElement | null;
   goToPage: (page: number) => Promise<void>;
@@ -64,6 +66,12 @@ export class TxtContentProvider implements TTSContentProvider {
   #anchorLocator = new AnchorLocator();
   /** 会话内章节文本缓存（避免重复调用后端加载） */
   #chapterTextCache = new Map<number, string>();
+  /**
+   * 上次成功定位的朗读位置（章内字符偏移）
+   * 作为「朗读进度单调向前」的下界：同名句段在章内重复出现时，
+   * 只接受不早于该偏移的命中，避免高亮/跟读滚动被拉回更早的重复句段
+   */
+  #lastLocatedOffset: { chapterIndex: number; offset: number } | null = null;
 
   constructor(ctx: TxtContentProviderContext) {
     this.#ctx = ctx;
@@ -103,8 +111,19 @@ export class TxtContentProvider implements TTSContentProvider {
   ): Range | null {
     if (!anchor) return null;
     if (this.#ctx.isVerticalMode()) {
-      // 纵向：按章节对应的 DOM wrapper 定位（仅已加载窗口内可命中）
-      for (const root of this.#resolveVerticalSectionRoots(sectionIndex)) {
+      // 纵向优先：按「章节内内容偏移」精确定位
+      // 同名句段在章内（尤其是大页窗口）重复出现时，DOM 文本搜索只能取首次出现，
+      // 会把高亮与跟读滚动拉回更早的重复句段（表现为“跳回上面”或“重读一个句段”）。
+      // 这里用分片生成的上下文 + 进度下界换算真实偏移，再映射到段落 Range
+      const offsetRange = this.#locateVerticalByOffset(sectionIndex, anchor);
+      if (offsetRange) return offsetRange;
+
+      // 兜底：容器/段落标注不可用（如非章节模式）时，沿用 DOM 文本搜索
+      // 匹配顺序必须按视口重排，否则同一句话在更早页面出现时会把高亮与跟读滚动
+      // 拉回那一页（表现为跳到章节开头，下一句才跳回朗读位置），详见 #orderRootsByViewport
+      for (const root of this.#orderRootsByViewport(
+        this.#resolveVerticalSectionRoots(sectionIndex),
+      )) {
         const range = this.#anchorLocator.locate(root, anchor);
         if (range) return range;
       }
@@ -114,6 +133,111 @@ export class TxtContentProvider implements TTSContentProvider {
     const container = this.#ctx.getContainer();
     if (!container) return null;
     return this.#anchorLocator.locate(container, anchor);
+  }
+
+  /**
+   * 纵向：换算 anchor 在章节文本中的偏移，并映射为已渲染段落的 DOM Range
+   * 章节不在已加载窗口（无内容区间/无 data-char-offset）时返回 null，交由 DOM 搜索兜底
+   */
+  #locateVerticalByOffset(
+    sectionIndex: number,
+    anchor: TTSReadingAnchor,
+  ): Range | null {
+    const offset = this.#resolveAnchorOffset(sectionIndex, anchor);
+    if (offset === null) return null;
+    // 偏移解析成功后已记录进度下界；即使此次无法映射到已渲染段落，
+    // 也保留该下界，保证窗口渲染出来后的下一句能落到正确位置
+    return this.#rangeFromContentOffset(sectionIndex, offset, anchor.quote.length);
+  }
+
+  /**
+   * 解析 anchor 在指定章节文本中的字符偏移（章节内坐标）
+   * 内部按「上下文优先 + 进度下界」消歧，并把结果记为下一次定位的下界
+   * @returns 命中偏移；章节文本不可用或无法命中时返回 null
+   */
+  #resolveAnchorOffset(
+    chapterIndex: number,
+    anchor: TTSReadingAnchor,
+  ): number | null {
+    const text = this.#getChapterText(chapterIndex);
+    if (!text) return null;
+    const floor =
+      this.#lastLocatedOffset?.chapterIndex === chapterIndex
+        ? this.#lastLocatedOffset.offset
+        : 0;
+    const offset = findAnchorStartOffsetWithContext(text, anchor, floor);
+    if (offset < 0) return null;
+    this.#lastLocatedOffset = { chapterIndex, offset };
+    return offset;
+  }
+
+  /**
+   * 取章节原文（章节内坐标 0 起）
+   * 优先使用渲染器的拼接窗口区间（与 DOM 段落偏移同一坐标系），
+   * 其次回退到会话/章节缓存
+   */
+  #getChapterText(chapterIndex: number): string | null {
+    const range = this.#ctx.getChapterContentRange?.(chapterIndex);
+    if (range) {
+      const content = this.#ctx.getContent();
+      if (range.end > range.start && range.end <= content.length) {
+        return content.slice(range.start, range.end);
+      }
+      return null;
+    }
+    const cached = this.#chapterTextCache.get(chapterIndex);
+    if (cached !== undefined) return cached;
+    const serviceCached = txtCacheService.getChapter(this.#ctx.getBookId(), chapterIndex);
+    return serviceCached ? serviceCached.content : null;
+  }
+
+  /**
+   * 把「章节内偏移」映射为已渲染段落的 DOM Range
+   * 依赖段落上的 data-char-offset（窗口绝对偏移）：取起始偏移不超过目标的最后一段
+   */
+  #rangeFromContentOffset(
+    chapterIndex: number,
+    offsetInChapter: number,
+    quoteLength: number,
+  ): Range | null {
+    const chapterRange = this.#ctx.getChapterContentRange?.(chapterIndex);
+    if (!chapterRange) return null;
+    const target = chapterRange.start + offsetInChapter;
+    const roots = this.#resolveVerticalSectionRoots(chapterIndex);
+    if (roots.length === 0) return null;
+
+    let paragraph: HTMLElement | null = null;
+    let paragraphStart = -1;
+    for (const root of roots) {
+      const elements = root.querySelectorAll<HTMLElement>('[data-char-offset]');
+      for (const el of elements) {
+        const start = Number(el.dataset.charOffset);
+        if (!Number.isFinite(start)) continue;
+        if (start <= target && start > paragraphStart) {
+          paragraphStart = start;
+          paragraph = el;
+        }
+      }
+    }
+    if (!paragraph || paragraphStart < 0) return null;
+
+    // TXT 段落为纯文本节点；结构异常时放弃，交由兜底逻辑处理
+    const textNode = paragraph.firstChild;
+    if (!textNode || textNode.nodeType !== Node.TEXT_NODE) return null;
+    const text = textNode.textContent ?? '';
+    const startInNode = target - paragraphStart;
+    if (startInNode < 0 || startInNode >= text.length) return null;
+    const endInNode = Math.min(text.length, startInNode + Math.max(1, quoteLength));
+    const doc = paragraph.ownerDocument;
+    if (!doc) return null;
+    try {
+      const range = doc.createRange();
+      range.setStart(textNode, startInNode);
+      range.setEnd(textNode, endInNode);
+      return range;
+    } catch {
+      return null;
+    }
   }
 
   async restoreReadingPosition(position: TTSReadingPosition): Promise<void> {
@@ -171,8 +295,10 @@ export class TxtContentProvider implements TTSContentProvider {
     const pages = this.#ctx.getPages();
     const content = this.#ctx.getContent();
     if (pages.length <= 1 || !position.anchor) return false;
-    const offset = findAnchorStartOffset(content, position.anchor);
-    if (offset <= 0 || offset >= content.length) return false;
+    // 上下文优先 + 进度下界：同名句段重复时定位到朗读真正所在的那一次，
+    // 否则会把偏移取到更早的重复句段而导致跟读不翻页/高亮倒退
+    const offset = this.#resolveAnchorOffset(chapterIndex, position.anchor);
+    if (offset === null || offset >= content.length) return false;
     // 章末边界（offset 落在最后一行行尾之后）兜底为最后一页，避免误翻第一页
     let targetPage = pages.length;
     for (let i = 0; i < pages.length; i++) {
@@ -350,7 +476,8 @@ export class TxtContentProvider implements TTSContentProvider {
     const startPosition = this.#resolveStartPosition(req);
     if (!startPosition?.anchor) return text;
     if (startPosition.sectionIndex !== chapterIndex) return text;
-    const offset = findAnchorStartOffset(text, startPosition.anchor);
+    // 上下文优先：起点句段在章内重复时，从正确那一次开始读，避免开篇重读一段
+    const offset = findAnchorStartOffsetWithContext(text, startPosition.anchor, 0);
     if (offset <= 0 || offset >= text.length) return text;
     return text.slice(offset).trim();
   }
@@ -393,8 +520,9 @@ export class TxtContentProvider implements TTSContentProvider {
     let targetPage = 1;
     if (position.anchor) {
       const content = this.#ctx.getContent();
-      const offset = findAnchorStartOffset(content, position.anchor);
-      if (offset > 0 && offset < content.length) {
+      // 上下文优先 + 进度下界：同名句段重复时定位到真正朗读的那一次
+      const offset = this.#resolveAnchorOffset(sectionIndex, position.anchor);
+      if (offset !== null && offset < content.length) {
         for (let i = 0; i < pages.length; i++) {
           if (offset < (pages[i]!.endOffset ?? 0)) {
             targetPage = i + 1;
@@ -416,6 +544,38 @@ export class TxtContentProvider implements TTSContentProvider {
   }
 
   // ======================== 纵向 DOM 辅助（恢复定位/高亮） ========================
+
+  /**
+   * 纵向页 wrapper 的匹配顺序：按「离当前视口由近及远」重排
+   *
+   * 动机：anchor 定位在前后文与 DOM 文本对不齐时会降级为「在该 root 内首次出现这句文本」
+   * （见 utils/ttsDOM.ts 的候选式降级匹配）。若本章更早的页面出现过同一句话
+   * （短句、常见对话很容易重复），按 DOM 顺序从章首页开始匹配就会命中那一页，
+   * 高亮与跟读滚动被拉到更早的位置，下一句才回到朗读位置。
+   * 朗读进度单调向前，正确命中页必在当前视口所在页或其之后，因此顺序取：
+   * 视口所在页 → 其后各页（由近及远）→ 其前各页（由近及远）。
+   */
+  #orderRootsByViewport(roots: HTMLElement[]): HTMLElement[] {
+    if (roots.length <= 1) return roots;
+    const container = this.#ctx.getContainer();
+    if (!container) return roots;
+    const containerRect = container.getBoundingClientRect();
+    // 容器不可见（尺寸为 0）时无法判断视口所在页，保持 DOM 顺序
+    if (containerRect.height <= 0) return roots;
+    const viewportTop = containerRect.top;
+    // 视口所在页 = 顶部不超过视口顶部的最后一页；没有任何页命中时退回第一页
+    let currentIndex = 0;
+    for (let i = 0; i < roots.length; i++) {
+      if (roots[i]!.getBoundingClientRect().top <= viewportTop + 1) {
+        currentIndex = i;
+      }
+    }
+    if (currentIndex === 0) return roots;
+    const ordered: HTMLElement[] = [];
+    for (let i = currentIndex; i < roots.length; i++) ordered.push(roots[i]!);
+    for (let i = currentIndex - 1; i >= 0; i--) ordered.push(roots[i]!);
+    return ordered;
+  }
 
   #resolveVerticalSectionRoots(sectionIndex: number): HTMLElement[] {
     if (!this.#ctx.isVerticalMode()) return [];

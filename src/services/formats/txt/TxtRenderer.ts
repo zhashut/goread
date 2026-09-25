@@ -1338,13 +1338,55 @@ export class TxtRenderer implements IBookRenderer {
 
     // 如果是章节模式，需要为 pages 添加 chapterIndex
     if (this._useChapterMode) {
-      const chapterIndex = this._currentChapterIndex;
-      this._pages = pages.map(p => ({ ...p, chapterIndex }));
+      // 纵向窗口模式下 _content 可能拼接多章（连续滚动已加载窗口），必须逐页按
+      // _chapterContentOffsets 推导真实章节号；若统一写 _currentChapterIndex，
+      // 重建后所有 wrapper 的 data-chapter-index 都会变成同一章，导致
+      // #resolveVerticalSectionRoots(其它章) 为空（该章高亮消失）、
+      // getChapterIndexByPage 失真（目录高亮/TTS 起点章节错误）
+      this._pages = pages.map(p => ({
+        ...p,
+        chapterIndex: this._resolveChapterIndexByContentOffset(p.startOffset),
+      }));
     } else {
       this._pages = pages;
     }
 
     this._toc = toc;
+  }
+
+  /**
+   * 按拼接内容偏移推导页所属章节索引
+   * _chapterContentOffsets 记录每章在 _content 中的起始偏移（不含换行的字符偏移），
+   * 取“起始偏移不超过 contentOffset 的最大者”即为命中章节
+   */
+  private _resolveChapterIndexByContentOffset(contentOffset: number): number {
+    if (this._chapterContentOffsets.size === 0) {
+      return this._currentChapterIndex;
+    }
+    let resolved = -1;
+    let resolvedOffset = -1;
+    for (const [idx, offset] of this._chapterContentOffsets) {
+      if (offset <= contentOffset && offset >= resolvedOffset) {
+        resolved = idx;
+        resolvedOffset = offset;
+      }
+    }
+    return resolved >= 0 ? resolved : this._currentChapterIndex;
+  }
+
+  /**
+   * 取指定章节在拼接内容窗口中的字符区间（窗口绝对偏移）
+   * 供 TTS 按内容偏移精确定位（同名句段消歧）；章节不在已加载窗口时返回 null
+   */
+  getChapterContentRange(chapterIndex: number): { start: number; end: number } | null {
+    const start = this._chapterContentOffsets.get(chapterIndex);
+    if (start === undefined) return null;
+    // 结束位置 = 其它章节起始偏移中大于 start 的最小者；没有则为内容末尾
+    let end = this._content.length;
+    for (const offset of this._chapterContentOffsets.values()) {
+      if (offset > start && offset < end) end = offset;
+    }
+    return { start, end: Math.min(end, this._content.length) };
   }
 
   getChapterIndexByPage(pageIndex: number): number {
@@ -1459,6 +1501,9 @@ export class TxtRenderer implements IBookRenderer {
       getCurrentPage: () => this._currentPage,
       getCurrentChapterIndex: () => this._currentChapterIndex,
       getContainer: () => this._container,
+      // 章节在拼接窗口中的字符区间：TTS 按内容偏移精确定位高亮（同名句段消歧）
+      getChapterContentRange: (chapterIndex) =>
+        this.getChapterContentRange(chapterIndex),
       goToPage: (page) => this.goToPage(page),
       // 横向恢复朗读位置：切章并渲染章内页
       goToChapterPage: (chapterIndex, pageInChapter) =>

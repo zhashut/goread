@@ -36,6 +36,74 @@ export const findAnchorStartOffset = (
   return findAnchorOffsetByNormalizedWhitespace(text, anchor.quote);
 };
 
+/**
+ * 按「上下文优先 + 进度下界」定位 anchor 起始偏移（同名句段消歧）
+ *
+ * 与 findAnchorStartOffset 的差异：
+ * 1. 优先用 prefix + quote + suffix 的原文拼接匹配：章内同名句段重复时按上下文选中
+ *    正确那一次，而不是无条件返回 quote 的首次出现（后者会把高亮与跟读滚动拉回更早的
+ *    重复句段，表现为“跳回上面”或“重读一个句段”）；
+ * 2. minOffset 为朗读进度下界：朗读进度单调向前，优先返回不早于下界的命中；
+ * 3. 上下文逐级降级（完整 → 前缀 + quote → quote + 后缀），最终退回 quote 命中，
+ *    保持与 findAnchorStartOffset 相同的兜底能力。
+ *
+ * 说明：TXT 的 anchor 由分片器按原文切片生成，prefix/quote/suffix 在章节文本中逐字一致，
+ * 因此这里先做精确拼接匹配；空白差异场景仍由 quote 兜底覆盖。
+ *
+ * @returns 命中偏移（相对 text 的 JS 字符索引）；完全无法命中时返回 -1
+ */
+export const findAnchorStartOffsetWithContext = (
+  text: string,
+  anchor: TTSReadingAnchor | null | undefined,
+  minOffset = 0,
+): number => {
+  if (!text || !anchor?.quote) return -1;
+  const quote = anchor.quote;
+  const floor = Math.max(0, Math.min(minOffset, text.length));
+
+  const prefix = anchor.prefix ?? '';
+  const suffix = anchor.suffix ?? '';
+  // 上下文越完整优先级越高：完整上下文 → 前缀 + quote → quote + 后缀
+  const patterns: Array<{ pattern: string; quoteOffset: number }> = [];
+  if (prefix || suffix) {
+    patterns.push({ pattern: `${prefix}${quote}${suffix}`, quoteOffset: prefix.length });
+    if (prefix) patterns.push({ pattern: `${prefix}${quote}`, quoteOffset: prefix.length });
+    if (suffix) patterns.push({ pattern: `${quote}${suffix}`, quoteOffset: 0 });
+  }
+  for (const { pattern, quoteOffset } of patterns) {
+    const offset = findPatternOffsetFrom(text, pattern, quoteOffset, floor);
+    if (offset >= 0) return offset;
+  }
+
+  // 无上下文或上下文不匹配：退回 quote 命中（同样受进度下界保护）
+  return findPatternOffsetFrom(text, quote, 0, floor);
+};
+
+/**
+ * 查找 pattern 的全部命中，返回其中 quote 的起始偏移
+ * 优先返回不早于进度下界的最近一次命中；下界内无命中时退回最靠近下界的前一次命中
+ * （宁可少跳一点，也不要把高亮拉回章节开头的第一个同名句段）
+ * @returns 命中偏移；无任何命中时返回 -1
+ */
+const findPatternOffsetFrom = (
+  text: string,
+  pattern: string,
+  quoteOffset: number,
+  floor: number,
+): number => {
+  if (!pattern) return -1;
+  const hits: number[] = [];
+  let from = 0;
+  for (;;) {
+    const idx = text.indexOf(pattern, from);
+    if (idx < 0) break;
+    hits.push(idx + quoteOffset);
+    from = idx + 1;
+  }
+  if (hits.length === 0) return -1;
+  return hits.find((offset) => offset >= floor) ?? hits[hits.length - 1]!;
+};
+
 /** 规范化空白后匹配：克服 DOM 与 rawHtml 之间细微的空白差异 */
 const findAnchorOffsetByNormalizedWhitespace = (text: string, quote: string): number => {
   const normalizedQuote = quote.replace(/\s+/g, '');
