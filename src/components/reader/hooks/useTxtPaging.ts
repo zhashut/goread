@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { TxtRenderer } from '../../../services/formats/txt/TxtRenderer';
-import { TXT_CHAPTER_OFFSET_MAX, TXT_PROGRESS_MAX_DELTA } from '../../../services/formats/txt/constants';
+import { TXT_CHAPTER_OFFSET_MAX, TXT_PROGRESS_MAX_DELTA, TXT_SCROLL_EDGE_TOLERANCE_PX } from '../../../services/formats/txt/constants';
 import { IBookRenderer, RenderOptions, TocItem } from '../../../services/formats';
 import { bookService, log } from '../../../services';
 import { useReaderState } from './useReaderState';
@@ -280,14 +280,14 @@ export const useTxtPaging = ({
             }
           }
 
-          // 内容不足一屏时自动追加下一章，避免无法触发滚动追加
-          if (chapterMode && typeof txtRenderer.appendNextChapter === 'function') {
-            const maxScroll = container!.scrollHeight - container!.clientHeight;
-            if (maxScroll <= 2) {
-              try {
-                await txtRenderer.appendNextChapter();
-              } catch { }
-            }
+          // 入场预热：定位后若视口已贴到加载窗口底部（恢复位置落在本章末尾时
+          // 浏览器会把 scrollTop 夹到 maxScrollTop，或整章不足一屏），
+          // 向下滑动不会产生任何 scroll 事件，依赖滚动事件的预追加永远无法触发，
+          // 用户必须先向上滑一下才能继续向下阅读；这里由渲染器主动补足下方内容
+          if (chapterMode && typeof txtRenderer.ensureScrollableBelow === 'function') {
+            try {
+              await txtRenderer.ensureScrollableBelow(container!);
+            } catch { }
           }
 
           // 同步滚动基准：上面的定位是程序化定位，不是用户滚动，
@@ -496,7 +496,14 @@ export const useTxtPaging = ({
           // 距离底部不足半屏时预追加下一章
           const nearBottomThreshold = viewportHeight * 0.5;
           const isNearBottom = maxScrollTop > 0 && scrollTop >= maxScrollTop - nearBottomThreshold;
-          if (isNearBottom && isScrollingDown) {
+          // 已贴底时向下滑动不会产生 scroll 事件（只有上滑会产生事件），
+          // 此时任意方向都补一次预追加，避免卡在底部无法继续向下阅读
+          const isStuckAtBottom =
+            maxScrollTop > 0 && maxScrollTop - scrollTop <= TXT_SCROLL_EDGE_TOLERANCE_PX;
+          // 触发预追加：
+          // 1) 向下滚动且接近底部（提前加载，避免触底阻塞）
+          // 2) 已贴底：此时向下滑动不产生 scroll 事件，只能靠任意方向的滚动事件兜底补一次
+          if ((isNearBottom && isScrollingDown) || isStuckAtBottom) {
             const maxLoadedIndex = typeof renderer.getMaxLoadedChapterIndex === 'function'
               ? renderer.getMaxLoadedChapterIndex()
               : renderer.getCurrentChapterIndex();

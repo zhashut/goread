@@ -24,7 +24,11 @@ import type {
 import { TxtContentProvider } from '../../tts/providers/TxtContentProvider';
 import { findFirstVisibleTextRange, rangeToTextQuote } from '../../../utils/ttsDOM';
 import { generateTxtBookId } from './txtPreloader';
-import { TXT_CHAPTER_OFFSET_MAX } from './constants';
+import {
+  TXT_CHAPTER_OFFSET_MAX,
+  TXT_SCROLL_EDGE_TOLERANCE_PX,
+  TXT_INIT_APPEND_MAX_CHAPTERS,
+} from './constants';
 import {
   useTxtRendererCore,
   useTxtDocumentLoader,
@@ -966,6 +970,37 @@ export class TxtRenderer implements IBookRenderer {
     ).catch(() => { });
 
     return true;
+  }
+
+  /**
+   * 确保纵向视口下方留有可滚动内容（入场定位/重排定位后调用）
+   *
+   * 背景：章节预追加依赖「向下滚动」产生的 scroll 事件。当恢复位置落在当前加载
+   * 窗口末尾时，浏览器会把 scrollTop 夹到 maxScrollTop，此时向下滑动不产生任何
+   * 滚动事件，预追加永远不会触发，表现为「进入内容页后无法向下滑动，必须先向上
+   * 滑一下才能继续向下阅读」。所以贴底时必须由程序主动追加后续章节。
+   *
+   * @param container 纵向滚动容器
+   * @returns 实际追加的章节数
+   */
+  async ensureScrollableBelow(container: HTMLElement): Promise<number> {
+    // 仅纵向章节模式（滑动窗口拼接多章）适用；横向分页与全量模式不涉及该问题
+    if (!this._useChapterMode || !this._isVerticalMode) return 0;
+
+    let appended = 0;
+    while (appended < TXT_INIT_APPEND_MAX_CHAPTERS) {
+      const maxScrollTop = Math.max(
+        0,
+        container.scrollHeight - container.clientHeight
+      );
+      // 下方已有滚动余量：向下滑动能产生 scroll 事件，交给滚动预追加处理
+      if (maxScrollTop - container.scrollTop > TXT_SCROLL_EDGE_TOLERANCE_PX) break;
+      // 已是最后一章/已加载时 appendNextChapter 返回 false，可直接退出循环
+      const appendedOk = await this.appendNextChapter();
+      if (!appendedOk) break;
+      appended++;
+    }
+    return appended;
   }
 
   /**
