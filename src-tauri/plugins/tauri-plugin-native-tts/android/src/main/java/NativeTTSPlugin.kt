@@ -14,7 +14,6 @@ import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
-import androidx.core.content.ContextCompat
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
@@ -176,20 +175,17 @@ class NativeTTSPlugin(private val activity: Activity) : Plugin(activity) {
   private fun setBackgroundPlaybackActive(args: SetMediaSessionActiveArgs) {
     val title = args.foregroundServiceTitle ?: args.notificationTitle ?: MediaPlaybackService.DEFAULT_TITLE
     val text = args.foregroundServiceText ?: args.notificationText ?: MediaPlaybackService.DEFAULT_TEXT
-    val intent = Intent(activity, MediaPlaybackService::class.java).apply {
-      putExtra(MediaPlaybackService.EXTRA_TITLE, title)
-      putExtra(MediaPlaybackService.EXTRA_TEXT, text)
-    }
 
     if (args.active == true && args.keepAppInForeground == true) {
       println("[TTS][Plugin] background playback enable request channelId=${MediaPlaybackService.CHANNEL_ID} title=$title text=$text")
-      ContextCompat.startForegroundService(activity, intent)
-      println("[TTS][Plugin] background playback enabled")
+      // 启动/停止统一走 Service 的状态机，避免「启动后立刻停止」导致前台服务超时崩溃
+      val started = MediaPlaybackService.requestStart(activity, title, text)
+      println("[TTS][Plugin] background playback enabled=$started")
       return
     }
 
     println("[TTS][Plugin] background playback disable request channelId=${MediaPlaybackService.CHANNEL_ID}")
-    activity.stopService(intent)
+    MediaPlaybackService.requestStop(activity)
     println("[TTS][Plugin] background playback disabled")
   }
 
@@ -204,7 +200,7 @@ class NativeTTSPlugin(private val activity: Activity) : Plugin(activity) {
   }
 
   private fun stopBackgroundService() {
-    activity.stopService(Intent(activity, MediaPlaybackService::class.java))
+    MediaPlaybackService.requestStop(activity)
   }
 
   private fun ensureInitialized(requestedLang: String?, onDone: (InitResult) -> Unit) {
