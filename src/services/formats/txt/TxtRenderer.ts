@@ -387,7 +387,13 @@ export class TxtRenderer implements IBookRenderer {
     if (this._container) {
       await this.renderPage(intPage, this._container, this._lastRenderOptions || {});
     }
-    this.onPageChange?.(intPage);
+    // 页面变化回调：章节模式下必须回传“章节精确进度”（chapterIndex + 1 + 章内比例），
+    // 与纵向模式共用同一进度坐标系（EPUB 横向同样回传浮点进度）。
+    // 若回传章内页码，上层会按错误坐标系持久化进度，导致横向朗读自动翻页后
+    // 退出阅读再进入时定位回退到朗读开始处
+    this.onPageChange?.(
+      this._useChapterMode ? this._bookPreciseProgress : intPage
+    );
   }
 
   /**
@@ -1468,8 +1474,13 @@ export class TxtRenderer implements IBookRenderer {
     this._cachedTitleMap = null;
   }
 
-  /** 页面变化回调 */
-  onPageChange?: (page: number) => void;
+  /**
+   * 页面变化回调（程序化翻页时触发）
+   * - 章节模式：回传“章节精确进度”（chapterIndex + 1 + 章内比例），
+   *   与纵向模式、EPUB 横向共用同一进度坐标系
+   * - 非章节模式：回传章内整数页码
+   */
+  onPageChange?: (progress: number) => void;
 }
 
 // 注册 TXT 渲染器

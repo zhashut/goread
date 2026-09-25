@@ -151,6 +151,35 @@ export const useTxtPaging = ({
         };
       }
 
+      // 注册渲染器程序化翻页回调（TTS 跟读自动翻页、恢复朗读位置等）：
+      // 这些路径直接驱动渲染器翻页，不经过 React 页码状态；横向章节模式下
+      // 章内翻页不改变 currentPage（currentPage = 章节序号），若不同步进度，
+      // 退出阅读后会丢失朗读自动翻页产生的进度（回到朗读开始处）
+      txtRenderer.onPageChange = (progress: number) => {
+        // goToPage 只在横向路径被调用，此处为防御：纵向模式不处理
+        if (readingMode === 'vertical') return;
+
+        const precise =
+          isFinite(progress) && progress > 0
+            ? progress
+            : savedPageAtOpenRef.current ?? 1;
+        const pageInt = Math.max(1, Math.floor(precise));
+
+        // 先写 ref 再改 state：
+        // 1) 持久化拿到的是精确进度（章节模式下为章节精确进度）
+        // 2) 同步 lastPageRef 使页码 effect 直接返回，避免反向重定位重渲染
+        //    打断刚由 TTS 应用的高亮定位
+        if (latestPreciseProgressRef) {
+          latestPreciseProgressRef.current = precise;
+        }
+        lastPageRef.current = pageInt;
+        setCurrentPage(pageInt);
+
+        if (!isExternal && book) {
+          bookService.updateBookProgress(book.id, precise).catch(() => { });
+        }
+      };
+
       try {
         const resolveProgress = (raw: number): number => {
           const total = totalPages > 0 ? totalPages : 1;

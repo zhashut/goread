@@ -156,6 +156,9 @@ export class TxtContentProvider implements TTSContentProvider {
       if (!goToChapterPage) return false;
       try {
         await goToChapterPage(chapterIndex, 1);
+        // 切章会全量重建容器 DOM（容器元素本身不变），
+        // 必须失效 anchor 文本索引，否则后续高亮会命中已卸载的旧节点
+        this.notifyDocumentUpdated();
         return true;
       } catch (e) {
         log(`[TTS][Txt] 跟读切章失败: ${(e as Error).message ?? ''}`, 'warn');
@@ -182,6 +185,9 @@ export class TxtContentProvider implements TTSContentProvider {
     if (targetPage > currentPage) {
       try {
         await this.#ctx.goToPage(targetPage);
+        // 翻页会全量重建容器 DOM（容器元素本身不变），必须失效 anchor 文本索引，
+        // 否则紧随其后的高亮定位会失败或落在已卸载节点上（定位背景消失）
+        this.notifyDocumentUpdated();
         return true;
       } catch (e) {
         log(`[TTS][Txt] 跟读翻页失败: ${(e as Error).message ?? ''}`, 'warn');
@@ -372,6 +378,8 @@ export class TxtContentProvider implements TTSContentProvider {
       if (!goToChapterPage) return;
       try {
         await goToChapterPage(sectionIndex, 1);
+        // 切章重建容器 DOM，失效 anchor 索引以重新建立文本索引
+        this.notifyDocumentUpdated();
       } catch (e) {
         log(`[TTS][Txt] 横向恢复切章失败: ${(e as Error).message ?? ''}`, 'warn');
         return;
@@ -400,6 +408,8 @@ export class TxtContentProvider implements TTSContentProvider {
 
     try {
       await this.#ctx.goToPage(targetPage);
+      // 恢复定位同样会重建容器 DOM，失效 anchor 索引
+      this.notifyDocumentUpdated();
     } catch (e) {
       log(`[TTS][Txt] 横向恢复失败: ${(e as Error).message ?? ''}`, 'warn');
     }
