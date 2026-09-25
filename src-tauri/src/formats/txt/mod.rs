@@ -649,7 +649,7 @@ impl TxtEngine {
         // 扁平化目录（包含子节点）
         Self::flatten_toc(toc, &mut flat_toc);
 
-        // 预计算 UTF-8 下的字符到字节偏移映射，避免重复遍历
+        // 预计算 UTF-8 下的字符到字节偏移映射（退化兜底用），避免重复遍历
         let is_utf8 = encoding == "UTF-8" || encoding.starts_with("UTF-8");
         let (char_to_byte, total_chars) = if is_utf8 {
             let mut mapping: Vec<u64> = Vec::with_capacity(content.chars().count() + 1);
@@ -664,6 +664,34 @@ impl TxtEngine {
         } else {
             let total_chars = content.chars().count() as u64;
             (None, total_chars)
+        };
+
+        // 章节起始偏移 → 原始文件字节偏移的精确映射（非空行行首）
+        let has_utf8_bom = raw_bytes.starts_with(&[0xEF, 0xBB, 0xBF]);
+        let line_start_bytes = if is_utf8 && !has_utf8_bom {
+            Self::collect_line_start_byte_offsets(content, raw_bytes)
+        } else {
+            None
+        };
+
+        // 字符偏移（规范化文本坐标）→ 原始字节偏移：优先精确行首映射，退化时用兜底换算
+        let resolve_byte_offset = |char_offset: u64| -> u64 {
+            if let Some(ref entries) = line_start_bytes {
+                // entries 按字符偏移升序，可直接二分
+                if let Ok(pos) = entries.binary_search_by_key(&char_offset, |entry| entry.0) {
+                    return entries[pos].1;
+                }
+                // 未命中只可能是被 clamp 到全文末尾的偏移（正文末尾无行首）
+                if char_offset >= total_chars {
+                    return raw_bytes.len() as u64;
+                }
+            }
+            if let Some(ref mapping) = char_to_byte {
+                let idx = char_offset as usize;
+                mapping[idx.min(mapping.len().saturating_sub(1))]
+            } else {
+                Self::char_offset_to_byte_offset(content, raw_bytes, encoding, char_offset as usize)
+            }
         };
 
         println!(
@@ -685,12 +713,7 @@ impl TxtEngine {
             }
 
             // 计算字节偏移量
-            let byte_start = if let Some(ref mapping) = char_to_byte {
-                let idx = char_start as usize;
-                mapping[idx.min(mapping.len().saturating_sub(1))]
-            } else {
-                Self::char_offset_to_byte_offset(content, raw_bytes, encoding, char_start as usize)
-            };
+            let byte_start = resolve_byte_offset(char_start);
 
             // 下一章的起始位置就是当前章的结束位置
             let (char_end, byte_end) = if i + 1 < flat_toc.len() {
@@ -701,12 +724,7 @@ impl TxtEngine {
                 if next_char_start > total_chars {
                     next_char_start = total_chars;
                 }
-                let next_byte_start = if let Some(ref mapping) = char_to_byte {
-                    let idx = next_char_start as usize;
-                    mapping[idx.min(mapping.len().saturating_sub(1))]
-                } else {
-                    Self::char_offset_to_byte_offset(content, raw_bytes, encoding, next_char_start as usize)
-                };
+                let next_byte_start = resolve_byte_offset(next_char_start);
                 (next_char_start, next_byte_start)
             } else {
                 (total_chars, raw_bytes.len() as u64)
@@ -771,6 +789,69 @@ impl TxtEngine {
 
         let mut next_index: u32 = 0;
         walk(toc, &mut next_index)
+    }
+
+    /// 收集「非空行行首」的（规范化字符偏移, 原始文件字节偏移）映射，按字符偏移升序
+    ///
+    /// 直接在原始字节上按行扫描，与 normalize_text 使用同一套行规则（\r\n / \r / \n
+    /// 均视为换行；trim 后为空的行最多保留 2 个换行符），因此每一项的字符偏移就是该行
+    /// 首在规范化文本中的位置。非空行的行首在规范化文本与原始内容中逐字节一致，所以
+    /// 可直接取原始字节偏移，绕开「规范化文本比原始内容短」造成的偏移漂移
+    /// （章节起始必然是某个非空行行首）。
+    ///
+    /// `normalized` 仅用于自校验：只要不满足 UTF-8 或行规则不一致就返回 None，
+    /// 调用方退回原有换算逻辑，避免出错时静默产生错误偏移。
+    fn collect_line_start_byte_offsets(
+        normalized: &str,
+        raw_bytes: &[u8],
+    ) -> Option<Vec<(u64, u64)>> {
+        let mut entries: Vec<(u64, u64)> = Vec::new();
+        let mut normalized_chars: u64 = 0; // 规范化文本已累计的字符数
+        let mut consecutive_empty: u64 = 0;
+        let mut cursor = 0usize;
+
+        while cursor < raw_bytes.len() {
+            // 定位行尾：\r、\n 均为换行符
+            let mut end = cursor;
+            while end < raw_bytes.len() && raw_bytes[end] != b'\n' && raw_bytes[end] != b'\r' {
+                end += 1;
+            }
+            // 行内容必须是合法 UTF-8，否则说明不是纯 UTF-8 文件，放弃精确映射
+            let body = std::str::from_utf8(&raw_bytes[cursor..end]).ok()?;
+
+            if body.trim().is_empty() {
+                // 空行：normalize_text 最多保留 2 个换行，第 3 个及以后直接丢弃
+                consecutive_empty += 1;
+                if consecutive_empty <= 2 {
+                    normalized_chars += 1;
+                }
+            } else {
+                consecutive_empty = 0;
+                entries.push((normalized_chars, cursor as u64));
+                // 行内容字符数 + 行尾换行符（normalize_text 保证每行以 \n 结束）
+                normalized_chars += body.chars().count() as u64 + 1;
+            }
+
+            // 跳过换行符（\r\n 视为一个换行）
+            if end >= raw_bytes.len() {
+                break;
+            }
+            cursor = if raw_bytes[end] == b'\r'
+                && end + 1 < raw_bytes.len()
+                && raw_bytes[end + 1] == b'\n'
+            {
+                end + 2
+            } else {
+                end + 1
+            };
+        }
+
+        // 自校验：行规则必须与 normalize_text 完全一致，否则映射不可信
+        if normalized_chars != normalized.chars().count() as u64 {
+            return None;
+        }
+
+        Some(entries)
     }
 
     /// 将字符偏移量转换为字节偏移量
