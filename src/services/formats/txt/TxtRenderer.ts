@@ -57,6 +57,18 @@ export interface TxtLoadOptions {
 
 export type { TxtChapterWindowOptions } from './hooks';
 
+/** 前插内容前的视口锚点快照（用于前插后原样还原视口内容） */
+type ScrollAnchorSnapshot = {
+  /** 视口顶部所在段落（纵向渲染的段落带 data-char-offset 标注） */
+  el: HTMLElement | null;
+  /** 快照时该段落的 offsetTop */
+  top: number;
+  /** 快照时容器的 scrollHeight（锚点元素不可用时的兜底补偿量） */
+  scrollHeight: number;
+  /** 快照时容器的 overflow-anchor 内联值，用于还原 */
+  overflowAnchor: string;
+};
+
 /**
  * TXT 渲染器实现
  * 支持横向分页和纵向滚动阅读
@@ -997,6 +1009,70 @@ export class TxtRenderer implements IBookRenderer {
   }
 
   /**
+   * 捕获视口顶部锚点（前插章节前调用）
+   * 同时关闭浏览器滚动锚定：前插后的位置统一由 _applyScrollAnchor 修正，
+   * 避免浏览器自身补偿与手动补偿叠加，导致视口下移一章
+   */
+  private _captureScrollAnchor(container: HTMLElement): ScrollAnchorSnapshot {
+    const scrollTop = container.scrollTop;
+    // 取最后一个 offsetTop <= scrollTop 的段落作为锚点（即视口顶部所在段）
+    const els = container.querySelectorAll('[data-char-offset]');
+    let el: HTMLElement | null = null;
+    for (let i = 0; i < els.length; i++) {
+      const cur = els[i] as HTMLElement;
+      if (cur.offsetTop <= scrollTop + 1) el = cur;
+      else break;
+    }
+    const prevOverflowAnchor = container.style.overflowAnchor;
+    container.style.overflowAnchor = 'none';
+    return {
+      el,
+      top: el ? el.offsetTop : 0,
+      scrollHeight: container.scrollHeight,
+      overflowAnchor: prevOverflowAnchor,
+    };
+  }
+
+  /**
+   * 前插内容后按锚点修正 scrollTop（保持视口内容不变）
+   * 以锚点元素前插前后的 offsetTop 差值为补偿量，并绝对赋值 scrollTop：
+   * 不依赖 scrollHeight 变化（浏览器滚动锚定、异步重排都会让它失真）
+   * @param appliedDelta 已累计补偿的量
+   * @returns 本次累计补偿量，供后续帧复核时按增量补齐
+   * 设计为可重复调用：立即修正 + 后续帧复核，且用户在复核期间自行滚动的位移不会被覆盖
+   */
+  private _applyScrollAnchor(
+    container: HTMLElement,
+    anchor: ScrollAnchorSnapshot | null,
+    appliedDelta: number
+  ): number {
+    if (!anchor) return appliedDelta;
+    // 锚点元素仍挂载时用其位移作为补偿量；被重建时回退到高度差值
+    const delta =
+      anchor.el && anchor.el.isConnected
+        ? anchor.el.offsetTop - anchor.top
+        : container.scrollHeight - anchor.scrollHeight;
+    if (!Number.isFinite(delta)) return appliedDelta;
+    // 只补齐与上次补偿的差值，避免重复累加或覆盖用户滚动
+    const diff = delta - appliedDelta;
+    if (diff !== 0) {
+      container.scrollTop = Math.max(0, container.scrollTop + diff);
+    }
+    return delta;
+  }
+
+  /**
+   * 结束前插修正：刷新纵向页映射并还原滚动锚定设置
+   * 还原放在布局读取之后，避免刚恢复锚定就被浏览器重新校正一次
+   */
+  private _finishScrollAnchor(container: HTMLElement, anchor: ScrollAnchorSnapshot | null): void {
+    if (!anchor) return;
+    this._scrollHeight = container.scrollHeight;
+    this.refreshVerticalPageMap(container);
+    container.style.overflowAnchor = anchor.overflowAnchor;
+  }
+
+  /**
    * 向前追加上一章（连续滚动模式）
    * 返回 true 表示成功追加，false 表示无法追加
    */
@@ -1029,8 +1105,10 @@ export class TxtRenderer implements IBookRenderer {
     // 使用轻量估算分页，避免阻塞
     const newPages = this._estimatePages(chapter.content, prevIndex, 0);
 
-    // 记录插入前的滚动高度
-    const prevScrollHeight = this._container.scrollHeight;
+    // 记录插入前的视口锚点（仅纵向需要；前插后据此还原视口内容，避免位置漂移）
+    const scrollAnchor = this._isVerticalMode
+      ? this._captureScrollAnchor(this._container)
+      : null;
 
     const newContentLength = chapter.content.length;
 
@@ -1091,17 +1169,21 @@ export class TxtRenderer implements IBookRenderer {
         el.setAttribute('data-page-index', String(i));
       });
 
-      // 连续两帧确认布局稳定后再修正 scrollTop
+      // 插入后立即按锚点修正 scrollTop：同一任务内完成（读取 offsetTop 会同步触发布局），
+      // 浏览器只会绘制修正后的结果，避免先闪出一帧「上一章内容」再回跳
+      let appliedDelta = this._applyScrollAnchor(this._container, scrollAnchor, 0);
+
+      // 连续两帧复核：布局若仍在收敛，按差值增量补齐
       await new Promise<void>(resolve => {
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
             if (this._container) {
-              const newScrollHeight = this._container.scrollHeight;
-              const scrollDelta = newScrollHeight - prevScrollHeight;
-              this._container.scrollTop += scrollDelta;
-
-              this._scrollHeight = newScrollHeight;
-              this.refreshVerticalPageMap(this._container);
+              appliedDelta = this._applyScrollAnchor(
+                this._container,
+                scrollAnchor,
+                appliedDelta
+              );
+              this._finishScrollAnchor(this._container, scrollAnchor);
             }
             resolve();
           });

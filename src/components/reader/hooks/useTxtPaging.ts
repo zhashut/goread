@@ -289,6 +289,10 @@ export const useTxtPaging = ({
               } catch { }
             }
           }
+
+          // 同步滚动基准：上面的定位是程序化定位，不是用户滚动，
+          // 否则随后的滚动事件会被误判为「向上滚动」而在用户未到顶部时提前前插上一章
+          lastScrollTopRef.current = container!.scrollTop;
         } else {
           if (chapterMode) {
             // 横向章节模式：按章节精确进度定位到章内页，保证与纵向进度一致
@@ -532,7 +536,9 @@ export const useTxtPaging = ({
             }
           }
 
-          const nearTopThreshold = 16;
+          // 提前半屏触发前插（与下方预追加阈值对称）：加载期间用户仍有可滚动余量，
+          // 加载完成时上一章已就位，滑到顶部时不需要再补一次滑动
+          const nearTopThreshold = viewportHeight * 0.5;
           const isNearTop = scrollTop <= nearTopThreshold;
           if (isNearTop && isScrollingUp) {
             const minLoadedIndex = typeof renderer.getMinLoadedChapterIndex === 'function'
@@ -795,6 +801,9 @@ export const useTxtPaging = ({
             await txtRenderer.jumpToCharOffset(
               txtRenderer.getCharOffsetFromProgress(preciseProgress)
             );
+
+            // 同步滚动基准：程序化定位不算用户滚动，避免滚动事件误判方向
+            lastScrollTopRef.current = container.scrollTop;
           } else {
             const total = txtRenderer.getPageCount() || 1;
             let precisePage = preciseProgress;
