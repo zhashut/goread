@@ -6,6 +6,7 @@ import {
 import { EpubRenderer } from "../../../services/formats/epub/EpubRenderer";
 import { MarkdownRenderer } from "../../../services/formats/markdown/MarkdownRenderer";
 import { MobiRenderer } from "../../../services/formats/mobi/MobiRenderer";
+import { TxtRenderer } from "../../../services/formats/txt/TxtRenderer";
 import { useReaderState } from "./useReaderState";
 import { useNavigation } from "./useNavigation";
 import { IBookRenderer } from "../../../services/formats";
@@ -92,6 +93,32 @@ export const useAutoScroll = ({
                             return;
                         }
                         await r.nextPage();
+                        markReadingActive();
+                        return;
+                    }
+
+                    // TXT 横向章节模式：自动翻页与手动翻页语义保持一致，
+                    // 先翻章内页，章末才跨章。若直接走下面的 goToPage(currentPage + 1)，
+                    // 因 currentPage = 章节序号（totalPages = 章节总数），会每 2s 跳过一整章
+                    if (
+                        r &&
+                        r instanceof TxtRenderer &&
+                        r.isChapterMode() &&
+                        !r.isVerticalMode()
+                    ) {
+                        if (r.hasNextPageInChapter()) {
+                            await r.goToNextPageInChapter();
+                            markReadingActive();
+                            return;
+                        }
+                        // 已是最后一章末页：无内容可翻，停止自动翻页
+                        if (currentPage >= totalPages) {
+                            stopAll();
+                            setAutoScroll(false);
+                            return;
+                        }
+                        // 章末：跨到下一章首页
+                        await goToPage(currentPage + 1);
                         markReadingActive();
                         return;
                     }
