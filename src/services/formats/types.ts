@@ -166,6 +166,12 @@ export interface IBookRenderer {
   /** 加载页面为 ImageBitmap（PDF 等位图格式使用） */
   loadPageBitmap?(page: number, width: number, quality?: string, theme?: ReaderTheme): Promise<ImageBitmap>;
 
+  /**
+   * 获取页面原始尺寸（固定布局格式使用，如 PDF）
+   * 用于在页面渲染前以正确的宽高比占位，避免渲染完成后布局突变
+   */
+  getPageSize?(page: number): { width: number; height: number; rotation?: number } | null;
+
   /** 关闭并释放资源 */
   close(): Promise<void>;
 

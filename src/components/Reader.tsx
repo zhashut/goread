@@ -17,6 +17,7 @@ import {
   TOAST_DURATION_ERROR_MS,
 } from "../constants/config";
 import { getSafeAreaInsets } from "../utils/layout";
+import { getPlaceholderCanvasSize } from "../utils/canvasPlaceholder";
 import { useAppNav } from "../router/useAppNav";
 
 
@@ -602,12 +603,17 @@ export const Reader: React.FC = () => {
                       <canvas
                         data-page={p}
                         ref={(el) => {
-                          if (el) {
-                            verticalCanvasRefs.current.set(p, el);
-                            if (el.height === 0) {
-                              el.height = 800;
-                            }
-                          }
+                          if (!el) return;
+                          verticalCanvasRefs.current.set(p, el);
+                          // 仅在占位阶段设置初始尺寸：
+                          // 设置 canvas 的 width/height 属性会清空画面，已渲染的页面不能再动
+                          if (el.dataset.placeholder === "0") return;
+                          el.dataset.placeholder = "0";
+                          const size = getPlaceholderCanvasSize(
+                            rendererRef.current?.getPageSize?.(p)
+                          );
+                          el.width = size.width;
+                          el.height = size.height;
                         }}
                         style={{
                           width: "100%",

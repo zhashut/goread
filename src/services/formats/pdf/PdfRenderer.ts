@@ -298,6 +298,20 @@ export class PdfRenderer implements IBookRenderer {
   }
 
   /**
+   * 获取页面原始尺寸（含旋转信息）
+   * 供阅读器以正确的宽高比占位，避免页面渲染完成后高度突变
+   */
+  getPageSize(page: number): { width: number; height: number; rotation: number } | null {
+    const pages = this._documentInfo?.pages;
+    if (!Array.isArray(pages)) return null;
+    const info = pages[page - 1];
+    const width = Number(info?.width);
+    const height = Number(info?.height);
+    if (!(width > 0) || !(height > 0)) return null;
+    return { width, height, rotation: Number(info?.rotation) || 0 };
+  }
+
+  /**
    * 获取页面内容
    */
   async getPageContent(page: number, options?: RenderOptions): Promise<PageContent> {

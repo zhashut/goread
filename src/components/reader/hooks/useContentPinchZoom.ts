@@ -68,6 +68,12 @@ const readPaintedTransform = (el: HTMLElement) => {
   }
 };
 
+/** 由缩放比例与平移量得到 CSS transform（恒等时返回空字符串以移除内联样式） */
+const toTransformValue = (scale: number, translate: PointerPoint) =>
+  scale === 1 && translate.x === 0 && translate.y === 0
+    ? ""
+    : `translate3d(${translate.x}px, ${translate.y}px, 0) scale(${scale})`;
+
 /**
  * 计算内容元素“未缩放”的布局盒（相对视口左上角）。
  * 关键：内容元素在纵向模式是 flex 居中的滚动内容、横向模式是 flex 居中的 canvas，
@@ -152,6 +158,8 @@ export const useContentPinchZoom = ({
 
   const rafIdRef = useRef<number | null>(null);
   const [styleVersion, setStyleVersion] = useState(0);
+  // 缩放开关作为状态维护：与 transform 同帧更新，保证 overflow / 触摸行为同步生效
+  const [isZoomedState, setIsZoomedState] = useState(false);
 
   // 回调放入 ref，保证外部无需 memo 化也不会读到旧闭包
   const onTransformCommitRef = useRef(onTransformCommit);
@@ -164,6 +172,24 @@ export const useContentPinchZoom = ({
       setStyleVersion((v) => v + 1);
     });
   }, []);
+
+  /**
+   * 同步把当前 transform / touch-action 写到 DOM。
+   * 必须与滚动折叠、滚动还原在同一个任务内完成：若交给 React 下一帧渲染，
+   * 中间那一帧会以“新滚动位置 + 旧 transform”绘制，导致缩放时闪屏。
+   */
+  const applyContentTransform = useCallback(() => {
+    const contentEl = getContentElement();
+    if (!contentEl) return;
+    const s = scaleRef.current;
+    const t = translateRef.current;
+    contentEl.style.transformOrigin = "0 0";
+    contentEl.style.transform = toTransformValue(s, t);
+    contentEl.style.willChange = s === 1 ? "" : "transform";
+    // 同步限制手势，避免浏览器在 React 提交前抢先开始原生滚动
+    contentEl.style.touchAction = s > 1 ? "none" : "pan-y";
+    setIsZoomedState(s > 1);
+  }, [getContentElement]);
 
   // 样式提交后通知外部（此时 DOM 上的 transform 已更新，测量结果才准确）
   useEffect(() => {
@@ -197,13 +223,14 @@ export const useContentPinchZoom = ({
     [getContentElement, viewportRef]
   );
 
-  /** 把当前原生滚动并入平移并立即提交样式（滚动已归零，必须同步补偿，否则会跳变） */
+  /** 把当前原生滚动并入平移并立即写入样式（滚动已归零，必须同步补偿，否则会闪屏） */
   const foldScrollNow = useCallback(() => {
     const folded = foldScrollIntoTranslate(translateRef.current);
     if (folded.x === translateRef.current.x && folded.y === translateRef.current.y) return;
     translateRef.current = folded;
+    applyContentTransform();
     updateStyleRaf();
-  }, [foldScrollIntoTranslate, updateStyleRaf]);
+  }, [applyContentTransform, foldScrollIntoTranslate, updateStyleRaf]);
 
   /** 缩放回到原始比例时，把平移量还原成原生滚动位置（保证阅读位置不跳变、不残留偏移） */
   const restoreScrollFromTranslate = useCallback(
@@ -260,6 +287,8 @@ export const useContentPinchZoom = ({
         }
         scaleRef.current = minScale;
         translateRef.current = { x: 0, y: 0 };
+        // 滚动还原与清除 transform 必须同帧完成，否则会闪一下
+        applyContentTransform();
         updateStyleRaf();
         return;
       }
@@ -267,17 +296,27 @@ export const useContentPinchZoom = ({
       const folded = foldScrollIntoTranslate(nextTranslate);
       scaleRef.current = s;
       translateRef.current = clampTranslate(folded, s);
+      applyContentTransform();
       updateStyleRaf();
     },
-    [clampTranslate, foldScrollIntoTranslate, maxScale, minScale, restoreScrollFromTranslate, updateStyleRaf]
+    [
+      applyContentTransform,
+      clampTranslate,
+      foldScrollIntoTranslate,
+      maxScale,
+      minScale,
+      restoreScrollFromTranslate,
+      updateStyleRaf,
+    ]
   );
 
   /** 内容尺寸变化（例如页面渲染完成）后重新夹取，避免残留越界平移 */
   const reclamp = useCallback(() => {
     if (scaleRef.current <= minScale) return;
     translateRef.current = clampTranslate(translateRef.current, scaleRef.current);
+    applyContentTransform();
     updateStyleRaf();
-  }, [clampTranslate, minScale, updateStyleRaf]);
+  }, [applyContentTransform, clampTranslate, minScale, updateStyleRaf]);
 
   const shouldSuppressClick = useCallback(() => {
     if (isGestureActiveRef.current) return true;
@@ -297,9 +336,11 @@ export const useContentPinchZoom = ({
     isPanActiveRef.current = false;
     isGestureActiveRef.current = false;
     gestureMovedRef.current = false;
+    // 与滚动还原同帧清除 transform
+    applyContentTransform();
     sessionRef.current = null;
     updateStyleRaf();
-  }, [restoreScrollFromTranslate, updateStyleRaf]);
+  }, [applyContentTransform, restoreScrollFromTranslate, updateStyleRaf]);
 
   useEffect(() => {
     if (enabled) return;
@@ -475,25 +516,23 @@ export const useContentPinchZoom = ({
     ]
   );
 
-  const contentStyle = useMemo(() => {
-    void styleVersion;
-    const s = scaleRef.current;
-    const t = translateRef.current;
-    const touchAction = s > 1 ? "none" : "pan-y";
-
-    return {
-      transformOrigin: "0 0",
-      transform: s === 1 && t.x === 0 && t.y === 0 ? "none" : `translate3d(${t.x}px, ${t.y}px, 0) scale(${s})`,
-      willChange: s === 1 ? undefined : ("transform" as const),
-      touchAction,
-    } satisfies React.CSSProperties;
-  }, [styleVersion]);
+  const contentStyle = useMemo(
+    () =>
+      ({
+        transformOrigin: "0 0",
+        // 未缩放时允许浏览器原生纵向滚动（横向模式下的画布也沿用它）
+        touchAction: "pan-y" as const,
+        // 说明：动态 transform / willChange / touch-action 均由 applyContentTransform
+        // 同步写入 DOM。此对象使用固定引用，React 不会在重渲染时覆盖命令式写入的样式。
+      }) as React.CSSProperties,
+    []
+  );
 
   return {
     bind,
     contentStyle,
     scale: scaleRef.current,
-    isZoomed: scaleRef.current > 1,
+    isZoomed: isZoomedState,
     isGestureActive: isGestureActiveRef.current,
     shouldSuppressClick,
     reclamp,
