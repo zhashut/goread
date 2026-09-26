@@ -36,18 +36,27 @@ jobs:
         uses: android-actions/setup-android@v4
 
       - name: Install Android NDK
-        run: sdkmanager --install "ndk;27.0.12077973"
+        run: |
+          sdkmanager --install "ndk;29.0.14206865"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/29.0.14206865" >> $GITHUB_ENV
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android
 
-      - name: Install Tauri CLI
-        run: cargo install tauri-cli
+      - name: Install Tauri CLI (npm)
+        run: echo "Using @tauri-apps/cli from project dependencies"
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Create tauri server addr placeholder
+        run: |
+          IDENTIFIER="com.tauri-app.goread"
+          ADDR_FILE="/tmp/${IDENTIFIER}-server-addr"
+          touch "$ADDR_FILE"
+          echo "Created placeholder addr file at: $ADDR_FILE"
 
       - name: Restore Keystore
         run: |
@@ -58,7 +67,11 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: cargo tauri android build --target aarch64
+          abiList: "arm64-v8a"
+          archList: "arm64"
+          targetList: "aarch64"
+        run: |
+          npm run tauri -- android build --target aarch64
 
       - name: Extract version from tag
         id: version
