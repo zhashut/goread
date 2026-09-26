@@ -94,6 +94,8 @@ export const Reader: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const mainViewRef = useRef<HTMLDivElement>(null);
   const verticalScrollRef = useRef<HTMLDivElement>(null);
+  // PDF 纵向模式下真正被缩放的容器（页面内容包裹层）
+  const zoomContentRef = useRef<HTMLDivElement>(null);
   const verticalCanvasRefs = useRef<Map<number, HTMLCanvasElement>>(new Map());
 
   // 2. 设置与会话 (传递 rendererRef 以支持 EPUB 同步)
@@ -383,8 +385,20 @@ export const Reader: React.FC = () => {
 
   const getZoomContentElement = useCallback(() => {
     if (readingMode === "horizontal") return canvasRef.current;
-    return verticalScrollRef.current;
+    // 纵向模式必须缩放“内容包裹层”：它将内容撑满整篇文档高度，
+    // 若直接缩放滚动列，超出滚动列高度的部分会被裁剪，拖动时只能看到黑屏
+    return zoomContentRef.current;
   }, [readingMode]);
+
+  /**
+   * 缩放平移不会触发原生滚动，IntersectionObserver 也就无法感知进入可视区域的页面，
+   * 因此这里在每次变换提交后手动补齐：
+   * 只补渲染与视口相交且尚未渲染的页面（不渲染视口上方的页面，避免其尺寸变化导致画面跳动）
+   */
+  const renderPendingVisiblePagesRef = useRef<() => void>(() => {});
+  const handleTransformCommit = useCallback(() => {
+    renderPendingVisiblePagesRef.current();
+  }, []);
 
   const zoom = useContentPinchZoom({
     enabled:
@@ -400,7 +414,39 @@ export const Reader: React.FC = () => {
     minScale: 1,
     maxScale: 4,
     tapMoveThresholdPx: 6,
+    onTransformCommit: handleTransformCommit,
   });
+
+  const renderPendingVisiblePages = useCallback(() => {
+    if (!isPdf || readingMode !== "vertical") return;
+    const viewportEl = mainViewRef.current;
+    if (!viewportEl) return;
+
+    const vpRect = viewportEl.getBoundingClientRect();
+    const { renderedPagesRef, renderQueueRef, renderPageToTarget } = pageRenderer;
+    const pending: Promise<void>[] = [];
+
+    verticalCanvasRefs.current.forEach((canvasEl, pageNum) => {
+      if (!canvasEl) return;
+      if (renderedPagesRef.current.has(pageNum)) return;
+      if (renderQueueRef.current.has(pageNum)) return;
+
+      const rect = canvasEl.getBoundingClientRect();
+      // 完全位于视口上方的页面暂不渲染：渲染会改变其高度，导致当前画面位置跳动
+      if (rect.bottom <= vpRect.top) return;
+      if (rect.top >= vpRect.bottom) return;
+
+      pending.push(renderPageToTarget(pageNum, canvasEl));
+    });
+
+    if (pending.length > 0) {
+      // 页面渲染完成后高度会变化，需要重新夹取平移量，避免底部露出背景
+      Promise.all(pending).then(() => zoom.reclamp()).catch(() => {});
+    }
+  }, [isPdf, pageRenderer, readingMode, zoom.reclamp]);
+
+  // 通过 ref 转发，避免 zoom 与回调之间的循环依赖
+  renderPendingVisiblePagesRef.current = renderPendingVisiblePages;
 
   useEffect(() => {
     if (tocOverlayOpen || modeOverlayOpen || moreDrawerOpen || capture.cropMode) {
@@ -533,45 +579,49 @@ export const Reader: React.FC = () => {
                 width: "100%",
                 maxHeight: "100%",
                 overflowY: isPdf && zoom.isZoomed ? "hidden" : "auto",
-                ...(isPdf ? zoom.contentStyle : {}),
+                // 缩放时禁用原生滚动，统一由 transform 平移处理
+                touchAction: isPdf ? (zoom.isZoomed ? "none" : "pan-y") : undefined,
               }}
               className="no-scrollbar"
               ref={verticalScrollRef}
             >
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => {
-                const pageGap = settingsWithTheme.pageGap ?? 4;
-                const dividerBandHeight = pageGap * 2 + 1;
-                return (
-                  <React.Fragment key={`${bookId}-${p}`}>
-                    {p > 1 && (
-                      <PageDivider
-                        height={dividerBandHeight}
-                        color={effectiveTheme === "dark" ? "#ffffff" : "#000000"}
-                        hidden={hideDivider}
-                      />
-                    )}
-                    <canvas
-                      data-page={p}
-                      ref={(el) => {
-                        if (el) {
-                          verticalCanvasRefs.current.set(p, el);
-                          if (el.height === 0) {
-                            el.height = 800;
+              {/* 缩放作用在内容包裹层上，保证拖动时展示的是真实内容而不是被裁剪的滚动列 */}
+              <div ref={zoomContentRef} style={isPdf ? zoom.contentStyle : undefined}>
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => {
+                  const pageGap = settingsWithTheme.pageGap ?? 4;
+                  const dividerBandHeight = pageGap * 2 + 1;
+                  return (
+                    <React.Fragment key={`${bookId}-${p}`}>
+                      {p > 1 && (
+                        <PageDivider
+                          height={dividerBandHeight}
+                          color={effectiveTheme === "dark" ? "#ffffff" : "#000000"}
+                          hidden={hideDivider}
+                        />
+                      )}
+                      <canvas
+                        data-page={p}
+                        ref={(el) => {
+                          if (el) {
+                            verticalCanvasRefs.current.set(p, el);
+                            if (el.height === 0) {
+                              el.height = 800;
+                            }
                           }
-                        }
-                      }}
-                      style={{
-                        width: "100%",
-                        minHeight: "600px",
-                        display: "block",
-                        margin: "0 auto",
-                        boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
-                        backgroundColor: effectiveTheme === 'dark' ? "#000000" : "#2a2a2a",
-                      }}
-                    />
-                  </React.Fragment>
-                );
-              })}
+                        }}
+                        style={{
+                          width: "100%",
+                          minHeight: "600px",
+                          display: "block",
+                          margin: "0 auto",
+                          boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+                          backgroundColor: effectiveTheme === 'dark' ? "#000000" : "#2a2a2a",
+                        }}
+                      />
+                    </React.Fragment>
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>

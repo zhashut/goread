@@ -7,11 +7,29 @@ type UseContentPinchZoomOptions = {
   minScale?: number;
   maxScale?: number;
   tapMoveThresholdPx?: number;
+  /**
+   * 变换提交后的回调（每次 transform 生效后触发一次）。
+   * 缩放平移不会触发原生滚动，因此调用方可借此补充渲染进入可视区域的页面。
+   */
+  onTransformCommit?: () => void;
 };
 
 type PointerPoint = { x: number; y: number };
 
+type LayoutBox = {
+  /** 未缩放布局盒相对视口左上角的偏移（已剔除当前 transform 的影响） */
+  left: number;
+  top: number;
+  /** 未缩放布局尺寸 */
+  width: number;
+  height: number;
+};
+
 const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
+
+/** 夹取区间；当 min > max（内容小于视口）时取区间中点，即“居中且不可平移” */
+const clampRange = (value: number, min: number, max: number) =>
+  min > max ? (min + max) / 2 : clamp(value, min, max);
 
 const distance = (a: PointerPoint, b: PointerPoint) => {
   const dx = a.x - b.x;
@@ -24,12 +42,6 @@ const midpoint = (a: PointerPoint, b: PointerPoint): PointerPoint => ({
   y: (a.y + b.y) / 2,
 });
 
-const getElementContentSize = (el: HTMLElement) => {
-  const baseWidth = Math.max(el.scrollWidth || 0, el.offsetWidth || 0, el.clientWidth || 0);
-  const baseHeight = Math.max(el.scrollHeight || 0, el.offsetHeight || 0, el.clientHeight || 0);
-  return { width: baseWidth, height: baseHeight };
-};
-
 const getViewportSize = (viewportEl: HTMLElement) => ({
   width: viewportEl.clientWidth || 0,
   height: viewportEl.clientHeight || 0,
@@ -40,10 +52,59 @@ const getRelativePoint = (viewportEl: HTMLElement, clientX: number, clientY: num
   return { x: clientX - rect.left, y: clientY - rect.top };
 };
 
-const isElementScrollable = (el: HTMLElement) => {
-  const vScrollable = (el.scrollHeight || 0) > (el.clientHeight || 0) + 1;
-  const hScrollable = (el.scrollWidth || 0) > (el.clientWidth || 0) + 1;
-  return vScrollable || hScrollable;
+/**
+ * 读取元素当前实际绘制的 transform。
+ * 直接读取计算样式而不是内部 ref，避免 React 尚未提交样式时测量到旧值。
+ */
+const readPaintedTransform = (el: HTMLElement) => {
+  const value = window.getComputedStyle(el).transform;
+  if (!value || value === "none") return { scale: 1, x: 0, y: 0 };
+  try {
+    const m = new DOMMatrixReadOnly(value);
+    const scale = Math.hypot(m.a, m.b) || 1;
+    return { scale, x: m.e, y: m.f };
+  } catch {
+    return { scale: 1, x: 0, y: 0 };
+  }
+};
+
+/**
+ * 计算内容元素“未缩放”的布局盒（相对视口左上角）。
+ * 关键：内容元素在纵向模式是 flex 居中的滚动内容、横向模式是 flex 居中的 canvas，
+ * 其布局原点并不在视口左上角。平移的可行区间必须基于真实布局盒计算，
+ * 否则会出现“内容被拖出视口露出背景”以及“无法上下平移”的问题。
+ */
+const getLayoutBox = (viewportEl: HTMLElement, contentEl: HTMLElement): LayoutBox | null => {
+  const vpRect = viewportEl.getBoundingClientRect();
+  const elRect = contentEl.getBoundingClientRect();
+  const painted = readPaintedTransform(contentEl);
+
+  const width = elRect.width / painted.scale;
+  const height = elRect.height / painted.scale;
+  if (!(width > 0) || !(height > 0)) return null;
+
+  return {
+    left: elRect.left - vpRect.left - painted.x,
+    top: elRect.top - vpRect.top - painted.y,
+    width,
+    height,
+  };
+};
+
+/**
+ * 找到承载内容元素的实际滚动容器（由内向外最近的、可滚动的祖先）。
+ * 纵向模式为滚动列，横向模式为视口自身。
+ */
+const findScrollContainer = (viewportEl: HTMLElement, contentEl: HTMLElement): HTMLElement => {
+  let el: HTMLElement | null = contentEl.parentElement;
+  while (el) {
+    const hasOverflow =
+      el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1;
+    if (hasOverflow || el.scrollTop !== 0 || el.scrollLeft !== 0) return el;
+    if (el === viewportEl) break;
+    el = el.parentElement;
+  }
+  return viewportEl;
 };
 
 export const useContentPinchZoom = ({
@@ -53,6 +114,7 @@ export const useContentPinchZoom = ({
   minScale = 1,
   maxScale = 4,
   tapMoveThresholdPx = 6,
+  onTransformCommit,
 }: UseContentPinchZoomOptions) => {
   const pointersRef = useRef(new Map<number, PointerPoint>());
 
@@ -63,13 +125,22 @@ export const useContentPinchZoom = ({
   const isPanActiveRef = useRef(false);
   const gestureMovedRef = useRef(false);
   const lastGestureEndAtRef = useRef(0);
-  const hasTransferredScrollRef = useRef(false);
+
+  // 本次缩放会话锁定的内容元素与滚动容器（换模式/换书后可安全还原滚动位置）
+  const sessionRef = useRef<{
+    contentEl: HTMLElement;
+    scroller: HTMLElement;
+  } | null>(null);
 
   const pinchStartRef = useRef<{
     scale: number;
     dist: number;
     mid: PointerPoint;
+    /** 捏合中心点对应的内容坐标（未缩放内容坐标系） */
     contentMid: PointerPoint;
+    /** 内容元素未缩放布局盒相对视口的偏移（视口坐标系） */
+    boxLeft: number;
+    boxTop: number;
   } | null>(null);
 
   const panStartRef = useRef<{
@@ -82,6 +153,10 @@ export const useContentPinchZoom = ({
   const rafIdRef = useRef<number | null>(null);
   const [styleVersion, setStyleVersion] = useState(0);
 
+  // 回调放入 ref，保证外部无需 memo 化也不会读到旧闭包
+  const onTransformCommitRef = useRef(onTransformCommit);
+  onTransformCommitRef.current = onTransformCommit;
+
   const updateStyleRaf = useCallback(() => {
     if (rafIdRef.current != null) return;
     rafIdRef.current = window.requestAnimationFrame(() => {
@@ -90,68 +165,119 @@ export const useContentPinchZoom = ({
     });
   }, []);
 
+  // 样式提交后通知外部（此时 DOM 上的 transform 已更新，测量结果才准确）
+  useEffect(() => {
+    onTransformCommitRef.current?.();
+  }, [styleVersion]);
+
+  /** 缩放期间统一由 transform 表达位置：把原生滚动偏移并入平移，并把滚动归零 */
+  const foldScrollIntoTranslate = useCallback(
+    (next: PointerPoint) => {
+      const viewportEl = viewportRef.current;
+      const contentEl = getContentElement();
+      if (!viewportEl || !contentEl) return next;
+
+      const cached = sessionRef.current;
+      const scroller =
+        cached && cached.contentEl === contentEl && cached.scroller.isConnected
+          ? cached.scroller
+          : findScrollContainer(viewportEl, contentEl);
+      const scrollTop = scroller.scrollTop || 0;
+      const scrollLeft = scroller.scrollLeft || 0;
+      if (scrollTop === 0 && scrollLeft === 0) {
+        sessionRef.current = { contentEl, scroller };
+        return next;
+      }
+
+      scroller.scrollTop = 0;
+      scroller.scrollLeft = 0;
+      sessionRef.current = { contentEl, scroller };
+      return { x: next.x - scrollLeft, y: next.y - scrollTop };
+    },
+    [getContentElement, viewportRef]
+  );
+
+  /** 把当前原生滚动并入平移并立即提交样式（滚动已归零，必须同步补偿，否则会跳变） */
+  const foldScrollNow = useCallback(() => {
+    const folded = foldScrollIntoTranslate(translateRef.current);
+    if (folded.x === translateRef.current.x && folded.y === translateRef.current.y) return;
+    translateRef.current = folded;
+    updateStyleRaf();
+  }, [foldScrollIntoTranslate, updateStyleRaf]);
+
+  /** 缩放回到原始比例时，把平移量还原成原生滚动位置（保证阅读位置不跳变、不残留偏移） */
+  const restoreScrollFromTranslate = useCallback(
+    (translate: PointerPoint, scale: number) => {
+      const session = sessionRef.current;
+      if (!session) return;
+      const { scroller, contentEl } = session;
+      if (!scroller.isConnected || !contentEl.isConnected) return;
+      // 内容元素已不再处于缩放状态（例如切换了阅读模式）时无需还原
+      const painted = readPaintedTransform(contentEl);
+      if (painted.scale === 1 && painted.x === 0 && painted.y === 0 && translate.x === 0 && translate.y === 0) {
+        return;
+      }
+
+      const s = Math.max(1, scale);
+      // 缩放期间滚动容器被 transform 撑大，需按比例换回未缩放的滚动范围
+      const maxTop = Math.max(0, (scroller.scrollHeight || 0) / s - (scroller.clientHeight || 0));
+      const maxLeft = Math.max(0, (scroller.scrollWidth || 0) / s - (scroller.clientWidth || 0));
+      scroller.scrollTop = clamp(-translate.y / s, 0, maxTop);
+      scroller.scrollLeft = clamp(-translate.x / s, 0, maxLeft);
+    },
+    []
+  );
+
   const clampTranslate = useCallback(
-    (next: { x: number; y: number }, nextScale: number) => {
+    (next: PointerPoint, nextScale: number) => {
       const viewportEl = viewportRef.current;
       const contentEl = getContentElement();
       if (!viewportEl || !contentEl) return next;
 
       const { width: vw, height: vh } = getViewportSize(viewportEl);
-      const { width: cw, height: ch } = getElementContentSize(contentEl);
+      if (vw <= 0 || vh <= 0) return next;
 
-      if (vw <= 0 || vh <= 0 || cw <= 0 || ch <= 0) return next;
+      const box = getLayoutBox(viewportEl, contentEl);
+      if (!box) return next;
 
-      const scaledW = cw * nextScale;
-      const scaledH = ch * nextScale;
-
-      const minX = Math.min(0, vw - scaledW);
-      const minY = Math.min(0, vh - scaledH);
-
+      // 约束：内容必须始终覆盖视口，避免拖动后露出阅读器背景（黑屏）
       return {
-        x: clamp(next.x, minX, 0),
-        y: clamp(next.y, minY, 0),
+        x: clampRange(next.x, vw - box.left - box.width * nextScale, -box.left),
+        y: clampRange(next.y, vh - box.top - box.height * nextScale, -box.top),
       };
     },
     [getContentElement, viewportRef]
   );
 
-  const transferScrollToTranslateIfNeeded = useCallback(
-    (nextScale: number) => {
-      const contentEl = getContentElement();
-      if (!contentEl) return;
-      if (hasTransferredScrollRef.current) return;
-      if (nextScale <= 1) return;
-      if (isElementScrollable(contentEl)) return;
+  const commitTransform = useCallback(
+    (nextScale: number, nextTranslate: PointerPoint) => {
+      const s = clamp(nextScale, minScale, maxScale);
 
-      const scrollTop = contentEl.scrollTop || 0;
-      const scrollLeft = contentEl.scrollLeft || 0;
-      if (scrollTop === 0 && scrollLeft === 0) {
-        hasTransferredScrollRef.current = true;
+      if (s <= minScale) {
+        // 仅在“从放大状态缩回”的那一次把位置交还给原生滚动，避免重复覆盖已还原的滚动位置
+        if (scaleRef.current > minScale) {
+          restoreScrollFromTranslate(translateRef.current, scaleRef.current);
+        }
+        scaleRef.current = minScale;
+        translateRef.current = { x: 0, y: 0 };
+        updateStyleRaf();
         return;
       }
 
-      contentEl.scrollTop = 0;
-      contentEl.scrollLeft = 0;
-      translateRef.current = clampTranslate(
-        { x: translateRef.current.x - scrollLeft, y: translateRef.current.y - scrollTop },
-        nextScale
-      );
-      hasTransferredScrollRef.current = true;
+      const folded = foldScrollIntoTranslate(nextTranslate);
+      scaleRef.current = s;
+      translateRef.current = clampTranslate(folded, s);
       updateStyleRaf();
     },
-    [clampTranslate, getContentElement, updateStyleRaf]
+    [clampTranslate, foldScrollIntoTranslate, maxScale, minScale, restoreScrollFromTranslate, updateStyleRaf]
   );
 
-  const commitTransform = useCallback(
-    (nextScale: number, nextTranslate: { x: number; y: number }) => {
-      const s = clamp(nextScale, minScale, maxScale);
-      scaleRef.current = s;
-      transferScrollToTranslateIfNeeded(s);
-      translateRef.current = clampTranslate(nextTranslate, s);
-      updateStyleRaf();
-    },
-    [clampTranslate, maxScale, minScale, transferScrollToTranslateIfNeeded, updateStyleRaf]
-  );
+  /** 内容尺寸变化（例如页面渲染完成）后重新夹取，避免残留越界平移 */
+  const reclamp = useCallback(() => {
+    if (scaleRef.current <= minScale) return;
+    translateRef.current = clampTranslate(translateRef.current, scaleRef.current);
+    updateStyleRaf();
+  }, [clampTranslate, minScale, updateStyleRaf]);
 
   const shouldSuppressClick = useCallback(() => {
     if (isGestureActiveRef.current) return true;
@@ -161,16 +287,7 @@ export const useContentPinchZoom = ({
   }, []);
 
   const reset = useCallback(() => {
-    const contentEl = getContentElement();
-    const s = scaleRef.current;
-    const t = translateRef.current;
-
-    if (contentEl && hasTransferredScrollRef.current) {
-      const maxScrollTop = Math.max(0, (contentEl.scrollHeight || 0) - (contentEl.clientHeight || 0));
-      const maxScrollLeft = Math.max(0, (contentEl.scrollWidth || 0) - (contentEl.clientWidth || 0));
-      contentEl.scrollTop = clamp(-t.y / Math.max(1, s), 0, maxScrollTop);
-      contentEl.scrollLeft = clamp(-t.x / Math.max(1, s), 0, maxScrollLeft);
-    }
+    restoreScrollFromTranslate(translateRef.current, scaleRef.current);
 
     scaleRef.current = 1;
     translateRef.current = { x: 0, y: 0 };
@@ -180,9 +297,9 @@ export const useContentPinchZoom = ({
     isPanActiveRef.current = false;
     isGestureActiveRef.current = false;
     gestureMovedRef.current = false;
-    hasTransferredScrollRef.current = false;
+    sessionRef.current = null;
     updateStyleRaf();
-  }, [getContentElement, updateStyleRaf]);
+  }, [restoreScrollFromTranslate, updateStyleRaf]);
 
   useEffect(() => {
     if (enabled) return;
@@ -213,15 +330,25 @@ export const useContentPinchZoom = ({
           const pts = Array.from(pointersRef.current.values());
           const mid = midpoint(pts[0], pts[1]);
           const s = scaleRef.current;
+          // 先把原生滚动并入平移，保证捏合锚点在后续计算中保持一致
+          foldScrollNow();
           const t = translateRef.current;
-          const contentMid = { x: (mid.x - t.x) / s, y: (mid.y - t.y) / s };
-          pinchStartRef.current = { scale: s, dist: distance(pts[0], pts[1]), mid, contentMid };
+          const contentEl = getContentElement();
+          const box = contentEl && viewportEl ? getLayoutBox(viewportEl, contentEl) : null;
+          const boxLeft = box?.left ?? 0;
+          const boxTop = box?.top ?? 0;
+          const contentMid = {
+            x: (mid.x - boxLeft - t.x) / s,
+            y: (mid.y - boxTop - t.y) / s,
+          };
+          pinchStartRef.current = { scale: s, dist: distance(pts[0], pts[1]), mid, contentMid, boxLeft, boxTop };
           isGestureActiveRef.current = true;
           isPanActiveRef.current = false;
           panStartRef.current = null;
           gestureMovedRef.current = false;
           lastGestureEndAtRef.current = 0;
         } else if (pointersRef.current.size === 1 && scaleRef.current > 1) {
+          foldScrollNow();
           isGestureActiveRef.current = true;
           isPanActiveRef.current = true;
           gestureMovedRef.current = false;
@@ -264,9 +391,10 @@ export const useContentPinchZoom = ({
 
           const nextScaleRaw = (start.scale * distNow) / Math.max(1, start.dist);
           const nextScale = clamp(nextScaleRaw, minScale, maxScale);
+          // 保持捏合中心点下的内容不动（需考虑内容元素的布局偏移）
           const nextTranslate = {
-            x: mid.x - start.contentMid.x * nextScale,
-            y: mid.y - start.contentMid.y * nextScale,
+            x: mid.x - start.boxLeft - start.contentMid.x * nextScale,
+            y: mid.y - start.boxTop - start.contentMid.y * nextScale,
           };
 
           isGestureActiveRef.current = true;
@@ -338,6 +466,8 @@ export const useContentPinchZoom = ({
     [
       commitTransform,
       enabled,
+      foldScrollNow,
+      getContentElement,
       maxScale,
       minScale,
       tapMoveThresholdPx,
@@ -366,6 +496,7 @@ export const useContentPinchZoom = ({
     isZoomed: scaleRef.current > 1,
     isGestureActive: isGestureActiveRef.current,
     shouldSuppressClick,
+    reclamp,
     reset,
   };
 };
