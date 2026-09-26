@@ -16,7 +16,7 @@ import {
   RendererCapabilities,
 } from '../types';
 import { registerRenderer } from '../registry';
-import { logError } from '../../index';
+import { log, logError } from '../../index';
 import type {
   TTSContentProvider,
   TTSReadingPosition,
@@ -28,6 +28,7 @@ import {
   TXT_CHAPTER_OFFSET_MAX,
   TXT_SCROLL_EDGE_TOLERANCE_PX,
   TXT_INIT_APPEND_MAX_CHAPTERS,
+  TXT_VERTICAL_PAGE_OVERLAP_PX,
 } from './constants';
 import {
   useTxtRendererCore,
@@ -116,6 +117,10 @@ export class TxtRenderer implements IBookRenderer {
   private _currentHideDivider: boolean = false;
   private _verticalPageTops: number[] = [];
   private _verticalPageHeights: number[] = [];
+  // 纵向按键翻屏进行中标记（防止连发按键并发加载相邻章节）
+  private _verticalPageScrolling: boolean = false;
+  /** 在途的补算分页 Promise（章内翻页前分页为空时使用，避免并发重复分页） */
+  private _paginationInFlight: Promise<void> | null = null;
   // 记录当前 content 中包含哪些章节
   private _loadedChapters = new Set<number>();
   // 各已加载章节在拼接后 _content 中的起始偏移
@@ -479,33 +484,221 @@ export class TxtRenderer implements IBookRenderer {
   /** 当前章内是否还有下一页（横向章节模式） */
   hasNextPageInChapter(): boolean {
     if (this._useChapterMode && !this._isVerticalMode) {
-      return this._currentPage < this._pages.length;
+      // 分页未就绪（刚跳章/重排中）时无法判定章末：保守地认为章内还有下一页，
+      // 否则调用方会误判为章末而直接跨整章（音量键/自动翻页会表现为「跳章」）
+      if (this._pages.length === 0) return true;
+      // 页号越界说明记录已过期（重新分页/切章竞争）：同样保守处理，
+      // 由 goToNextPageInChapter 先校正页号再判定
+      if (this._isCurrentPageStale()) return true;
+      // _currentPage 是 1-based 页号，_pages[_currentPage] 即下一页；
+      // 必须校验该页属于当前章：从纵向连续滚动切到横向时 _pages 可能仍是
+      // 多章拼接窗口，只看页数会把下一章的首屏当成「本章下一页」而误翻
+      return this._isPageInCurrentChapter(this._currentPage);
     }
     return false;
   }
 
-  /** 翻到章内下一页（横向章节模式）；章末返回 false */
-  async goToNextPageInChapter(): Promise<boolean> {
-    if (!this._useChapterMode || this._isVerticalMode) return false;
-    if (this._currentPage >= this._pages.length) return false;
-    await this.goToPage(this._currentPage + 1);
-    return true;
+  /**
+   * 翻到章内下一页（横向章节模式）；章末返回 false
+   * 返回 false 时调用方才会跨章，保持「先章内、后跨章」的语义
+   */
+  goToNextPageInChapter(): Promise<boolean> {
+    return this._turnChapterPage(1);
   }
 
   /** 当前章内是否还有上一页（横向章节模式） */
   hasPrevPageInChapter(): boolean {
     if (this._useChapterMode && !this._isVerticalMode) {
-      return this._currentPage > 1;
+      // 同 hasNextPageInChapter：分页未就绪/页号越界时保守认为章内还有上一页，
+      // 避免调用方直接跳到上一章末页
+      if (this._pages.length === 0) return true;
+      if (this._isCurrentPageStale()) return true;
+      // 1-based 页号，上一页为 _currentPage - 2；同样需校验其属于当前章
+      return this._currentPage > 1 && this._isPageInCurrentChapter(this._currentPage - 2);
     }
     return false;
   }
 
-  /** 翻到章内上一页（横向章节模式）；章首返回 false */
-  async goToPrevPageInChapter(): Promise<boolean> {
+  /**
+   * 翻到章内上一页（横向章节模式）；章首返回 false
+   * 返回 false 时调用方才会跨到上一章末页
+   */
+  goToPrevPageInChapter(): Promise<boolean> {
+    return this._turnChapterPage(-1);
+  }
+
+  /**
+   * 章内翻页统一实现（横向章节模式，音量键/自动翻页共用）
+   *
+   * 契约：返回 true 表示本次按键已在章内消化（翻页或校正显示）；
+   * 返回 false 才是真正的章首/章末，调用方可以跨章。
+   * 这样调用方无需先看 hasNextPageInChapter 再调用，避免两者判定不一致
+   * 而把「章内翻页」误降级为「整章跳转」。
+   *
+   * @param direction 1 下一页，-1 上一页
+   */
+  private async _turnChapterPage(direction: 1 | -1): Promise<boolean> {
     if (!this._useChapterMode || this._isVerticalMode) return false;
-    if (this._currentPage <= 1) return false;
-    await this.goToPage(this._currentPage - 1);
+    const hadPages = this._pages.length > 0;
+    const wasStale = this._isCurrentPageStale();
+    if (!(await this._ensurePagesForChapterTurn())) return false;
+    if (!hadPages || wasStale) {
+      // 分页刚补算 / 页号刚被修复：先把当前页渲染出来（可能尚未显示），
+      // 本次不前进，避免残留页号导致跳过用户还没看到的页
+      await this.goToPage(this._currentPage);
+      return true;
+    }
+    const targetPage = this._currentPage + direction;
+    // targetPage 为 1-based 页号，_pages[targetPage - 1] 即目标页；
+    // 目标页不属于当前章即已到章首/章末
+    if (!this._isPageInCurrentChapter(targetPage - 1)) {
+      // 章首/章末：调用方将跨章。记录上下文，便于在设备日志中核查
+      // 「横向音量键翻页变跨章」类问题（正常阅读只在章节边界出现）
+      log("[TxtRenderer] 章内翻页到边界，交由调用方跨章", "info", {
+        direction,
+        currentPage: this._currentPage,
+        pages: this._pages.length,
+        currentChapterIndex: this._currentChapterIndex,
+        targetChapterIndex: this._pages[targetPage - 1]?.chapterIndex ?? null,
+        verticalMode: this._isVerticalMode,
+        loadedChapters: Array.from(this._loadedChapters),
+      }).catch(() => { });
+      return false;
+    }
+    await this.goToPage(targetPage);
     return true;
+  }
+
+  /** _pages 中第 index（0-based）页是否属于当前章节 */
+  private _isPageInCurrentChapter(index: number): boolean {
+    const page = this._pages[index];
+    if (!page) return false;
+    // 估算页/旧数据缺少 chapterIndex 时退回窗口整体判断（单章窗口下两者等价）
+    return (page.chapterIndex ?? this._currentChapterIndex) === this._currentChapterIndex;
+  }
+
+  /** 页号是否已与当前分页不匹配（重新分页/切章后可能残留越界值） */
+  private _isCurrentPageStale(): boolean {
+    return this._currentPage < 1 || this._currentPage > this._pages.length;
+  }
+
+  /**
+   * 章内翻页前确保分页可用，并把页号校正到当前进度
+   *
+   * _pages 为空（参数变更/模式切换后尚未重排）时既无法判定章末、也不能翻页：
+   * 此处补算一次分页，并按章节精确进度重新解析 _currentPage（此前可能是上一章/旧分页残留值）。
+   *
+   * @returns 分页是否可用（false 时调用方不翻页，交由常规渲染路径完成后重试）
+   */
+  private async _ensurePagesForChapterTurn(): Promise<boolean> {
+    if (this._pages.length === 0) {
+      if (!this._isReady || !this._container) return false;
+      try {
+        // 在途 Promise 复用：避免与常规渲染链路并发重复分页
+        if (!this._paginationInFlight) {
+          this._paginationInFlight = this._calculatePages(
+            this._container,
+            this._lastRenderOptions ?? {}
+          ).finally(() => {
+            this._paginationInFlight = null;
+          });
+        }
+        await this._paginationInFlight;
+      } catch (e) {
+        logError("[TxtRenderer] 章内翻页补算分页失败", { error: String(e) }).catch(() => { });
+      }
+      if (this._pages.length === 0) return false;
+      // 分页是刚算出来的：按章节精确进度重新解析当前页（忽略此前可能残留的页号）
+      this._currentPage = this.getChapterPageFromPrecise(this._bookPreciseProgress);
+      return true;
+    }
+    if (this._isCurrentPageStale()) {
+      this._currentPage = this.getChapterPageFromPrecise(this._bookPreciseProgress);
+    }
+    return true;
+  }
+
+  /** 章内相对内容偏移 → 已加载窗口偏移（_pages 的偏移基准） */
+  private _chapterOffsetToWindowOffset(chapterIndex: number, chapterRelative: number): number {
+    return (this._chapterContentOffsets.get(chapterIndex) ?? 0) + chapterRelative;
+  }
+
+  /** 已加载窗口偏移 → 章内相对内容偏移（_pages 的偏移基准 → 章节基准） */
+  private _windowOffsetToChapterOffset(chapterIndex: number, windowOffset: number): number {
+    return windowOffset - (this._chapterContentOffsets.get(chapterIndex) ?? 0);
+  }
+
+  /**
+   * 纵向模式按视口翻一屏（音量键/按键翻屏复用）
+   *
+   * 背景：纵向章节模式下 React 的 currentPage 是「章节序号」，若沿用
+   * goToPage(currentPage ± 1) 会整章跨越、跳过本章剩余正文（音量键翻页即走该路径）。
+   * 这里改为滚动一屏，页码与进度由 useTxtPaging 的滚动监听统一回写，
+   * 与用户手动滑动完全一致。
+   *
+   * @param direction 1 向下翻屏，-1 向上翻屏
+   * @returns 是否发生实际滚动（已到全书首/尾时为 false）
+   */
+  async scrollVerticalPage(direction: 1 | -1): Promise<boolean> {
+    // 仅纵向模式使用；横向由章内分页逻辑负责
+    if (!this._isVerticalMode) return false;
+    // 按键连发防抖：上一屏（含相邻章节加载）未完成时忽略本次，
+    // 避免并发追加同一章节造成内容重复拼接
+    if (this._verticalPageScrolling) return false;
+
+    this._verticalPageScrolling = true;
+    try {
+      const container = this._container;
+      if (!container) return false;
+      const viewportHeight = container.clientHeight;
+      if (viewportHeight <= 0) return false;
+
+      // 预留重叠高度：跨屏处保留上一屏末尾内容，避免整行被跳过
+      const step = Math.max(1, viewportHeight - TXT_VERTICAL_PAGE_OVERLAP_PX);
+
+      // 剩余可滚不足一屏时先补加载相邻章节：
+      // 章节拼接窗口边界处没有余量，不补加载按键会翻不动
+      if (this._availableScrollRoom(container, direction) < step) {
+        await this._loadAdjacentChapterForScroll(direction);
+      }
+
+      const maxScrollTop = Math.max(0, container.scrollHeight - viewportHeight);
+      const target = Math.min(
+        maxScrollTop,
+        Math.max(0, container.scrollTop + direction * step)
+      );
+      if (target === container.scrollTop) return false;
+
+      container.scrollTop = target;
+      return true;
+    } finally {
+      this._verticalPageScrolling = false;
+    }
+  }
+
+  /** 纵向容器在指定方向上剩余的可滚动距离（像素） */
+  private _availableScrollRoom(container: HTMLElement, direction: 1 | -1): number {
+    if (direction > 0) {
+      const maxScrollTop = Math.max(
+        0,
+        container.scrollHeight - container.clientHeight
+      );
+      return maxScrollTop - container.scrollTop;
+    }
+    return container.scrollTop;
+  }
+
+  /** 纵向翻屏贴边时补加载相邻章节（向下追加 / 向上前插） */
+  private async _loadAdjacentChapterForScroll(
+    direction: 1 | -1
+  ): Promise<boolean> {
+    try {
+      return direction > 0
+        ? await this.appendNextChapter()
+        : await this.prependPrevChapter();
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -601,7 +794,12 @@ export class TxtRenderer implements IBookRenderer {
     const page = this._pages[pageIndex];
     if (!page) return null;
     const chapter = this._bookMeta?.chapters[this._currentChapterIndex];
-    return chapter ? chapter.char_start + page.startOffset : page.startOffset;
+    // _pages 偏移相对已加载窗口：换算成章内相对偏移后再叠加章节全周起点
+    const pageStart = this._windowOffsetToChapterOffset(
+      this._currentChapterIndex,
+      page.startOffset
+    );
+    return chapter ? chapter.char_start + Math.max(0, pageStart) : page.startOffset;
   }
 
   /**
@@ -699,8 +897,14 @@ export class TxtRenderer implements IBookRenderer {
     // 二分找包含 relOffset 的页；章末边界（offset=0.9999 换算的字符偏移可能落在
     // 最后一行换行符/行尾之后）不命中时兜底为最后一页，避免误跳第一页
     let pageIndex = this._pages.length - 1;
+    // _pages 的 start/endOffset 相对已加载窗口（纵向连续滚动曾拼接多章），
+    // 先换算成窗口偏移再比较，否则会拿章内偏移去比窗口偏移而定位到错误的页
+    const windowOffset = this._chapterOffsetToWindowOffset(
+      this._currentChapterIndex,
+      relOffset
+    );
     for (let i = 0; i < this._pages.length; i++) {
-      if (relOffset < (this._pages[i]!.endOffset ?? 0)) {
+      if (windowOffset < (this._pages[i]!.endOffset ?? 0)) {
         pageIndex = i;
         break;
       }
@@ -742,8 +946,13 @@ export class TxtRenderer implements IBookRenderer {
     const charOffset = this.getCharOffsetFromProgress(precise);
     const chapter = this._bookMeta?.chapters[this._currentChapterIndex];
     const relOffset = chapter ? charOffset - chapter.char_start : charOffset;
+    // _pages 的偏移相对已加载窗口：章内相对偏移需先换算成窗口偏移再比较
+    const windowOffset = this._chapterOffsetToWindowOffset(
+      this._currentChapterIndex,
+      relOffset
+    );
     for (let i = 0; i < this._pages.length; i++) {
-      if (relOffset < (this._pages[i]!.endOffset ?? 0)) {
+      if (windowOffset < (this._pages[i]!.endOffset ?? 0)) {
         return i + 1;
       }
     }
@@ -759,13 +968,17 @@ export class TxtRenderer implements IBookRenderer {
       return this._currentChapterIndex + 1;
     }
     const page = Math.min(Math.max(1, pageInChapter), this._pages.length);
-    const pageStart = this._pages[page - 1]!.startOffset;
-    const chapter = this._bookMeta?.chapters[this._currentChapterIndex];
+    const pageInfo = this._pages[page - 1]!;
+    // 窗口可能拼接多章：以该页自己的章节为准换算偏移（_pages 偏移基准 → 章节基准）
+    const pageChapterIndex = pageInfo.chapterIndex ?? this._currentChapterIndex;
+    const pageStart = this._windowOffsetToChapterOffset(pageChapterIndex, pageInfo.startOffset);
+    const chapter = this._bookMeta?.chapters[pageChapterIndex] ??
+      this._bookMeta?.chapters[this._currentChapterIndex];
     if (!chapter) {
       return this._currentChapterIndex + 1;
     }
     // 页首相对章节偏移 → 全书字符偏移 → 章节精确进度
-    return this.getProgressFromCharOffset(chapter.char_start + pageStart);
+    return this.getProgressFromCharOffset(chapter.char_start + Math.max(0, pageStart));
   }
 
   /**

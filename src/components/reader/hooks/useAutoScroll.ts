@@ -106,8 +106,9 @@ export const useAutoScroll = ({
                         r.isChapterMode() &&
                         !r.isVerticalMode()
                     ) {
-                        if (r.hasNextPageInChapter()) {
-                            await r.goToNextPageInChapter();
+                        // 以 goToNextPageInChapter 的返回值为准（true = 本次已在章内消化）：
+                        // 分页未就绪/页号过期时渲染器会先补算并校正，不会误判章末而跳章
+                        if (await r.goToNextPageInChapter()) {
                             markReadingActive();
                             return;
                         }

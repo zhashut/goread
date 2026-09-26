@@ -23,6 +23,12 @@ export const TXT_PROGRESS_MAX_DELTA = 0.999999;
 export const TXT_SCROLL_EDGE_TOLERANCE_PX = 2;
 
 /**
+ * 纵向按键翻屏（音量键等）时保留的视口重叠高度（像素）
+ * 翻屏时保留上一屏末尾的部分内容作为上下文，避免跨屏处整行被跳过
+ */
+export const TXT_VERTICAL_PAGE_OVERLAP_PX = 24;
+
+/**
  * 入场预热时允许连续追加的最大章节数
  * 用于兜底「整章不足一屏」的极端情况（如连续空章节），避免长时间阻塞入场
  */
