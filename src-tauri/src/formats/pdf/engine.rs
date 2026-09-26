@@ -8,9 +8,9 @@ use std::time::UNIX_EPOCH;
 use tokio::sync::RwLock;
 
 use crate::formats::BookRenderCache;
-use crate::pdf::cache::CacheManager;
-use crate::pdf::renderer::PdfRenderer;
-use crate::pdf::types::*;
+use crate::formats::pdf::cache::CacheManager;
+use crate::formats::pdf::renderer::PdfRenderer;
+use crate::formats::pdf::types::*;
 
 fn compute_file_hash(path: &str) -> Result<String, PdfError> {
     let metadata = std::fs::metadata(path)
@@ -108,19 +108,19 @@ impl PdfEngine {
             candidates.push("./pdfium".to_string());
             #[cfg(target_os = "windows")] {
                 candidates.push("./pdfium/windows".to_string());
-                candidates.push("./src/pdfium/windows".to_string());
+                candidates.push("./src/formats/pdf/pdfium/windows".to_string());
             }
             #[cfg(target_os = "linux")] {
                 candidates.push("./pdfium/linux".to_string());
-                candidates.push("./src/pdfium/linux".to_string());
+                candidates.push("./src/formats/pdf/pdfium/linux".to_string());
             }
             #[cfg(target_os = "macos")] {
                 candidates.push("./pdfium/macos".to_string());
-                candidates.push("./src/pdfium/macos".to_string());
+                candidates.push("./src/formats/pdf/pdfium/macos".to_string());
             }
             #[cfg(target_os = "ios")] {
                 candidates.push("./pdfium/ios".to_string());
-                candidates.push("./src/pdfium/ios".to_string());
+                candidates.push("./src/formats/pdf/pdfium/ios".to_string());
             }
 
             for dir in candidates {

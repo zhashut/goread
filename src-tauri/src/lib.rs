@@ -5,7 +5,6 @@ mod formats;
 mod html_commands;
 mod markdown_commands;
 mod models;
-mod pdf;
 mod pdf_commands;
 mod tts;
 mod tts_commands;
@@ -353,15 +352,15 @@ pub fn run() {
 
                 if let Ok(res_dir) = app.path().resource_dir() {
                     #[cfg(target_os = "windows")]
-                    let sub = "pdfium/windows";
+                    let sub = "pdf/pdfium/windows";
                     #[cfg(target_os = "linux")]
-                    let sub = "pdfium/linux";
+                    let sub = "pdf/pdfium/linux";
                     #[cfg(target_os = "macos")]
-                    let sub = "pdfium/macos";
+                    let sub = "pdf/pdfium/macos";
                     #[cfg(target_os = "android")]
-                    let sub = "pdfium/android";
+                    let sub = "pdf/pdfium/android";
                     #[cfg(target_os = "ios")]
-                    let sub = "pdfium/ios";
+                    let sub = "pdf/pdfium/ios";
                     let full = res_dir.join(sub);
                     let p = full.to_string_lossy().replace('\\', "/");
                     unsafe {

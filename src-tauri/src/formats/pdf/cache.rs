@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::RwLock;
 use moka::future::Cache as MokaCache;
 use crate::formats::{BookRenderCache, BoxFuture};
-use crate::pdf::types::{CacheKey, RenderResult, PdfError};
+use crate::formats::pdf::types::{CacheKey, RenderResult, PdfError};
 
 const DEFAULT_MAX_CACHE_SIZE: usize = 256 * 1024 * 1024; // 256MB（按权重表示字节数）
 const DEFAULT_MAX_CACHE_ITEMS: usize = 50; // 仅用于统计展示
@@ -232,7 +232,7 @@ impl BookRenderCache for CacheManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pdf::types::{RenderQuality, ImageFormat};
+    use crate::formats::pdf::types::{RenderQuality, ImageFormat};
 
     #[tokio::test]
     async fn test_cache_basic_operations() {

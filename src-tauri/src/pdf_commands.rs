@@ -3,8 +3,8 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use serde::{Deserialize, Serialize};
 
-use crate::pdf::PdfEngineManager;
-use crate::pdf::types::*;
+use crate::formats::pdf::PdfEngineManager;
+use crate::formats::pdf::types::*;
 use crate::formats::BookRenderCache;
 
 // 全局PDF引擎管理器
@@ -370,7 +370,7 @@ pub async fn pdf_warmup_cache(
     page_count: Option<u32>,
     manager: State<'_, PdfManagerState>,
 ) -> Result<bool, String> {
-    use crate::pdf::WarmupStrategy;
+    use crate::formats::pdf::WarmupStrategy;
     
     let engine_arc = {
         let manager = manager.lock().await;
@@ -437,7 +437,7 @@ pub async fn pdf_get_performance_metrics(
     file_path: String,
     manager: State<'_, PdfManagerState>,
 ) -> Result<serde_json::Value, String> {
-    // use crate::pdf::PerformanceMetrics;
+    // use crate::formats::pdf::PerformanceMetrics;
     
     let manager = manager.lock().await;
     let _engine_arc = manager.get_engine(&file_path).await

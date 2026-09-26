@@ -4,11 +4,11 @@ use std::sync::Arc;
 use webp::Encoder;
 
 use crate::formats::BookRenderCache;
-use crate::pdf::types::{
+use crate::formats::pdf::types::{
     CacheKey, ImageFormat, PdfError, RenderOptions, RenderQuality, RenderResult,
 };
-use crate::pdf::cache::CacheManager;
-use crate::pdf::performance::{PerformanceMonitor, PerformanceTimer};
+use crate::formats::pdf::cache::CacheManager;
+use crate::formats::pdf::performance::{PerformanceMonitor, PerformanceTimer};
 
 /// PDF 渲染器，负责将 PDF 页面渲染为图像
 pub struct PdfRenderer {
@@ -265,7 +265,7 @@ impl PdfRenderer {
         &self,
         document: &PdfDocument<'_>,
         page_number: u32,
-        region: crate::pdf::types::RenderRegion,
+        region: crate::formats::pdf::types::RenderRegion,
         options: RenderOptions,
     ) -> Result<RenderResult, PdfError> {
         let page = document

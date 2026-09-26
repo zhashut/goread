@@ -6,6 +6,7 @@ pub mod common;
 pub mod epub;
 pub mod html;
 pub mod markdown;
+pub mod pdf;
 pub mod txt;
 pub mod mobi;
 
