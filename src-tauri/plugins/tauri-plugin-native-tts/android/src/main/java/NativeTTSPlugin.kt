@@ -16,6 +16,7 @@ import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
 @InvokeArg
@@ -95,6 +96,30 @@ class NativeTTSPlugin(private val activity: Activity) : Plugin(activity) {
   private val currentRate = AtomicReference(1.0f)
   private val currentVoiceId = AtomicReference("")
   private var textToSpeech: TextToSpeech? = null
+
+  /**
+   * TTS 实例代次：每次创建/销毁 textToSpeech 时递增。
+   * 语音列表等与引擎实例强绑定的缓存以代次为 key，实例重建后自动失效。
+   */
+  private val ttsGeneration = AtomicInteger(0)
+
+  /** 已实际应用到 TTS 引擎的音频配置标识（voice:xxx / lang:xxx），null 表示尚未应用 */
+  @Volatile
+  private var appliedVoiceKey: String? = null
+
+  /** 当前会话语言（session_start 下发），句段自身不带 lang 时用它兜底应用语言 */
+  @Volatile
+  private var sessionLang: String? = null
+
+  /** 语音原始对象缓存（代次一致时复用），避免每句都调用 tts.voices 枚举 */
+  @Volatile
+  private var cachedVoiceGeneration = -1
+
+  @Volatile
+  private var cachedVoiceObjects: List<android.speech.tts.Voice>? = null
+
+  @Volatile
+  private var cachedVoiceResults: List<VoiceResult>? = null
   private val defaultEngineObserverRegistered = AtomicBoolean(false)
   private val lastKnownDefaultEngine = AtomicReference<String?>(null)
   private val sessionRunner = TTSEngineRunner(
@@ -122,8 +147,7 @@ class NativeTTSPlugin(private val activity: Activity) : Plugin(activity) {
           sessionRunner.stop()
           isInitialized.set(false)
           currentVoiceId.set("")
-          textToSpeech?.shutdown()
-          textToSpeech = null
+          resetTtsInstance()
         } catch (_: Exception) {
         }
       } else {
@@ -214,6 +238,7 @@ class NativeTTSPlugin(private val activity: Activity) : Plugin(activity) {
     val engine = resolveDefaultEngine()
     println("[TTS][Plugin] ensureInitialized: 开始初始化 requestedLang=${requestedLang ?: ""} defaultEngine=${engine ?: ""}")
     try {
+      invalidateVoiceCache()
       textToSpeech = TextToSpeech(activity, { status ->
         if (status == TextToSpeech.SUCCESS) {
           isInitialized.set(true)
@@ -294,8 +319,36 @@ class NativeTTSPlugin(private val activity: Activity) : Plugin(activity) {
     return LangCheckResult(locale.toLanguageTag(), result)
   }
 
+  /** 销毁 TTS 实例并失效所有依赖实例的缓存 */
+  private fun resetTtsInstance() {
+    try {
+      textToSpeech?.shutdown()
+    } catch (_: Exception) {
+    }
+    textToSpeech = null
+    invalidateVoiceCache()
+  }
+
+  /** 失效语音列表缓存与已应用的音频配置（引擎实例变化或用户切换语音时调用） */
+  private fun invalidateVoiceCache() {
+    ttsGeneration.incrementAndGet()
+    cachedVoiceGeneration = -1
+    cachedVoiceObjects = null
+    cachedVoiceResults = null
+    appliedVoiceKey = null
+  }
+
+  /**
+   * 读取语音列表（带缓存）。
+   * tts.voices 是同步的引擎调用，在长句合成期间可能阻塞主线程数百毫秒到数秒，
+   * 因此同一个 TTS 实例只枚举一次，避免每条句段都触发。
+   */
   private fun readVoices(): List<VoiceResult>? {
     val tts = textToSpeech ?: return null
+    val generation = ttsGeneration.get()
+    if (cachedVoiceGeneration == generation && cachedVoiceResults != null) {
+      return cachedVoiceResults
+    }
     return try {
       val voices = tts.voices ?: return emptyList()
       fun isNetworkVoice(v: android.speech.tts.Voice): Boolean {
@@ -321,12 +374,29 @@ class NativeTTSPlugin(private val activity: Activity) : Plugin(activity) {
         )
       }
 
-      val localOnly = voices.filterNot { isNetworkVoice(it) }.map { toResult(it) }
-      if (localOnly.isNotEmpty()) return localOnly
-      voices.map { toResult(it) }
+      // 优先本地语音；全部为网络语音时退回完整列表（与原行为一致）
+      val localOnly = voices.filterNot { isNetworkVoice(it) }
+      val picked: List<android.speech.tts.Voice> =
+        if (localOnly.isNotEmpty()) localOnly.toList() else voices.toList()
+      val results = picked.map { toResult(it) }
+      cachedVoiceGeneration = generation
+      cachedVoiceObjects = picked
+      cachedVoiceResults = results
+      results
     } catch (_: Exception) {
       null
     }
+  }
+
+  /** 按 voiceId 查语音对象，命中缓存时不再枚举引擎语音列表 */
+  private fun findCachedVoice(tts: TextToSpeech, voiceId: String): android.speech.tts.Voice? {
+    readVoices()
+    return cachedVoiceObjects?.firstOrNull { it.name == voiceId }
+      ?: try {
+        tts.voices?.firstOrNull { it.name == voiceId }
+      } catch (_: Exception) {
+        null
+      }
   }
 
   private fun setupListener() {
@@ -354,31 +424,48 @@ class NativeTTSPlugin(private val activity: Activity) : Plugin(activity) {
     })
   }
 
+  /**
+   * 应用语音/语言到 TTS 引擎。
+   *
+   * 该函数在每次朗读句段前被调用（运行在主线程），而 tts.voices / tts.language
+   * 都是同步的引擎调用：长文合成期间可能阻塞主线程。
+   * 因此这里以「期望配置标识」做幂等判断，配置未变化时直接返回，不再触碰引擎。
+   */
   private fun applyVoiceAndLang(lang: String?) {
     val tts = textToSpeech ?: return
     val voiceId = currentVoiceId.get()
+    val effectiveLang = normalizeLang(lang) ?: normalizeLang(sessionLang)
+    val desiredKey = if (voiceId.isNotBlank()) "voice:$voiceId" else "lang:${effectiveLang ?: ""}"
+    if (appliedVoiceKey == desiredKey) return
+
     try {
       if (voiceId.isNotBlank()) {
-        val voice = tts.voices?.firstOrNull { it.name == voiceId }
+        val voice = findCachedVoice(tts, voiceId)
         if (voice != null) {
           tts.voice = voice
+          appliedVoiceKey = desiredKey
           println("[TTS][Plugin] applyVoice: hit voiceId=$voiceId voiceLocale=${voice.locale?.toLanguageTag() ?: ""}")
         } else {
+          // 未命中时保留旧配置，下次句段仍会重试
           println("[TTS][Plugin] applyVoice: miss voiceId=$voiceId")
         }
+        return
       }
-    } catch (_: Exception) {
-    }
-    if (voiceId.isNotBlank()) return
-    try {
-      val locale = toLocale(lang)
+
+      // 未选择自定义语音：通过设置语言让引擎回到该语言的默认语音
+      // （setLanguage 会重置当前 voice，这也是从自定义语音切回「默认」时恢复默认音色的手段）
+      val locale = toLocale(effectiveLang)
       if (locale != null) {
         tts.language = locale
-        println("[TTS][Plugin] applyLang: lang=${lang ?: ""} locale=${locale.toLanguageTag()}")
+        appliedVoiceKey = desiredKey
+        println("[TTS][Plugin] applyLang: lang=${effectiveLang ?: ""} locale=${locale.toLanguageTag()}")
       }
     } catch (_: Exception) {
     }
   }
+
+  /** 归一化语言标签：空白视为未提供 */
+  private fun normalizeLang(lang: String?): String? = lang?.trim()?.takeIf { it.isNotEmpty() }
 
   @Command
   fun init(invoke: Invoke) {
@@ -429,23 +516,18 @@ class NativeTTSPlugin(private val activity: Activity) : Plugin(activity) {
     val v = (args.voice ?: "").trim()
     if (v.isBlank() || v == "default") {
       currentVoiceId.set("")
-      if (textToSpeech != null) {
-        try {
-          println("[TTS][Plugin] set_voice: 清空语音选择并重置 TTS 实例 defaultEngine=${resolveDefaultEngine() ?: ""}")
-          isInitialized.set(false)
-          textToSpeech?.shutdown()
-          textToSpeech = null
-        } catch (_: Exception) {
-        }
-      } else {
-        println("[TTS][Plugin] set_voice: 清空语音选择 defaultEngine=${resolveDefaultEngine() ?: ""}")
-      }
+      // 不再销毁 TTS 实例：销毁会让下次朗读触发完整的引擎重建 + 语音枚举（主线程重活），
+      // 只需让已应用的配置失效，下一句会通过设置语言恢复引擎默认语音。
+      appliedVoiceKey = null
+      println("[TTS][Plugin] set_voice: 清空语音选择（保留 TTS 实例）defaultEngine=${resolveDefaultEngine() ?: ""}")
       invoke.resolve()
       return
     }
 
     currentVoiceId.set(v)
-    val hit = try { textToSpeech?.voices?.any { it.name == v } ?: false } catch (_: Exception) { false }
+    appliedVoiceKey = null
+    val tts = textToSpeech
+    val hit = tts != null && findCachedVoice(tts, v) != null
     println("[TTS][Plugin] set_voice: voiceId=$v hit=$hit defaultEngine=${resolveDefaultEngine() ?: ""}")
     invoke.resolve()
   }
@@ -515,8 +597,8 @@ class NativeTTSPlugin(private val activity: Activity) : Plugin(activity) {
       sessionRunner.stop()
       stopBackgroundService()
       isInitialized.set(false)
-      textToSpeech?.shutdown()
-      textToSpeech = null
+      sessionLang = null
+      resetTtsInstance()
       invoke.resolve()
     } catch (e: Exception) {
       invoke.reject("Failed to shutdown: ${e.message}")
@@ -539,6 +621,8 @@ class NativeTTSPlugin(private val activity: Activity) : Plugin(activity) {
       }
 
       try {
+        // 记住会话语言：句段自身不带 lang，用它在「默认语音」时恢复引擎默认音色
+        sessionLang = normalizeLang(args.lang)
         sessionRunner.start(
           segments = segments,
           rate = args.rate ?: 1.0f,
