@@ -22,6 +22,7 @@ import {
   invokeTTSManagedSessionStop,
 } from '../providers/backendBridge';
 import { loadTauriCore } from '../core/tauriCore';
+import { stripSpeechQuotes } from '../core/speechText';
 import { log, logError } from '../../index';
 
 /** 注入给 NativeSessionDriver 的最小依赖 */
@@ -318,20 +319,26 @@ export class NativeSessionDriver implements IBackendSessionDriver {
     cursor?: string;
     anchor?: { quote: string; prefix?: string; suffix?: string } | null;
   }> {
-    return segments.map((seg) => ({
-      id: seg.id,
-      text: seg.text,
-      lang: seg.lang ? this.#options.toBCP47(seg.lang) : undefined,
-      sectionIndex: seg.sectionIndex,
-      chunkIndex: seg.chunkIndex,
-      cursor: seg.cursor,
-      anchor: seg.anchor
-        ? {
-            quote: seg.anchor.quote,
-            prefix: seg.anchor.prefix,
-            suffix: seg.anchor.suffix,
-          }
-        : null,
-    }));
+    // 朗读文本先剔除引号类符号；整段仅引号时无可朗读内容，直接丢弃该片段
+    // （停顿标点保留，anchor 保持原文，用于原生侧上报进度后的高亮定位）
+    return segments.flatMap((seg) => {
+      const text = stripSpeechQuotes(seg.text);
+      if (!text) return [];
+      return [{
+        id: seg.id,
+        text,
+        lang: seg.lang ? this.#options.toBCP47(seg.lang) : undefined,
+        sectionIndex: seg.sectionIndex,
+        chunkIndex: seg.chunkIndex,
+        cursor: seg.cursor,
+        anchor: seg.anchor
+          ? {
+              quote: seg.anchor.quote,
+              prefix: seg.anchor.prefix,
+              suffix: seg.anchor.suffix,
+            }
+          : null,
+      }];
+    });
   }
 }

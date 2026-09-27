@@ -1,6 +1,7 @@
 pub mod cursor;
 pub mod session_manager;
 pub mod slicer;
+pub mod speech_text;
 pub mod types;
 
 pub mod dispatcher {

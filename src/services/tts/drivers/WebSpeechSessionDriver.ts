@@ -6,6 +6,7 @@ import type {
   TTSSessionListeners,
 } from '../types';
 import { log, logError } from '../../index';
+import { stripSpeechQuotes } from '../core/speechText';
 
 /** WebSpeechSessionDriver 的依赖：从 WebSpeechClient 注入语音、语速等 */
 export interface WebSpeechSessionDriverOptions {
@@ -142,7 +143,7 @@ export class WebSpeechSessionDriver implements IBackendSessionDriver {
   #playNext(): void {
     if (!this.#playing || this.#paused) return;
 
-    const segment = this.#queue.shift() ?? null;
+    const segment = this.#dequeueSpeakableSegment();
     if (!segment) {
       this.#current = null;
       if (this.#endOfBook) {
@@ -231,6 +232,21 @@ export class WebSpeechSessionDriver implements IBackendSessionDriver {
       logError('[TTS][WebSpeechSession] synth.speak 失败', e);
       this.#current = null;
       this.#playNext();
+    }
+  }
+
+  /**
+   * 取出下一个可朗读片段
+   * 剔除引号后已无可读文字的片段（如整段仅引号）直接丢弃，
+   * 避免引擎朗读引号或产生空 utterance；返回片段的 text 已完成引号过滤，
+   * anchor 保持原文用于高亮定位
+   */
+  #dequeueSpeakableSegment(): TTSSegment | null {
+    for (;;) {
+      const segment = this.#queue.shift() ?? null;
+      if (!segment) return null;
+      const text = stripSpeechQuotes(segment.text);
+      if (text) return { ...segment, text };
     }
   }
 

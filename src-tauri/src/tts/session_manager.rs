@@ -6,6 +6,7 @@ use tauri_plugin_native_tts::NativeTtsExt;
 use tokio::sync::{watch, Mutex};
 
 use crate::tts::dispatcher;
+use crate::tts::speech_text::strip_speech_quotes;
 use crate::tts::types::{
     TtsAnchorDto, TtsGetSegmentsRequest, TtsManagedSessionStartRequest, TtsManagedSessionStatus,
     TtsManagedSessionSetRateRequest, TtsManagedSessionSetVoiceRequest, TtsSegmentDto,
@@ -263,7 +264,7 @@ async fn start_native_session<R: Runtime>(
 
     app.native_tts()
         .tts_session_start(tauri_plugin_native_tts::TTSSessionStartRequest {
-            segments: segments.iter().map(map_to_native_segment).collect(),
+            segments: segments.iter().filter_map(map_to_native_segment).collect(),
             lang,
             rate,
             voice_id,
@@ -369,7 +370,11 @@ async fn maybe_refill<R: Runtime>(
 
     app.native_tts()
         .tts_session_push(tauri_plugin_native_tts::TTSSessionPushRequest {
-            segments: batch.segments.iter().map(map_to_native_segment).collect(),
+            segments: batch
+                .segments
+                .iter()
+                .filter_map(map_to_native_segment)
+                .collect(),
         })
         .map_err(|e| e.to_string())?;
 
@@ -426,16 +431,23 @@ fn estimate_segments_seconds(segments: &[TtsSegmentDto], rate: f32) -> f64 {
     (total_chars as f64) / CHARS_PER_SECOND_AT_RATE_ONE / safe_rate
 }
 
-fn map_to_native_segment(seg: &TtsSegmentDto) -> tauri_plugin_native_tts::TTSSessionSegment {
-    tauri_plugin_native_tts::TTSSessionSegment {
+/// 把内部 segment 映射为原生 segment
+fn map_to_native_segment(
+    seg: &TtsSegmentDto,
+) -> Option<tauri_plugin_native_tts::TTSSessionSegment> {
+    let text = strip_speech_quotes(&seg.text);
+    if text.is_empty() {
+        return None;
+    }
+    Some(tauri_plugin_native_tts::TTSSessionSegment {
         id: seg.id.clone(),
-        text: seg.text.clone(),
+        text,
         lang: seg.lang.clone(),
         section_index: seg.section_index,
         chunk_index: seg.chunk_index,
         cursor: Some(seg.cursor.clone()),
         anchor: seg.anchor.as_ref().map(map_anchor),
-    }
+    })
 }
 
 fn map_anchor(anchor: &TtsAnchorDto) -> tauri_plugin_native_tts::TTSSessionAnchor {
