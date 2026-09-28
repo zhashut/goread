@@ -16,18 +16,105 @@ pub struct FileEntry {
     pub children_count: Option<u32>,
 }
 
+/// Android 内部存储的真实路径
+#[cfg(target_os = "android")]
+const ANDROID_INTERNAL_STORAGE: &str = "/storage/emulated/0";
+
+/// Android 内部存储的别名路径，均为 ANDROID_INTERNAL_STORAGE 的符号链接
+#[cfg(target_os = "android")]
+const ANDROID_INTERNAL_STORAGE_ALIASES: [&str; 2] = ["/sdcard", "/storage/self/primary"];
+
+/// 将 Android 别名路径归一化为真实路径字符串（用于路径去重）
 fn normalize_android_path(path: &Path) -> String {
     let s = path.to_string_lossy().to_string();
     #[cfg(target_os = "android")]
     {
-        if s.starts_with("/sdcard/") {
-            return s.replacen("/sdcard", "/storage/emulated/0", 1);
-        }
-        if s.starts_with("/storage/self/primary/") {
-            return s.replacen("/storage/self/primary", "/storage/emulated/0", 1);
+        for alias in ANDROID_INTERNAL_STORAGE_ALIASES {
+            // 别名根目录本身（例如 /sdcard）
+            if s == alias {
+                return ANDROID_INTERNAL_STORAGE.to_string();
+            }
+            // 别名下的子路径（例如 /sdcard/Download/a.pdf）
+            let prefix = format!("{}/", alias);
+            if let Some(rest) = s.strip_prefix(prefix.as_str()) {
+                return format!("{}/{}", ANDROID_INTERNAL_STORAGE, rest);
+            }
         }
     }
     s
+}
+
+/// 构建 Android 平台的存储根目录列表（内部存储 + 外置 SD 卡）
+///
+/// 注意：/sdcard 与 /storage/self/primary 都是 /storage/emulated/0 的符号链接，
+/// 这里必须按真实路径去重，否则同一批文件会被完整扫描两次（扫描计数翻倍、耗时翻倍）。
+#[cfg(target_os = "android")]
+async fn android_storage_roots() -> Vec<PathBuf> {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+
+    // 内部存储：根目录可读时只扫根目录，否则退化为常见公共目录
+    let internal_root = PathBuf::from(ANDROID_INTERNAL_STORAGE);
+    if internal_root.exists() && tokio::fs::read_dir(&internal_root).await.is_ok() {
+        candidates.push(internal_root.clone());
+    } else {
+        candidates.push(internal_root.join("Download"));
+        candidates.push(internal_root.join("Documents"));
+        candidates.push(internal_root.join("Books"));
+    }
+
+    // 别名路径（/sdcard 等）作为兜底候选，由下面的去重逻辑消除重复
+    candidates.push(PathBuf::from(ANDROID_INTERNAL_STORAGE_ALIASES[0]));
+
+    // 外置 SD 卡：卷名形如 XXXX-XXXX
+    let storage_base = PathBuf::from("/storage");
+    if storage_base.exists() {
+        if let Ok(mut entries) = tokio::fs::read_dir(&storage_base).await {
+            while let Ok(Some(ent)) = entries.next_entry().await {
+                let p = ent.path();
+                if p.is_dir() {
+                    if let Some(name) = p.file_name().and_then(|s| s.to_str()) {
+                        if name.contains('-') {
+                            candidates.push(p);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 去重：同时记录「归一化后的原路径」与「解析符号链接后的归一化路径」，
+    // 任一命中即视为同一目录（如 /sdcard 与 /storage/emulated/0），
+    // 已被收录根目录覆盖到的子目录也不再单独扫描，避免重复遍历
+    let mut roots: Vec<PathBuf> = Vec::new();
+    let mut covered_keys: Vec<String> = Vec::new();
+    for candidate in candidates {
+        if !candidate.exists() {
+            continue;
+        }
+        let alias_key = normalize_android_path(&candidate);
+        // canonicalize 失败时退化为原路径，保证仍能参与去重
+        let real = tokio::fs::canonicalize(&candidate)
+            .await
+            .unwrap_or_else(|_| candidate.clone());
+        let real_key = normalize_android_path(&real);
+        let already_covered = covered_keys.iter().any(|key| {
+            alias_key == *key
+                || real_key == *key
+                || alias_key.starts_with(&format!("{}/", key))
+                || real_key.starts_with(&format!("{}/", key))
+        });
+        if already_covered {
+            continue;
+        }
+        covered_keys.push(alias_key);
+        covered_keys.push(real_key);
+        roots.push(candidate);
+    }
+
+    // 打印最终扫描范围，便于真机（logcat）核对是否还有别名重复项
+    println!("[android_storage_roots] 扫描根目录: {:?}", roots);
+
+    roots
 }
 
 // 递归扫描 PDF 文件（使用迭代方式避免递归 async 函数的问题）
@@ -155,36 +242,10 @@ pub async fn scan_pdf_files(
     if let Some(path) = root_path {
         roots.push(PathBuf::from(path));
     } else {
-        // 根据平台选择根路径
+        // 根据平台选择根路径（Android 内部存储别名已去重，避免重复扫描）
         #[cfg(target_os = "android")]
         {
-            // 尝试扫描根目录，如果不可读则扫描公共目录
-            let root = PathBuf::from("/storage/emulated/0");
-            if root.exists() && tokio::fs::read_dir(&root).await.is_ok() {
-                roots.push(root);
-            } else {
-                // 根目录不可读，尝试扫描公共目录
-                roots.push(PathBuf::from("/storage/emulated/0/Download"));
-                roots.push(PathBuf::from("/storage/emulated/0/Documents"));
-                roots.push(PathBuf::from("/storage/emulated/0/Books"));
-            }
-            let sdcard = PathBuf::from("/sdcard");
-            if sdcard.exists() { roots.push(sdcard); }
-            let storage_base = PathBuf::from("/storage");
-            if storage_base.exists() {
-                if let Ok(mut entries) = tokio::fs::read_dir(&storage_base).await {
-                    while let Ok(Some(ent)) = entries.next_entry().await {
-                        let p = ent.path();
-                        if p.is_dir() {
-                            if let Some(name) = p.file_name().and_then(|s| s.to_str()) {
-                                if name.contains('-') {
-                                    roots.push(p);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            roots = android_storage_roots().await;
         }
 
         #[cfg(target_os = "ios")]
@@ -296,7 +357,8 @@ pub async fn list_directory(path: String) -> Result<Vec<FileEntry>, String> {
             .and_then(|n| n.to_str())
             .unwrap_or("")
             .to_string();
-        let path_str = path.to_string_lossy().to_string();
+        // Android 别名路径统一归一化，避免同一物理文件出现两种路径（重复导入 / 已导入标记失效）
+        let path_str = normalize_android_path(&path);
         let entry_type = if metadata.is_dir() { "dir" } else { "file" }.to_string();
 
         let size = if metadata.is_file() {
@@ -404,29 +466,9 @@ fn is_pdf_file(path: &Path) -> bool {
 
 #[tauri::command]
 pub async fn get_root_directories(app_handle: tauri::AppHandle) -> Result<Vec<FileEntry>, String> {
+    // Android：内部存储与别名（/sdcard 等）已按真实路径去重，避免重复展示与重复扫描
     #[cfg(target_os = "android")]
-    let roots = {
-        let mut v = vec![
-            PathBuf::from("/storage/emulated/0"),
-            PathBuf::from("/sdcard"),
-        ];
-        let storage_base = PathBuf::from("/storage");
-        if storage_base.exists() {
-            if let Ok(mut entries) = tokio::fs::read_dir(&storage_base).await {
-                while let Ok(Some(ent)) = entries.next_entry().await {
-                    let p = ent.path();
-                    if p.is_dir() {
-                        if let Some(name) = p.file_name().and_then(|s| s.to_str()) {
-                            if name.contains('-') {
-                                v.push(p);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        v
-    };
+    let roots = android_storage_roots().await;
 
     #[cfg(target_os = "ios")]
     let roots = vec![app_handle.path().document_dir().unwrap_or_else(|_| PathBuf::from("/private/var/mobile/Documents"))];
@@ -456,7 +498,7 @@ pub async fn get_root_directories(app_handle: tauri::AppHandle) -> Result<Vec<Fi
                 .and_then(|n| n.to_str())
                 .map(|s| s.to_string())
                 .unwrap_or_else(|| root.to_string_lossy().to_string());
-            let path_str = root.to_string_lossy().to_string();
+            let path_str = normalize_android_path(&root);
 
             let children_count = count_directory_children_supported(&root).await.ok();
 
@@ -523,7 +565,8 @@ pub async fn list_directory_supported(path: String) -> Result<Vec<FileEntry>, St
             .and_then(|n| n.to_str())
             .unwrap_or("")
             .to_string();
-        let path_str = path.to_string_lossy().to_string();
+        // Android 别名路径统一归一化，避免同一物理文件出现两种路径（重复导入 / 已导入标记失效）
+        let path_str = normalize_android_path(&path);
         let entry_type = if metadata.is_dir() { "dir" } else { "file" }.to_string();
 
         let size = if metadata.is_file() { Some(metadata.len()) } else { None };
@@ -696,29 +739,8 @@ pub async fn scan_book_files(
     if let Some(path) = root_path { roots.push(PathBuf::from(path)); } else {
         #[cfg(target_os = "android")]
         {
-            let root = PathBuf::from("/storage/emulated/0");
-            if root.exists() && tokio::fs::read_dir(&root).await.is_ok() { roots.push(root); } else {
-                roots.push(PathBuf::from("/storage/emulated/0/Download"));
-                roots.push(PathBuf::from("/storage/emulated/0/Documents"));
-                roots.push(PathBuf::from("/storage/emulated/0/Books"));
-            }
-            let sdcard = PathBuf::from("/sdcard");
-            if sdcard.exists() { roots.push(sdcard); }
-            let storage_base = PathBuf::from("/storage");
-            if storage_base.exists() {
-                if let Ok(mut entries) = tokio::fs::read_dir(&storage_base).await {
-                    while let Ok(Some(ent)) = entries.next_entry().await {
-                        let p = ent.path();
-                        if p.is_dir() {
-                            if let Some(name) = p.file_name().and_then(|s| s.to_str()) {
-                                if name.contains('-') {
-                                    roots.push(p);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            // 内部存储与别名（/sdcard 等）已按真实路径去重，避免重复扫描同一批文件
+            roots = android_storage_roots().await;
         }
         #[cfg(target_os = "ios")]
         { roots.push(app_handle.path().document_dir().unwrap_or_else(|_| PathBuf::from("/private/var/mobile/Documents"))); }
