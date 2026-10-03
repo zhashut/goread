@@ -232,6 +232,7 @@ export const Reader: React.FC = () => {
     toc: tocData.toc,
     setActiveNodeSignature: tocData.setActiveNodeSignature,
     onAfterRerender: notifyTtsDocumentUpdated,
+    markReadingActive,
   });
 
 

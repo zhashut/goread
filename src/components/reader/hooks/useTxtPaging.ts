@@ -7,6 +7,9 @@ import { useReaderState } from './useReaderState';
 import { TocNode } from '../types';
 import { findActiveNodeSignature } from './useToc';
 
+// TXT 纵向滚动上报阅读活跃的最小间隔（与 useVerticalScroll/useDomRenderer 保持一致）
+const TXT_SCROLL_ACTIVE_INTERVAL = 10000;
+
 /**
  * TXT 专用分页 Hook
  * 负责 TXT 格式的虚拟分页与进度管理
@@ -25,6 +28,8 @@ export type TxtPagingProps = {
   /** 设置当前激活章节签名 */
   setActiveNodeSignature?: (sig: string | undefined) => void;
   onAfterRerender?: () => void;
+  /** 阅读活跃回调（翻页/滚动），用于阅读时长统计 */
+  markReadingActive?: () => void;
 };
 
 export const useTxtPaging = ({
@@ -37,6 +42,7 @@ export const useTxtPaging = ({
   toc,
   setActiveNodeSignature,
   onAfterRerender,
+  markReadingActive,
 }: TxtPagingProps) => {
   const {
     book,
@@ -60,6 +66,7 @@ export const useTxtPaging = ({
   const lastSaveTimeRef = useRef<number>(0);
   const migratedProgressRef = useRef(false);
   const lastScrollTopRef = useRef<number>(0);
+  const lastScrollActiveMarkRef = useRef<number>(0);
   const isAutoSwitchingChapterRef = useRef(false);
   const lastAutoSwitchTsRef = useRef<number>(0);
   const lastPreloadTsRef = useRef<number>(0);
@@ -478,6 +485,18 @@ export const useTxtPaging = ({
       if (rafId !== null) return;
       rafId = requestAnimationFrame(() => {
         rafId = null;
+
+        // TXT 判定为 DOM 渲染，纵向滚动不会经过 useVerticalScroll/useDomRenderer，
+        // 需在此主动上报活跃，否则会被 10 分钟空闲阈值误判为无操作而停止计时。
+        const nowTs = Date.now();
+        if (
+          markReadingActive &&
+          nowTs - lastScrollActiveMarkRef.current >= TXT_SCROLL_ACTIVE_INTERVAL
+        ) {
+          lastScrollActiveMarkRef.current = nowTs;
+          markReadingActive();
+        }
+
         const viewportHeight = container.clientHeight;
         if (viewportHeight <= 0) return;
 
@@ -736,7 +755,7 @@ export const useTxtPaging = ({
         }
       }
     };
-  }, [readingMode, loading, book?.id, isExternal, totalPages]);
+  }, [readingMode, loading, book?.id, isExternal, totalPages, markReadingActive]);
 
   useEffect(() => {
     if (loading || (!book && !isExternal)) return;

@@ -148,6 +148,9 @@ export const useReadingSession = (book: IBook | null, isExternal: boolean) => {
             if (!sessionActiveRef.current) return;
             saveSessionSync();
             stopSessionTimer();
+            // 标记为暂停：若前台事件丢失（Android WebView 上 visibilitychange 可能不对称），
+            // 用户回来后首次 markReadingActive 仍可重新启动计时，避免永久停表
+            pausedDueToInactivityRef.current = true;
         },
         onForeground: () => {
             if (!sessionActiveRef.current) return;
