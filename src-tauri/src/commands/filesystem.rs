@@ -862,56 +862,6 @@ pub async fn read_file_bytes(path: String) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("读取文件失败: {}", e))
 }
 
-#[tauri::command]
-pub async fn save_image_to_gallery(
-    app_handle: tauri::AppHandle,
-    data: Vec<u8>,
-    filename: String,
-    path: Option<String>,
-) -> Result<String, String> {
-    let file_path = if let Some(p) = path {
-        PathBuf::from(p)
-    } else {
-        #[cfg(target_os = "android")]
-        {
-            let root = PathBuf::from("/storage/emulated/0/Pictures/Goread");
-            if !root.exists() {
-                let _ = tokio::fs::create_dir_all(&root).await;
-            }
-            root.join(&filename)
-        }
-        #[cfg(target_os = "ios")]
-        {
-            let paths = app_handle.path().document_dir().map_err(|e| e.to_string())?;
-            let root = paths.join("Goread");
-            if !root.exists() {
-                let _ = tokio::fs::create_dir_all(&root).await;
-            }
-            root.join(&filename)
-        }
-        #[cfg(not(any(target_os = "android", target_os = "ios")))]
-        {
-            let paths = app_handle.path().download_dir().map_err(|e| e.to_string())?;
-            let root = paths.join("Goread");
-            if !root.exists() {
-                let _ = tokio::fs::create_dir_all(&root).await;
-            }
-            root.join(&filename)
-        }
-    };
-
-    println!("Saving to path: {:?}", file_path);
-
-    match tokio::fs::write(&file_path, data).await {
-        Ok(_) => {
-            Ok(file_path.to_string_lossy().to_string())
-        }
-        Err(e) => {
-            Err(format!("{}", e))
-        }
-    }
-}
-
 /// 获取文件状态信息
 #[tauri::command]
 pub async fn get_file_stats(path: String) -> Result<FileStats, String> {

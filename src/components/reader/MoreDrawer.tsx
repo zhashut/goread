@@ -6,7 +6,6 @@ import { getSafeAreaInsets } from "../../utils/layout";
 interface MoreDrawerProps {
   visible: boolean;
   onClose: () => void;
-  onCapture: () => void;
   onSettings: () => void;
   hideDivider: boolean;
   onToggleHideDivider: () => void;
@@ -15,7 +14,6 @@ interface MoreDrawerProps {
 export const MoreDrawer: React.FC<MoreDrawerProps> = ({
   visible,
   onClose,
-  onCapture,
   onSettings,
   hideDivider,
   onToggleHideDivider,
@@ -55,31 +53,6 @@ export const MoreDrawer: React.FC<MoreDrawerProps> = ({
           animation: "slideUp 0.3s ease-out",
         }}
       >
-        <div
-          onClick={onCapture}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            padding: "16px 24px",
-            cursor: "pointer",
-            color: "#fff",
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "#2a2a2a")}
-          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
-        >
-          <div
-            style={{
-              fontSize: "20px",
-              marginRight: "16px",
-              width: "24px",
-              textAlign: "center",
-            }}
-          >
-            📷
-          </div>
-          <span style={{ fontSize: "16px" }}>{t('exportImage')}</span>
-        </div>
-
         <div
           onClick={(e) => {
             e.stopPropagation();

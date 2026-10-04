@@ -28,9 +28,6 @@
     },
     "mdEditorRt": {
       "description": "React Markdown 编辑器，支持代码高亮、图表等"
-    },
-    "html2canvas": {
-      "description": "使用 JavaScript 实现网页截图"
     }
   }
 }

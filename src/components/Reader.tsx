@@ -7,15 +7,10 @@ import { TocOverlay } from "./reader/TocOverlay";
 import { ModeOverlay } from "./reader/ModeOverlay";
 import { MoreDrawer } from "./reader/MoreDrawer";
 import { PageDivider } from "./reader/PageDivider";
-import { CropOverlay } from "./reader/CropOverlay";
 import { Toast } from "./Toast";
 import { Loading } from "./Loading";
 import { ExternalFileOpenPayload } from "../types";
 import { IBookRenderer } from "../services/formats";
-import {
-  TOAST_DURATION_LONG_MS,
-  TOAST_DURATION_ERROR_MS,
-} from "../constants/config";
 import { getSafeAreaInsets } from "../utils/layout";
 import { getPlaceholderCanvasSize } from "../utils/canvasPlaceholder";
 import { useAppNav } from "../router/useAppNav";
@@ -36,7 +31,6 @@ import {
   useVolumeNavigation,
   useDomRenderer,
   useInitReader,
-  useCapture,
   useResizeHandler,
   useAutoMark,
   useModeSwitch,
@@ -356,24 +350,6 @@ export const Reader: React.FC = () => {
     prevPage: navigation.prevPage
   });
 
-  // 截图
-  const capture = useCapture({
-    readerState,
-    refs: {
-      dataset: {
-        domContainerRef: domRenderer.domContainerRef,
-        canvasRef,
-        verticalScrollRef,
-        verticalCanvasRefs
-      }
-    },
-    data: { readingMode, settings: settingsWithTheme },
-    actions: {
-      setUiVisible,
-      setMoreDrawerOpen,
-    }
-  });
-
   // 窗口调整
   useResizeHandler({
     data: { readingMode, currentPage },
@@ -409,8 +385,7 @@ export const Reader: React.FC = () => {
       !isSeeking &&
       !tocOverlayOpen &&
       !modeOverlayOpen &&
-      !moreDrawerOpen &&
-      !capture.cropMode,
+      !moreDrawerOpen,
     viewportRef: mainViewRef,
     getContentElement: getZoomContentElement,
     minScale: 1,
@@ -451,10 +426,10 @@ export const Reader: React.FC = () => {
   renderPendingVisiblePagesRef.current = renderPendingVisiblePages;
 
   useEffect(() => {
-    if (tocOverlayOpen || modeOverlayOpen || moreDrawerOpen || capture.cropMode) {
+    if (tocOverlayOpen || modeOverlayOpen || moreDrawerOpen) {
       zoom.reset();
     }
-  }, [capture.cropMode, moreDrawerOpen, modeOverlayOpen, tocOverlayOpen, zoom.reset]);
+  }, [moreDrawerOpen, modeOverlayOpen, tocOverlayOpen, zoom.reset]);
 
   useEffect(() => {
     zoom.reset();
@@ -910,28 +885,12 @@ export const Reader: React.FC = () => {
           setMoreDrawerOpen(false);
           setUiVisible(false);
         }}
-        onCapture={capture.handleCapture}
         onSettings={() => {
           setMoreDrawerOpen(false);
           nav.toSettings();
         }}
         hideDivider={hideDivider}
         onToggleHideDivider={() => setHideDivider(!hideDivider)}
-      />
-
-      <CropOverlay
-        visible={capture.cropMode}
-        capturedImage={capture.capturedImage}
-        onClose={() => {
-          capture.closeCrop();
-        }}
-        onSaveSuccess={() => {
-          bookmarkData.showToast(tCommon('saveSuccess'), TOAST_DURATION_LONG_MS);
-        }}
-        onSaveError={(msg: string) => {
-          const cleanMsg = msg.replace(/^Error:\s*/i, '');
-          bookmarkData.showToast(tCommon('saveFailedWithReason', { reason: cleanMsg }), TOAST_DURATION_ERROR_MS);
-        }}
       />
 
       {/* 全局 Toast 提示 */}

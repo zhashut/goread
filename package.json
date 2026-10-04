@@ -24,7 +24,6 @@
     "@types/react-router-dom": "^5.3.3",
     "@zip.js/zip.js": "^2.7.52",
     "fflate": "^0.8.2",
-    "html2canvas": "^1.4.1",
     "md-editor-rt": "^4.20.2",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",

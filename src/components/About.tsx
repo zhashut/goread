@@ -58,13 +58,6 @@ const LIBRARIES: LibraryInfo[] = [
     descKey: 'libs.mdEditorRt.description',
     githubUrl: 'https://github.com/imzbf/md-editor-rt',
   },
-  {
-    name: 'html2canvas',
-    author: 'niklasvh',
-    version: '1.4.1',
-    descKey: 'libs.html2canvas.description',
-    githubUrl: 'https://github.com/niklasvh/html2canvas',
-  },
 ];
 
 export const About: React.FC = () => {

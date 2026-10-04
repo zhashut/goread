@@ -28,9 +28,6 @@
     },
     "mdEditorRt": {
       "description": "React Markdown editor with code highlighting and charts support"
-    },
-    "html2canvas": {
-      "description": "Screenshots with JavaScript"
     }
   }
 }

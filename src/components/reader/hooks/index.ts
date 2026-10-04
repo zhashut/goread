@@ -11,7 +11,6 @@ export * from "./useAutoScroll";
 export * from "./useVolumeNavigation";
 export * from "./useDomRenderer";
 export * from "./useInitReader";
-export * from "./useCapture";
 export * from "./useResizeHandler";
 export * from "./useAutoMark";
 export * from "./useModeSwitch";

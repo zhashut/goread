@@ -69,7 +69,6 @@ use commands::{
     reorder_recent_books,
     reset_all_book_themes,
     request_storage_permission,
-    save_image_to_gallery,
     // stats commands
     save_reading_session,
     scan_book_files,
@@ -411,7 +410,6 @@ pub fn run() {
             check_storage_permission,
             request_storage_permission,
             read_file_bytes,
-            save_image_to_gallery,
             // 批量导入优化命令
             batch_read_files,
             batch_import_books,
