@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { IBook, IBookmark } from "../../../types";
 import { bookmarkService } from "../../../services";
 import { TOAST_DURATION_SHORT_MS } from "../../../constants/config";
+import { compareBookmarkPosition } from "../utils/bookmarkPosition";
 
 /**
  * 管理书签的 Hook
@@ -46,16 +47,17 @@ export const useBookmarks = (book: IBook | null, isExternal: boolean) => {
     }, []);
 
     const addBookmark = useCallback(
-        async (currentPage: number, title?: string) => {
+        async (currentPage: number, title?: string, preciseProgress?: number | null) => {
             if (isExternal || !book) return false;
             try {
                 const created = await bookmarkService.addBookmark(
                     book.id,
                     currentPage,
-                    title || tReader("page", { page: currentPage })
+                    title || tReader("page", { page: currentPage }),
+                    preciseProgress
                 );
                 setBookmarks((prev) =>
-                    [...prev, created].sort((a, b) => a.page_number - b.page_number)
+                    [...prev, created].sort(compareBookmarkPosition)
                 );
                 showToast(tCommon("bookmarkAdded"));
                 return true;

@@ -94,6 +94,7 @@ pub async fn init_database(db: DbState<'_>) -> Result<(), Error> {
             book_id INTEGER NOT NULL,
             page_number INTEGER NOT NULL,
             title TEXT NOT NULL,
+            precise_progress REAL,
             created_at INTEGER DEFAULT (strftime('%s', 'now')),
             FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE
         )",
@@ -159,6 +160,11 @@ pub async fn init_database(db: DbState<'_>) -> Result<(), Error> {
         .await;
 
     let _ = sqlx::query("ALTER TABLE books ADD COLUMN font_size INTEGER")
+        .execute(&*pool)
+        .await;
+
+    // 书签精确进度字段迁移
+    let _ = sqlx::query("ALTER TABLE bookmarks ADD COLUMN precise_progress REAL")
         .execute(&*pool)
         .await;
 

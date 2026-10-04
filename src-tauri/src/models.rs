@@ -50,6 +50,8 @@ pub struct Bookmark {
     pub book_id: i64,
     pub page_number: u32,
     pub title: String,
+    #[serde(default)]
+    pub precise_progress: Option<f64>,
     pub created_at: Option<i64>,
 }
 

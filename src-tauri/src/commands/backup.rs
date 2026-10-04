@@ -286,23 +286,25 @@ pub async fn import_app_data(
     for bookmark in bookmarks {
         if let Some(id) = bookmark.id {
             sqlx::query(
-                "INSERT INTO bookmarks (id, book_id, page_number, title, created_at) VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO bookmarks (id, book_id, page_number, title, precise_progress, created_at) VALUES (?, ?, ?, ?, ?, ?)",
             )
             .bind(id)
             .bind(bookmark.book_id)
             .bind(bookmark.page_number as i64)
             .bind(bookmark.title)
+            .bind(bookmark.precise_progress)
             .bind(bookmark.created_at)
             .execute(&mut *tx)
             .await
             .map_err(|e| format!("恢复 bookmarks 表失败: {}", e))?;
         } else {
             sqlx::query(
-                "INSERT INTO bookmarks (book_id, page_number, title, created_at) VALUES (?, ?, ?, ?)",
+                "INSERT INTO bookmarks (book_id, page_number, title, precise_progress, created_at) VALUES (?, ?, ?, ?, ?)",
             )
             .bind(bookmark.book_id)
             .bind(bookmark.page_number as i64)
             .bind(bookmark.title)
+            .bind(bookmark.precise_progress)
             .bind(bookmark.created_at)
             .execute(&mut *tx)
             .await

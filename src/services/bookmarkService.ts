@@ -8,16 +8,31 @@ import { getInvoke } from './commonService';
 
 // 书签服务接口
 export interface IBookmarkService {
-  addBookmark(bookId: number, pageNumber: number, title: string): Promise<IBookmark>;
+  addBookmark(
+    bookId: number,
+    pageNumber: number,
+    title: string,
+    preciseProgress?: number | null
+  ): Promise<IBookmark>;
   getBookmarks(bookId: number): Promise<IBookmark[]>;
   deleteBookmark(id: number): Promise<void>;
 }
 
 // Tauri 书签服务实现
 export class TauriBookmarkService implements IBookmarkService {
-  async addBookmark(bookId: number, pageNumber: number, title: string): Promise<IBookmark> {
+  async addBookmark(
+    bookId: number,
+    pageNumber: number,
+    title: string,
+    preciseProgress?: number | null
+  ): Promise<IBookmark> {
     const invoke = await getInvoke();
-    return await invoke('add_bookmark', { bookId, pageNumber, title });
+    return await invoke('add_bookmark', {
+      bookId,
+      pageNumber,
+      title,
+      preciseProgress: preciseProgress ?? null,
+    });
   }
 
   async getBookmarks(bookId: number): Promise<IBookmark[]> {

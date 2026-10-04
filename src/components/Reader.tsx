@@ -11,6 +11,8 @@ import { Toast } from "./Toast";
 import { Loading } from "./Loading";
 import { ExternalFileOpenPayload } from "../types";
 import { IBookRenderer } from "../services/formats";
+import { captureBookmarkPosition } from "./reader/utils/bookmarkPosition";
+import { parseChapterTitle } from "./reader/utils/chapterTitle";
 import { getSafeAreaInsets } from "../utils/layout";
 import { getPlaceholderCanvasSize } from "../utils/canvasPlaceholder";
 import { useAppNav } from "../router/useAppNav";
@@ -873,7 +875,13 @@ export const Reader: React.FC = () => {
           }
         }}
         onAddBookmark={isExternal ? () => { } : async () => {
-          await bookmarkData.addBookmark(currentPage);
+          const position = captureBookmarkPosition(rendererRef.current, currentPage);
+          const chapterTitle = parseChapterTitle(tocData.activeNodeSignature);
+          await bookmarkData.addBookmark(
+            position.pageNumber,
+            chapterTitle ?? undefined,
+            position.preciseProgress
+          );
           setUiVisible(false);
         }}
         onOpenMore={() => setMoreDrawerOpen(true)}

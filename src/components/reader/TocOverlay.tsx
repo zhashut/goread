@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { TocNode } from "./types";
 import { IBookmark } from "../../types";
 import { getSafeAreaInsets } from "../../utils/layout";
+import { getBookmarkTargetPage } from "./utils/bookmarkPosition";
 import { TocSortMode } from "./hooks/useTocSort";
 
 interface TocOverlayProps {
@@ -497,7 +498,7 @@ export const TocOverlay: React.FC<TocOverlayProps> = ({
                     e.currentTarget.style.backgroundColor = "transparent";
                   }}
                   onClick={() => {
-                    onGoToPage(bm.page_number);
+                    onGoToPage(getBookmarkTargetPage(bm));
                   }}
                 >
                   <div

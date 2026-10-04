@@ -6,17 +6,20 @@ pub async fn add_bookmark(
     book_id: i64,
     page_number: u32,
     title: String,
+    precise_progress: Option<f64>,
     db: DbState<'_>,
 ) -> Result<Bookmark, Error> {
     let pool = db.lock().await;
 
-    let result =
-        sqlx::query("INSERT INTO bookmarks (book_id, page_number, title) VALUES (?, ?, ?)")
-            .bind(book_id)
-            .bind(page_number as i64)
-            .bind(&title)
-            .execute(&*pool)
-            .await?;
+    let result = sqlx::query(
+        "INSERT INTO bookmarks (book_id, page_number, title, precise_progress) VALUES (?, ?, ?, ?)",
+    )
+    .bind(book_id)
+    .bind(page_number as i64)
+    .bind(&title)
+    .bind(precise_progress)
+    .execute(&*pool)
+    .await?;
 
     let bookmark_id = result.last_insert_rowid();
 

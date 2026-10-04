@@ -33,6 +33,7 @@ export interface IBookmark {
   book_id: number;
   page_number: number;
   title: string;
+  precise_progress?: number | null;
   created_at?: number;
 }
 
