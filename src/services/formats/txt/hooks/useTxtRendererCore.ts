@@ -1,4 +1,5 @@
 import { RenderOptions, TocItem } from '../../types';
+import { getReaderPageBackground } from '../../../../constants/readerTheme';
 
 export interface PageRange {
   index: number;
@@ -66,13 +67,15 @@ export interface TxtRendererCore {
 }
 
 function getThemeColors(theme: string | undefined) {
+  // 页面底色统一取自主题常量；文字色仍由各格式自行维护
+  const bg = getReaderPageBackground(theme);
   if (theme === 'dark') {
-    return { bg: '#1a1a1a', text: '#e0e0e0' };
+    return { bg, text: '#e0e0e0' };
   }
   if (theme === 'sepia') {
-    return { bg: '#f4ecd8', text: '#5b4636' };
+    return { bg, text: '#5b4636' };
   }
-  return { bg: '#fff', text: '#333' };
+  return { bg, text: '#333' };
 }
 
 function applyContainerStyles(

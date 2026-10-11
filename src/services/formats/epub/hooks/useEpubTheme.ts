@@ -4,6 +4,7 @@
  */
 
 import { RenderOptions } from '../../types';
+import { getReaderPageBackground } from '../../../../constants/readerTheme';
 
 /** 主题颜色配置 */
 export interface ThemeColors {
@@ -28,14 +29,13 @@ export function useEpubTheme(): EpubThemeHook {
    * 计算主题颜色
    */
   const getThemeColors = (theme: string): ThemeColors => {
-    let bgColor = '#ffffff';
+    // 页面底色统一取自主题常量；文字色仍由各格式自行维护
+    const bgColor = getReaderPageBackground(theme);
     let textColor = '#24292e';
 
     if (theme === 'dark') {
-      bgColor = '#1a1a1a';
       textColor = '#e0e0e0';
     } else if (theme === 'sepia') {
-      bgColor = '#f4ecd8';
       textColor = '#5b4636';
     }
 

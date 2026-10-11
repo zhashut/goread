@@ -29,3 +29,4 @@ export * from "./useTocSort";
 export * from "./useContentPinchZoom";
 export * from "./useReaderTTS";
 export * from "./useBookFontSize";
+export * from "./useReaderStatusBar";

@@ -51,6 +51,7 @@ import {
   useContentPinchZoom,
   useReaderTTS,
   useBookFontSize,
+  useReaderStatusBar,
 } from "./reader/hooks";
 
 import { UndoJumpIcon } from "./covers/UndoJumpIcon";
@@ -168,6 +169,17 @@ export const Reader: React.FC = () => {
   // Seek State
   const [isSeeking, setIsSeeking] = useState(false);
   const [seekPage, setSeekPage] = useState<number | null>(null);
+
+  // 状态栏控制：仅在阅读页内生效，离开时恢复应用默认
+  // 工具栏/目录/模式/更多这些深色浮层会盖住状态栏区域，此时不需要色条、图标用浅色
+  const darkChromeOnStatusBar =
+    uiVisible || isSeeking || tocOverlayOpen || modeOverlayOpen || moreDrawerOpen;
+  const readerStatusBar = useReaderStatusBar({
+    showStatusBar: settings.showStatusBar,
+    // Markdown/HTML 等不支持主题的格式页面恒为浅色（白色正文），色条与图标按浅色处理
+    theme: isThemeSupported ? effectiveTheme : "light",
+    darkChromeVisible: darkChromeOnStatusBar,
+  });
 
   // 4. 数据 Hooks (TOC, Bookmarks)
   const tocData = useToc(currentPage, readingMode, isDomRender);
@@ -486,6 +498,22 @@ export const Reader: React.FC = () => {
         paddingTop: settingsWithTheme.showStatusBar ? getSafeAreaInsets().top : 0,
       }}
     >
+      {/* 状态栏区域色条：显示状态栏且无深色浮层遮挡时，与阅读内容页同底色 */}
+      {readerStatusBar.showStatusBarStrip && (
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            height: getSafeAreaInsets().top,
+            backgroundColor: readerStatusBar.pageBackgroundColor,
+            // 置于内容之上，避免首页 boxShadow 溢出到色条上
+            zIndex: 1,
+            pointerEvents: "none",
+          }}
+        />
+      )}
       {/* 主体区域 */}
       <div
         style={{
