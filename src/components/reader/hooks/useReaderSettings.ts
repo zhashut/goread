@@ -28,11 +28,12 @@ export const useReaderSettings = (rendererRef?: React.MutableRefObject<IBookRend
     }, []);
 
     // 应用状态栏设置（副作用）
+    // 阅读页留白背景恒为深色（#000000 / #2c2c2c），需要浅色图标
     useEffect(() => {
-        statusBarService.applySettings(settings.showStatusBar);
+        statusBarService.applySettings(settings.showStatusBar, 'light');
         return () => {
-            // 卸载时恢复状态栏显示
-            statusBarService.showStatusBar();
+            // 卸载时恢复状态栏显示，并恢复系统默认的图标外观（与更新前一致）
+            statusBarService.applySettings(true, 'system');
         };
     }, [settings.showStatusBar]);
 

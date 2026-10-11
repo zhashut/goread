@@ -3,6 +3,7 @@ package com.tauri_app.goread
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.net.Uri
 import android.graphics.Color
 import android.os.Build
@@ -37,6 +38,9 @@ class MainActivity : TauriActivity() {
   // Status bar controller
   private var windowInsetsController: WindowInsetsControllerCompat? = null
   private var isStatusBarVisible = true  // Default to visible (only hide in Reader page)
+  // 状态栏图标明暗偏好：true = 深色图标（适用于浅色背景）
+  // 默认跟随系统深浅色（与主题 windowLightStatusBar 一致），阅读页会显式切换为浅色图标
+  private var useDarkStatusBarIcons = true
   
   // Volume key page turn control
   private var volumeKeyEnabled = false
@@ -119,6 +123,9 @@ class MainActivity : TauriActivity() {
     windowInsetsController = WindowCompat.getInsetsController(window, window.decorView)
     windowInsetsController?.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
     
+    // 初始化图标外观为系统默认（深浅色跟随系统），且与主题 windowLightStatusBar 保持一致
+    useDarkStatusBarIcons = !isSystemInNightMode()
+    
     // Expose status bar control functions to JavaScript
     webView.addJavascriptInterface(StatusBarBridge(), "StatusBarBridge")
     
@@ -136,6 +143,9 @@ class MainActivity : TauriActivity() {
     
     // Default show status bar (only hide when entering Reader page based on user settings)
     windowInsetsController?.show(WindowInsetsCompat.Type.statusBars())
+    
+    // 应用图标明暗外观（部分机型在设置主题属性后仍需运行时确认）
+    applyStatusBarIconAppearance()
     
     // Don't replace WebViewClient as it would break Tauri's RustWebViewClient
     // Instead, we'll inject CSS variables via WindowInsets listener and periodic refresh
@@ -419,6 +429,8 @@ class MainActivity : TauriActivity() {
       runOnUiThread {
         windowInsetsController?.show(WindowInsetsCompat.Type.statusBars())
         isStatusBarVisible = true
+        // 部分 ROM 在重新显示状态栏后会重置图标外观，这里重新应用一次
+        applyStatusBarIconAppearance()
         println("[StatusBar] Shown")
       }
     }
@@ -432,10 +444,48 @@ class MainActivity : TauriActivity() {
       }
     }
     
+    /**
+     * 设置状态栏图标明暗，与页面背景保持一致
+     * @param darkIcons true = 深色图标（浅色背景），false = 浅色图标（深色背景，如阅读页）
+     */
+    @android.webkit.JavascriptInterface
+    fun setAppearance(darkIcons: Boolean) {
+      runOnUiThread {
+        useDarkStatusBarIcons = darkIcons
+        applyStatusBarIconAppearance()
+        println("[StatusBar] Icon appearance darkIcons=$darkIcons")
+      }
+    }
+    
+    /**
+     * 恢复系统默认的图标外观（深浅色跟随系统）
+     * 离开阅读页时调用，保证非阅读页与更新前行为一致
+     */
+    @android.webkit.JavascriptInterface
+    fun resetAppearance() {
+      runOnUiThread {
+        useDarkStatusBarIcons = !isSystemInNightMode()
+        applyStatusBarIconAppearance()
+        println("[StatusBar] Icon appearance reset to system default")
+      }
+    }
+    
     @android.webkit.JavascriptInterface
     fun isVisible(): Boolean {
       return isStatusBarVisible
     }
+  }
+  
+  // 应用当前记录的图标明暗外观
+  private fun applyStatusBarIconAppearance() {
+    // isAppearanceLightStatusBars = true 表示状态栏使用浅色背景、深色图标
+    windowInsetsController?.isAppearanceLightStatusBars = useDarkStatusBarIcons
+  }
+  
+  // 当前系统是否处于深色模式（用于跟随系统默认的状态栏图标外观）
+  private fun isSystemInNightMode(): Boolean {
+    val uiMode = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
+    return uiMode == Configuration.UI_MODE_NIGHT_YES
   }
   
   // 音量键翻页控制接口

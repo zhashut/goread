@@ -36,6 +36,14 @@ const isMobileBrowser = () => {
   return isMobile && !isTauri;
 };
 
+/**
+ * 状态栏图标风格
+ * - 'dark'：深色图标，适用于浅色背景的页面
+ * - 'light'：浅色图标，适用于深色背景的页面（如阅读页）
+ * - 'system'：跟随系统深浅色（应用默认，与主题 windowLightStatusBar 一致）
+ */
+export type StatusBarIconStyle = 'dark' | 'light' | 'system';
+
 class StatusBarService {
   private initialized = false;
   private bridgeReadyPromise: Promise<void> | null = null;
@@ -116,10 +124,11 @@ class StatusBarService {
   }
 
   /**
-   * Apply status bar settings (for Reader page only)
+   * 应用状态栏设置（可见性 + 图标风格）
    * @param showStatusBar - Whether to show the system status bar
+   * @param iconStyle - 图标明暗风格，需与状态栏下方的页面背景保持一致；'system' 表示跟随系统
    */
-  async applySettings(showStatusBar: boolean) {
+  async applySettings(showStatusBar: boolean, iconStyle: StatusBarIconStyle) {
     try {
       await this.waitForReady();
       if (showStatusBar) {
@@ -127,8 +136,30 @@ class StatusBarService {
       } else {
         await this.hideStatusBar();
       }
+      // 必须在显示之后再设置图标风格：部分 ROM 在重新显示状态栏时会重置外观
+      await this.setIconAppearance(iconStyle);
     } catch (error) {
-      logError('[StatusBar] Apply settings failed', { error: String(error), showStatusBar }).catch(() => {});
+      logError('[StatusBar] Apply settings failed', { error: String(error), showStatusBar, iconStyle }).catch(() => {});
+    }
+  }
+
+  /**
+   * 设置状态栏图标明暗
+   * 状态栏图标由系统绘制，Android 上仅能切换深/浅两套配色，无法自定义颜色
+   * @param style - 'dark' 对应浅色背景，'light' 对应深色背景，'system' 跟随系统
+   */
+  async setIconAppearance(style: StatusBarIconStyle) {
+    try {
+      if (hasStatusBarBridge()) {
+        if (style === 'system') {
+          (window as any).StatusBarBridge.resetAppearance();
+        } else {
+          // Android JavascriptInterface：参数为是否使用深色图标
+          (window as any).StatusBarBridge.setAppearance(style === 'dark');
+        }
+      }
+    } catch (error) {
+      logError('[StatusBar] Set icon appearance failed', { error: String(error), style }).catch(() => {});
     }
   }
 

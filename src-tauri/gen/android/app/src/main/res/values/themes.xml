@@ -6,12 +6,13 @@
         <item name="android:navigationBarColor">@android:color/white</item>
         <!-- Ensure navigation bar icons are dark in light mode -->
         <item name="android:windowLightNavigationBar" tools:targetApi="o_mr1">true</item>
-        <!-- Enable translucent status bar for overlay mode (required by tauri-plugin-status-bar) -->
-        <item name="android:windowTranslucentStatus">true</item>
+        <!-- 必须为 false：该属性会让 DecorView 用固定的半透明黑色(#66000000)绘制状态栏背景，
+             与 enableEdgeToEdge() 冲突，且 statusBarColor 无法覆盖它；透明状态栏统一由 enableEdgeToEdge() 实现 -->
+        <item name="android:windowTranslucentStatus">false</item>
         <item name="android:windowTranslucentNavigation">false</item>
         <!-- Draw behind system bars -->
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>
-        <!-- Light status bar (dark icons) for light theme -->
+        <!-- Light status bar (dark icons) for light theme；阅读页会由 StatusBarBridge 在运行时覆盖 -->
         <item name="android:windowLightStatusBar" tools:targetApi="m">true</item>
         <!-- Handle display cutout -->
         <item name="android:windowLayoutInDisplayCutoutMode" tools:targetApi="o_mr1">shortEdges</item>
