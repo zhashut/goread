@@ -532,7 +532,8 @@ pub fn run() {
             mobi_load_metadata,
             mobi_prepare_book,
             epub_inspect,
-            epub_prepare_book
+            epub_prepare_book,
+            epub_resolve_hidden_sections
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -11,7 +11,14 @@ import {
 import { epubCacheService } from '../epubCacheService';
 import { EpubThemeHook } from './useEpubTheme';
 import { EpubResourceHook } from './useEpubResource';
-import { getTocHrefForSection, getSpineIndexForHref } from './tocMapping';
+import { getTocHrefForSection } from './tocMapping';
+import {
+  createEpubReadingOrder,
+  nearestVisiblePage,
+  nextVisiblePage,
+  prevVisiblePage,
+  type EpubReadingOrder,
+} from './readingOrder';
 import { extractBodyContent, normalizeBookCssForShadow } from '../../../../utils/htmlUtils';
 import { stabilizeScrollTop } from './scrollStabilizer';
 
@@ -29,6 +36,10 @@ export interface HorizontalRenderContext {
   resourceCache?: IEpubResourceCache;
   onPageChange?: (page: number) => void;
   onTocChange?: (href: string) => void;
+  /** 阅读顺序：用于跳过 EPUB3 导航文档等隐藏章节（缺省为恒等映射） */
+  readingOrder?: EpubReadingOrder;
+  /** 章节内容渲染完成回调（用于接入链接点击处理） */
+  onSectionRendered?: (content: HTMLElement, sectionIndex: number) => void;
 }
 
 /** 横向渲染状态 */
@@ -47,7 +58,6 @@ export interface HorizontalRenderHook {
   getInstantPreciseProgress: () => number;
   applyThemeUpdateAndRestoreAnchor: (options?: RenderOptions) => Promise<boolean>;
   goToPage: (page: number) => Promise<void>;
-  goToHref: (href: string) => Promise<void>;
   nextPage: () => Promise<void>;
   prevPage: () => Promise<void>;
   scrollBy: (deltaY: number) => void;
@@ -63,6 +73,8 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
   };
 
   const MAX_RATIO = 0.999999;
+  /** 阅读顺序：隐藏章节不参与翻页（缺省为恒等映射） */
+  const readingOrder: EpubReadingOrder = context.readingOrder ?? createEpubReadingOrder([]);
   let lastRenderOptions: RenderOptions | undefined;
   let resizeObserver: ResizeObserver | null = null;
   let isSnapping = false;
@@ -484,6 +496,9 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
     content.innerHTML = extractBodyContent(restoredHtml);
     shadow.appendChild(content);
 
+    // 接入链接点击处理（章内锚点 / 跨章节跳转 / 外部链接）
+    context.onSectionRendered?.(content, sectionIndex);
+
     // 渲染完成后补齐 scrollWidth 对齐到翻屏步长整数倍
     requestAnimationFrame(() => {
       ensureScrollWidthAligned(container);
@@ -546,15 +561,25 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
       Math.max(1, targetPage),
       context.sectionCount > 0 ? context.sectionCount : context.totalPages || 1,
     );
+    // 初始页为隐藏章节（如旧进度停在被隐藏的导航页）时吸附到最近可见页
+    const snappedPage = nearestVisiblePage(readingOrder, clampedPage);
+    // 发生吸附时丢弃原精确进度，避免把隐藏页写回阅读进度
+    const progressToEmit =
+      snappedPage === clampedPage &&
+      typeof initialProgress === 'number' &&
+      isFinite(initialProgress) &&
+      initialProgress > 0
+        ? initialProgress
+        : undefined;
 
-    await renderSection(clampedPage - 1, container, {
+    await renderSection(snappedPage - 1, container, {
       ...options,
       theme,
-    }, typeof initialProgress === 'number' && isFinite(initialProgress) && initialProgress > 0 ? initialProgress : undefined);
+    }, progressToEmit);
 
-    // 如果有初始精确进度，恢复滚动位置
-    if (initialProgress && initialProgress > 0) {
-      const ratio = getRatioFromProgress(initialProgress);
+    // 如果有初始精确进度，恢复滚动位置（发生隐藏章节吸附时 progressToEmit 为空，跳过）
+    if (progressToEmit && progressToEmit > 0) {
+      const ratio = getRatioFromProgress(progressToEmit);
       if (ratio > 0) {
         requestAnimationFrame(() => {
           if (!container) return;
@@ -652,8 +677,12 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
 
   const goToPage = async (page: number): Promise<void> => {
     if (!state.container) return;
-    const intPage = Math.floor(page);
-    const ratio = clampRatio(page - intPage);
+    const requestedPage = Math.floor(page);
+
+    // 目标是隐藏章节时吸附到最近可见章节（偏移量随章节变化而丢弃）
+    const snappedPage = nearestVisiblePage(readingOrder, requestedPage);
+    const intPage = snappedPage;
+    const ratio = snappedPage === requestedPage ? clampRatio(page - requestedPage) : 0;
 
     if (intPage < 1 || intPage > (context.sectionCount || context.totalPages || 1)) {
       return;
@@ -679,16 +708,6 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
     });
   };
 
-  const goToHref = async (href: string): Promise<void> => {
-    const sectionCount = context.sectionCount || 0;
-    if (sectionCount <= 0) return;
-
-    const sectionIndex = getSpineIndexForHref(href, context.spine);
-    if (sectionIndex >= 0 && sectionIndex < sectionCount) {
-      await goToPage(sectionIndex + 1);
-    }
-  };
-
   const nextPage = async (): Promise<void> => {
     const container = state.container;
     if (!container) return;
@@ -709,8 +728,8 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
       }
     }
 
-    const next = state.currentPage + 1;
-    if (next > (context.sectionCount || context.totalPages || 1)) return;
+    const next = nextVisiblePage(readingOrder, state.currentPage);
+    if (next < 0 || next > (context.sectionCount || context.totalPages || 1)) return;
     await goToPage(next);
   };
 
@@ -734,7 +753,7 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
       }
     }
 
-    const prev = state.currentPage - 1;
+    const prev = prevVisiblePage(readingOrder, state.currentPage);
     if (prev < 1) return;
     await renderSection(prev - 1, container, {
       ...lastRenderOptions,
@@ -800,7 +819,6 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
     getInstantPreciseProgress,
     applyThemeUpdateAndRestoreAnchor,
     goToPage,
-    goToHref,
     nextPage,
     prevPage,
     scrollBy,

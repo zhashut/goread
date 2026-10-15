@@ -25,6 +25,8 @@ export interface BackendTTSRequest {
   fallbackSectionIndex?: number;
   totalSections?: number;
   readingMode?: 'horizontal' | 'vertical';
+  /** 不参与阅读顺序的章节下标（EPUB3 导航文档等），TTS 需跳过 */
+  hiddenSections?: number[];
 }
 
 /** Provider 取片请求 */

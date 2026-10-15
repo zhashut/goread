@@ -18,6 +18,15 @@ pub struct EpubPrepareResult {
     pub toc: Vec<TocItem>,
     pub section_count: u32,
     pub spine: Vec<String>,
+    /// 不参与阅读顺序的章节下标（EPUB3 导航文档等）
+    pub hidden_sections: Vec<u32>,
+}
+
+/// EPUB 阅读结构解析结果
+#[derive(Debug, Serialize)]
+pub struct EpubReadingStructure {
+    /// 不参与阅读顺序的章节下标（原始 spine 下标）
+    pub hidden_sections: Vec<u32>,
 }
 
 /// 保存章节缓存到磁盘（包含完整的样式和资源引用信息）
@@ -250,6 +259,12 @@ pub async fn epub_prepare_book(
         .await
         .map_err(|e| format!("保存元数据失败: {}", e))?;
 
+    // 隐藏章节（EPUB3 导航文档）只在显示层生效，章节索引保持稳定
+    manager
+        .update_hidden_sections(&book_id, prepared.hidden_sections.clone())
+        .await
+        .map_err(|e| format!("保存隐藏章节失败: {}", e))?;
+
     // 清理同一本书旧指纹的历史缓存，避免占用磁盘空间
     if let Ok(stale) = manager.prune_stale_versions(&book_id).await {
         if stale > 0 {
@@ -265,7 +280,39 @@ pub async fn epub_prepare_book(
         toc: prepared.toc,
         section_count: prepared.section_count,
         spine: prepared.spine,
+        hidden_sections: prepared.hidden_sections,
     })
+}
+
+/// 轻量解析“不参与阅读顺序的章节”，并写回元数据缓存。
+///
+/// 用于旧缓存（元数据缺少 hidden_sections 字段）的一次性补齐：
+/// 只打开 EPUB 读 OPF，不抽取章节 HTML，也不重建任何章节缓存。
+#[tauri::command]
+pub async fn epub_resolve_hidden_sections(
+    file_path: String,
+    book_id: String,
+    state: State<'_, EpubCacheState>,
+) -> Result<EpubReadingStructure, String> {
+    let hidden_sections = task::spawn_blocking(move || -> Result<Vec<u32>, String> {
+        let path = std::path::Path::new(&file_path);
+        if !path.exists() {
+            return Err(format!("EPUB 文件不存在: {}", file_path));
+        }
+        let mut doc = epub::doc::EpubDoc::new(&file_path)
+            .map_err(|e| format!("打开 EPUB 失败: {}", e))?;
+        Ok(crate::formats::epub::nav::resolve_hidden_sections(&mut doc))
+    })
+    .await
+    .map_err(|e| format!("EPUB 结构解析任务失败: {}", e))??;
+
+    // 写回元数据，避免每次打开都重复解析
+    let manager = state.lock().await;
+    manager
+        .update_hidden_sections(&book_id, hidden_sections.clone())
+        .await?;
+
+    Ok(EpubReadingStructure { hidden_sections })
 }
 
 /// 设置 EPUB 磁盘缓存最大容量（MB），由前端下发

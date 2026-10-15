@@ -34,6 +34,10 @@ pub struct EpubPreparedBook {
     pub toc: Vec<TocItem>,
     pub section_count: u32,
     pub spine: Vec<String>,
+/// 不参与阅读顺序的章节下标（EPUB3 导航文档等）。
+    /// 采用「标记而非删除」策略：`spine`/`section_count`/章节索引保持稳定，
+    /// 既有章节缓存与阅读进度不受影响。
+    pub hidden_sections: Vec<u32>,
     pub sections: Vec<PreparedSection>,
     pub resources: Vec<PreparedResource>,
 }
@@ -279,13 +283,52 @@ fn try_raw_fallback<R: std::io::Read + std::io::Seek>(
     String::from_utf8(bytes).ok()
 }
 
+/// 章节所在目录（不含文件名，无目录时为空字符串）
+fn section_dir(section_path: &str) -> &str {
+    match section_path.rfind('/') {
+        Some(pos) => &section_path[..pos],
+        None => "",
+    }
+}
+
+/// 将 epub crate 生成的「同文档锚点」URI 归一为纯锚点。
+///
+/// crate 的 `build_epub_uri` 不区分纯锚点，会把 `href="#fn1"` 改写成
+/// `epub://<章节目录>/#fn1`，导致前端无法识别为章内跳转（脚注/交叉引用点击失效）。
+fn normalize_same_document_anchors(html: &str, section_path: &str) -> String {
+    let base_dir = section_dir(section_path);
+    let anchor_re = match Regex::new(r#"(?i)(href|src)=["']epub://([^"'#]*)#([^"']*)["']"#) {
+        Ok(re) => re,
+        Err(_) => return html.to_string(),
+    };
+
+    anchor_re
+        .replace_all(html, |caps: &regex::Captures| {
+            let attr = &caps[1];
+            let path_part = &caps[2];
+            let fragment = &caps[3];
+            // 仅当归一目标就是当前文档自身时改写：路径部分为空，或等于当前章节目录
+            let is_same_document = path_part.is_empty()
+                || (base_dir.is_empty() && path_part == "/")
+                || path_part.trim_end_matches('/') == base_dir;
+            if is_same_document {
+                format!("{}=\"#{}\"", attr, fragment)
+            } else {
+                caps[0].to_string()
+            }
+        })
+        .into_owned()
+}
+
+/// 判断 epub:// URI 是否为纯锚点（无资源路径），这类 URI 不是资源引用
+fn is_fragment_only_uri(path: &str) -> bool {
+    path.starts_with('#')
+}
+
 /// 基于章节路径将相对资源路径解析为 EPUB 内绝对路径
 fn resolve_relative_path(section_path: &str, relative: &str) -> String {
     // 取章节所在目录
-    let base_dir = match section_path.rfind('/') {
-        Some(pos) => &section_path[..pos],
-        None => "",
-    };
+    let base_dir = section_dir(section_path);
 
     let mut parts: Vec<&str> = if base_dir.is_empty() {
         Vec::new()
@@ -380,6 +423,13 @@ fn extract_sections_and_resources<R: std::io::Read + std::io::Seek>(
             }
         };
 
+        // crate 会把同文档锚点改写成 epub://<章节目录>/#x，先归一回纯锚点
+        let html_raw = if used_epub_uris {
+            normalize_same_document_anchors(&html_raw, &section_path)
+        } else {
+            html_raw
+        };
+
         let mut resource_refs: Vec<String> = Vec::new();
 
         // epub crate 已做 epub:// 前缀替换时直接匹配；
@@ -422,17 +472,24 @@ fn extract_sections_and_resources<R: std::io::Read + std::io::Seek>(
             replaced.into_owned()
         };
 
-        // 收集 HTML 中 epub:// 引用的资源
+        // 收集 HTML 中 epub:// 引用的资源（纯锚点不是资源，跳过避免污染占位符
         for caps in re.captures_iter(&refs_source) {
             if let Some(m) = caps.get(1) {
-                let path = m.as_str().to_string();
-                collect_resource(doc, &path, &mut seen_resources, &mut resources, &mut resource_refs);
+                let path = m.as_str();
+                if is_fragment_only_uri(path) {
+                    continue;
+                }
+                collect_resource(doc, path, &mut seen_resources, &mut resources, &mut resource_refs);
             }
         }
 
         let html = re
             .replace_all(&refs_source, |caps: &regex::Captures| {
-                format!("__EPUB_RES__:{}", &caps[1])
+                let path = &caps[1];
+                if is_fragment_only_uri(path) {
+                    return caps[0].to_string();
+                }
+                format!("__EPUB_RES__:{}", path)
             })
             .into_owned();
 
@@ -481,6 +538,9 @@ pub fn prepare_book(file_path: &str) -> Result<EpubPreparedBook, String> {
 
     let (sections, spine, resources, section_count) = extract_sections_and_resources(&mut doc)?;
 
+    // EPUB3 导航文档不参与阅读顺序（保持原始下标，仅标记隐藏）
+    let hidden_sections = super::nav::resolve_hidden_sections(&mut doc);
+
     // 若 nav/ncx 均无目录，基于 spine 生成伪目录作为最后兜底，保证目录抽屉可用
     let toc = if toc.is_empty() {
         super::nav::build_spine_fallback_toc(&spine)
@@ -493,7 +553,320 @@ pub fn prepare_book(file_path: &str) -> Result<EpubPreparedBook, String> {
         toc,
         section_count,
         spine,
+        hidden_sections,
         sections,
         resources,
     })
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_section_dir() {
+        assert_eq!(section_dir("OEBPS/Text/ch1.xhtml"), "OEBPS/Text");
+        assert_eq!(section_dir("ch1.xhtml"), "");
+    }
+
+    #[test]
+    fn test_normalize_same_document_anchors() {
+        // crate 会把纯锚点拼到章节目录上，需要归一
+        let html = r#"<p><a href="epub://OEBPS/#fn1">1</a><a href="epub://#fn2">2</a></p>"#;
+        let fixed = normalize_same_document_anchors(html, "OEBPS/ch1.xhtml");
+        assert!(fixed.contains(r##"href="#fn1""##));
+        assert!(fixed.contains(r##"href="#fn2""##));
+        assert!(!fixed.contains("epub://"));
+    }
+
+    #[test]
+    fn test_normalize_keeps_cross_document_links() {
+        // 跨文档链接（含同目录其它文件）必须保持原样
+        let html = r#"<a href="epub://OEBPS/ch2.xhtml#sec">2</a><img src="epub://OEBPS/img/a.png"/>"#;
+        let fixed = normalize_same_document_anchors(html, "OEBPS/ch1.xhtml");
+        assert_eq!(fixed, html);
+    }
+
+    #[test]
+    fn test_normalize_keeps_subdir_cross_document_links() {
+        // 不同目录的文件不能因为“目录不匹配”被误改，同时子目录自身锚点要归一
+        let html = r#"<a href="epub://OEBPS/Text/ch3.xhtml#x">3</a><a href="epub://OEBPS/Text/#y">y</a>"#;
+        let fixed = normalize_same_document_anchors(html, "OEBPS/Text/ch2.xhtml");
+        assert!(fixed.contains(r##"href="epub://OEBPS/Text/ch3.xhtml#x""##));
+        assert!(fixed.contains(r##"href="#y""##));
+    }
+
+    #[test]
+    fn test_is_fragment_only_uri() {
+        assert!(is_fragment_only_uri("#fn1"));
+        assert!(!is_fragment_only_uri("OEBPS/ch1.xhtml#fn1"));
+        assert!(!is_fragment_only_uri("OEBPS/img/a.png"));
+    }
+
+    // ==================== 端到端：导航文档隐藏 + 锚点归一 ====================
+
+    /// 计算 ZIP 校验用 CRC32（测试构造最小 EPUB 时使用，避免引入额外依赖）
+    fn crc32(data: &[u8]) -> u32 {
+        let mut crc = 0xFFFF_FFFFu32;
+        for byte in data {
+            let mut c = (crc ^ *byte as u32) & 0xFF;
+            for _ in 0..8 {
+                c = if c & 1 != 0 { 0xEDB8_8320 ^ (c >> 1) } else { c >> 1 };
+            }
+            crc = c ^ (crc >> 8);
+        }
+        crc ^ 0xFFFF_FFFF
+    }
+
+    fn push_u16(buf: &mut Vec<u8>, value: u16) {
+        buf.extend_from_slice(&value.to_le_bytes());
+    }
+
+    fn push_u32(buf: &mut Vec<u8>, value: u32) {
+        buf.extend_from_slice(&value.to_le_bytes());
+    }
+
+    /// 构造最小 EPUB（全部 stored 不压缩），仅用于测试
+    fn build_epub_bytes(entries: &[(&str, &str)]) -> Vec<u8> {
+        let mut out: Vec<u8> = Vec::new();
+        let mut central: Vec<(u32, u32, u32, String)> = Vec::new();
+
+        for (name, content) in entries {
+            let offset = out.len() as u32;
+            let data = content.as_bytes();
+            let crc = crc32(data);
+
+            push_u32(&mut out, 0x0403_4B50); // 本地文件头
+            push_u16(&mut out, 20);
+            push_u16(&mut out, 0);
+            push_u16(&mut out, 0); // stored
+            push_u16(&mut out, 0);
+            push_u16(&mut out, 0);
+            push_u32(&mut out, crc);
+            push_u32(&mut out, data.len() as u32);
+            push_u32(&mut out, data.len() as u32);
+            push_u16(&mut out, name.len() as u16);
+            push_u16(&mut out, 0);
+            out.extend_from_slice(name.as_bytes());
+            out.extend_from_slice(data);
+
+            central.push((crc, data.len() as u32, offset, (*name).to_string()));
+        }
+
+        let central_offset = out.len() as u32;
+        for (crc, size, offset, name) in &central {
+            push_u32(&mut out, 0x0201_4B50); // 中央目录头
+            push_u16(&mut out, 20);
+            push_u16(&mut out, 20);
+            push_u16(&mut out, 0);
+            push_u16(&mut out, 0);
+            push_u16(&mut out, 0);
+            push_u16(&mut out, 0);
+            push_u32(&mut out, *crc);
+            push_u32(&mut out, *size);
+            push_u32(&mut out, *size);
+            push_u16(&mut out, name.len() as u16);
+            push_u16(&mut out, 0);
+            push_u16(&mut out, 0);
+            push_u16(&mut out, 0);
+            push_u16(&mut out, 0);
+            push_u32(&mut out, 0);
+            push_u32(&mut out, *offset);
+            out.extend_from_slice(name.as_bytes());
+        }
+        let central_size = out.len() as u32 - central_offset;
+
+        push_u32(&mut out, 0x0605_4B50); // EOCD
+        push_u16(&mut out, 0);
+        push_u16(&mut out, 0);
+        push_u16(&mut out, central.len() as u16);
+        push_u16(&mut out, central.len() as u16);
+        push_u32(&mut out, central_size);
+        push_u32(&mut out, central_offset);
+        push_u16(&mut out, 0);
+        out
+    }
+
+    fn write_temp_epub(tag: &str, entries: &[(&str, &str)]) -> std::path::PathBuf {
+        let file_path = std::env::temp_dir().join(format!(
+            "goread_{}_{}.epub",
+            tag,
+            std::process::id()
+        ));
+        std::fs::write(&file_path, build_epub_bytes(entries)).expect("写入测试 EPUB 失败");
+        file_path
+    }
+
+    fn container_xml() -> &'static str {
+        r#"<?xml version="1.0"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+</container>"#
+    }
+
+    fn opf_xml(epub_version: &str, nav_in_spine: bool, nav_linear: &str) -> String {
+        let nav_itemref = if nav_in_spine {
+            format!(r#"<itemref idref="nav" linear="{}"/>"#, nav_linear)
+        } else {
+            String::new()
+        };
+        format!(
+            r#"<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="{version}" unique-identifier="bookid">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="bookid">urn:uuid:test-{version}</dc:identifier>
+    <dc:title>Probe</dc:title>
+    <dc:language>zh</dc:language>
+  </metadata>
+  <manifest>
+    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+    <item id="ch1" href="ch1.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine>{nav_itemref}<itemref idref="ch1"/></spine>
+</package>"#,
+            version = epub_version,
+            nav_itemref = nav_itemref,
+        )
+    }
+
+    fn nav_xhtml() -> &'static str {
+        r#"<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<head><title>目录</title></head>
+<body><nav epub:type="toc" id="toc"><ol><li><a href="ch1.xhtml">第一章</a></li></ol></nav></body>
+</html>"#
+    }
+
+    fn ch1_xhtml() -> &'static str {
+        r##"<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<head><title>第一章</title></head>
+<body>
+<h1>第一章</h1>
+<p>正文<a epub:type="noteref" href="#fn1">1</a>继续。</p>
+<aside epub:type="footnote" id="fn1"><p>脚注内容</p></aside>
+</body>
+</html>"##
+    }
+
+    #[test]
+    fn test_prepare_book_marks_nav_hidden_and_keeps_index_stable() {
+        let opf = opf_xml("3.0", true, "yes");
+        let path = write_temp_epub(
+            "epub3_nav_spine",
+            &[
+                ("mimetype", "application/epub+zip"),
+                ("META-INF/container.xml", container_xml()),
+                ("OEBPS/content.opf", &opf),
+                ("OEBPS/nav.xhtml", nav_xhtml()),
+                ("OEBPS/ch1.xhtml", ch1_xhtml()),
+            ],
+        );
+
+        let prepared = prepare_book(path.to_str().unwrap()).expect("解析 EPUB3 失败");
+        let _ = std::fs::remove_file(&path);
+
+        // 索引保持稳定：章节数与 spine 完整保留导航文档
+        assert_eq!(prepared.section_count, 2);
+        assert_eq!(
+            prepared.spine,
+            vec!["OEBPS/nav.xhtml".to_string(), "OEBPS/ch1.xhtml".to_string()]
+        );
+        assert_eq!(prepared.hidden_sections, vec![0]);
+        assert_eq!(prepared.sections.len(), 2);
+
+        // 同文档锚点被归一，且不再作为资源引用污染 resource_refs
+        let ch1 = prepared
+            .sections
+            .iter()
+            .find(|s| s.path.ends_with("ch1.xhtml"))
+            .expect("缺少 ch1 章节");
+        assert!(ch1.html.contains(r##"href="#fn1""##), "锚点未归一: {}", ch1.html);
+        assert!(!ch1.html.contains("__EPUB_RES__:OEBPS/#fn1"), "锚点被误当资源");
+        assert!(
+            !ch1.resource_refs.iter().any(|r| r.contains('#')),
+            "resource_refs 含锚点垃圾: {:?}",
+            ch1.resource_refs
+        );
+    }
+
+    #[test]
+    fn test_prepare_book_epub2_never_hides_sections() {
+        // EPUB2：即使 spine 里存在名为 nav.xhtml 且 linear="no" 的项，也不能隐藏
+        let opf = opf_xml("2.0", true, "no");
+        let path = write_temp_epub(
+            "epub2_guard",
+            &[
+                ("mimetype", "application/epub+zip"),
+                ("META-INF/container.xml", container_xml()),
+                ("OEBPS/content.opf", &opf),
+                ("OEBPS/nav.xhtml", nav_xhtml()),
+                ("OEBPS/ch1.xhtml", ch1_xhtml()),
+            ],
+        );
+
+        let prepared = prepare_book(path.to_str().unwrap()).expect("解析 EPUB2 失败");
+        let _ = std::fs::remove_file(&path);
+
+        assert_eq!(prepared.section_count, 2);
+        assert!(
+            prepared.hidden_sections.is_empty(),
+            "EPUB2 不应隐藏任何章节: {:?}",
+            prepared.hidden_sections
+        );
+    }
+
+    #[test]
+    fn test_prepare_book_heuristic_nav_without_properties() {
+        // OPF 未声明 properties="nav" 时，文件名启发式 + linear="no" 仍应识别为导航文档
+        let opf = r#"<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:identifier id="bookid">urn:uuid:test-heuristic</dc:identifier>
+    <dc:title>Probe</dc:title>
+  </metadata>
+  <manifest>
+    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml"/>
+    <item id="ch1" href="ch1.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine><itemref idref="nav" linear="no"/><itemref idref="ch1"/></spine>
+</package>"#;
+        let path = write_temp_epub(
+            "epub3_heuristic",
+            &[
+                ("mimetype", "application/epub+zip"),
+                ("META-INF/container.xml", container_xml()),
+                ("OEBPS/content.opf", opf),
+                ("OEBPS/nav.xhtml", nav_xhtml()),
+                ("OEBPS/ch1.xhtml", ch1_xhtml()),
+            ],
+        );
+
+        let prepared = prepare_book(path.to_str().unwrap()).expect("解析 EPUB3 失败");
+        let _ = std::fs::remove_file(&path);
+
+        assert_eq!(prepared.section_count, 2);
+        assert_eq!(prepared.hidden_sections, vec![0]);
+    }
+
+    #[test]
+    fn test_prepare_book_nav_outside_spine_hides_nothing() {
+        let opf = opf_xml("3.0", false, "yes");
+        let path = write_temp_epub(
+            "epub3_nav_outside",
+            &[
+                ("mimetype", "application/epub+zip"),
+                ("META-INF/container.xml", container_xml()),
+                ("OEBPS/content.opf", &opf),
+                ("OEBPS/nav.xhtml", nav_xhtml()),
+                ("OEBPS/ch1.xhtml", ch1_xhtml()),
+            ],
+        );
+
+        let prepared = prepare_book(path.to_str().unwrap()).expect("解析 EPUB3 失败");
+        let _ = std::fs::remove_file(&path);
+
+        assert_eq!(prepared.section_count, 1);
+        assert_eq!(prepared.spine, vec!["OEBPS/ch1.xhtml".to_string()]);
+        assert!(prepared.hidden_sections.is_empty());
+    }
 }

@@ -1,14 +1,23 @@
-//! EPUB3 导航文档（nav.xhtml）目录解析
+//! EPUB3 导航文档（nav.xhtml / nav.html）目录解析
 //!
 //! 背景：部分 EPUB3 书籍仅包含 nav.xhtml 而不含 toc.ncx，
 //! 当前依赖的 `epub` crate 仅解析 NCX，导致这类书目录为空。
-//! 本模块自行读取 OPF，定位 `properties="nav"` 的导航文档，
+//! 本模块读取 manifest 中 `properties="nav"` 的导航文档，
 //! 解析其中 `<nav epub:type="toc">` 的 `<ol>/<li>` 结构为 TocItem 树。
+//!
+//! 另外，导航文档常被出版商放进 `spine`（规范允许），若按 spine 顺序渲染
+//! 就会在正文里多出一页目录。本模块同时提供 `resolve_hidden_sections`，
+//! 把这类导航文档标记为“不参与阅读顺序”。
 
-use epub::doc::EpubDoc;
+use std::collections::HashSet;
+
+use epub::doc::{EpubDoc, EpubVersion};
 use regex::Regex;
 
 use super::TocItem;
+
+/// 兜底识别导航文档时比较的文件名主干（不含扩展名）
+const NAV_FILENAME_STEMS: [&str; 3] = ["nav", "toc", "contents"];
 
 /// 单条目录解析结果
 struct NavEntry {
@@ -66,23 +75,149 @@ fn locate_nav_path<R: std::io::Read + std::io::Seek>(doc: &mut EpubDoc<R>) -> Op
     locate_nav_by_scan(doc)
 }
 
-/// 通过解析 OPF 的 manifest 定位 nav item
-fn locate_nav_from_opf<R: std::io::Read + std::io::Seek>(doc: &mut EpubDoc<R>) -> Option<String> {
-    let root_file = doc.root_file.to_string_lossy().to_string();
-    let opf_bytes = doc.get_resource_by_path(&root_file)?;
-    let opf_text = String::from_utf8(opf_bytes).ok()?;
+/// 通过 manifest 定位 nav item（EPUB3 用 `properties="nav"` 声明，epub crate 已解析该属性）
+fn locate_nav_from_opf<R: std::io::Read + std::io::Seek>(doc: &EpubDoc<R>) -> Option<String> {
+    authoritative_nav_paths(doc).into_iter().next()
+}
 
-    let item_re = Regex::new(r#"(?is)<item\b([^>]*)/?>"#).ok()?;
-    for caps in item_re.captures_iter(&opf_text) {
-        let attrs = &caps[1];
-        if !attr_contains_nav_property(attrs) {
+/// 收集 manifest 中声明 `properties="nav"` 的导航文档路径（权威判定）
+pub fn authoritative_nav_paths<R: std::io::Read + std::io::Seek>(
+    doc: &EpubDoc<R>,
+) -> Vec<String> {
+    let mut paths: Vec<String> = doc
+        .resources
+        .values()
+        .filter(|item| has_nav_property(item.properties.as_deref()))
+        .map(|item| normalize_package_path(&item.path.to_string_lossy()))
+        .collect();
+    paths.sort();
+    paths.dedup();
+    paths
+}
+
+/// 判断 manifest item 的 properties 是否声明了 nav 角色
+fn has_nav_property(properties: Option<&str>) -> bool {
+    properties.map_or(false, |props| {
+        props.split_whitespace().any(|t| t.eq_ignore_ascii_case("nav"))
+    })
+}
+
+/// 包内路径统一使用 `/` 分隔，避免平台差异导致比较失败
+fn normalize_package_path(path: &str) -> String {
+    path.replace('\\', "/")
+}
+
+/// 解析需要从阅读顺序中隐藏的 spine 下标。
+///
+/// 判定顺序（仅对 EPUB3 生效，EPUB2 书籍一律返回空，保证既有阅读行为完全不变）：
+/// 1. manifest `properties` 含 nav（权威，无视 `linear` 标记）；
+/// 2. OPF 未声明 nav 时退化：文件名像导航文档、或内容含 `<nav epub:type="toc">`，
+///    且该 spine 项标记为 `linear="no"`（避免误伤作者刻意放进正文的目录页）。
+///
+/// 返回值为**原始 spine 下标**：章节索引保持稳定，既有章节缓存与阅读进度不受影响。
+pub fn resolve_hidden_sections<R: std::io::Read + std::io::Seek>(
+    doc: &mut EpubDoc<R>,
+) -> Vec<u32> {
+    // EPUB2 不存在 EPUB3 导航文档语义，直接跳过
+    if !is_epub3(doc) {
+        return Vec::new();
+    }
+
+    let authoritative: HashSet<String> = authoritative_nav_paths(doc).into_iter().collect();
+    // 启发式仅在 OPF 未声明 nav 时启用
+    let heuristic: HashSet<String> = if authoritative.is_empty() {
+        heuristic_nav_paths(doc).into_iter().collect()
+    } else {
+        HashSet::new()
+    };
+
+    if authoritative.is_empty() && heuristic.is_empty() {
+        return Vec::new();
+    }
+
+    spine_resource_paths(doc)
+        .iter()
+        .enumerate()
+        .filter_map(|(index, (path, linear))| {
+            let hidden = authoritative.contains(path)
+                || (!linear && heuristic.contains(path));
+            if hidden {
+                Some(index as u32)
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+/// 是否为 EPUB3 版本（3.x 或声明为 3.x 的未知版本）
+fn is_epub3<R: std::io::Read + std::io::Seek>(doc: &EpubDoc<R>) -> bool {
+    match &doc.version {
+        EpubVersion::Version3_0 => true,
+        EpubVersion::Unknown(v) => v.trim().starts_with('3'),
+        _ => false,
+    }
+}
+
+/// 按 spine 顺序返回 (包内绝对路径, linear 标记)
+fn spine_resource_paths<R: std::io::Read + std::io::Seek>(doc: &EpubDoc<R>) -> Vec<(String, bool)> {
+    doc.spine
+        .iter()
+        .map(|item| {
+            let path = doc
+                .resources
+                .get(&item.idref)
+                .map(|res| normalize_package_path(&res.path.to_string_lossy()))
+                .unwrap_or_default();
+            (path, item.linear)
+        })
+        .collect()
+}
+
+/// 启发式导航文档路径：文件名候选，其次对 spine 中 `linear="no"` 的 HTML 做内容扫描
+fn heuristic_nav_paths<R: std::io::Read + std::io::Seek>(doc: &mut EpubDoc<R>) -> Vec<String> {
+    let spine_paths = spine_resource_paths(doc);
+
+    let by_name: Vec<String> = spine_paths
+        .iter()
+        .filter(|(path, _)| is_html_path(path) && looks_like_nav_filename(path))
+        .map(|(path, _)| path.clone())
+        .collect();
+    if !by_name.is_empty() {
+        return by_name;
+    }
+
+    // 内容扫描只针对可能被隐藏的项（linear="no"），避免全量读取开销
+    for (path, linear) in spine_paths.iter() {
+        if *linear || !is_html_path(path) {
             continue;
         }
-        let href = extract_attr(attrs, "href")?;
-        let base_dir = opf_base_dir(&root_file);
-        return Some(join_package_path(&base_dir, &href));
+        let Some(bytes) = doc.get_resource_by_path(path) else {
+            continue;
+        };
+        let Ok(text) = String::from_utf8(bytes) else {
+            continue;
+        };
+        if contains_toc_nav(&text) {
+            return vec![path.clone()];
+        }
     }
-    None
+    Vec::new()
+}
+
+/// 文件名是否像导航文档（仅比较主干名，忽略大小写）
+fn looks_like_nav_filename(path: &str) -> bool {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    let stem = name.rsplit_once('.').map(|(s, _)| s).unwrap_or(name);
+    NAV_FILENAME_STEMS
+        .iter()
+        .any(|candidate| stem.eq_ignore_ascii_case(candidate))
+}
+
+/// 是否为 HTML/XHTML 内容文档
+fn is_html_path(path: &str) -> bool {
+    let lower = path.to_lowercase();
+    lower.ends_with(".xhtml") || lower.ends_with(".html") || lower.ends_with(".htm")
 }
 
 /// 扫描资源列表，寻找包含导航 nav 节点的 xhtml
@@ -111,16 +246,6 @@ fn locate_nav_by_scan<R: std::io::Read + std::io::Seek>(doc: &mut EpubDoc<R>) ->
         }
     }
     None
-}
-
-/// 判断 item 属性串是否声明了 nav 角色
-fn attr_contains_nav_property(attrs: &str) -> bool {
-    let Some(props) = extract_attr(attrs, "properties") else {
-        return false;
-    };
-    props
-        .split_whitespace()
-        .any(|token| token.eq_ignore_ascii_case("nav"))
 }
 
 /// 从属性字符串中提取指定属性的值，兼容单双引号
@@ -639,5 +764,39 @@ mod tests {
         assert_eq!(toc.len(), 2);
         assert_eq!(toc[0].title.as_deref(), Some("ch1"));
         assert_eq!(toc[0].location.as_deref(), Some("OEBPS/ch1.xhtml"));
+    }
+
+    #[test]
+    fn test_nav_property_detection() {
+        assert!(has_nav_property(Some("nav")));
+        assert!(has_nav_property(Some("nav scripted")));
+        assert!(has_nav_property(Some("NAV")));
+        assert!(!has_nav_property(Some("scripted")));
+        assert!(!has_nav_property(None));
+    }
+
+    #[test]
+    fn test_looks_like_nav_filename() {
+        assert!(looks_like_nav_filename("OEBPS/nav.xhtml"));
+        assert!(looks_like_nav_filename("nav.html"));
+        assert!(looks_like_nav_filename("OEBPS/Toc.xhtml"));
+        assert!(looks_like_nav_filename("OEBPS/contents.html"));
+        assert!(!looks_like_nav_filename("OEBPS/navigation-guide.xhtml"));
+        assert!(!looks_like_nav_filename("OEBPS/ch1.xhtml"));
+    }
+
+    #[test]
+    fn test_is_html_path() {
+        assert!(is_html_path("OEBPS/ch1.xhtml"));
+        assert!(is_html_path("OEBPS/ch1.HTML"));
+        assert!(is_html_path("ch1.htm"));
+        assert!(!is_html_path("OEBPS/toc.ncx"));
+        assert!(!is_html_path("OEBPS/style.css"));
+    }
+
+    #[test]
+    fn test_normalize_package_path() {
+        assert_eq!(normalize_package_path("OEBPS\\Text\\a.xhtml"), "OEBPS/Text/a.xhtml");
+        assert_eq!(normalize_package_path("OEBPS/a.xhtml"), "OEBPS/a.xhtml");
     }
 }

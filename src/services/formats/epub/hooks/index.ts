@@ -13,6 +13,15 @@ export {
   type EpubResourceHook,
 } from './useEpubResource';
 
+// 阅读顺序（EPUB3 导航文档隐藏）
+export {
+  createEpubReadingOrder,
+  nearestVisiblePage,
+  nextVisiblePage,
+  prevVisiblePage,
+  type EpubReadingOrder,
+} from './readingOrder';
+
 // 导航 Hook
 export {
   useEpubNavigation,
