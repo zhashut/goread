@@ -36,8 +36,8 @@ pub async fn get_segments<R: Runtime>(
     let max_segments = req.max_segments.max(1);
 
     // 不参与阅读顺序的章节（如 EPUB3 导航文档）不朗读
-    let skip_sections: std::collections::HashSet<i32> = req
-        .skip_sections
+    let hidden_sections: std::collections::HashSet<i32> = req
+        .hidden_sections
         .as_ref()
         .map(|list| list.iter().copied().collect())
         .unwrap_or_default();
@@ -63,7 +63,7 @@ pub async fn get_segments<R: Runtime>(
         }
 
         // 跳过隐藏章节：不消耗批次配额，也不产生 segments
-        if skip_sections.contains(&section_index) {
+        if hidden_sections.contains(&section_index) {
             section_index += 1;
             next_section = section_index;
             next_chunk = 0;

@@ -16,7 +16,9 @@ export {
 // 阅读顺序（EPUB3 导航文档隐藏）
 export {
   createEpubReadingOrder,
-  mayContainNavigationDocument,
+  nearestVisiblePage,
+  nextVisiblePage,
+  prevVisiblePage,
   type EpubReadingOrder,
 } from './readingOrder';
 

@@ -11,13 +11,11 @@
 
 import { TocItem } from '../../types';
 import { getSpineIndexForHref } from './tocMapping';
+import { fromResourcePlaceholder } from '../cache/types';
 
 /** 锚点定位重试间隔与次数：跨章节跳转后目标 DOM 可能尚未渲染完成 */
 const ANCHOR_RETRY_DELAY_MS = 200;
 const ANCHOR_MAX_RETRY = 6;
-
-/** 资源占位符前缀（与 cache/types.ts 保持一致，避免循环依赖此处直接内联） */
-const RESOURCE_PLACEHOLDER_PREFIX = '__EPUB_RES__:';
 
 /** 导航上下文 */
 export interface NavigationContext {
@@ -61,10 +59,8 @@ export function normalizeAnchorHref(href: string): string {
   const beforeHash = href.slice(0, hashIndex);
   if (beforeHash === '') return href;
 
-  let stripped: string | null = null;
-  if (beforeHash.startsWith(RESOURCE_PLACEHOLDER_PREFIX)) {
-    stripped = beforeHash.slice(RESOURCE_PLACEHOLDER_PREFIX.length);
-  } else if (beforeHash.startsWith('epub://')) {
+  let stripped: string | null = fromResourcePlaceholder(beforeHash);
+  if (stripped === null && beforeHash.startsWith('epub://')) {
     stripped = beforeHash.slice('epub://'.length);
   }
   if (stripped === null) return href;

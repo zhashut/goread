@@ -13,11 +13,14 @@
 export interface EpubReadingOrder {
   /** 该章节是否参与阅读顺序 */
   isVisible(sectionIndex: number): boolean;
-  /** 下一个可见章节，不存在时返回 -1 */
+  /** 下一个可见章节；已知总章节数且已到末尾时返回 -1 */
   nextVisible(sectionIndex: number): number;
-  /** 上一个可见章节，不存在时返回 -1 */
+  /** 上一个可见章节；已在开头时返回 -1 */
   prevVisible(sectionIndex: number): number;
-  /** 距该下标最近的可见章节；全部隐藏时返回原值（由调用方兜底） */
+  /**
+   * 距该下标最近的可见章节。
+   * 全部隐藏或越界时返回原值，由调用方按章节总数兜底。
+   */
   nearestVisible(sectionIndex: number): number;
 }
 
@@ -25,7 +28,8 @@ export interface EpubReadingOrder {
  * 创建阅读顺序视图。
  *
  * @param hiddenSections 不参与阅读顺序的章节下标（原始 spine 下标）
- * @param sectionCount   书籍总章节数（原始 spine 长度），用于剔除越界的隐藏下标
+ * @param sectionCount   书籍总章节数（原始 spine 长度）；提供后可剔除越界下标，
+ *                       并让 `nextVisible` 在末尾返回 -1
  */
 export function createEpubReadingOrder(
   hiddenSections?: readonly number[] | null,
@@ -41,11 +45,15 @@ export function createEpubReadingOrder(
     ),
   ).sort((a, b) => a - b);
 
+  /** 越界（末尾之后）统一返回 -1，仅当已知总章节数时判定 */
+  const clampNext = (cursor: number): number =>
+    total > 0 && cursor >= total ? -1 : cursor;
+
   // 恒等快路径：EPUB2 等无隐藏章节的书籍，行为与改造前完全一致
   if (hidden.length === 0) {
     return {
       isVisible: () => true,
-      nextVisible: (sectionIndex) => sectionIndex + 1,
+      nextVisible: (sectionIndex) => clampNext(sectionIndex + 1),
       prevVisible: (sectionIndex) => (sectionIndex > 0 ? sectionIndex - 1 : -1),
       nearestVisible: (sectionIndex) => sectionIndex,
     };
@@ -56,7 +64,7 @@ export function createEpubReadingOrder(
   const nextVisible = (sectionIndex: number): number => {
     let cursor = sectionIndex + 1;
     while (hiddenSet.has(cursor)) cursor += 1;
-    return cursor;
+    return clampNext(cursor);
   };
 
   const prevVisible = (sectionIndex: number): number => {
@@ -71,31 +79,37 @@ export function createEpubReadingOrder(
     prevVisible,
     nearestVisible: (sectionIndex) => {
       if (!hiddenSet.has(sectionIndex)) return sectionIndex;
+      // 优先向后吸附；后面已无可见章节（如导航文档位于书末）时回退向前
       const next = nextVisible(sectionIndex);
-      if (!hiddenSet.has(next)) return next;
+      if (next >= 0) return next;
       const prev = prevVisible(sectionIndex);
       return prev >= 0 ? prev : sectionIndex;
     },
   };
 }
 
-/** 导航文档常见的文件名主干（不含扩展名） */
-const NAV_FILENAME_STEMS = ["nav", "toc", "contents"];
+// ========== 页码视图（页码 = 章节索引 + 1，纵向/横向渲染 hook 共用） ==========
 
-/**
- * 零成本预筛：spine 中是否存在“看起来像导航文档”的 HTML 文件。
- *
- * 仅用于判断是否需要向后端确认隐藏章节（命中不代表一定是导航文档），
- * 绝大多数 EPUB2 书籍不会命中，因此可以完全跳过额外解析。
- */
-export function mayContainNavigationDocument(
-  spine?: readonly string[] | null,
-): boolean {
-  if (!spine || spine.length === 0) return false;
-  return spine.some((path) => {
-    const name = path.split("/").pop() ?? "";
-    const dot = name.lastIndexOf(".");
-    const stem = dot > 0 ? name.slice(0, dot) : name;
-    return NAV_FILENAME_STEMS.includes(stem.toLowerCase());
-  });
-}
+/** 最近的可见页码；整体隐藏时回退到第 1 页 */
+export const nearestVisiblePage = (
+  order: EpubReadingOrder,
+  page: number,
+): number => Math.max(1, order.nearestVisible(page - 1) + 1);
+
+/** 下一个可见页码；无下一页时返回 -1 */
+export const nextVisiblePage = (
+  order: EpubReadingOrder,
+  page: number,
+): number => {
+  const next = order.nextVisible(page - 1);
+  return next < 0 ? -1 : next + 1;
+};
+
+/** 上一个可见页码；无上一页时返回 -1 */
+export const prevVisiblePage = (
+  order: EpubReadingOrder,
+  page: number,
+): number => {
+  const prev = order.prevVisible(page - 1);
+  return prev < 0 ? -1 : prev + 1;
+};

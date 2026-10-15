@@ -729,12 +729,19 @@ impl EpubCacheManager {
         };
 
         let meta_path = cache_dir.join(format!("{}.json", book_hash));
-        let meta_json = serde_json::to_string(&entry)
+        Self::write_metadata_entry(&meta_path, &entry).await
+    }
+
+    /// 将元数据条目序列化写入磁盘（save_metadata / update_hidden_sections 共用）
+    async fn write_metadata_entry(
+        meta_path: &std::path::Path,
+        entry: &MetadataCacheEntry,
+    ) -> Result<(), String> {
+        let meta_json = serde_json::to_string(entry)
             .map_err(|e| format!("序列化元数据失败: {}", e))?;
-        fs::write(&meta_path, meta_json)
+        fs::write(meta_path, meta_json)
             .await
             .map_err(|e| format!("写入元数据缓存失败: {}", e))?;
-
         Ok(())
     }
 
@@ -761,13 +768,7 @@ impl EpubCacheManager {
 
         entry.hidden_sections = Some(hidden_sections);
 
-        let updated_json = serde_json::to_string(&entry)
-            .map_err(|e| format!("序列化元数据失败: {}", e))?;
-        fs::write(&meta_path, updated_json)
-            .await
-            .map_err(|e| format!("写入元数据缓存失败: {}", e))?;
-
-        Ok(())
+        Self::write_metadata_entry(&meta_path, &entry).await
     }
 
     /// 从磁盘加载书籍元数据

@@ -11,9 +11,12 @@ import {
 import { epubCacheService } from '../epubCacheService';
 import { EpubThemeHook } from './useEpubTheme';
 import { EpubResourceHook } from './useEpubResource';
-import { getTocHrefForSection, getSpineIndexForHref } from './tocMapping';
+import { getTocHrefForSection } from './tocMapping';
 import {
   createEpubReadingOrder,
+  nearestVisiblePage,
+  nextVisiblePage,
+  prevVisiblePage,
   type EpubReadingOrder,
 } from './readingOrder';
 import { extractBodyContent, normalizeBookCssForShadow } from '../../../../utils/htmlUtils';
@@ -55,7 +58,6 @@ export interface HorizontalRenderHook {
   getInstantPreciseProgress: () => number;
   applyThemeUpdateAndRestoreAnchor: (options?: RenderOptions) => Promise<boolean>;
   goToPage: (page: number) => Promise<void>;
-  goToHref: (href: string) => Promise<void>;
   nextPage: () => Promise<void>;
   prevPage: () => Promise<void>;
   scrollBy: (deltaY: number) => void;
@@ -73,17 +75,6 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
   const MAX_RATIO = 0.999999;
   /** 阅读顺序：隐藏章节不参与翻页（缺省为恒等映射） */
   const readingOrder: EpubReadingOrder = context.readingOrder ?? createEpubReadingOrder([]);
-  /** 页码（1-based）↔ 章节索引（0-based）互转，避免各处出现越界偏差 */
-  const nearestVisiblePage = (page: number): number =>
-    readingOrder.nearestVisible(page - 1) + 1;
-  const nextVisiblePage = (page: number): number => {
-    const next = readingOrder.nextVisible(page - 1);
-    return next < 0 ? -1 : next + 1;
-  };
-  const prevVisiblePage = (page: number): number => {
-    const prev = readingOrder.prevVisible(page - 1);
-    return prev < 0 ? -1 : prev + 1;
-  };
   let lastRenderOptions: RenderOptions | undefined;
   let resizeObserver: ResizeObserver | null = null;
   let isSnapping = false;
@@ -571,7 +562,7 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
       context.sectionCount > 0 ? context.sectionCount : context.totalPages || 1,
     );
     // 初始页为隐藏章节（如旧进度停在被隐藏的导航页）时吸附到最近可见页
-    const snappedPage = nearestVisiblePage(clampedPage);
+    const snappedPage = nearestVisiblePage(readingOrder, clampedPage);
     // 发生吸附时丢弃原精确进度，避免把隐藏页写回阅读进度
     const progressToEmit =
       snappedPage === clampedPage &&
@@ -689,7 +680,7 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
     const requestedPage = Math.floor(page);
 
     // 目标是隐藏章节时吸附到最近可见章节（偏移量随章节变化而丢弃）
-    const snappedPage = nearestVisiblePage(requestedPage);
+    const snappedPage = nearestVisiblePage(readingOrder, requestedPage);
     const intPage = snappedPage;
     const ratio = snappedPage === requestedPage ? clampRatio(page - requestedPage) : 0;
 
@@ -717,16 +708,6 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
     });
   };
 
-  const goToHref = async (href: string): Promise<void> => {
-    const sectionCount = context.sectionCount || 0;
-    if (sectionCount <= 0) return;
-
-    const sectionIndex = getSpineIndexForHref(href, context.spine);
-    if (sectionIndex >= 0 && sectionIndex < sectionCount) {
-      await goToPage(sectionIndex + 1);
-    }
-  };
-
   const nextPage = async (): Promise<void> => {
     const container = state.container;
     if (!container) return;
@@ -747,7 +728,7 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
       }
     }
 
-    const next = nextVisiblePage(state.currentPage);
+    const next = nextVisiblePage(readingOrder, state.currentPage);
     if (next < 0 || next > (context.sectionCount || context.totalPages || 1)) return;
     await goToPage(next);
   };
@@ -772,7 +753,7 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
       }
     }
 
-    const prev = prevVisiblePage(state.currentPage);
+    const prev = prevVisiblePage(readingOrder, state.currentPage);
     if (prev < 1) return;
     await renderSection(prev - 1, container, {
       ...lastRenderOptions,
@@ -838,7 +819,6 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
     getInstantPreciseProgress,
     applyThemeUpdateAndRestoreAnchor,
     goToPage,
-    goToHref,
     nextPage,
     prevPage,
     scrollBy,

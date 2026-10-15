@@ -18,6 +18,7 @@ import { createDividerEl, toggleDividerVisibility, updateDividerStyle } from '..
 import { getTocHrefForSection } from './tocMapping';
 import {
   createEpubReadingOrder,
+  nearestVisiblePage,
   type EpubReadingOrder,
 } from './readingOrder';
 import { extractBodyContent, normalizeBookCssForShadow } from '../../../../utils/htmlUtils';
@@ -125,9 +126,6 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
   let navigationHook: EpubNavigationHook | null = null;
   /** 阅读顺序：隐藏章节不渲染、不参与滚动定位（缺省为恒等映射） */
   const readingOrder: EpubReadingOrder = context.readingOrder ?? createEpubReadingOrder([]);
-  /** 页码（1-based）↔ 章节索引（0-based）互转，避免各处出现越界偏差 */
-  const nearestVisiblePage = (page: number): number =>
-    readingOrder.nearestVisible(page - 1) + 1;
   const wrapperHeightRafIds = new Map<number, number[]>();
   const wrapperResizeObservers = new Map<number, ResizeObserver>();
   const wrapperImageCleanupFns = new Map<number, Array<() => void>>();
@@ -716,7 +714,7 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
     const requestedPage = Math.floor(page);
 
     // 目标是隐藏章节时吸附到最近可见章节（偏移量随章节变化而丢弃）
-    const snappedPage = nearestVisiblePage(requestedPage);
+    const snappedPage = nearestVisiblePage(readingOrder, requestedPage);
     const intPage = snappedPage;
     const offsetRatio = snappedPage === requestedPage ? page - requestedPage : 0;
 
@@ -883,7 +881,7 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
     }
     // 初始位置落在隐藏章节（如旧进度停在被隐藏的导航页）时吸附到最近可见章节
     const requestedInitialPage = initialPageInt;
-    initialPageInt = nearestVisiblePage(initialPageInt);
+    initialPageInt = nearestVisiblePage(readingOrder, initialPageInt);
     let initialOffset = rawProgress - Math.floor(rawProgress);
     if (initialPageInt !== requestedInitialPage) {
       initialOffset = 0;

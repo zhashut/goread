@@ -8,7 +8,6 @@ import { generateContentAwareBookId } from '../../../../utils/bookId';
 import { epubCacheService } from '../epubCacheService';
 import {
   createEpubReadingOrder,
-  mayContainNavigationDocument,
   type EpubReadingOrder,
 } from './readingOrder';
 
@@ -56,9 +55,11 @@ export function useEpubLifecycle(): EpubLifecycleHook {
 
   /**
    * 解析隐藏章节（EPUB3 导航文档）：
-   * - 元数据已含该字段（已由 prepare 写入或此前补算过）时直接使用；
-   * - 旧缓存（字段缺失）且 spine 中存在疑似导航文档时，调用后端轻量命令补算并回写元数据；
-   * - 其余情况返回空，保证 EPUB2 及常规 EPUB3 书籍完全不受影响、无需额外解析。
+   * - 元数据已含该字段（由 prepare 写入或此前补算过）时直接使用，不产生额外开销；
+   * - 旧缓存（字段缺失）时调用后端轻量命令补算并回写元数据。
+   *
+   * 该路径每本书只执行一次：后端仅打开 EPUB 读取 OPF（不抽取章节、不重建缓存），
+   * 且带 EPUB3 版本守卫，EPUB2 直接返回空集合，阅读行为与改造前一致。
    */
   const resolveHiddenSections = async (
     filePath: string,
@@ -69,9 +70,6 @@ export function useEpubLifecycle(): EpubLifecycleHook {
     if (Array.isArray(cached)) {
       return cached;
     }
-    if (!mayContainNavigationDocument(metadata?.spine)) {
-      return [];
-    }
     try {
       const invoke = await getInvoke();
       const result = await invoke<{ hidden_sections: number[] }>(
@@ -79,7 +77,7 @@ export function useEpubLifecycle(): EpubLifecycleHook {
         { filePath, bookId },
       );
       return result?.hidden_sections ?? [];
-    } catch (e) {
+    } catch {
       // 补算失败不影响阅读，退化为「无隐藏章节」
       logError(`[EpubLifecycle] 隐藏章节补算失败: ${bookId}`).catch(() => {});
       return [];

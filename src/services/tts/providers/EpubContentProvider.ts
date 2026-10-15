@@ -102,7 +102,7 @@ export class EpubContentProvider implements TTSContentProvider {
         start?.sectionIndex ?? this.#ctx.getCurrentSectionIndex(),
       totalSections,
       readingMode: this.#ctx.getReadingMode(),
-      skipSections: hiddenSections.length > 0 ? hiddenSections : undefined,
+      hiddenSections: hiddenSections.length > 0 ? hiddenSections : undefined,
     };
   }
 
