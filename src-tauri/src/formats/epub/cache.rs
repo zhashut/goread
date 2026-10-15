@@ -140,6 +140,11 @@ pub struct MetadataCacheEntry {
     /// 缓存结构版本，用于在解析能力升级后主动淘汰旧缓存
     #[serde(default)]
     pub schema_version: u32,
+    /// 不参与阅读顺序的章节下标（EPUB3 导航文档等）。
+    /// `None` 表示尚未计算（旧缓存），`Some(vec![])` 表示已计算且无隐藏章节；
+    /// 章节下标保持稳定，因此该字段只影响显示层，不会触发缓存重建。
+    #[serde(default)]
+    pub hidden_sections: Option<Vec<u32>>,
 }
 
 /// 当前 EPUB 元数据缓存版本号。
@@ -719,12 +724,46 @@ impl EpubCacheManager {
             spine,
             last_access_time: Self::now_millis(),
             schema_version: EPUB_METADATA_SCHEMA_VERSION,
+            // 隐藏章节由 prepare 流程随后写入，避免改动已有命令签名
+            hidden_sections: None,
         };
 
         let meta_path = cache_dir.join(format!("{}.json", book_hash));
         let meta_json = serde_json::to_string(&entry)
             .map_err(|e| format!("序列化元数据失败: {}", e))?;
         fs::write(&meta_path, meta_json)
+            .await
+            .map_err(|e| format!("写入元数据缓存失败: {}", e))?;
+
+        Ok(())
+    }
+
+    /// 写入不参与阅读顺序的章节下标（保持既有元数据其余字段不变）。
+    /// 元数据不存在时静默返回，不视为错误（前端可能尚未完成首次解析）。
+    pub async fn update_hidden_sections(
+        &self,
+        book_id: &str,
+        hidden_sections: Vec<u32>,
+    ) -> Result<(), String> {
+        let book_hash = compute_book_hash(book_id);
+        let cache_dir = epub_metadata_cache_dir();
+        let meta_path = cache_dir.join(format!("{}.json", book_hash));
+
+        if !meta_path.exists() {
+            return Ok(());
+        }
+
+        let meta_json = fs::read_to_string(&meta_path)
+            .await
+            .map_err(|e| format!("读取元数据缓存失败: {}", e))?;
+        let mut entry: MetadataCacheEntry = serde_json::from_str(&meta_json)
+            .map_err(|e| format!("解析元数据缓存失败: {}", e))?;
+
+        entry.hidden_sections = Some(hidden_sections);
+
+        let updated_json = serde_json::to_string(&entry)
+            .map_err(|e| format!("序列化元数据失败: {}", e))?;
+        fs::write(&meta_path, updated_json)
             .await
             .map_err(|e| format!("写入元数据缓存失败: {}", e))?;
 

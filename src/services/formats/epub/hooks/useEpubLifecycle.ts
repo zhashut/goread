@@ -6,6 +6,11 @@ import { BookInfo, TocItem } from '../../types';
 import { logError, getInvoke } from '../../../index';
 import { generateContentAwareBookId } from '../../../../utils/bookId';
 import { epubCacheService } from '../epubCacheService';
+import {
+  createEpubReadingOrder,
+  mayContainNavigationDocument,
+  type EpubReadingOrder,
+} from './readingOrder';
 
 export interface EpubLifecycleState {
   isReady: boolean;
@@ -16,6 +21,10 @@ export interface EpubLifecycleState {
   bookId: string | null;
   spine: string[];
   filePath: string;
+  /** 不参与阅读顺序的章节下标（EPUB3 导航文档等） */
+  hiddenSections: number[];
+  /** 阅读顺序视图，隐藏集合为空时为恒等映射 */
+  readingOrder: EpubReadingOrder;
 }
 
 export interface LoadDocumentOptions {
@@ -41,6 +50,40 @@ export function useEpubLifecycle(): EpubLifecycleHook {
     bookId: null,
     spine: [],
     filePath: '',
+    hiddenSections: [],
+    readingOrder: createEpubReadingOrder([]),
+  };
+
+  /**
+   * 解析隐藏章节（EPUB3 导航文档）：
+   * - 元数据已含该字段（已由 prepare 写入或此前补算过）时直接使用；
+   * - 旧缓存（字段缺失）且 spine 中存在疑似导航文档时，调用后端轻量命令补算并回写元数据；
+   * - 其余情况返回空，保证 EPUB2 及常规 EPUB3 书籍完全不受影响、无需额外解析。
+   */
+  const resolveHiddenSections = async (
+    filePath: string,
+    bookId: string,
+    metadata: Awaited<ReturnType<typeof epubCacheService.getMetadata>>,
+  ): Promise<number[]> => {
+    const cached = metadata?.hiddenSections;
+    if (Array.isArray(cached)) {
+      return cached;
+    }
+    if (!mayContainNavigationDocument(metadata?.spine)) {
+      return [];
+    }
+    try {
+      const invoke = await getInvoke();
+      const result = await invoke<{ hidden_sections: number[] }>(
+        'epub_resolve_hidden_sections',
+        { filePath, bookId },
+      );
+      return result?.hidden_sections ?? [];
+    } catch (e) {
+      // 补算失败不影响阅读，退化为「无隐藏章节」
+      logError(`[EpubLifecycle] 隐藏章节补算失败: ${bookId}`).catch(() => {});
+      return [];
+    }
   };
 
   const loadFromBackend = async (filePath: string, bookId: string): Promise<BookInfo> => {
@@ -55,6 +98,10 @@ export function useEpubLifecycle(): EpubLifecycleHook {
       state.totalPages = state.sectionCount;
       state.isReady = true;
       state.book = null;
+
+      const hiddenSections = await resolveHiddenSections(filePath, bookId, metadata);
+      state.hiddenSections = hiddenSections;
+      state.readingOrder = createEpubReadingOrder(hiddenSections, state.sectionCount);
 
       return {
         ...metadata.bookInfo,
@@ -78,6 +125,7 @@ export function useEpubLifecycle(): EpubLifecycleHook {
       toc: TocItem[];
       section_count: number;
       spine: string[];
+      hidden_sections?: number[];
     }
 
     const invoke = await getInvoke();
@@ -102,6 +150,9 @@ export function useEpubLifecycle(): EpubLifecycleHook {
     state.spine = result.spine;
     state.isReady = true;
     state.book = null;
+
+    state.hiddenSections = result.hidden_sections ?? [];
+    state.readingOrder = createEpubReadingOrder(state.hiddenSections, state.sectionCount);
 
     const bookInfo: BookInfo = {
       title: bookInfoFromBackend.title ?? undefined,
@@ -148,6 +199,8 @@ export function useEpubLifecycle(): EpubLifecycleHook {
     state.sectionCount = 0;
     state.bookId = null;
     state.filePath = '';
+    state.hiddenSections = [];
+    state.readingOrder = createEpubReadingOrder([]);
   };
 
   return {

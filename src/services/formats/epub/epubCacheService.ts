@@ -27,6 +27,12 @@ export interface EpubMetadataCacheEntry {
   sectionCount: number;
   spine: string[];
   lastAccessTime: number;
+  /**
+   * 不参与阅读顺序的章节下标（EPUB3 导航文档等）。
+   * `null`/`undefined` 表示旧缓存尚未计算，需按需向后端补算；
+   * `[]` 表示已确认无隐藏章节。
+   */
+  hiddenSections?: number[] | null;
 }
 
 /** 后端返回的元数据结构（蛇形命名） */
@@ -46,6 +52,7 @@ interface BackendMetadataEntry {
   section_count: number;
   spine: string[];
   last_access_time: number;
+  hidden_sections?: number[] | null;
 }
 
 /** 后端返回的目录项结构 */
@@ -324,6 +331,7 @@ class EpubCacheService {
         sectionCount: result.section_count,
         spine: result.spine ?? [],
         lastAccessTime: result.last_access_time,
+        hiddenSections: result.hidden_sections ?? null,
       };
     } catch {
       // 后端调用失败时静默返回 null

@@ -31,6 +31,8 @@ export interface EpubContentProviderContext extends EpubPositionRestorerContext 
   getSectionRootByIndex?: (sectionIndex: number) => Element | null;
   /** 取当前视口顶部位置（章节索引 + 起点 anchor），用于"从用户当前阅读处开始朗读" */
   getVisibleStartPosition?: () => TTSReadingPosition | null;
+  /** 取不参与阅读顺序的章节下标（EPUB3 导航文档等），供后端跳过 */
+  getHiddenSections?: () => number[];
 }
 
 /**
@@ -88,6 +90,7 @@ export class EpubContentProvider implements TTSContentProvider {
       return null;
     }
     const start = this.#resolveStartPosition(req);
+    const hiddenSections = this.#ctx.getHiddenSections?.() ?? [];
     return {
       bookId,
       filePath,
@@ -99,6 +102,7 @@ export class EpubContentProvider implements TTSContentProvider {
         start?.sectionIndex ?? this.#ctx.getCurrentSectionIndex(),
       totalSections,
       readingMode: this.#ctx.getReadingMode(),
+      skipSections: hiddenSections.length > 0 ? hiddenSections : undefined,
     };
   }
 

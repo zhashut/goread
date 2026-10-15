@@ -35,6 +35,13 @@ pub async fn get_segments<R: Runtime>(
     let (start_section, start_chunk) = resolve_start(req);
     let max_segments = req.max_segments.max(1);
 
+    // 不参与阅读顺序的章节（如 EPUB3 导航文档）不朗读
+    let skip_sections: std::collections::HashSet<i32> = req
+        .skip_sections
+        .as_ref()
+        .map(|list| list.iter().copied().collect())
+        .unwrap_or_default();
+
     let mut segments: Vec<TtsSegmentDto> = Vec::new();
     let mut next_section = start_section;
     let mut next_chunk = start_chunk;
@@ -53,6 +60,14 @@ pub async fn get_segments<R: Runtime>(
             next_section = section_index;
             next_chunk = if section_index == start_section { start_chunk } else { 0 };
             break;
+        }
+
+        // 跳过隐藏章节：不消耗批次配额，也不产生 segments
+        if skip_sections.contains(&section_index) {
+            section_index += 1;
+            next_section = section_index;
+            next_chunk = 0;
+            continue;
         }
 
         let load_result = {

@@ -53,6 +53,9 @@ pub struct TtsGetSegmentsRequest {
     /// EPUB 横纵向模式（仅 EPUB 用）
     #[serde(default)]
     pub reading_mode: Option<String>,
+    /// 不参与阅读顺序的章节下标（EPUB3 导航文档等），TTS 需跳过
+    #[serde(default)]
+    pub skip_sections: Option<Vec<i32>>,
 }
 
 /// 取片响应：与前端 TTSContentProviderBatch 字段一致
