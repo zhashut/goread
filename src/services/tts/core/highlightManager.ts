@@ -1,3 +1,5 @@
+import { setProgrammaticSelectionActive } from '../../../utils/selection';
+
 export class HighlightManager {
   #highlightStyleInjected = false;
   #highlightStyleEl: HTMLStyleElement | null = null;
@@ -16,6 +18,8 @@ export class HighlightManager {
         (CSS as any).highlights.set('tts-reading', hl);
         this.#injectHighlightStyle(range);
         this.#clearOverlay();
+        // 走 CSS 高亮路径时不存在选区，清除程序化选区标记
+        setProgrammaticSelectionActive(false);
         return;
       }
     } catch {
@@ -24,6 +28,8 @@ export class HighlightManager {
 
     try {
       if (this.#applyOverlay(range)) {
+        // 覆盖层高亮不产生选区，清除程序化选区标记
+        setProgrammaticSelectionActive(false);
         return;
       }
     } catch {
@@ -37,6 +43,9 @@ export class HighlightManager {
       if (sel) {
         sel.removeAllRanges();
         sel.addRange(range);
+        // 该路径是用真实选区实现高亮：标记为程序化选区，
+        // 避免被误判为“用户正在选字”而钉住页面（影响 TTS 跟读滚动）
+        setProgrammaticSelectionActive(true);
       }
     } catch {
       // ignore
@@ -44,6 +53,8 @@ export class HighlightManager {
   }
 
   clear(): void {
+    // 高亮已清除：解除程序化选区标记
+    setProgrammaticSelectionActive(false);
     try {
       if (typeof CSS !== 'undefined' && 'highlights' in CSS) {
         (CSS as any).highlights.delete('tts-reading');

@@ -20,6 +20,7 @@ import {
   type EpubReadingOrder,
 } from './readingOrder';
 import { extractBodyContent, normalizeBookCssForShadow } from '../../../../utils/htmlUtils';
+import { hasActiveSelectionIn } from '../../../../utils/selection';
 import { stabilizeScrollTop } from './scrollStabilizer';
 
 /** 横向渲染上下文 */
@@ -73,12 +74,21 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
   };
 
   const MAX_RATIO = 0.999999;
+  /**
+   * 用户选中文字引起的自动滚动结束后，仍短暂跳过吸附的宽限时间。
+   * 浏览器展示选区的滚动在松手后可能还有尾帧，立刻吸附会与之争夺滚动位置。
+   */
+  const SELECTION_SNAP_GRACE_MS = 300;
   /** 阅读顺序：隐藏章节不参与翻页（缺省为恒等映射） */
   const readingOrder: EpubReadingOrder = context.readingOrder ?? createEpubReadingOrder([]);
   let lastRenderOptions: RenderOptions | undefined;
   let resizeObserver: ResizeObserver | null = null;
   let isSnapping = false;
   let isGestureActive = false;
+  /** 无选区时最近一次的滚动位置：作为选字钉住的基准（浏览器为展示选区滚动之前的位置） */
+  let lastScrollLeftWhenIdle = 0;
+  /** 选字期间钉住的滚动位置；null 表示当前未钉住 */
+  let selectionPinLeft: number | null = null;
 
   /** 内容区 padding 两侧总和，与 useEpubTheme 中 .epub-section-content { padding: 16px } 对应 */
   const CONTENT_PADDING_X = 32;
@@ -144,11 +154,23 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
     } catch {
       container.scrollLeft = left;
     }
+    markIdleScrollPosition(container);
   };
 
   /** 翻屏步长，等于容器视口宽度（由布局约束保证 columnWidth + columnGap = clientWidth） */
   const getColumnStepPx = (container: HTMLElement): number => {
     return container.clientWidth;
+  };
+
+  /**
+   * 记录「无选区时的基准滚动位置」，并解除上一轮选字的钉住状态。
+   * 选字钉住（见 setupScrollListener）需要以“浏览器为展示选区滚动之前的位置”为基准，
+   * 因此所有程序化改定滚动位置的地方都要同步基准，避免钉到陈旧位置。
+   */
+  const markIdleScrollPosition = (container: HTMLElement | null): void => {
+    if (!container) return;
+    selectionPinLeft = null;
+    lastScrollLeftWhenIdle = container.scrollLeft;
   };
 
   const snapToNearest = (container: HTMLElement): number => {
@@ -171,6 +193,8 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
       }
     }
 
+    // 吸附后的位置即“已安定”的页边界，作为选字钉住基准（同时解除旧钉住）
+    markIdleScrollPosition(container);
     return targetLeft;
   };
 
@@ -187,6 +211,7 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
     } catch {
       container.scrollLeft = left;
     }
+    markIdleScrollPosition(container);
     return left;
   };
 
@@ -196,6 +221,9 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
       if (!state.container) return;
       applyHorizontalLayoutVars(state.container, lastRenderOptions);
       ensureScrollWidthAligned(state.container);
+      // 选中文字时，浏览器可能因选字工具栏/放大镜改变视口尺寸而触发本回调；
+      // 此时若回写滚动位置会同样与浏览器的选区滚动互相争夺，跳过本次位置还原
+      if (hasActiveSelectionIn(state.container)) return;
       const ratio = getRatioFromProgress(state.currentPreciseProgress);
       scrollToRatio(state.container, ratio, 'auto');
       snapToNearest(state.container);
@@ -208,6 +236,10 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
    */
   const setupScrollListener = (container: HTMLElement) => {
     let scrollTimeout: ReturnType<typeof setTimeout> | null = null;
+    /** 最近一次因用户选中文字而跳过吸附的时刻 */
+    let lastSelectionScrollTs = 0;
+    // 初始化选字钉住的基准位置
+    lastScrollLeftWhenIdle = container.scrollLeft;
     if ((container as any)._scrollHandler) {
       try {
         container.removeEventListener('scroll', (container as any)._scrollHandler);
@@ -217,12 +249,40 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
     const handleScroll = () => {
       if (isSnapping) return;
       if (isGestureActive) return;
+
+      // 用户正在选中文字：浏览器会为展示选区（放大镜 / 选区手柄）而自动滚动容器。
+      // 这里立刻（instant）把容器钉回选字开始前的位置，使选字过程中页面像素级不动；
+      // 若不做钉住而只做“不吸附”，页面仍会被浏览器带着来回移动。
+      if (hasActiveSelectionIn(container)) {
+        if (selectionPinLeft === null) {
+          // 基准取“上一个滚动事件记录的位置”，即浏览器为展示选区滚动之前的位置
+          selectionPinLeft = lastScrollLeftWhenIdle;
+        }
+        lastSelectionScrollTs = Date.now();
+        // 容差 0.5px：避免浏览器对 scrollLeft 取整导致的反复写入
+        if (Math.abs(container.scrollLeft - selectionPinLeft) > 0.5) {
+          try {
+            container.scrollLeft = selectionPinLeft;
+          } catch { }
+        }
+        return;
+      }
+
+      // 无选区：解除钉住，并记录基准位置（通常等于页边界）
+      selectionPinLeft = null;
+      lastScrollLeftWhenIdle = container.scrollLeft;
+
       if (scrollTimeout) {
         clearTimeout(scrollTimeout);
       }
       scrollTimeout = setTimeout(() => {
         scrollTimeout = null;
         if (!container) return;
+        // 选中文字期间（或选区滚动刚结束的宽限期内）不做吸附与进度结算：
+        // 吸附会把浏览器为展示选区而滚动到的位置强行拉回页边界，
+        // 浏览器随即再次滚动展示选区，形成高频往复，表现为屏幕抖动。
+        if (hasActiveSelectionIn(container)) return;
+        if (Date.now() - lastSelectionScrollTs < SELECTION_SNAP_GRACE_MS) return;
         applyHorizontalLayoutVars(container, lastRenderOptions);
         const denom = getHorizontalDenom(container);
         if (denom <= 0) return;
@@ -291,6 +351,9 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
     const onTouchStart = (e: TouchEvent) => {
       if (e.touches.length !== 1) return;
       if (isInteractiveTarget(e.target)) return;
+      // 已存在文本选区时把手势交还给浏览器：此时的横向拖动多为拖拽选区手柄扩展选区，
+      // 若按翻页处理会 preventDefault 中断选字并翻页
+      if (hasActiveSelectionIn(container)) return;
       const t = e.touches[0];
       const x = t.clientX;
       if (x < 55 || x > window.innerWidth - 55) return;
@@ -310,6 +373,12 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
 
       if (!start.decided) {
         if (Math.abs(dx) < 4 && Math.abs(dy) < 4) return;
+        // 长按后浏览器已进入选字状态（本次手势尚未判定方向）：
+        // 放弃翻页手势，让浏览器继续扩展选区
+        if (hasActiveSelectionIn(container)) {
+          reset();
+          return;
+        }
         start.decided = true;
         start.horizontal = Math.abs(dx) > Math.abs(dy) * 1.2;
         if (!start.horizontal) {
@@ -786,6 +855,8 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
   };
 
   const destroy = (): void => {
+    // 释放选字钉住状态，避免下次渲染沿用旧位置
+    selectionPinLeft = null;
     if (resizeObserver) {
       try {
         resizeObserver.disconnect();
