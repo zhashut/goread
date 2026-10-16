@@ -12,6 +12,7 @@ import {
 } from "../../../constants/config";
 import { log, logError } from "../../../services";
 import { ReaderSettings } from "../../../services";
+import { getReaderPageBackground } from "../../../constants/readerTheme";
 import { IBook } from "../../../types";
 
 
@@ -67,6 +68,9 @@ export const usePageRenderer = ({
     const renderQueueRef = useRef<Map<number, Promise<void>>>(new Map());
     // 已渲染页面集合（用于避免重复渲染）
     const renderedPagesRef = useRef<Set<number>>(new Set());
+
+    // 画布即“纸”：渲染期间的占位色用主题纸色，避免深灰占位块在深色主题下闪光
+    const paperBackgroundColor = getReaderPageBackground(settings.theme);
 
     // 辅助函数
     const makeCacheKey = (id: string, pageNum: number) => `${id}:${pageNum}`;
@@ -310,7 +314,7 @@ export const usePageRenderer = ({
 
                 log(`[renderPage] 页面 ${pageNum} 开始渲染（前端无缓存）`);
                 const startTime = performance.now();
-                canvas.style.backgroundColor = "#2a2a2a";
+                canvas.style.backgroundColor = paperBackgroundColor;
 
                 let standardImg: ImageBitmap;
                 try {
@@ -417,7 +421,7 @@ export const usePageRenderer = ({
                 }
 
                 const startTime = performance.now();
-                canvas.style.backgroundColor = "#2a2a2a";
+                canvas.style.backgroundColor = paperBackgroundColor;
 
                 const renderer = rendererRef.current;
                 if (!renderer) return;

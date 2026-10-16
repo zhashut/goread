@@ -14,7 +14,7 @@ import { IBookRenderer } from "../services/formats";
 import { captureBookmarkPosition } from "./reader/utils/bookmarkPosition";
 import { parseChapterTitle } from "./reader/utils/chapterTitle";
 import { getPlaceholderCanvasSize } from "../utils/canvasPlaceholder";
-import { getReaderFrameBackground, getReaderPageBackground } from "../constants/readerTheme";
+import { getReaderPageBackground, getReaderPaperShadow } from "../constants/readerTheme";
 import { useAppNav } from "../router/useAppNav";
 
 
@@ -178,10 +178,15 @@ export const Reader: React.FC = () => {
   // 工具栏/目录/模式/更多这些深色浮层会盖住状态栏区域，此时不需要色条、图标用浅色
   const darkChromeOnStatusBar =
     uiVisible || isSeeking || tocOverlayOpen || modeOverlayOpen || moreDrawerOpen;
+  // 阅读页配色：全屏统一用主题页面底色（正文页、画布四周、让位带都是它），
+  // 页面边界靠纸张投影（纸色与底色同色时，投影/描边是唯一的区分手段）
+  const pageBackgroundColor = getReaderPageBackground(isThemeSupported ? effectiveTheme : "light");
+  const paperShadow = getReaderPaperShadow(effectiveTheme);
+
   const readerStatusBar = useReaderStatusBar({
     showStatusBar: settings.showStatusBar,
-    // Markdown/HTML 等不支持主题的格式页面恒为浅色（白色正文），色条与图标按浅色处理
-    theme: isThemeSupported ? effectiveTheme : "light",
+    // 让位带底色 = 页面底色，图标明暗由实际颜色推断
+    bandBackgroundColor: pageBackgroundColor,
     darkChromeVisible: darkChromeOnStatusBar,
   });
 
@@ -504,9 +509,8 @@ export const Reader: React.FC = () => {
         display: "flex",
         position: "relative",
         flexDirection: "column",
-        // 根容器底色 = 阅读页底色：状态栏与挖孔等让位带（视口 padding 区，含横屏左右）
-        // 因此与正文页同色；页面之外的台面色由内层的 mainView 负责
-        backgroundColor: readerStatusBar.pageBackgroundColor,
+        // 根容器底色 = 页面底色：状态栏/挖孔让位带（视口 padding 区，含横屏左右）与正文页同色
+        backgroundColor: pageBackgroundColor,
         // 顶部状态栏让位：高度以 CSS 变量交给 .reader-viewport 的 padding-top 处理，
         // 组件不再手写 padding（盒模型约束集中在 CSS 里声明）
         ...viewportInset.viewportStyle,
@@ -521,7 +525,7 @@ export const Reader: React.FC = () => {
             left: 0,
             right: 0,
             height: viewportInset.topInset,
-            backgroundColor: readerStatusBar.pageBackgroundColor,
+            backgroundColor: pageBackgroundColor,
             // 置于内容之上，避免首页 boxShadow 溢出到色条上
             zIndex: 1,
             pointerEvents: "none",
@@ -548,8 +552,8 @@ export const Reader: React.FC = () => {
             overflow: (isPdf && zoom.isZoomed) || tocOverlayOpen || modeOverlayOpen || (isEpubDom && readingMode === "horizontal") ? "hidden" : "auto",
             padding: 0,
             position: "relative",
-            // 页面之外的台面色：正文页底色由内部渲染器负责，这里只负责“页面外面”
-            backgroundColor: getReaderFrameBackground(effectiveTheme),
+            // 画布四周/页间空隙与正文页同色（全屏统一底色），页边界由纸张投影保证
+            backgroundColor: pageBackgroundColor,
           }}
           ref={mainViewRef}
         >
@@ -575,13 +579,9 @@ export const Reader: React.FC = () => {
                 ),
                 overflowY: (isEpubDom || isTxt) && readingMode === "horizontal" ? "hidden" : "auto",
                 touchAction: (isEpubDom || isTxt) && readingMode === "horizontal" ? "pan-y" : "auto",
-                // TXT 保持透明（内容自带底色）；EPUB 用主题页面底色，
-                // 与 Shadow DOM 里 .epub-section-content 的底色保持一致（避免深色/护眼主题下出现色差）
-                backgroundColor: isTxt
-                  ? "transparent"
-                  : isEpubDom
-                    ? getReaderPageBackground(effectiveTheme)
-                    : effectiveTheme === "dark" ? "#000000" : "#1a1a1a",
+                // TXT 保持透明（内容自带底色）；其余 DOM 格式用页面底色，
+                // 与 Shadow DOM 内的内容底色及让位带保持一致（避免深色/护眼主题下出现色差）
+                backgroundColor: isTxt ? "transparent" : pageBackgroundColor,
                 pointerEvents: "auto",
               }}
             />
@@ -593,8 +593,9 @@ export const Reader: React.FC = () => {
               style={{
                 width: "100%",
                 height: "auto",
-                boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
-                backgroundColor: loading ? (effectiveTheme === 'dark' ? "#000000" : "#2a2a2a") : "transparent",
+                boxShadow: paperShadow,
+                // 画布即“纸”：底色用纸色，翻页重建画布时不会闪出台面色
+                backgroundColor: pageBackgroundColor,
                 ...(isPdf ? zoom.contentStyle : {}),
               }}
             />
@@ -644,8 +645,9 @@ export const Reader: React.FC = () => {
                           minHeight: "600px",
                           display: "block",
                           margin: "0 auto",
-                          boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
-                          backgroundColor: effectiveTheme === 'dark' ? "#000000" : "#2a2a2a",
+                          boxShadow: paperShadow,
+                          // 尚未渲染的页也用纸色占位，避免深灰占位块闪烁
+                          backgroundColor: pageBackgroundColor,
                         }}
                       />
                     </React.Fragment>
@@ -663,7 +665,7 @@ export const Reader: React.FC = () => {
           text={tCommon('loading')}
           showSpinner={false}
           textStyle={{ fontSize: 16 }}
-          overlayColor={effectiveTheme === 'dark' ? "#000000" : "#ffffff"}
+          overlayColor={pageBackgroundColor}
           zIndex={999}
           overlayStyle={{ position: 'absolute', inset: 0 }}
         />

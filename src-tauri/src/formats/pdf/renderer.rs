@@ -10,6 +10,28 @@ use crate::formats::pdf::types::{
 use crate::formats::pdf::cache::CacheManager;
 use crate::formats::pdf::performance::{PerformanceMonitor, PerformanceTimer};
 
+/// 暗色主题的纸张底色（#1a1a1a，与前端 READER_PAGE_BACKGROUND.dark 保持一致）
+/// 修改时需同步前端常量，否则 PDF 纸色会与其它格式的暗色页面底色出现色差
+const DARK_PAPER_LEVEL: u32 = 0x1a;
+
+/// 暗色主题下的页面反色
+/// 反色后把黑位抬升到 DARK_PAPER_LEVEL：
+/// - 白纸（255）反色后为纯黑，抬升后变成 #1a1a1a，与其它格式的暗色页面底色一致；
+/// - 文字（0）反色后仍为纯白；中间灰阶被轻微压缩，不影响观感
+/// alpha 通道保持不变
+fn invert_for_dark_theme(rgba_data: &mut [u8]) {
+    let span = 255 - DARK_PAPER_LEVEL;
+    let mut i = 0usize;
+    while i + 3 < rgba_data.len() {
+        for channel in 0..3usize {
+            let inverted = 255 - rgba_data[i + channel] as u32;
+            rgba_data[i + channel] = (DARK_PAPER_LEVEL + span * inverted / 255) as u8;
+        }
+        // 跳过 alpha，不做修改
+        i += 4;
+    }
+}
+
 /// PDF 渲染器，负责将 PDF 页面渲染为图像
 pub struct PdfRenderer {
     file_path: String,
@@ -417,21 +439,8 @@ impl PdfRenderer {
             rgba_data.resize(target_size, 0);
         }
 
-        if let Some(theme) = options.theme.as_deref() {
-            if theme == "dark" {
-                let mut i = 0usize;
-                while i + 3 < rgba_data.len() {
-                    let r = rgba_data[i];
-                    let g = rgba_data[i + 1];
-                    let b = rgba_data[i + 2];
-                    let a = rgba_data[i + 3];
-                    rgba_data[i] = 255u8.saturating_sub(r);
-                    rgba_data[i + 1] = 255u8.saturating_sub(g);
-                    rgba_data[i + 2] = 255u8.saturating_sub(b);
-                    rgba_data[i + 3] = a;
-                    i += 4;
-                }
-            }
+        if options.theme.as_deref() == Some("dark") {
+            invert_for_dark_theme(&mut rgba_data);
         }
 
         RgbaImage::from_vec(width, height, rgba_data).ok_or_else(|| {
@@ -521,21 +530,8 @@ impl PdfRenderer {
             }
         }
 
-        if let Some(theme) = options.theme.as_deref() {
-            if theme == "dark" {
-                let mut i = 0usize;
-                while i + 3 < rgba_data.len() {
-                    let r = rgba_data[i];
-                    let g = rgba_data[i + 1];
-                    let b = rgba_data[i + 2];
-                    let a = rgba_data[i + 3];
-                    rgba_data[i] = 255u8.saturating_sub(r);
-                    rgba_data[i + 1] = 255u8.saturating_sub(g);
-                    rgba_data[i + 2] = 255u8.saturating_sub(b);
-                    rgba_data[i + 3] = a;
-                    i += 4;
-                }
-            }
+        if options.theme.as_deref() == Some("dark") {
+            invert_for_dark_theme(&mut rgba_data);
         }
 
         RgbaImage::from_vec(w, h, rgba_data).ok_or_else(|| {
