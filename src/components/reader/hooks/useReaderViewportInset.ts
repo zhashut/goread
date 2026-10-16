@@ -17,13 +17,18 @@ export interface ReaderViewportInset {
 /**
  * 阅读页顶部让位高度（唯一数据源）
  *
- * 让位高度即系统状态栏高度：Android 由原生注入 CSS 变量，iOS 使用 env()，
- * 取值全部委托给 getSafeAreaInsets，组件不再自行拼接 calc 表达式。
+ * 让位高度取自系统状态栏：Android 由原生注入 CSS 变量（状态栏可见时已取「状态栏高度」
+ * 与「挖孔遮挡」的较大者），iOS 使用 env()，取值全部委托给 getSafeAreaInsets，
+ * 组件不再自行拼接 calc 表达式。
  *
  * 使用约定（两种让位语义不同，不要混用）：
  * - 内容视口（.reader-viewport 的 padding-top）：只在「系统状态栏可见」时让位，
  *   否则控制栏显示/隐藏会让正文上下跳动；
  * - 顶部浮层（页码气泡、撤回跳转）：控制栏本身会盖住顶部区域，此时必须让位。
+ *
+ * 注意：本 Hook 只管「状态栏让位」。挖孔/刘海等物理遮挡与状态栏可见性无关，
+ * 由 CSS 用 --display-cutout-inset-* 兜底（.reader-viewport 取两者较大值），
+ * 因此沉浸模式下也能避开挖孔对首行的遮挡。
  *
  * @param reserveTopInset 是否需要为顶部区域让位
  */

@@ -14,6 +14,7 @@ import { IBookRenderer } from "../services/formats";
 import { captureBookmarkPosition } from "./reader/utils/bookmarkPosition";
 import { parseChapterTitle } from "./reader/utils/chapterTitle";
 import { getPlaceholderCanvasSize } from "../utils/canvasPlaceholder";
+import { getReaderFrameBackground, getReaderPageBackground } from "../constants/readerTheme";
 import { useAppNav } from "../router/useAppNav";
 
 
@@ -503,13 +504,15 @@ export const Reader: React.FC = () => {
         display: "flex",
         position: "relative",
         flexDirection: "column",
-        backgroundColor: effectiveTheme === 'dark' ? "#000000" : "#2c2c2c",
+        // 根容器底色 = 阅读页底色：状态栏与挖孔等让位带（视口 padding 区，含横屏左右）
+        // 因此与正文页同色；页面之外的台面色由内层的 mainView 负责
+        backgroundColor: readerStatusBar.pageBackgroundColor,
         // 顶部状态栏让位：高度以 CSS 变量交给 .reader-viewport 的 padding-top 处理，
         // 组件不再手写 padding（盒模型约束集中在 CSS 里声明）
         ...viewportInset.viewportStyle,
       }}
     >
-      {/* 状态栏区域色条：显示状态栏且无深色浮层遮挡时，与阅读内容页同底色 */}
+      {/* 状态栏区域色条：与根容器同色，仅用于压住首页 boxShadow 向上溢出的阴影 */}
       {readerStatusBar.showStatusBarStrip && (
         <div
           style={{
@@ -545,6 +548,8 @@ export const Reader: React.FC = () => {
             overflow: (isPdf && zoom.isZoomed) || tocOverlayOpen || modeOverlayOpen || (isEpubDom && readingMode === "horizontal") ? "hidden" : "auto",
             padding: 0,
             position: "relative",
+            // 页面之外的台面色：正文页底色由内部渲染器负责，这里只负责“页面外面”
+            backgroundColor: getReaderFrameBackground(effectiveTheme),
           }}
           ref={mainViewRef}
         >
@@ -570,10 +575,12 @@ export const Reader: React.FC = () => {
                 ),
                 overflowY: (isEpubDom || isTxt) && readingMode === "horizontal" ? "hidden" : "auto",
                 touchAction: (isEpubDom || isTxt) && readingMode === "horizontal" ? "pan-y" : "auto",
+                // TXT 保持透明（内容自带底色）；EPUB 用主题页面底色，
+                // 与 Shadow DOM 里 .epub-section-content 的底色保持一致（避免深色/护眼主题下出现色差）
                 backgroundColor: isTxt
                   ? "transparent"
                   : isEpubDom
-                    ? effectiveTheme === "dark" ? "#000000" : "#ffffff"
+                    ? getReaderPageBackground(effectiveTheme)
                     : effectiveTheme === "dark" ? "#000000" : "#1a1a1a",
                 pointerEvents: "auto",
               }}
@@ -686,7 +693,8 @@ export const Reader: React.FC = () => {
           style={{
             position: "fixed",
             top: chromeInset.topOffset(READER_CHROME_TOP_OFFSET),
-            left: "calc(env(safe-area-inset-left) + 12px)",
+            // 左右避让物理遮挡：Android 上 env() 不可靠，统一用原生注入的安全区变量
+            left: "calc(var(--display-cutout-inset-left, 0px) + 12px)",
             display: "block",
             pointerEvents: "none",
             zIndex: 11,
@@ -718,7 +726,7 @@ export const Reader: React.FC = () => {
           style={{
             position: "fixed",
             top: chromeInset.topOffset(READER_CHROME_TOP_OFFSET),
-            right: "calc(env(safe-area-inset-right) + 12px)",
+            right: "calc(var(--display-cutout-inset-right, 0px) + 12px)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",

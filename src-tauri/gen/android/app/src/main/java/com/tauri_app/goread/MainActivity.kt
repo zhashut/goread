@@ -26,8 +26,8 @@ class MainActivity : TauriActivity() {
   
   // Hold reference to the WebView for injecting safe area insets
   private var webViewRef: WebView? = null
-  private var currentTop = 0
-  private var currentBottom = 0
+  // 最近一次计算出的安全区 CSS 变量（变量名 -> CSS px），供 WebView 就绪后补注入
+  private var currentSafeAreaVars: Map<String, Int> = emptyMap()
   private var insetsReady = false
   
   // Store the initial status bar height (before any hide/show operations)
@@ -158,14 +158,14 @@ class MainActivity : TauriActivity() {
       // Also inject with a small delay to ensure DOM is ready
       webView.postDelayed({
         if (insetsReady) {
-          injectSafeAreaInsets(currentTop, currentBottom)
+          injectSafeAreaInsets(currentSafeAreaVars)
         }
       }, 100)
       
       // And again after a longer delay for SPA navigation
       webView.postDelayed({
         if (insetsReady) {
-          injectSafeAreaInsets(currentTop, currentBottom)
+          injectSafeAreaInsets(currentSafeAreaVars)
         }
       }, 500)
       
@@ -348,11 +348,14 @@ class MainActivity : TauriActivity() {
     ViewCompat.setOnApplyWindowInsetsListener(decorView) { view, insets ->
       val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
       val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
+      // 挖孔/刘海属于硬件遮挡：与系统栏是否显示无关，沉浸模式下依然存在，需要单独取值
+      val displayCutout = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
       val density = resources.displayMetrics.density
       
       // Apply bottom padding to the root view so content sits above the navigation bar and IME
       // We keep top padding 0 because we WANT the status bar to overlap (translucent)
-      val bottomPadding = kotlin.math.max(systemBars.bottom, ime.bottom)
+      // 底部同时避开挖孔；DecorView 的 padding 会直接缩小 WebView，底部无需再注入安全区
+      val bottomPadding = maxOf(systemBars.bottom, ime.bottom, displayCutout.bottom)
       view.setPadding(0, 0, 0, bottomPadding)
 
       // Convert physical pixels to CSS/dp pixels
@@ -368,44 +371,73 @@ class MainActivity : TauriActivity() {
       
       // Use the initial captured height if status bar is hidden (topPxFromInsets would be 0)
       // This ensures TopBar always has correct padding regardless of status bar visibility
-      val topPx = if (initialStatusBarHeightCaptured && topPxFromInsets == 0) {
+      val statusBarTopPx = if (initialStatusBarHeightCaptured && topPxFromInsets == 0) {
         initialStatusBarHeight
       } else {
         topPxFromInsets
       }
       
+      // 部分 ROM 的挖孔下沿会低于状态栏高度，取较大者保证首行/工具栏不被遮挡
+      val cutoutTopPx = (displayCutout.top / density).toInt()
+      val topPx = maxOf(statusBarTopPx, cutoutTopPx)
+      val cutoutLeftPx = (displayCutout.left / density).toInt()
+      val cutoutRightPx = (displayCutout.right / density).toInt()
+      
       // Since we applied padding for the bottom bar, the safe area inset for bottom is effectively 0
       val bottomPx = 0 
 
       // Store current values
-      currentTop = topPx
-      currentBottom = bottomPx
+      currentSafeAreaVars = buildSafeAreaVars(topPx, bottomPx, cutoutTopPx, cutoutLeftPx, cutoutRightPx)
       insetsReady = true
       
       // Inject if WebView is available
       if (webViewRef != null) {
-        injectSafeAreaInsets(topPx, bottomPx)
+        injectSafeAreaInsets(currentSafeAreaVars)
       }
       
       insets
     }
   }
   
-  private fun injectSafeAreaInsets(top: Int, bottom: Int) {
+  /**
+   * 组装注入 WebView 的安全区 CSS 变量（CSS px）
+   * - --safe-area-inset-*：内容需要避让的系统安全区；顶部已取「状态栏高度」与「挖孔遮挡」的较大者
+   * - --display-cutout-inset-*：纯物理遮挡（挖孔/刘海），与系统栏可见性无关，
+   *   沉浸阅读（状态栏隐藏）时前端仍需据此让位
+   * 底部不注入：已在 DecorView 的 padding 中处理，避免重复让位
+   */
+  private fun buildSafeAreaVars(
+    top: Int,
+    bottom: Int,
+    cutoutTop: Int,
+    cutoutLeft: Int,
+    cutoutRight: Int,
+  ): LinkedHashMap<String, Int> = linkedMapOf(
+    "--safe-area-inset-top" to top,
+    "--safe-area-inset-bottom" to bottom,
+    "--safe-area-inset-left" to cutoutLeft,
+    "--safe-area-inset-right" to cutoutRight,
+    "--display-cutout-inset-top" to cutoutTop,
+    "--display-cutout-inset-left" to cutoutLeft,
+    "--display-cutout-inset-right" to cutoutRight,
+  )
+  
+  private fun injectSafeAreaInsets(vars: Map<String, Int>) {
+    if (vars.isEmpty()) return
     webViewRef?.post {
+      // 用同一份数据生成 JS：避免 CSS 变量与 window 对象两处写法不一致
+      val varsJs = vars.entries.joinToString(", ") { (name, value) -> "\"$name\": $value" }
       // This JS code sets CSS variables and also retries when DOM is ready
       val js = """
         (function() {
+          var vars = { $varsJs };
           function setSafeArea() {
-            if (document.documentElement) {
-              document.documentElement.style.setProperty('--safe-area-inset-top', '${top}px');
-              document.documentElement.style.setProperty('--safe-area-inset-bottom', '${bottom}px');
-              document.documentElement.style.setProperty('--safe-area-inset-left', '0px');
-              document.documentElement.style.setProperty('--safe-area-inset-right', '0px');
-              console.log('[SafeArea] Insets set: top=${top}px, bottom=${bottom}px');
-              return true;
-            }
-            return false;
+            if (!document.documentElement) return false;
+            Object.keys(vars).forEach(function (name) {
+              document.documentElement.style.setProperty(name, vars[name] + 'px');
+            });
+            console.log('[SafeArea] Insets set: ' + JSON.stringify(vars));
+            return true;
           }
           
           // Try to set immediately
@@ -415,7 +447,7 @@ class MainActivity : TauriActivity() {
           }
           
           // Also store in window for later access by JS
-          window.__SAFE_AREA_INSETS__ = { top: ${top}, bottom: ${bottom}, left: 0, right: 0 };
+          window.__SAFE_AREA_INSETS__ = vars;
         })();
       """.trimIndent()
       webViewRef?.evaluateJavascript(js, null)
