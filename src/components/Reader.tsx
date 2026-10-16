@@ -13,7 +13,6 @@ import { ExternalFileOpenPayload } from "../types";
 import { IBookRenderer } from "../services/formats";
 import { captureBookmarkPosition } from "./reader/utils/bookmarkPosition";
 import { parseChapterTitle } from "./reader/utils/chapterTitle";
-import { getSafeAreaInsets } from "../utils/layout";
 import { getPlaceholderCanvasSize } from "../utils/canvasPlaceholder";
 import { useAppNav } from "../router/useAppNav";
 
@@ -52,9 +51,13 @@ import {
   useReaderTTS,
   useBookFontSize,
   useReaderStatusBar,
+  useReaderViewportInset,
 } from "./reader/hooks";
 
 import { UndoJumpIcon } from "./covers/UndoJumpIcon";
+
+/** 顶部页码气泡 / 撤回跳转按钮相对顶部安全区的偏移（控制栏自身高度约 72px） */
+const READER_CHROME_TOP_OFFSET = 72;
 
 
 export const Reader: React.FC = () => {
@@ -180,6 +183,12 @@ export const Reader: React.FC = () => {
     theme: isThemeSupported ? effectiveTheme : "light",
     darkChromeVisible: darkChromeOnStatusBar,
   });
+
+  // 内容视口的顶部让位：仅由「系统状态栏可见」决定，
+  // 否则控制栏显示/隐藏时 padding 变化会让正文上下跳动
+  const viewportInset = useReaderViewportInset(settings.showStatusBar);
+  // 顶部浮层（页码气泡 / 撤回跳转）只在控制栏可见时渲染，恒定需要避开状态栏
+  const chromeInset = useReaderViewportInset(true);
 
   // 4. 数据 Hooks (TOC, Bookmarks)
   const tocData = useToc(currentPage, readingMode, isDomRender);
@@ -489,13 +498,15 @@ export const Reader: React.FC = () => {
 
   return (
     <div
-      className="reader-fullheight"
+      className="reader-fullheight reader-viewport"
       style={{
         display: "flex",
         position: "relative",
         flexDirection: "column",
         backgroundColor: effectiveTheme === 'dark' ? "#000000" : "#2c2c2c",
-        paddingTop: settingsWithTheme.showStatusBar ? getSafeAreaInsets().top : 0,
+        // 顶部状态栏让位：高度以 CSS 变量交给 .reader-viewport 的 padding-top 处理，
+        // 组件不再手写 padding（盒模型约束集中在 CSS 里声明）
+        ...viewportInset.viewportStyle,
       }}
     >
       {/* 状态栏区域色条：显示状态栏且无深色浮层遮挡时，与阅读内容页同底色 */}
@@ -506,7 +517,7 @@ export const Reader: React.FC = () => {
             top: 0,
             left: 0,
             right: 0,
-            height: getSafeAreaInsets().top,
+            height: viewportInset.topInset,
             backgroundColor: readerStatusBar.pageBackgroundColor,
             // 置于内容之上，避免首页 boxShadow 溢出到色条上
             zIndex: 1,
@@ -669,95 +680,74 @@ export const Reader: React.FC = () => {
         }}
       />
 
-      {/* 顶部页码气泡 */}
-      {(uiVisible || isSeeking) && !moreDrawerOpen && !tocOverlayOpen && !modeOverlayOpen &&
-        (() => {
-          const toolbarVisible = uiVisible || isSeeking;
-          const baseOffsetPx = toolbarVisible ? 72 : 14;
-          const safeAreaTop = getSafeAreaInsets().top;
-          const shouldIncludeSafeArea = toolbarVisible || settings.showStatusBar;
-          const topStyle = shouldIncludeSafeArea
-            ? `calc(${safeAreaTop} + ${baseOffsetPx}px)`
-            : `${baseOffsetPx}px`;
-          return (
-            <div
-              style={{
-                position: "fixed",
-                top: topStyle,
-                left: "calc(env(safe-area-inset-left) + 12px)",
-                display: "block",
-                pointerEvents: "none",
-                zIndex: 11,
-              }}
-            >
-              <div
-                style={{
-                  padding: "6px 12px",
-                  borderRadius: "18px",
-                  backgroundColor: "rgba(0,0,0,0.75)",
-                  color: "#fff",
-                  fontSize: "12px",
-                  boxShadow: "0 2px 6px rgba(0,0,0,0.25)",
-                }}
-              >
-                {Math.floor(isSeeking && seekPage !== null ? seekPage : currentPage)} / {totalPages}
-              </div>
-            </div>
-          );
-        })()}
+      {/* 顶部页码气泡：仅控制栏可见时渲染，故恒定让位顶部安全区 */}
+      {(uiVisible || isSeeking) && !moreDrawerOpen && !tocOverlayOpen && !modeOverlayOpen && (
+        <div
+          style={{
+            position: "fixed",
+            top: chromeInset.topOffset(READER_CHROME_TOP_OFFSET),
+            left: "calc(env(safe-area-inset-left) + 12px)",
+            display: "block",
+            pointerEvents: "none",
+            zIndex: 11,
+          }}
+        >
+          <div
+            style={{
+              padding: "6px 12px",
+              borderRadius: "18px",
+              backgroundColor: "rgba(0,0,0,0.75)",
+              color: "#fff",
+              fontSize: "12px",
+              boxShadow: "0 2px 6px rgba(0,0,0,0.25)",
+            }}
+          >
+            {Math.floor(isSeeking && seekPage !== null ? seekPage : currentPage)} / {totalPages}
+          </div>
+        </div>
+      )}
 
-      {/* 撤回跳转按钮 */}
+      {/* 撤回跳转按钮：同样只在控制栏可见时渲染 */}
       {(uiVisible || isSeeking) && !moreDrawerOpen && !tocOverlayOpen && !modeOverlayOpen && undoJump.undoJumpState?.active &&
-        (() => {
-          const toolbarVisible = uiVisible || isSeeking;
-          const baseOffsetPx = toolbarVisible ? 72 : 14;
-          const safeAreaTop = getSafeAreaInsets().top;
-          const shouldIncludeSafeArea = toolbarVisible || settings.showStatusBar;
-          const topStyle = shouldIncludeSafeArea
-            ? `calc(${safeAreaTop} + ${baseOffsetPx}px)`
-            : `${baseOffsetPx}px`;
-
-          return (
-            <div
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                undoJump.performUndo();
-              }}
-              style={{
-                position: "fixed",
-                top: topStyle,
-                right: "calc(env(safe-area-inset-right) + 12px)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                gap: "6px",
-                zIndex: 11,
-                padding: "0 14px",
-                height: "32px",
-                borderRadius: "16px",
-                backgroundColor: "rgba(40, 40, 40, 0.9)",
-                color: "rgba(255, 255, 255, 0.95)",
-                fontSize: "12px",
-                boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
-                backdropFilter: "blur(4px)",
-                cursor: "pointer",
-                userSelect: "none",
-                // 简单进入动画
-                animation: "fadeSlideIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)",
-              }}
-            >
-              <UndoJumpIcon size={14} />
-              <span>撤回跳转</span>
-              <style>{`
-                @keyframes fadeSlideIn {
-                  from { opacity: 0; transform: translateX(15px); }
-                  to { opacity: 1; transform: translateX(0); }
-                }
-              `}</style>
-            </div>
-          );
-        })()}
+        <div
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            undoJump.performUndo();
+          }}
+          style={{
+            position: "fixed",
+            top: chromeInset.topOffset(READER_CHROME_TOP_OFFSET),
+            right: "calc(env(safe-area-inset-right) + 12px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "6px",
+            zIndex: 11,
+            padding: "0 14px",
+            height: "32px",
+            borderRadius: "16px",
+            backgroundColor: "rgba(40, 40, 40, 0.9)",
+            color: "rgba(255, 255, 255, 0.95)",
+            fontSize: "12px",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+            backdropFilter: "blur(4px)",
+            cursor: "pointer",
+            userSelect: "none",
+            // 简单进入动画
+            animation: "fadeSlideIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1)",
+          }}
+        >
+          <UndoJumpIcon size={14} />
+          <span>撤回跳转</span>
+          <style>{`
+            @keyframes fadeSlideIn {
+              from { opacity: 0; transform: translateX(15px); }
+              to { opacity: 1; transform: translateX(0); }
+            }
+          `}</style>
+        </div>
+      }
 
       <TocOverlay
         visible={tocOverlayOpen}

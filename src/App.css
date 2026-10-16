@@ -260,10 +260,10 @@ button {
 /* Reader dynamic viewport height to avoid status bar overlap */
 .reader-fullheight {
   height: 100vh;
-  /* 阅读页会在内联样式里加上「状态栏高度」的 padding-top 来避让状态栏，
-     必须用 border-box 让这段 padding 从 100dvh 内部让位；
-     否则默认的 content-box 会把盒子撑高一个状态栏高度，
-     导致整块阅读区（含横向分页的每一列）被下压，底部文字被视口裁掉 */
+  /* 阅读页视口的盒模型契约：高度按动态视口计算，且顶部状态栏让位
+     （.reader-viewport 的 padding-top）必须从视口高度内部扣除。
+     若用默认的 content-box，padding 会把盒子撑高一个状态栏高度，
+     整块阅读区（含横向分页的每一列）被下压，底部正文落到视口外被裁掉 */
   box-sizing: border-box;
 }
 @supports (height: 100dvh) {
@@ -275,6 +275,14 @@ button {
   .reader-fullheight {
     height: 100svh;
   }
+}
+
+/* 阅读页视口：顶部状态栏让位
+   让位高度由 useReaderViewportInset 注入的 --reader-top-inset 驱动：
+   状态栏隐藏时为 0px（正文铺满全屏），显示时为系统状态栏高度。
+   需与 .reader-fullheight 的 border-box 契约配套使用 */
+.reader-viewport {
+  padding-top: var(--reader-top-inset, 0px);
 }
 
 /* Import page: hard reset bubble effects inside this scope */
