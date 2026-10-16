@@ -1763,7 +1763,7 @@ export class TxtRenderer implements IBookRenderer {
   /**
    * 计算当前视口顶部对应的章节索引与 anchor
    * 横纵模式统一返回 { sectionIndex: 章节索引, anchor: 章内文本引用 }
-   * anchor 用于 TTS 章内精确定位/裁前缀
+   * anchor 用于 TTS 章内精确定位/换算起播 chunk（不裁剪正文）
    */
   private getVisibleStartPositionForTTS(): TTSReadingPosition | null {
     const container = this._container;

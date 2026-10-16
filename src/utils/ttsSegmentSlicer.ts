@@ -267,3 +267,34 @@ export const sliceTextToSegments = (options: SliceTextOptions): SliceTextResult 
   };
 };
 
+/**
+ * 计算 anchor 起点所在的 chunk 下标（坐标系与 sliceTextToSegments 产出的 cursor 一致）
+ *
+ * 用于「取片起点」换算：不裁剪章节文本，只把起点换成 chunk 下标，使首批与
+ * cursor 续读批始终落在同一套下标坐标系上，避免续读批回退重读已读内容；
+ * 取起点**所在**的整句作为首段（最多多读一句），不会从句子中间开始朗读。
+ * @returns chunk 下标；anchor 命中章首或无法定位时返回 0（从章首开始）
+ */
+export const findStartChunkIndexByAnchor = (
+  text: string,
+  anchor: TTSReadingAnchor | null | undefined,
+): number => {
+  if (!text || !anchor) return 0;
+  const offset = findAnchorStartOffsetWithContext(text, anchor, 0);
+  if (offset <= 0 || offset >= text.length) return 0;
+  const chunks = splitTextToChunks(text);
+  if (chunks.length === 0) return 0;
+  // 与 sliceTextToSegments 相同的顺序查找方式，保证两处 chunk 起止位置一致
+  let searchOffset = 0;
+  for (let i = 0; i < chunks.length; i++) {
+    const chunk = chunks[i]!;
+    const foundAt = text.indexOf(chunk, searchOffset);
+    const start = foundAt >= 0 ? foundAt : searchOffset;
+    const end = Math.min(text.length, start + chunk.length);
+    if (end > offset) return i;
+    searchOffset = end;
+  }
+  // anchor 落在末尾空白区（正常不会发生）：从最后一个 chunk 开始，避免整章重读
+  return chunks.length - 1;
+};
+

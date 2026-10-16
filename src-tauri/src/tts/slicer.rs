@@ -1,5 +1,5 @@
 use crate::tts::cursor::encode_section_cursor;
-use crate::tts::types::{TtsAnchorDto, TtsSegmentDto};
+use crate::tts::types::{TtsAnchorDto, TtsSegmentDto, TtsStartPosition};
 
 /// 单句最大长度阈值，超过此长度的句子会被进一步硬拆
 const SENTENCE_HARD_SPLIT_LENGTH: usize = 200;
@@ -191,6 +191,102 @@ pub fn slice_text_to_segments(opts: SliceOptions) -> SliceResult {
     }
 }
 
+/// 上下文优先的 anchor 起点匹配（章内同名句段消歧）
+///
+/// 逐级降级：完整上下文（prefix+quote+suffix）→ 前缀+quote → quote+后缀 →
+/// 沿用 `find_anchor_start_byte` 的三层兜底（含空白规范化）。
+/// 同名句段在章内重复时优先选中上下文吻合的那一次，避免把起播点拉回更早的重复句段。
+fn find_anchor_start_offset_with_context(text: &str, anchor: &TtsAnchorDto) -> usize {
+    let quote = anchor.quote.as_str();
+    if quote.is_empty() {
+        return 0;
+    }
+    let prefix = anchor.prefix.as_deref().unwrap_or("");
+    let suffix = anchor.suffix.as_deref().unwrap_or("");
+    // 上下文越完整优先级越高。quote 在模式内的偏移必须显式给出：
+    // 若用 pattern.find(quote) 反推，prefix 自身含同名句段时会把起点误判到前缀里。
+    let mut patterns: Vec<(String, usize)> = Vec::new();
+    if !prefix.is_empty() || !suffix.is_empty() {
+        patterns.push((format!("{}{}{}", prefix, quote, suffix), prefix.len()));
+        if !prefix.is_empty() {
+            patterns.push((format!("{}{}", prefix, quote), prefix.len()));
+        }
+        if !suffix.is_empty() {
+            patterns.push((format!("{}{}", quote, suffix), 0));
+        }
+    }
+    for (pattern, quote_offset) in patterns {
+        if let Some(idx) = text.find(pattern.as_str()) {
+            return idx + quote_offset;
+        }
+    }
+    // 上下文缺失或不匹配（如 DOM 正文与提取文本的空白差异）：退回原有兜底匹配
+    find_anchor_start_byte(text, anchor)
+}
+
+/// 计算「按 anchor 起播」时应跳过的 chunk 数，坐标系为传入的**完整章节文本**
+///
+/// 与「先裁掉 anchor 之前的前缀再切片」的旧做法相比，这里只把起点换算成 chunk 下标，
+/// 章节文本保持原样，因此首批产出的 cursor 与后续 cursor 续读批始终处于同一套
+/// chunk 下标坐标系，不会出现续读批回退到已读内容的问题。
+/// 取 anchor 起点**所在**的整个 chunk（即视口顶部那一句），最多只多读一句，
+/// 避免旧实现从句子中间开始朗读得到半句。
+pub fn find_start_chunk_index_by_anchor(text: &str, anchor: &TtsAnchorDto) -> i32 {
+    let offset = find_anchor_start_offset_with_context(text, anchor);
+    if offset == 0 {
+        // anchor 命中章首：无需跳过
+        return 0;
+    }
+    let chunks = split_text_to_chunks(text);
+    if chunks.is_empty() {
+        return 0;
+    }
+    // 与 slice_text_to_segments 相同的顺序查找方式，保证两处 chunk 起止位置一致
+    let mut search_byte: usize = 0;
+    for (i, chunk) in chunks.iter().enumerate() {
+        let found = text[search_byte..]
+            .find(chunk.as_str())
+            .map(|rel| search_byte + rel);
+        let start = found.unwrap_or(search_byte);
+        let end = (start + chunk.len()).min(text.len());
+        if end > offset {
+            return i as i32;
+        }
+        search_byte = end;
+    }
+    // anchor 落在末尾空白区（正常不会发生）：从最后一个 chunk 开始，避免整章重读
+    (chunks.len() as i32) - 1
+}
+
+/// 解析首批（cursor 为空）的起播位置，返回应跳过的 chunk 数
+///
+/// cursor 续读、章节不匹配、无 anchor 或 anchor 命中章首时返回 0；
+/// 传入的 text 必须是**未裁剪**的完整章节正文，返回值可直接作为
+/// `SliceOptions.start_chunk_index` 使用。
+pub fn resolve_start_chunk_index(
+    text: &str,
+    section_index: i32,
+    cursor: Option<&str>,
+    start_position: Option<&TtsStartPosition>,
+) -> i32 {
+    if cursor.is_some() {
+        // 续读：起始位置已由 cursor 给出，不能再按 anchor 二次换算
+        return 0;
+    }
+    let pos = match start_position {
+        Some(p) => p,
+        None => return 0,
+    };
+    if pos.section_index != section_index {
+        return 0;
+    }
+    let anchor = match pos.anchor.as_ref() {
+        Some(a) => a,
+        None => return 0,
+    };
+    find_start_chunk_index_by_anchor(text, anchor)
+}
+
 /// 在整段文本中根据 anchor 计算起始字节偏移，三层匹配兜底
 pub fn find_anchor_start_byte(text: &str, anchor: &TtsAnchorDto) -> usize {
     if anchor.quote.is_empty() {
@@ -241,6 +337,140 @@ fn find_anchor_offset_normalized(text: &str, quote: &str) -> usize {
     match normalized.find(normalized_quote.as_str()) {
         Some(idx) => norm_to_raw.get(idx).copied().unwrap_or(0),
         None => 0,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 构造长正文：每句带唯一序号，便于断言 chunk 下标
+    fn build_chapter(sentence_count: usize) -> String {
+        (0..sentence_count)
+            .map(|i| format!("这是第{}个句子，用于验证朗读游标不会回退。", i))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// 取句子前若干字符作为 anchor.quote（按字符切，避免切断多字节字符）
+    fn head_of(sentence: &str, chars: usize) -> String {
+        sentence.chars().take(chars).collect()
+    }
+
+    /// 按「字符偏移 + 引用长度」构造真实形态的 anchor（与前端 rangeToTextQuote 一致：
+    /// quote 取可见文本，prefix/suffix 各带 24 字上下文）
+    fn anchor_at(text: &str, offset_chars: usize, quote_chars: usize) -> TtsAnchorDto {
+        let chars: Vec<char> = text.chars().collect();
+        let start = offset_chars.min(chars.len());
+        let end = (start + quote_chars).min(chars.len());
+        let prefix_start = start.saturating_sub(24);
+        let suffix_end = (end + 24).min(chars.len());
+        TtsAnchorDto {
+            quote: chars[start..end].iter().collect(),
+            prefix: if prefix_start < start {
+                Some(chars[prefix_start..start].iter().collect())
+            } else {
+                None
+            },
+            suffix: if end < suffix_end {
+                Some(chars[end..suffix_end].iter().collect())
+            } else {
+                None
+            },
+        }
+    }
+
+    /// anchor 起点所在的整句应作为起始 chunk，而不是从句子中间开始
+    #[test]
+    fn find_start_chunk_returns_sentence_containing_anchor() {
+        let text = build_chapter(5);
+        let chunks = split_text_to_chunks(&text);
+        assert_eq!(chunks.len(), 5);
+
+        let mid = TtsAnchorDto {
+            quote: head_of(&chunks[2], 8),
+            prefix: None,
+            suffix: None,
+        };
+        assert_eq!(find_start_chunk_index_by_anchor(&text, &mid), 2);
+
+        // 视口顶部落在句中：仍应从该句句首开始，而不是从句中截断
+        let sentence_start = chunks[..3].iter().map(|c| c.chars().count() + 1).sum::<usize>();
+        let inner = anchor_at(&text, sentence_start + 5, 8);
+        assert_eq!(find_start_chunk_index_by_anchor(&text, &inner), 3);
+
+        let head = TtsAnchorDto {
+            quote: head_of(&chunks[0], 8),
+            prefix: None,
+            suffix: None,
+        };
+        assert_eq!(find_start_chunk_index_by_anchor(&text, &head), 0);
+    }
+
+    /// 同名句段在章内重复时，优先命中上下文吻合的那一次，而不是更早的重复句
+    #[test]
+    fn context_prefers_correct_occurrence_when_quote_repeats() {
+        let repeated = "重复内容相同的一句话，用于验证上下文消歧。";
+        let text = format!("开头的一句话。\n{}\n{}\n结尾的一句话。", repeated, repeated);
+        let chunks = split_text_to_chunks(&text);
+        assert_eq!(chunks.len(), 4);
+        assert_eq!(chunks[1], repeated);
+        assert_eq!(chunks[2], repeated);
+
+        // 指向第 3 句（下标 2）的 anchor：上下文应把它消歧到后一次出现
+        let offset: usize = chunks[..2].iter().map(|c| c.chars().count() + 1).sum();
+        let anchor = anchor_at(&text, offset, 10);
+        assert_eq!(find_start_chunk_index_by_anchor(&text, &anchor), 2);
+    }
+
+    /// 首批 cursor 与续读批必须落在同一套 chunk 下标坐标系上（不再回退重读）
+    #[test]
+    fn first_batch_cursor_keeps_monotonic_after_anchor_start() {
+        let text = build_chapter(300);
+        let chunks = split_text_to_chunks(&text);
+        let start_index = 100usize;
+        let start_position = TtsStartPosition {
+            section_index: 0,
+            anchor: Some(TtsAnchorDto {
+                quote: head_of(&chunks[start_index], 10),
+                prefix: None,
+                suffix: None,
+            }),
+        };
+
+        // 首批：cursor 为空 + 视口起点，起点应换算成原文坐标系的 chunk 下标
+        let first_start = resolve_start_chunk_index(&text, 0, None, Some(&start_position));
+        assert_eq!(first_start, start_index as i32);
+
+        let first = slice_text_to_segments(SliceOptions {
+            id_prefix: "epub:0",
+            text: &text,
+            section_index: 0,
+            start_chunk_index: first_start,
+            max_segments: 60,
+            lang: None,
+            encode_cursor: None,
+        });
+        assert_eq!(first.segments.len(), 60);
+        assert!(first.has_more_in_text);
+        assert_eq!(first.segments[0].chunk_index, start_index as i32);
+        let first_last_chunk = first.segments.last().unwrap().chunk_index;
+
+        // 续读批：cursor 非空，不能再按 anchor 二次换算（否则 chunk 下标整体回退）
+        assert_eq!(
+            resolve_start_chunk_index(&text, 0, Some("0:160"), Some(&start_position)),
+            0
+        );
+        let second = slice_text_to_segments(SliceOptions {
+            id_prefix: "epub:0",
+            text: &text,
+            section_index: 0,
+            start_chunk_index: first.next_chunk_index,
+            max_segments: 60,
+            lang: None,
+            encode_cursor: None,
+        });
+        assert!(second.segments[0].chunk_index > first_last_chunk);
     }
 }
 

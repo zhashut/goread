@@ -7,7 +7,7 @@ use crate::epub_commands::EpubCacheState;
 use crate::formats::epub::EpubCacheManager;
 use crate::tts::cursor::{decode_section_cursor, encode_section_cursor};
 use crate::tts::dispatcher::html_text::extract_plain_text;
-use crate::tts::slicer::{find_anchor_start_byte, slice_text_to_segments, SliceOptions};
+use crate::tts::slicer::{resolve_start_chunk_index, slice_text_to_segments, SliceOptions};
 use crate::tts::types::{TtsGetSegmentsRequest, TtsGetSegmentsResponse, TtsSegmentDto};
 
 /// 单批次最多跨越的章节数，避免一次性加载过多章节
@@ -85,19 +85,7 @@ pub async fn get_segments<R: Runtime>(
             }
         };
 
-        let raw_text = extract_plain_text(&raw_html);
-        if raw_text.is_empty() {
-            section_index += 1;
-            next_section = section_index;
-            next_chunk = 0;
-            continue;
-        }
-
-        let text = trim_text_by_anchor(
-            &raw_text,
-            section_index,
-            req,
-        );
+        let text = extract_plain_text(&raw_html);
         if text.is_empty() {
             section_index += 1;
             next_section = section_index;
@@ -105,7 +93,18 @@ pub async fn get_segments<R: Runtime>(
             continue;
         }
 
-        let slice_start = if section_index == start_section { start_chunk } else { 0 };
+        // 首批从章节中部起播时，把视口 anchor 换算成 chunk 下标；
+        // 章节文本保持完整，保证首批产出的 cursor 与续读批使用同一套 chunk 下标坐标系
+        let slice_start = if section_index == start_section {
+            start_chunk.max(resolve_start_chunk_index(
+                &text,
+                section_index,
+                req.cursor.as_deref(),
+                req.start_position.as_ref(),
+            ))
+        } else {
+            0
+        };
         let remaining = (max_segments as usize).saturating_sub(segments.len()) as u32;
         let id_prefix = format!("epub:{}", section_index);
         let slice = slice_text_to_segments(SliceOptions {
@@ -158,32 +157,5 @@ fn resolve_start(req: &TtsGetSegmentsRequest) -> (i32, i32) {
     }
     let fallback = req.fallback_section_index.unwrap_or(0).max(0);
     (fallback, 0)
-}
-
-/// 仅当 cursor 为空且首章节命中起始位置时，按 anchor 裁掉用户已读前缀
-fn trim_text_by_anchor(
-    text: &str,
-    section_index: i32,
-    req: &TtsGetSegmentsRequest,
-) -> String {
-    if req.cursor.is_some() {
-        return text.to_string();
-    }
-    let pos = match req.start_position.as_ref() {
-        Some(p) => p,
-        None => return text.to_string(),
-    };
-    if pos.section_index != section_index {
-        return text.to_string();
-    }
-    let anchor = match pos.anchor.as_ref() {
-        Some(a) => a,
-        None => return text.to_string(),
-    };
-    let offset = find_anchor_start_byte(text, anchor);
-    if offset == 0 || offset >= text.len() {
-        return text.to_string();
-    }
-    text[offset..].trim().to_string()
 }
 

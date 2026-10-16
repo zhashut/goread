@@ -10,6 +10,7 @@ import type {
 import { AnchorLocator } from './AnchorLocator';
 import {
   sliceTextToSegments,
+  findStartChunkIndexByAnchor,
   findAnchorStartOffsetWithContext,
 } from '../../../utils/ttsSegmentSlicer';
 import { encodeSectionCursor, decodeSectionCursor } from '../../../utils/ttsSegment';
@@ -56,7 +57,7 @@ const MAX_CHAPTERS_PER_BATCH = 4;
  * 统一按章节粒度取片（与后端托管会话一致）：
  * - sectionIndex 恒为章节索引（横纵模式统一契约）
  * - cursor = sectionIndex:chunkIndex
- * - anchor 为章内文本引用，用于章内精确定位/裁前缀
+ * - anchor 为章内文本引用，用于章内精确定位/换算起播 chunk（不裁剪正文）
  * 横向/纵向仅影响"起点定位"与"恢复定位"两个环节
  */
 export class TxtContentProvider implements TTSContentProvider {
@@ -350,13 +351,14 @@ export class TxtContentProvider implements TTSContentProvider {
 
     // 起点解析：cursor 优先，其次 startPosition，最后当前阅读位置
     const cursor = decodeSectionCursor(req.cursor);
+    // 只有首批（无 cursor）才需要视口起点；续读批的章内位置由 cursor 给出
+    const startPosition = cursor ? null : this.#resolveStartPosition(req);
     let startChapter: number;
     let startChunk: number;
     if (cursor) {
       startChapter = Math.max(0, Math.min(cursor.sectionIndex, totalChapters - 1));
       startChunk = Math.max(0, cursor.chunkIndex);
     } else {
-      const startPosition = this.#resolveStartPosition(req);
       const fallback = this.#ctx.getCurrentChapterIndex?.() ?? 0;
       startChapter = Math.max(
         0,
@@ -381,21 +383,22 @@ export class TxtContentProvider implements TTSContentProvider {
         break;
       }
 
-      const rawText = (await this.#loadChapterText(filePath, bookId, idx)).trim();
-      if (!rawText) {
-        nextSection = idx + 1;
-        nextChunk = 0;
-        continue;
-      }
-
-      const text = this.#trimByAnchorIfStart(rawText, idx, startChapter, startChunk, req);
+      const text = (await this.#loadChapterText(filePath, bookId, idx)).trim();
       if (!text) {
         nextSection = idx + 1;
         nextChunk = 0;
         continue;
       }
 
-      const sliceStart = idx === startChapter ? startChunk : 0;
+      // 首批从章内中部起播时，把视口 anchor 换算成「完整章节正文」坐标系下的起始 chunk；
+      // 续读批直接用 cursor 内的 chunk，两者坐标系一致，避免续读回退重读
+      const sliceStart =
+        idx === startChapter
+          ? Math.max(
+              startChunk,
+              this.#resolveAnchorChunk(text, idx, startChapter, startPosition),
+            )
+          : 0;
       const result = sliceTextToSegments({
         idPrefix: `txt:${idx}`,
         text,
@@ -461,25 +464,23 @@ export class TxtContentProvider implements TTSContentProvider {
     return '';
   }
 
-  /** 仅当起点章命中 startPosition 时按 anchor 裁前缀（cursor 续读不裁） */
-  #trimByAnchorIfStart(
+  /**
+   * 首批起点换算：把视口 anchor 换算成章内 chunk 下标（0 表示不跳过）
+   *
+   * 仅在「首章 + 起点章命中」时生效，返回的下标以完整章节正文为坐标系，
+   * 与 sliceTextToSegments 产出的 cursor 一致；cursor 续读批不参与换算。
+   */
+  #resolveAnchorChunk(
     text: string,
     chapterIndex: number,
     startChapter: number,
-    startChunk: number,
-    req: TTSContentProviderGetSegmentsRequest,
-  ): string {
-    if (!text) return text;
-    if (req.cursor) return text;
-    if (startChunk > 0) return text;
-    if (chapterIndex !== startChapter) return text;
-    const startPosition = this.#resolveStartPosition(req);
-    if (!startPosition?.anchor) return text;
-    if (startPosition.sectionIndex !== chapterIndex) return text;
-    // 上下文优先：起点句段在章内重复时，从正确那一次开始读，避免开篇重读一段
-    const offset = findAnchorStartOffsetWithContext(text, startPosition.anchor, 0);
-    if (offset <= 0 || offset >= text.length) return text;
-    return text.slice(offset).trim();
+    startPosition: TTSReadingPosition | null,
+  ): number {
+    if (chapterIndex !== startChapter) return 0;
+    if (!startPosition?.anchor) return 0;
+    if (startPosition.sectionIndex !== chapterIndex) return 0;
+    // 上下文优先：起点句段在章内重复时，从正确那一次所在句开始读
+    return findStartChunkIndexByAnchor(text, startPosition.anchor);
   }
 
   /** cursor=null 时优先用调用方传入的 startPosition，否则用 ctx 提供的视口起点 */
