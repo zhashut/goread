@@ -88,6 +88,15 @@ class MainActivity : TauriActivity() {
     println("[Permission] MANAGE_EXTERNAL_STORAGE result: $granted")
     notifyPermissionResult(granted)
   }
+
+  // 通知权限（Android 13+ POST_NOTIFICATIONS）申请结果回调
+  // 结果统一转发给前端，由前端决定是否提示“后台朗读无通知”
+  private val notificationPermissionLauncher = registerForActivityResult(
+    ActivityResultContracts.RequestPermission()
+  ) { granted ->
+    println("[Permission] POST_NOTIFICATIONS result: $granted")
+    notifyNotificationPermissionResult(granted)
+  }
   
   override fun onCreate(savedInstanceState: Bundle?) {
     // Enable edge-to-edge with auto-adapting colors
@@ -134,6 +143,8 @@ class MainActivity : TauriActivity() {
     
     // 存储权限控制接口（供前端按需调用）
     webView.addJavascriptInterface(StoragePermissionBridge(), "StoragePermissionBridge")
+    // 通知权限控制接口（Android 13+ 前台服务通知依赖，供前端按需调用）
+    webView.addJavascriptInterface(NotificationPermissionBridge(), "NotificationPermissionBridge")
     // SAF 文件访问接口（目录选择、扫描与复制）
     webView.addJavascriptInterface(SafBridge(), "SafBridge")
     
@@ -604,6 +615,34 @@ class MainActivity : TauriActivity() {
     }
   }
   
+  // 通知权限控制 Bridge（供前端按需调用）
+  inner class NotificationPermissionBridge {
+    @android.webkit.JavascriptInterface
+    fun hasPermission(): Boolean {
+      return checkNotificationPermissionInternal()
+    }
+
+    @android.webkit.JavascriptInterface
+    fun isSupported(): Boolean {
+      // Android 13 以下没有该运行时权限，通知默认可见
+      return Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+    }
+
+    @android.webkit.JavascriptInterface
+    fun requestPermission() {
+      runOnUiThread {
+        requestNotificationPermission()
+      }
+    }
+
+    @android.webkit.JavascriptInterface
+    fun openSettings() {
+      runOnUiThread {
+        openNotificationSettings()
+      }
+    }
+  }
+
   // 内部权限检查方法
   // 电子书阅读器需要访问文档文件（PDF/EPUB/TXT），不同 Android 版本的权限机制不同
   private fun checkStoragePermissionInternal(): Boolean {
@@ -634,6 +673,71 @@ class MainActivity : TauriActivity() {
     }
   }
   
+  // 检查通知权限：Android 13 以下恒为 true（无该运行时权限）
+  private fun checkNotificationPermissionInternal(): Boolean {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true
+    return ContextCompat.checkSelfPermission(
+      this,
+      Manifest.permission.POST_NOTIFICATIONS
+    ) == PackageManager.PERMISSION_GRANTED
+  }
+
+  // 请求通知权限：已授权或系统无需授权时直接回调成功，避免无意义的弹框
+  private fun requestNotificationPermission() {
+    if (checkNotificationPermissionInternal()) {
+      notifyNotificationPermissionResult(true)
+      return
+    }
+    try {
+      println("[Permission] Requesting POST_NOTIFICATIONS")
+      notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+    } catch (e: Exception) {
+      // 权限未在清单声明或系统异常时 launch 会抛异常，回传失败而不是崩溃
+      println("[Permission] Request POST_NOTIFICATIONS failed: ${e.javaClass.simpleName} ${e.message ?: ""}")
+      notifyNotificationPermissionResult(false)
+    }
+  }
+
+  // 跳转应用通知设置页（用户已拒绝后只能由用户手动开启）
+  private fun openNotificationSettings() {
+    try {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+          putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+          addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        startActivity(intent)
+      } else {
+        // Android 8 以下没有应用通知设置页，退化为应用详情页
+        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+          data = Uri.parse("package:$packageName")
+          addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        startActivity(intent)
+      }
+      println("[Permission] Opened notification settings")
+    } catch (e: Exception) {
+      println("[Permission] Open notification settings failed: ${e.javaClass.simpleName} ${e.message ?: ""}")
+    }
+  }
+
+  // 通知前端通知权限结果（同时派发 DOM 事件，便于页面级监听刷新状态）
+  private fun notifyNotificationPermissionResult(granted: Boolean) {
+    webViewRef?.post {
+      val js = """
+        (function() {
+          if (typeof window.__onNotificationPermissionResult__ === 'function') {
+            window.__onNotificationPermissionResult__($granted);
+          }
+          if (typeof CustomEvent !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('notificationPermissionResult', { detail: { granted: $granted } }));
+          }
+        })();
+      """.trimIndent()
+      webViewRef?.evaluateJavascript(js, null)
+    }
+  }
+
   // 通知前端权限结果
   private fun notifyPermissionResult(granted: Boolean) {
     webViewRef?.post {

@@ -21,6 +21,9 @@
   "ttsVoice": "Voice",
   "ttsVoiceSystemDefault": "System Default",
   "ttsVoiceLoadFailed": "No voices available",
+  "ttsNotificationPermission": "Playback notifications",
+  "ttsNotificationEnabled": "Enabled",
+  "ttsNotificationEnable": "Enable",
   "ttsRate": "TTS Speed",
   "unlimited": "Unlimited",
   "cacheExpiry": {

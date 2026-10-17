@@ -9,6 +9,7 @@ import type {
   TTSContentProvider,
 } from '../../../services/tts/providers/TTSContentProvider';
 import { log, logError, getReaderSettings, saveReaderSettings } from '../../../services';
+import { ensureNotificationPermission } from '../../../utils/notificationPermission';
 import { TTS_RATE_DEFAULT } from '../../../constants/tts';
 import { createTTSClient, type TTSFailReason } from './createTTSClient';
 
@@ -23,6 +24,8 @@ interface PlayResult {
   success: boolean;
   failReason?: TTSFailReason;
   action?: 'stop';
+  /** 通知权限被拒绝（仅提示用，不影响朗读） */
+  notificationPermissionDenied?: boolean;
 }
 
 interface UseTTSOptions {
@@ -127,6 +130,9 @@ export const useTTS = ({
     pendingStopRef.current = false;
     log('[TTS] toggle → 开启听书', 'info');
     try {
+      // 通知权限：Android 13+ 的前台服务通知依赖该权限；仅做“尽力申请”，
+      // 被拒绝时继续朗读，由上层给出非阻塞提示
+      const notificationPermissionGranted = await ensureNotificationPermission();
       let readerSettings = getReaderSettings();
       const { client, failReason } = await createTTSClient(readerSettings.ttsPreferredEngine);
 
@@ -224,7 +230,7 @@ export const useTTS = ({
         await releaseActiveTTS();
         return { success: false, failReason: 'listenFailedNoContent' };
       }
-      return { success: true };
+      return { success: true, notificationPermissionDenied: !notificationPermissionGranted };
     } catch (error) {
       const errMsg = error instanceof Error
         ? `${error.name}: ${error.message}`

@@ -47,6 +47,12 @@ import { IconInfo } from "./Icons";
 import { Loading } from "./Loading";
 import { NativeTTSClient, WebSpeechClient } from "../services/tts";
 import type { TTSVoice } from "../services/tts";
+import {
+  hasNotificationPermission,
+  isNotificationPermissionSupported,
+  openNotificationSettings,
+  requestNotificationPermission,
+} from "../utils/notificationPermission";
 
 type TTSVoiceWithEngine = TTSVoice & { engine: string };
 
@@ -60,6 +66,10 @@ export const Settings: React.FC = () => {
   const isFirstRender = useRef(true);
   const [ttsVoicesLoading, setTtsVoicesLoading] = useState(false);
   const [ttsVoices, setTtsVoices] = useState<TTSVoiceWithEngine[]>([]);
+  // 朗读通知权限（仅 Android 13+ 有意义）：未授权时后台朗读没有通知与锁屏控制
+  const [notificationPermissionGranted, setNotificationPermissionGranted] = useState(
+    () => hasNotificationPermission(),
+  );
 
   const nav = useAppNav();
 
@@ -476,6 +486,21 @@ export const Settings: React.FC = () => {
     }
     return "default";
   })();
+
+  // 当前设备是否需要通知权限（Android 13+ 且 Bridge 可用）
+  const notificationPermissionSupported = isNotificationPermissionSupported();
+
+  // 监听权限结果事件与页面重新可见（从系统设置返回）时刷新权限状态
+  useEffect(() => {
+    const refresh = () => setNotificationPermissionGranted(hasNotificationPermission());
+    refresh();
+    window.addEventListener("notificationPermissionResult", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.removeEventListener("notificationPermissionResult", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, []);
 
   return (
     <div
@@ -916,6 +941,41 @@ export const Settings: React.FC = () => {
               />
             }
           />
+
+        {notificationPermissionSupported && (
+          <Row
+            label={t('ttsNotificationPermission')}
+            right={
+              notificationPermissionGranted ? (
+                <span style={{ color: '#2e9e5b', fontSize: '14px' }}>
+                  {t('ttsNotificationEnabled')}
+                </span>
+              ) : (
+                <button
+                  style={{
+                    padding: SETTINGS_BUTTON_PADDING,
+                    fontSize: SETTINGS_BUTTON_FONT_SIZE,
+                    borderRadius: SETTINGS_BUTTON_RADIUS,
+                    fontWeight: SETTINGS_BUTTON_FONT_WEIGHT,
+                    border: '1px solid #d15158',
+                    background: '#fff',
+                    color: '#d15158',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                  onClick={async () => {
+                    // 先弹系统权限框；仍被拒绝时引导用户到系统通知设置手动开启
+                    const granted = await requestNotificationPermission();
+                    setNotificationPermissionGranted(granted);
+                    if (!granted) openNotificationSettings();
+                  }}
+                >
+                  {t('ttsNotificationEnable')}
+                </button>
+              )
+            }
+          />
+        )}
 
         <Row
           label={t('dataManagement')}

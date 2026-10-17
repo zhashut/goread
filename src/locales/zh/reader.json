@@ -28,6 +28,7 @@
   "sortByName": "按名称排序",
   "sortReverse": "倒序排列",
   "listenOn": "已开启听书",
+  "listenOnNotificationDisabled": "已开启听书（通知权限未开启，后台朗读将没有通知与锁屏控制）",
   "listenOff": "已退出听书",
   "listenFailedNoVoice": "听书启动失败：当前设备无可用语音引擎，请检查系统 TTS 设置",
   "listenFailedNativeBridge": "听书启动失败：当前平台不支持原生语音",

@@ -28,6 +28,7 @@
   "sortByName": "Sort by Name",
   "sortReverse": "Reverse Order",
   "listenOn": "Listen mode on",
+  "listenOnNotificationDisabled": "Listen mode on (notifications are off, so no notification or lock-screen controls in background)",
   "listenOff": "Listen mode off",
   "listenFailedNoVoice": "Listen failed: no voice engine available, please check TTS settings",
   "listenFailedNativeBridge": "Listen failed: native TTS not supported on this platform",

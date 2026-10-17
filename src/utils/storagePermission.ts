@@ -9,6 +9,7 @@
 
 import { fileSystemService } from '../services/fileSystemService';
 import { logError } from '../services/index';
+import { detectPlatform as detectPlatformKind } from './platform';
 
 // ============================================================================
 // 平台权限处理接口定义
@@ -189,36 +190,12 @@ class DesktopStoragePermissionHandler implements StoragePermissionHandler {
 
 /**
  * 检测当前运行平台
+ * 复用 utils/platform 的统一判断，避免各模块各写一套 UA 正则；
+ * 未识别的环境按 desktop 处理（便于本地浏览器调试）
  */
 function detectPlatform(): 'android' | 'ios' | 'desktop' | 'unknown' {
-    const userAgent = navigator.userAgent.toLowerCase();
-    
-    // 检测 iOS（iPhone, iPad, iPod）
-    if (/iphone|ipad|ipod/.test(userAgent)) {
-        return 'ios';
-    }
-    
-    // 检测 Android
-    if (/android/.test(userAgent)) {
-        return 'android';
-    }
-    
-    // Tauri 环境下的额外检测
-    if (typeof (window as any).__TAURI__ !== 'undefined') {
-        // 检查是否存在 Android 特有的 Bridge
-        if (typeof (window as any).StoragePermissionBridge !== 'undefined') {
-            return 'android';
-        }
-        // 检查是否存在 iOS 特有的 Bridge（如果后续添加）
-        if (typeof (window as any).IOSStoragePermissionBridge !== 'undefined') {
-            return 'ios';
-        }
-        // 如果是 Tauri 环境但没有移动端 Bridge，视为桌面端
-        return 'desktop';
-    }
-    
-    // 浏览器开发环境或其他未知环境，默认为 desktop 以方便调试
-    return 'desktop';
+    const platform = detectPlatformKind();
+    return platform === 'unknown' ? 'desktop' : platform;
 }
 
 /**

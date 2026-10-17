@@ -51,7 +51,12 @@ export const useReaderTTS = ({
         if ('action' in result && result.action === 'stop') {
             setListenToastMsg(tReader('listenOff'));
         } else if (result.success) {
-            setListenToastMsg(tReader('listenOn'));
+            // 通知权限被拒绝时，朗读仍可正常开始，仅提示后台无通知
+            setListenToastMsg(
+                result.notificationPermissionDenied
+                    ? tReader('listenOnNotificationDisabled')
+                    : tReader('listenOn'),
+            );
         } else {
             const reason = result.failReason ?? 'listenFailedUnknown';
             setListenToastMsg(tReader(reason));

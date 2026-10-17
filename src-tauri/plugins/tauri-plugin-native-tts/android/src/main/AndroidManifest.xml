@@ -3,6 +3,8 @@
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
   <uses-permission android:name="android.permission.WAKE_LOCK" />
+  <!-- Android 13+ 通知运行时权限：后台朗读的前台服务通知依赖该权限（未授权时通知不会出现在通知栏） -->
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
   <queries>
     <intent>
