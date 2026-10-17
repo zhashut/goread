@@ -125,5 +125,7 @@ export interface TTSSessionListeners {
   onEngineChanged?: (event: TTSSessionEngineChangedEvent) => void;
   /** 媒体控件动作（仅 native-tts 插件模式会下发） */
   onMediaAction?: (action: TTSMediaAction) => void;
+  /** 后台保活服务启动失败（仅 native-tts 插件模式会下发） */
+  onBackgroundServiceError?: (reason?: string) => void;
 }
 

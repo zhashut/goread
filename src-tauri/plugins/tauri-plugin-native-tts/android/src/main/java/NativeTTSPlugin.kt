@@ -50,6 +50,8 @@ class SetPlaybackStateArgs {
   var state: String? = null
   var title: String? = null
   var text: String? = null
+  /** 封面路径（本地文件路径或 data URL），用于通知大图标 */
+  var largeIconPath: String? = null
 }
 
 @InvokeArg
@@ -228,6 +230,13 @@ class NativeTTSPlugin(private val activity: Activity) : Plugin(activity) {
       // 启动/停止统一走 Service 的状态机，避免「启动后立刻停止」导致前台服务超时崩溃
       val started = MediaPlaybackService.requestStart(activity, title, text)
       println("[TTS][Plugin] background playback enabled=$started")
+      if (!started) {
+        // 启动失败（如 Android 12+ 后台启动限制）上报前端，便于提示用户
+        trigger(CHANNEL_NAME, JSObject().apply {
+          put("code", "background_service_error")
+          put("reason", "start_failed")
+        })
+      }
       return
     }
 
@@ -595,8 +604,8 @@ class NativeTTSPlugin(private val activity: Activity) : Plugin(activity) {
   fun set_playback_state(invoke: Invoke) {
     try {
       val args = invoke.parseArgs(SetPlaybackStateArgs::class.java)
-      println("[TTS][Plugin] set_playback_state: state=${args.state ?: ""} title=${args.title ?: ""} text=${args.text ?: ""}")
-      MediaPlaybackService.updatePlaybackState(args.state, args.title, args.text)
+      println("[TTS][Plugin] set_playback_state: state=${args.state ?: ""} title=${args.title ?: ""} text=${args.text ?: ""} largeIcon=${args.largeIconPath?.take(32) ?: ""}")
+      MediaPlaybackService.updatePlaybackState(args.state, args.title, args.text, args.largeIconPath)
       invoke.resolve()
     } catch (e: Exception) {
       invoke.reject("Failed to set playback state: ${e.message}")

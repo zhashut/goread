@@ -286,6 +286,11 @@ export class NativeSessionDriver implements IBackendSessionDriver {
         }
         return false;
       }
+      // 后台保活服务启动失败（Android 12+ 后台启动限制等）
+      case 'background_service_error': {
+        listeners.onBackgroundServiceError?.(event.reason);
+        return true;
+      }
       default:
         return false;
     }

@@ -6,6 +6,9 @@ import { NativeSessionDriver } from './drivers/NativeSessionDriver';
 import { isAndroid } from '../../utils/platform';
 import { log, logError } from '../index';
 
+/** 暂停后保留通知/前台服务的时长（毫秒），给用户快速继续的机会 */
+const BACKGROUND_AUTO_STOP_MS = 30 * 1000;
+
 declare global {
   interface Window {
     __TTS_BRIDGE_READY__?: boolean;
@@ -72,6 +75,7 @@ export class NativeTTSClient implements ITTSClient {
     offlineReady: false,
   };
   #backgroundPlaybackActive = false;
+  #backgroundAutoStopTimer: ReturnType<typeof setTimeout> | null = null;
   #sessionDriver: NativeSessionDriver | null = null;
 
   static isAvailable(): boolean {
@@ -158,6 +162,7 @@ export class NativeTTSClient implements ITTSClient {
   async shutdown(): Promise<void> {
     this.initialized = false;
     this.#voices = [];
+    this.#cancelBackgroundAutoStop();
 
     if (this.#sessionDriver) {
       try {
@@ -218,7 +223,6 @@ export class NativeTTSClient implements ITTSClient {
       };
       const normalized = this.#normalizeVoices(res.voices);
       this.#voices = normalized.length > 0 ? normalized : [this.#defaultVoice()];
-      await this.#setBackgroundPlaybackActive(true);
       log(
         `[TTS][Native] plugin init ok status=${this.#initInfo.status} defaultEngine=${this.#initInfo.defaultEngine ?? ''} voices=${this.#voices.length}`,
         'info',
@@ -232,20 +236,56 @@ export class NativeTTSClient implements ITTSClient {
 
   /**
    * 把朗读状态同步到 Android 前台服务的媒体通知（仅 plugin 模式有效）。
-   * 状态由前端会话回写，Service 只渲染不决策；title/text 为后续动态文案预留。
+   *
+   * - playing：先确保前台服务在跑（真正开始播放才启动）
+   * - paused：保留通知与 Service，延迟停止，给用户快速继续的机会
+   * - stopped：立即停止 Service 与通知
+   * 状态由前端会话回写，Service 只渲染不决策。
    */
-  async setPlaybackState(state: TTSState, title?: string, text?: string): Promise<void> {
+  async setPlaybackState(
+    state: TTSState,
+    title?: string,
+    text?: string,
+    largeIconPath?: string,
+  ): Promise<void> {
     // 媒体通知是 Android 前台服务能力，其他平台不下发
     if (this.#mode !== 'plugin' || !isAndroid()) return;
     try {
+      if (state === 'playing') {
+        this.#cancelBackgroundAutoStop();
+        await this.#setBackgroundPlaybackActive(true, title, text);
+      } else if (state === 'paused') {
+        this.#scheduleBackgroundAutoStop();
+      } else {
+        this.#cancelBackgroundAutoStop();
+        await this.#setBackgroundPlaybackActive(false);
+      }
+
       const core = await loadTauriCore();
       if (!core?.invoke) return;
       await core.invoke('native_tts_set_playback_state', {
-        payload: { state, title, text },
+        payload: { state, title, text, largeIconPath },
       });
     } catch (e) {
       // 通知状态同步失败不影响朗读
       logError('[TTS][Native] 同步播放状态失败', e);
+    }
+  }
+
+  /** 暂停后延迟停止前台服务（期间通知/锁屏控制保留） */
+  #scheduleBackgroundAutoStop(): void {
+    this.#cancelBackgroundAutoStop();
+    this.#backgroundAutoStopTimer = setTimeout(() => {
+      this.#backgroundAutoStopTimer = null;
+      log('[TTS][Native] 暂停超时，停止后台保活服务', 'info');
+      void this.#setBackgroundPlaybackActive(false);
+    }, BACKGROUND_AUTO_STOP_MS);
+  }
+
+  #cancelBackgroundAutoStop(): void {
+    if (this.#backgroundAutoStopTimer !== null) {
+      clearTimeout(this.#backgroundAutoStopTimer);
+      this.#backgroundAutoStopTimer = null;
     }
   }
 
@@ -269,6 +309,8 @@ export class NativeTTSClient implements ITTSClient {
           const normalized = this.#normalizeVoices(voices);
           this.#voices = normalized.length > 0 ? normalized : this.#tryReadVoicesFromBridge();
           log(`[TTS][Native] bridge init ok status=${s} voices=${this.#voices.length}`, 'info');
+          // bridge 模式没有前台服务：后台朗读时不会有通知/锁屏控制，便于定位类似问题
+          log('[TTS][Native] bridge 模式无前台保活服务，后台朗读不会有通知', 'warn');
         } else {
           this.#initInfo = { mode: 'none', status: status || 'init_error', offlineReady: false };
           log(`[TTS][Native] bridge init failed status=${status || 'init_error'}`, 'warn');
@@ -324,19 +366,26 @@ export class NativeTTSClient implements ITTSClient {
     }
   }
 
-  async #setBackgroundPlaybackActive(active: boolean): Promise<void> {
+  async #setBackgroundPlaybackActive(
+    active: boolean,
+    title?: string,
+    text?: string,
+  ): Promise<void> {
     if (this.#backgroundPlaybackActive === active) return;
     const core = await loadTauriCore();
     if (!core?.invoke) return;
 
+    // 启动时带上真实文案，避免首个通知先闪默认文案、下一次 notify 才更新
+    const notificationTitle = title || 'GoRead TTS';
+    const notificationText = text || 'Reading in background';
     const payload: SetMediaSessionActivePayload = active
       ? {
           active: true,
           keepAppInForeground: true,
-          notificationTitle: 'GoRead TTS',
-          notificationText: 'Reading in background',
-          foregroundServiceTitle: 'GoRead TTS',
-          foregroundServiceText: 'Reading in background',
+          notificationTitle,
+          notificationText,
+          foregroundServiceTitle: notificationTitle,
+          foregroundServiceText: notificationText,
         }
       : {
           active: false,

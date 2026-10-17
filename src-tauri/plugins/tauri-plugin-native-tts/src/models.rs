@@ -64,6 +64,8 @@ pub struct SetPlaybackStateRequest {
     pub state: Option<String>,
     pub title: Option<String>,
     pub text: Option<String>,
+    /// 封面路径（本地文件路径或 data URL），用于通知大图标
+    pub large_icon_path: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

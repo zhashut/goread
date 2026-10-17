@@ -2,6 +2,7 @@
 <resources>
     <!-- TTS 后台朗读通知与媒体控件文案（英文默认） -->
     <string name="tts_notification_channel_name">Reading playback</string>
+    <string name="tts_notification_channel_description">Shows reading progress and playback controls while reading aloud</string>
     <string name="tts_action_play">Play</string>
     <string name="tts_action_pause">Pause</string>
     <string name="tts_action_stop">Stop</string>

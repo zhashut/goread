@@ -8,6 +8,8 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
@@ -19,6 +21,7 @@ import android.os.PowerManager
 import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
+import android.util.Base64
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -44,6 +47,10 @@ class MediaPlaybackService : Service() {
   private var audioFocusRequest: Any? = null
   private var audioFocusHeld = false
 
+  /** 媒体通知大图标（封面）缓存：仅当封面路径变化时重新解码 */
+  private var largeIconBitmap: Bitmap? = null
+  private var largeIconSource: String? = null
+
   /**
    * 音频焦点丢失（来电/其他应用播放）时通知前端暂停。
    * 不在 Service 内直接改状态：播放控制权始终在前端，避免双份状态。
@@ -58,7 +65,10 @@ class MediaPlaybackService : Service() {
   }
 
   companion object {
-    const val CHANNEL_ID = "goread_tts_background"
+    /** 新渠道：低优先级、无声，专用于朗读媒体通知（旧渠道属性不可改，故换新 id） */
+    const val CHANNEL_ID = "goread_tts_background_v2"
+    /** 旧渠道 id：创建后属性不可修改，升级时清理 */
+    private const val LEGACY_CHANNEL_ID = "goread_tts_background"
     const val NOTIFICATION_ID = 1002
     const val EXTRA_TITLE = "title"
     const val EXTRA_TEXT = "text"
@@ -82,6 +92,9 @@ class MediaPlaybackService : Service() {
 
     private const val MEDIA_SESSION_TAG = "GoReadTTS"
 
+    /** 通知强调色（与 App 主题色一致），用于 Android 7+ 的通知着色 */
+    private const val NOTIFICATION_COLOR = 0xFFD15158.toInt()
+
     /** 是否已提交前台服务启动请求（前台提升完成前，停止请求需要延后处理） */
     @Volatile
     private var startRequested = false
@@ -104,6 +117,10 @@ class MediaPlaybackService : Service() {
     /** 最近一次播放状态：Service 未创建时也先缓存，创建后直接以该状态渲染媒体通知 */
     @Volatile
     private var lastPlaybackState = PLAYBACK_PLAYING
+
+    /** 最近一次封面路径（本地文件路径或 data URL），用于媒体通知大图标 */
+    @Volatile
+    private var lastLargeIconPath: String? = null
 
     /** 是否已完成前台提升（onCreate 中 startForeground 成功后置位） */
     @Volatile
@@ -188,15 +205,16 @@ class MediaPlaybackService : Service() {
     }
 
     /**
-     * 同步播放状态/文案（由插件命令调用）。
+     * 同步播放状态/文案/封面（由插件命令调用）。
      *
      * 状态由前端会话回写：Service 只负责渲染与转发，不主动改变播放状态。
      * 服务尚未创建时仅更新缓存，待 onCreate 时一次性生效。
      */
-    fun updatePlaybackState(state: String?, title: String?, text: String?) {
+    fun updatePlaybackState(state: String?, title: String?, text: String?, largeIconPath: String?) {
       if (state != null) lastPlaybackState = normalizePlaybackState(state)
       if (!title.isNullOrBlank()) lastTitle = title
       if (!text.isNullOrBlank()) lastText = text
+      if (largeIconPath != null) lastLargeIconPath = largeIconPath
       instance?.postPlaybackUpdate()
     }
 
@@ -217,6 +235,8 @@ class MediaPlaybackService : Service() {
     createNotificationChannel()
     // 媒体会话先于通知建立，保证首个通知就带 MediaStyle 与 token
     setupMediaSession()
+    // 若缓存里已有封面，先解好大图标，避免首个通知缺图
+    resolveLargeIcon(lastLargeIconPath)
     // 尽早完成前台提升：只要服务被 startForegroundService 拉起，就必须尽快调用 startForeground，
     // 否则 5s 超时（或服务被提前销毁）都会触发 ForegroundServiceDidNotStartInTimeException。
     promoteToForeground(lastTitle, lastText)
@@ -279,6 +299,13 @@ class MediaPlaybackService : Service() {
       println("[TTS][Service] mediaSession release failed: ${e.javaClass.simpleName} ${e.message ?: ""}")
     }
     mediaSession = null
+    // 释放封面缓存，避免 Service 反复创建时累积内存
+    try {
+      largeIconBitmap?.recycle()
+    } catch (_: Exception) {
+    }
+    largeIconBitmap = null
+    largeIconSource = null
     stopForeground(STOP_FOREGROUND_REMOVE)
     super.onDestroy()
   }
@@ -319,6 +346,7 @@ class MediaPlaybackService : Service() {
     lastTitle = title
     lastText = text
     lastPlaybackState = state
+    resolveLargeIcon(lastLargeIconPath)
     println("[TTS][Service] applyPlaybackState state=$state title=$title text=$text")
     mediaSession?.let { session ->
       try {
@@ -344,6 +372,67 @@ class MediaPlaybackService : Service() {
   /** 服务实例侧的状态刷新入口（静态缓存 → 主线程渲染） */
   private fun postPlaybackUpdate() {
     mainHandler.post { applyPlaybackState(lastTitle, lastText, lastPlaybackState) }
+  }
+
+  /**
+   * 解码媒体通知大图标（封面）。
+   *
+   * - 支持本地文件路径与 `data:` base64（get_cover_url 的两种返回形式）；
+   * - 以源路径为 key 缓存，避免每次句子更新都重复解码；
+   * - 解码失败静默降级（通知不带大图标）。
+   */
+  private fun resolveLargeIcon(path: String?) {
+    if (path == largeIconSource) return
+    largeIconSource = path
+    // 旧位图已由系统复制到通知进程，可安全回收
+    try {
+      largeIconBitmap?.recycle()
+    } catch (_: Exception) {
+    }
+    largeIconBitmap = null
+    if (path.isNullOrBlank()) return
+    try {
+      val rawPath = if (path.startsWith("file://")) path.removePrefix("file://") else path
+      val decoded = when {
+        rawPath.startsWith("data:") -> {
+          val base64 = rawPath.substringAfter("base64,", "")
+          decodeBase64(base64)
+        }
+        // 先按文件路径处理（封面缓存目录），失败后再尝试裸 base64（兼容历史数据）
+        java.io.File(rawPath).isFile -> BitmapFactory.decodeFile(rawPath)
+        else -> decodeBase64(rawPath)
+      } ?: return
+      largeIconBitmap = scaleLargeIcon(decoded)
+      println("[TTS][Service] large icon loaded path=${rawPath.take(64)}")
+    } catch (e: Exception) {
+      println("[TTS][Service] large icon decode failed: ${e.javaClass.simpleName} ${e.message ?: ""}")
+    }
+  }
+
+  /** base64 解码为位图（空串/非法数据返回 null） */
+  private fun decodeBase64(base64: String): Bitmap? {
+    if (base64.isBlank()) return null
+    return try {
+      val bytes = Base64.decode(base64, Base64.DEFAULT)
+      if (bytes.isEmpty()) null else BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+    } catch (_: Exception) {
+      null
+    }
+  }
+
+  /** 限制大图标尺寸，避免把超大封面直接交给 SystemUI 造成内存压力 */
+  private fun scaleLargeIcon(source: Bitmap): Bitmap {
+    val maxSide = maxOf(source.width, source.height)
+    if (maxSide <= 512) return source
+    val ratio = 512f / maxSide
+    val scaled = Bitmap.createScaledBitmap(
+      source,
+      (source.width * ratio).toInt().coerceAtLeast(1),
+      (source.height * ratio).toInt().coerceAtLeast(1),
+      true
+    )
+    if (scaled !== source) source.recycle()
+    return scaled
   }
 
   private fun buildMetadata(title: String, text: String): MediaMetadataCompat =
@@ -465,18 +554,27 @@ class MediaPlaybackService : Service() {
 
   private fun createNotificationChannel() {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+    val manager = getSystemService(NotificationManager::class.java)
     val channel = NotificationChannel(
       CHANNEL_ID,
       getString(R.string.tts_notification_channel_name),
-      NotificationManager.IMPORTANCE_DEFAULT
+      NotificationManager.IMPORTANCE_LOW
     ).apply {
+      description = getString(R.string.tts_notification_channel_description)
       setShowBadge(false)
+      // 媒体通知不应该发声/震动：列表不断更新，默认提示音会频繁打扰
+      setSound(null, null)
+      enableVibration(false)
       // 锁屏可见：媒体通知需要在锁屏上显示当前朗读内容与控件
       lockscreenVisibility = Notification.VISIBILITY_PUBLIC
     }
-    println("[TTS][Service] createNotificationChannel channelId=$CHANNEL_ID importance=${channel.importance}")
-    val manager = getSystemService(NotificationManager::class.java)
     manager?.createNotificationChannel(channel)
+    // 旧渠道属性（IMPORTANCE_DEFAULT、可能有提示音）无法修改，直接删除避免残留
+    try {
+      manager?.deleteNotificationChannel(LEGACY_CHANNEL_ID)
+    } catch (_: Exception) {
+    }
+    println("[TTS][Service] createNotificationChannel channelId=$CHANNEL_ID importance=${channel.importance} legacyDeleted=true")
   }
 
   private fun acquireWakeLock() {
@@ -520,13 +618,16 @@ class MediaPlaybackService : Service() {
     val builder = NotificationCompat.Builder(this, CHANNEL_ID)
       .setContentTitle(title)
       .setContentText(text)
-      .setSmallIcon(android.R.drawable.ic_media_play)
+      .setSmallIcon(R.drawable.ic_tts_notification)
+      .setColor(NOTIFICATION_COLOR)
       .setOngoing(true)
       .setOnlyAlertOnce(true)
       .setPriority(NotificationCompat.PRIORITY_LOW)
       .setCategory(NotificationCompat.CATEGORY_TRANSPORT)
       .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
       .setContentIntent(contentIntent)
+
+    largeIconBitmap?.let { builder.setLargeIcon(it) }
 
     var actionIndex = 0
     fun addAction(icon: Int, titleRes: Int, intentAction: String): Int {

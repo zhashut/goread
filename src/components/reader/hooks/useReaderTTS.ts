@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { IBookRenderer } from '../../../services/formats/types';
-import { useTTS } from '../../tts';
+import { useTTS, type TTSWarningKey } from '../../tts';
 
 interface UseReaderTTSOptions {
     rendererRef: React.MutableRefObject<IBookRenderer | null>;
@@ -11,6 +11,12 @@ interface UseReaderTTSOptions {
     isTxt: boolean;
     readingMode: 'horizontal' | 'vertical';
     onReadingActivity?: () => void;
+    /** 通知标题（书名），仅 Android 原生媒体通知使用 */
+    notificationTitle?: string;
+    /** 通知副标题（章节名） */
+    notificationSubtitle?: string;
+    /** 书籍 id：用于解析封面作为通知大图标 */
+    notificationBookId?: number;
 }
 
 interface UseReaderTTSReturn {
@@ -38,12 +44,31 @@ export const useReaderTTS = ({
     isTxt,
     readingMode: _readingMode,
     onReadingActivity,
+    notificationTitle,
+    notificationSubtitle,
+    notificationBookId,
 }: UseReaderTTSOptions): UseReaderTTSReturn => {
     const listenSupported = isEpubDom || isMobi || isTxt;
-    const tts = useTTS({ rendererRef, listenSupported, onReadingActivity });
-
-    const [listenToastMsg, setListenToastMsg] = useState('');
     const { t: tReader } = useTranslation('reader');
+    const [listenToastMsg, setListenToastMsg] = useState('');
+
+    // 非阻塞警告映射为 toast（例如后台保活服务启动失败）
+    const handleWarning = useCallback(
+        (key: TTSWarningKey) => {
+            setListenToastMsg(tReader(key));
+        },
+        [tReader],
+    );
+
+    const tts = useTTS({
+        rendererRef,
+        listenSupported,
+        onReadingActivity,
+        notificationTitle,
+        notificationSubtitle,
+        notificationBookId,
+        onWarning: handleWarning,
+    });
 
     const handleToggleListen = useCallback(async () => {
         const result = await tts.toggle();
@@ -81,4 +106,3 @@ export const useReaderTTS = ({
         markTtsViewOutOfSync,
     };
 };
-

@@ -40,6 +40,16 @@ const ACTIVITY_THROTTLE_MS = 3 * 1000;
 const FOREGROUND_REALIGN_COOLDOWN_MS = 500;
 
 /**
+ * 会话附加回调（可选）：
+ * - onNarration：当前朗读句文本（用于媒体通知动态文案）
+ * - onBackgroundServiceError：后台保活服务启动失败（便于前端提示）
+ */
+export interface TTSSessionCallbacks {
+  onNarration?: (text: string) => void;
+  onBackgroundServiceError?: (reason?: string) => void;
+}
+
+/**
  * 新版 TTS 会话调度器
  * - 依赖 TTSContentProvider 取内容
  * - 依赖 IBackendSessionDriver 下发命令、订阅事件
@@ -51,6 +61,8 @@ export class TTSSession {
   #onStateChange?: TTSSessionStateChangeCallback;
   #onReadingActivity?: TTSSessionReadingActivityCallback;
   #onEnded?: TTSSessionEndedCallback;
+  #onNarration?: (text: string) => void;
+  #onBackgroundServiceError?: (reason?: string) => void;
 
   #state: TTSState = 'stopped';
   #unsubscribe: (() => void) | null = null;
@@ -59,6 +71,8 @@ export class TTSSession {
   #highlightManager = new HighlightManager();
   #latestSectionIndex = -1;
   #latestAnchor: TTSReadingAnchor | null = null;
+  /** 当前高亮的 DOM Range（用于提取朗读中的句子文本） */
+  #currentRange: Range | null = null;
   #lastActivityNotifyTs = 0;
   #batchSize = DEFAULT_BATCH_SIZE;
   #managed = false;
@@ -72,12 +86,15 @@ export class TTSSession {
     onStateChange?: TTSSessionStateChangeCallback,
     onReadingActivity?: TTSSessionReadingActivityCallback,
     onEnded?: TTSSessionEndedCallback,
+    callbacks?: TTSSessionCallbacks,
   ) {
     this.#provider = provider;
     this.#driver = driver;
     this.#onStateChange = onStateChange;
     this.#onReadingActivity = onReadingActivity;
     this.#onEnded = onEnded;
+    this.#onNarration = callbacks?.onNarration;
+    this.#onBackgroundServiceError = callbacks?.onBackgroundServiceError;
   }
 
   /** 启动会话；返回是否成功开始播放 */
@@ -290,7 +307,18 @@ export class TTSSession {
       onEnd: (event) => this.#handleEnd(event),
       onEngineChanged: () => this.#handleEngineChanged(),
       onMediaAction: (action) => this.#handleMediaAction(action),
+      onBackgroundServiceError: (reason) => this.#handleBackgroundServiceError(reason),
     };
+  }
+
+  /** 后台保活服务不可用：只影响通知，不影响朗读，交由上层提示 */
+  #handleBackgroundServiceError(reason?: string): void {
+    log(`[TTSSession] background_service_error reason=${reason ?? ''}`, 'warn');
+    try {
+      this.#onBackgroundServiceError?.(reason);
+    } catch (e) {
+      logError('[TTSSession] onBackgroundServiceError 异常', e);
+    }
   }
 
   /**
@@ -351,8 +379,21 @@ export class TTSSession {
         previousSectionIndex,
       );
       this.#applyReadingPosition(event.sectionIndex, event.anchor, true);
+      this.#notifyNarration();
     } catch (e) {
       logError('[TTSSession] locateAnchor / highlight 异常', e);
+    }
+  }
+
+  /** 把当前高亮句子的文本上报给上层（媒体通知动态文案） */
+  #notifyNarration(): void {
+    if (!this.#onNarration) return;
+    const text = this.#currentRange?.toString().replace(/\s+/g, ' ').trim() ?? '';
+    if (!text) return;
+    try {
+      this.#onNarration(text);
+    } catch (e) {
+      logError('[TTSSession] onNarration 异常', e);
     }
   }
 
@@ -493,9 +534,11 @@ export class TTSSession {
     if (!range) {
       if (clearOnMiss) {
         this.#highlightManager.clear();
+        this.#currentRange = null;
       }
       return false;
     }
+    this.#currentRange = range;
     this.#highlightManager.apply(range);
     this.#highlightManager.maybeScrollIntoView(range);
     return true;

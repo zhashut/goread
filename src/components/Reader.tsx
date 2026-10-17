@@ -146,25 +146,6 @@ export const Reader: React.FC = () => {
   useExternalVisibility(isExternal);
 
 
-  // TTS 听书
-  const {
-    listenSupported,
-    isListening,
-    handleToggleListen,
-    stopListenAndRestore,
-    listenToastMsg,
-    clearListenToast,
-    notifyTtsDocumentUpdated,
-    markTtsViewOutOfSync,
-  } = useReaderTTS({
-    rendererRef,
-    isEpubDom,
-    isMobi,
-    isTxt,
-    readingMode,
-    onReadingActivity: !isExternal ? markReadingActive : undefined,
-  });
-
   // 3. UI 状态
   const [uiVisible, setUiVisible] = useState(false);
   const [tocOverlayOpen, setTocOverlayOpen] = useState(false);
@@ -198,6 +179,30 @@ export const Reader: React.FC = () => {
 
   // 4. 数据 Hooks (TOC, Bookmarks)
   const tocData = useToc(currentPage, readingMode, isDomRender);
+
+  // TTS 听书（依赖 tocData 取当前章节名，用于媒体通知动态文案）
+  const {
+    listenSupported,
+    isListening,
+    handleToggleListen,
+    stopListenAndRestore,
+    listenToastMsg,
+    clearListenToast,
+    notifyTtsDocumentUpdated,
+    markTtsViewOutOfSync,
+  } = useReaderTTS({
+    rendererRef,
+    isEpubDom,
+    isMobi,
+    isTxt,
+    readingMode,
+    onReadingActivity: !isExternal ? markReadingActive : undefined,
+    // 媒体通知标题/副标题/封面（仅 Android 原生通知使用）
+    notificationTitle: (isExternal ? externalTitle : book?.title) || undefined,
+    notificationSubtitle: parseChapterTitle(tocData.activeNodeSignature) ?? undefined,
+    notificationBookId: !isExternal ? book?.id : undefined,
+  });
+
   const bookmarkData = useBookmarks(book, isExternal);
   const { hideDivider, setHideDivider } = useBookPageDivider(book);
   const tocSort = useTocSort(tocData.toc, book);
