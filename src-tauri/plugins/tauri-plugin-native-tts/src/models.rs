@@ -66,6 +66,10 @@ pub struct SetPlaybackStateRequest {
     pub text: Option<String>,
     /// 封面路径（本地文件路径或 data URL），用于通知大图标
     pub large_icon_path: Option<String>,
+    /// 章节内播放位置（ms），用于媒体通知进度条
+    pub position_ms: Option<i64>,
+    /// 章节预计时长（ms），用于媒体通知进度条
+    pub duration_ms: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -123,6 +127,8 @@ pub struct TTSSessionSetEndOfBookRequest {
 pub struct TTSSessionStopRequest {
     #[serde(default = "default_emit_stopped_event")]
     pub emit_stopped_event: bool,
+    /// 是否同时停止前台服务；seek 重启会话时必须为 false
+    pub stop_service: Option<bool>,
 }
 
 const fn default_emit_stopped_event() -> bool {

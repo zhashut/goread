@@ -4,6 +4,13 @@ export const TTS_RATE_MAX = 10.0;
 export const TTS_RATE_DEFAULT = 1.0;
 export const TTS_RATE_STEP = 0.1;
 
+/**
+ * 估算“听书时长”用的基准语速（字符/秒，rate = 1.0）。
+ * 仅用于媒体通知进度条，实际语速因 TTS 引擎/语音/语言而异，存在误差。
+ */
+export const TTS_CHARS_PER_SECOND_ZH = 5.5;
+export const TTS_CHARS_PER_SECOND_EN = 12.0;
+
 // Web Speech API 黑名单语音（系统内置特效音色）
 export const WEB_SPEECH_BLACKLISTED_VOICES = [
   'Albert', 'Bad News', 'Bahh', 'Bells', 'Boing', 'Bubbles',

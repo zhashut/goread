@@ -54,6 +54,8 @@ type NativeEventPayload = {
   engine?: string;
   /** 媒体控件动作（code=media_action 时下发） */
   action?: string;
+  /** 进度条拖动目标位置（ms，章节内） */
+  positionMs?: number;
   /** 当前句文本（code=session_progress 时下发） */
   text?: string;
   anchor?: { quote?: string; prefix?: string; suffix?: string } | null;
@@ -279,12 +281,16 @@ export class NativeSessionDriver implements IBackendSessionDriver {
         });
         return true;
       }
-      // 媒体控件（通知/锁屏/耳机按键）动作：交给会话层执行真正的暂停/继续/停止
+      // 媒体控件（通知/锁屏/耳机按键）动作：交给会话层执行真正的暂停/继续/停止/跳转
       case 'media_action': {
         const action = event.action;
         if (action === 'play' || action === 'pause' || action === 'stop') {
           const mediaAction: TTSMediaAction = action;
           listeners.onMediaAction?.(mediaAction);
+          return true;
+        }
+        if (action === 'seek') {
+          listeners.onMediaAction?.('seek', event.positionMs);
           return true;
         }
         return false;

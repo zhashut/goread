@@ -112,10 +112,10 @@ internal class TTSEngineRunner(
     }
   }
 
-  fun stop(emitStoppedEvent: Boolean = true) {
-    println("[TTS][Engine] session_stop emitStoppedEvent=$emitStoppedEvent")
+  fun stop(emitStoppedEvent: Boolean = true, stopForeground: Boolean = true) {
+    println("[TTS][Engine] session_stop emitStoppedEvent=$emitStoppedEvent stopForeground=$stopForeground")
     val prev = state
-    resetInternal(stopForeground = true)
+    resetInternal(stopForeground = stopForeground)
     state = TTSSessionState.Stopped
     // 启动前清理旧会话时不再向前端补发 stopped，避免误伤新会话。
     if (emitStoppedEvent && prev != TTSSessionState.Idle && prev != TTSSessionState.Completed) {

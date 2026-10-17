@@ -13,6 +13,7 @@ import {
   type EpubPositionRestorerContext,
 } from './epub/EpubPositionRestorer';
 import { invokeTTSGetSegments } from './backendBridge';
+import { buildAnchorAtTextRatio, findTextOffsetByQuote } from '../../../utils/ttsAnchor';
 import { log, logError } from '../../index';
 
 /** EpubContentProvider 所需的上下文 */
@@ -144,12 +145,46 @@ export class EpubContentProvider implements TTSContentProvider {
     this.#anchorLocator.invalidate();
   }
 
+  /** 章节文本长度（用于媒体通知的章节时长估算） */
+  getSectionTextLength(sectionIndex: number): number | null {
+    const root = this.#resolveSectionRootExact(sectionIndex);
+    const length = root?.textContent?.length ?? 0;
+    return length > 0 ? length : null;
+  }
+
+  /** 把章节内比例换算成可朗读起点（进度条拖动） */
+  buildAnchorAtRatio(sectionIndex: number, ratio: number): TTSReadingAnchor | null {
+    const text = this.#resolveSectionRootExact(sectionIndex)?.textContent;
+    return text ? buildAnchorAtTextRatio(text, ratio) : null;
+  }
+
+  /** 起播 anchor 在章节内的近似字符偏移（初始化进度条基准） */
+  getAnchorTextOffset(
+    sectionIndex: number,
+    anchor: TTSReadingAnchor | null | undefined,
+  ): number | null {
+    if (!anchor?.quote) return null;
+    const text = this.#resolveSectionRootExact(sectionIndex)?.textContent;
+    return text ? findTextOffsetByQuote(text, anchor.quote) : null;
+  }
+
   #resolveSectionRoot(sectionIndex: number): Element | null {
     if (this.#ctx.getSectionRootByIndex) {
       const byIndex = this.#ctx.getSectionRootByIndex(sectionIndex);
       if (byIndex) return byIndex;
     }
     return this.#ctx.getCurrentSectionRoot();
+  }
+
+  /**
+   * 只返回“确实是该 index”的章节根。
+   * 时长/进度/seek 不能用当前 root 兜底，否则章节切换瞬间会读到上一章文本；
+   * 不支持按索引查询时才退回当前 root。
+   */
+  #resolveSectionRootExact(sectionIndex: number): Element | null {
+    const byIndex = this.#ctx.getSectionRootByIndex?.(sectionIndex);
+    if (byIndex) return byIndex;
+    return this.#ctx.getSectionRootByIndex ? null : this.#ctx.getCurrentSectionRoot();
   }
 }
 

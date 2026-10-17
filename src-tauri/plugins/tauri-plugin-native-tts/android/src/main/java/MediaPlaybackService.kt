@@ -18,6 +18,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import android.os.SystemClock
 import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
@@ -85,10 +86,11 @@ class MediaPlaybackService : Service() {
     const val PLAYBACK_PAUSED = "paused"
     const val PLAYBACK_STOPPED = "stopped"
 
-    /** 前后端约定的媒体动作（仅播放/暂停/停止三种） */
+    /** 前后端约定的媒体动作（play/pause/stop 按钮 + seek 进度条拖动） */
     const val MEDIA_ACTION_PLAY = "play"
     const val MEDIA_ACTION_PAUSE = "pause"
     const val MEDIA_ACTION_STOP = "stop"
+    const val MEDIA_ACTION_SEEK = "seek"
 
     private const val MEDIA_SESSION_TAG = "GoReadTTS"
 
@@ -122,6 +124,18 @@ class MediaPlaybackService : Service() {
     @Volatile
     private var lastLargeIconPath: String? = null
 
+    /** 当前章节内播放位置（ms），用于媒体通知进度条 */
+    @Volatile
+    private var lastPositionMs = 0L
+
+    /** 当前章节预计时长（ms），用于媒体通知进度条 */
+    @Volatile
+    private var lastDurationMs = 0L
+
+    /** 最近一次位置更新的系统时间（elapsedRealtime），用于通知重建时插值，避免进度条回跳 */
+    @Volatile
+    private var lastPositionUpdatedAt = 0L
+
     /** 是否已完成前台提升（onCreate 中 startForeground 成功后置位） */
     @Volatile
     private var foregroundPromoted = false
@@ -136,13 +150,13 @@ class MediaPlaybackService : Service() {
 
     /** 媒体动作分发器：由插件注入，把通知/锁屏动作转发到前端 JS */
     @Volatile
-    private var actionDispatcher: ((String) -> Unit)? = null
+    private var actionDispatcher: ((String, Long?) -> Unit)? = null
 
     /**
      * 注册/清除媒体动作分发器（插件创建时注册，销毁时清除）。
      * 传 null 表示当前没有 JS 侧接收者，动作直接丢弃。
      */
-    fun setActionDispatcher(dispatcher: ((String) -> Unit)?) {
+    fun setActionDispatcher(dispatcher: ((String, Long?) -> Unit)?) {
       actionDispatcher = dispatcher
     }
 
@@ -165,6 +179,9 @@ class MediaPlaybackService : Service() {
       lastTitle = title.ifEmpty { DEFAULT_TITLE }
       lastText = text.ifEmpty { DEFAULT_TEXT }
       lastPlaybackState = PLAYBACK_PLAYING
+      lastPositionMs = 0L
+      lastDurationMs = 0L
+      lastPositionUpdatedAt = SystemClock.elapsedRealtime()
       val intent = Intent(context, MediaPlaybackService::class.java).apply {
         putExtra(EXTRA_TITLE, title)
         putExtra(EXTRA_TEXT, text)
@@ -193,6 +210,8 @@ class MediaPlaybackService : Service() {
       val waitingPromotion = startRequested && !foregroundPromoted
       startRequested = false
       lastPlaybackState = PLAYBACK_STOPPED
+      lastPositionMs = 0L
+      lastPositionUpdatedAt = SystemClock.elapsedRealtime()
       if (waitingPromotion) {
         pendingStop = true
         println("[TTS][Service] requestStop deferred until foreground promoted")
@@ -210,11 +229,23 @@ class MediaPlaybackService : Service() {
      * 状态由前端会话回写：Service 只负责渲染与转发，不主动改变播放状态。
      * 服务尚未创建时仅更新缓存，待 onCreate 时一次性生效。
      */
-    fun updatePlaybackState(state: String?, title: String?, text: String?, largeIconPath: String?) {
+    fun updatePlaybackState(
+      state: String?,
+      title: String?,
+      text: String?,
+      largeIconPath: String?,
+      positionMs: Long?,
+      durationMs: Long?,
+    ) {
       if (state != null) lastPlaybackState = normalizePlaybackState(state)
       if (!title.isNullOrBlank()) lastTitle = title
       if (!text.isNullOrBlank()) lastText = text
       if (largeIconPath != null) lastLargeIconPath = largeIconPath
+      if (positionMs != null) {
+        lastPositionMs = positionMs.coerceAtLeast(0L)
+        lastPositionUpdatedAt = SystemClock.elapsedRealtime()
+      }
+      if (durationMs != null) lastDurationMs = durationMs.coerceAtLeast(0L)
       instance?.postPlaybackUpdate()
     }
 
@@ -327,6 +358,13 @@ class MediaPlaybackService : Service() {
         override fun onPlay() = dispatchAction(MEDIA_ACTION_PLAY)
         override fun onPause() = dispatchAction(MEDIA_ACTION_PAUSE)
         override fun onStop() = dispatchAction(MEDIA_ACTION_STOP)
+        override fun onSeekTo(pos: Long) {
+          // 先更新缓存并立即刷新 PlaybackState，避免进度条在重启会话前跳回旧位置
+          lastPositionMs = pos.coerceAtLeast(0L)
+          lastPositionUpdatedAt = SystemClock.elapsedRealtime()
+          postPlaybackUpdate()
+          dispatchAction(MEDIA_ACTION_SEEK, pos)
+        }
       })
       session.setMetadata(buildMetadata(lastTitle, lastText))
       session.setPlaybackState(buildPlaybackState(lastPlaybackState))
@@ -347,7 +385,7 @@ class MediaPlaybackService : Service() {
     lastText = text
     lastPlaybackState = state
     resolveLargeIcon(lastLargeIconPath)
-    println("[TTS][Service] applyPlaybackState state=$state title=$title text=$text")
+    println("[TTS][Service] applyPlaybackState state=$state position=$lastPositionMs duration=$lastDurationMs title=$title text=$text")
     mediaSession?.let { session ->
       try {
         session.setMetadata(buildMetadata(title, text))
@@ -441,35 +479,50 @@ class MediaPlaybackService : Service() {
       .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, text)
       .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_TITLE, title)
       .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, text)
+      // 系统媒体卡片的“总时长”来自这里（章节级估算）
+      .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, lastDurationMs)
       .build()
 
-  /** 播放状态与可用动作：Android 13+ 的媒体控件按钮由此推导（仅播放/暂停/停止） */
+  /** 播放状态与可用动作：进度条可拖动（ACTION_SEEK_TO），按钮仍为播放/暂停/停止 */
   private fun buildPlaybackState(state: String): PlaybackStateCompat {
     val actions = PlaybackStateCompat.ACTION_PLAY or
       PlaybackStateCompat.ACTION_PAUSE or
       PlaybackStateCompat.ACTION_PLAY_PAUSE or
-      PlaybackStateCompat.ACTION_STOP
+      PlaybackStateCompat.ACTION_STOP or
+      PlaybackStateCompat.ACTION_SEEK_TO
     val playbackState = when (state) {
       PLAYBACK_PAUSED -> PlaybackStateCompat.STATE_PAUSED
       PLAYBACK_STOPPED -> PlaybackStateCompat.STATE_STOPPED
       else -> PlaybackStateCompat.STATE_PLAYING
     }
+    val now = SystemClock.elapsedRealtime()
+    val basePosition = if (playbackState == PlaybackStateCompat.STATE_STOPPED) 0L else lastPositionMs
+    // 通知重建（如仅文案更新）时按真实时间插值，避免进度条回跳
+    val position = if (playbackState == PlaybackStateCompat.STATE_PLAYING) {
+      val elapsed = if (lastPositionUpdatedAt > 0L) {
+        (now - lastPositionUpdatedAt).coerceAtLeast(0L)
+      } else {
+        0L
+      }
+      val upper = if (lastDurationMs > 0L) lastDurationMs else Long.MAX_VALUE
+      (basePosition + elapsed).coerceAtMost(upper)
+    } else {
+      basePosition
+    }
+    val speed = if (playbackState == PlaybackStateCompat.STATE_PLAYING) 1f else 0f
     return PlaybackStateCompat.Builder()
       .setActions(actions)
-      .setState(
-        playbackState,
-        PlaybackStateCompat.PLAYBACK_POSITION_UNKNOWN,
-        if (playbackState == PlaybackStateCompat.STATE_PLAYING) 1f else 0f
-      )
+      // 位置按“真实播放时间”推进（章节时长已按语速折算），因此 speed 固定 1x
+      .setState(playbackState, position, speed)
       .build()
   }
 
   /** 把媒体动作转发给前端（主线程，且未注册接收者时仅记录日志） */
-  private fun dispatchAction(action: String) {
+  private fun dispatchAction(action: String, positionMs: Long? = null) {
     val dispatcher = actionDispatcher
-    println("[TTS][Service] dispatch media action=$action hasDispatcher=${dispatcher != null}")
+    println("[TTS][Service] dispatch media action=$action positionMs=${positionMs ?: ""} hasDispatcher=${dispatcher != null}")
     if (dispatcher == null) return
-    mainHandler.post { dispatcher.invoke(action) }
+    mainHandler.post { dispatcher.invoke(action, positionMs) }
   }
 
   // ---------------------------------------------------------------------------

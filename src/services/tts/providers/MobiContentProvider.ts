@@ -9,6 +9,7 @@ import type {
 } from './TTSContentProvider';
 import { AnchorLocator } from './AnchorLocator';
 import { invokeTTSGetSegments } from './backendBridge';
+import { buildAnchorAtTextRatio, findTextOffsetByQuote } from '../../../utils/ttsAnchor';
 import { log, logError } from '../../index';
 
 /** MOBI Provider 上下文 */
@@ -106,6 +107,29 @@ export class MobiContentProvider implements TTSContentProvider {
 
   notifyDocumentUpdated(): void {
     this.#anchorLocator.invalidate();
+  }
+
+  /** 章节文本长度（用于媒体通知的章节时长估算） */
+  getSectionTextLength(sectionIndex: number): number | null {
+    const section = this.#getSections()[sectionIndex];
+    const length = section?.textContent?.length ?? 0;
+    return length > 0 ? length : null;
+  }
+
+  /** 把章节内比例换算成可朗读起点（进度条拖动） */
+  buildAnchorAtRatio(sectionIndex: number, ratio: number): TTSReadingAnchor | null {
+    const text = this.#getSections()[sectionIndex]?.textContent;
+    return text ? buildAnchorAtTextRatio(text, ratio) : null;
+  }
+
+  /** 起播 anchor 在章节内的近似字符偏移（初始化进度条基准） */
+  getAnchorTextOffset(
+    sectionIndex: number,
+    anchor: TTSReadingAnchor | null | undefined,
+  ): number | null {
+    if (!anchor?.quote) return null;
+    const text = this.#getSections()[sectionIndex]?.textContent;
+    return text ? findTextOffsetByQuote(text, anchor.quote) : null;
   }
 
   /** cursor=null 时优先用调用方传入的 startPosition，否则用 ctx 提供的视口起点 */

@@ -64,7 +64,7 @@ impl ManagedTtsSessionState {
         app: AppHandle<R>,
         payload: TtsManagedSessionStartRequest,
     ) -> Result<(), String> {
-        self.stop_internal(app.clone(), false).await.ok();
+        self.stop_internal(app.clone(), false, false).await.ok();
         let low = payload
             .low_watermark_seconds
             .unwrap_or(DEFAULT_LOW_WATERMARK_SECONDS)
@@ -93,13 +93,16 @@ impl ManagedTtsSessionState {
     }
 
     pub async fn stop<R: Runtime>(&self, app: AppHandle<R>) -> Result<(), String> {
-        self.stop_internal(app, true).await
+        // 托管会话只负责朗读本身；前台服务的停止由前端 client.shutdown 统一处理，
+        // 这样 seek 重启会话时不会把通知/前台服务一起停掉。
+        self.stop_internal(app, true, false).await
     }
 
     async fn stop_internal<R: Runtime>(
         &self,
         app: AppHandle<R>,
         emit_stopped_event: bool,
+        stop_service: bool,
     ) -> Result<(), String> {
         let (tx, join) = {
             let mut s = self.inner.lock().await;
@@ -121,6 +124,7 @@ impl ManagedTtsSessionState {
         app.native_tts()
             .tts_session_stop_with_request(tauri_plugin_native_tts::TTSSessionStopRequest {
                 emit_stopped_event,
+                stop_service: Some(stop_service),
             })
             .map_err(|e| e.to_string())?;
         Ok(())

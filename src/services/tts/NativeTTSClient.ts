@@ -6,9 +6,6 @@ import { NativeSessionDriver } from './drivers/NativeSessionDriver';
 import { isAndroid } from '../../utils/platform';
 import { log, logError } from '../index';
 
-/** 暂停后保留通知/前台服务的时长（毫秒），给用户快速继续的机会 */
-const BACKGROUND_AUTO_STOP_MS = 30 * 1000;
-
 declare global {
   interface Window {
     __TTS_BRIDGE_READY__?: boolean;
@@ -75,7 +72,6 @@ export class NativeTTSClient implements ITTSClient {
     offlineReady: false,
   };
   #backgroundPlaybackActive = false;
-  #backgroundAutoStopTimer: ReturnType<typeof setTimeout> | null = null;
   #sessionDriver: NativeSessionDriver | null = null;
 
   static isAvailable(): boolean {
@@ -162,7 +158,6 @@ export class NativeTTSClient implements ITTSClient {
   async shutdown(): Promise<void> {
     this.initialized = false;
     this.#voices = [];
-    this.#cancelBackgroundAutoStop();
 
     if (this.#sessionDriver) {
       try {
@@ -238,7 +233,7 @@ export class NativeTTSClient implements ITTSClient {
    * 把朗读状态同步到 Android 前台服务的媒体通知（仅 plugin 模式有效）。
    *
    * - playing：先确保前台服务在跑（真正开始播放才启动）
-   * - paused：保留通知与 Service，延迟停止，给用户快速继续的机会
+   * - paused：保留通知与 Service（暂停不停止，方便继续播放）
    * - stopped：立即停止 Service 与通知
    * 状态由前端会话回写，Service 只渲染不决策。
    */
@@ -247,45 +242,29 @@ export class NativeTTSClient implements ITTSClient {
     title?: string,
     text?: string,
     largeIconPath?: string,
+    positionMs?: number,
+    durationMs?: number,
   ): Promise<void> {
     // 媒体通知是 Android 前台服务能力，其他平台不下发
     if (this.#mode !== 'plugin' || !isAndroid()) return;
     try {
       if (state === 'playing') {
-        this.#cancelBackgroundAutoStop();
+        // 播放中确保前台服务在跑（暂停后仍保持，方便媒体通知继续显示播放按钮）
         await this.#setBackgroundPlaybackActive(true, title, text);
       } else if (state === 'paused') {
-        this.#scheduleBackgroundAutoStop();
+        // 暂停不停止前台服务：媒体通知/播放按钮需要保留，便于继续播放
       } else {
-        this.#cancelBackgroundAutoStop();
         await this.#setBackgroundPlaybackActive(false);
       }
 
       const core = await loadTauriCore();
       if (!core?.invoke) return;
       await core.invoke('native_tts_set_playback_state', {
-        payload: { state, title, text, largeIconPath },
+        payload: { state, title, text, largeIconPath, positionMs, durationMs },
       });
     } catch (e) {
       // 通知状态同步失败不影响朗读
       logError('[TTS][Native] 同步播放状态失败', e);
-    }
-  }
-
-  /** 暂停后延迟停止前台服务（期间通知/锁屏控制保留） */
-  #scheduleBackgroundAutoStop(): void {
-    this.#cancelBackgroundAutoStop();
-    this.#backgroundAutoStopTimer = setTimeout(() => {
-      this.#backgroundAutoStopTimer = null;
-      log('[TTS][Native] 暂停超时，停止后台保活服务', 'info');
-      void this.#setBackgroundPlaybackActive(false);
-    }, BACKGROUND_AUTO_STOP_MS);
-  }
-
-  #cancelBackgroundAutoStop(): void {
-    if (this.#backgroundAutoStopTimer !== null) {
-      clearTimeout(this.#backgroundAutoStopTimer);
-      this.#backgroundAutoStopTimer = null;
     }
   }
 

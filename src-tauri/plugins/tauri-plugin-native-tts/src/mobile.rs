@@ -93,6 +93,7 @@ impl<R: Runtime> NativeTts<R> {
     pub fn tts_session_stop(&self) -> crate::Result<()> {
         self.tts_session_stop_with_request(TTSSessionStopRequest {
             emit_stopped_event: true,
+            stop_service: None,
         })
     }
 

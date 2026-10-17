@@ -52,6 +52,10 @@ class SetPlaybackStateArgs {
   var text: String? = null
   /** 封面路径（本地文件路径或 data URL），用于通知大图标 */
   var largeIconPath: String? = null
+  /** 章节内播放位置（ms），用于媒体通知进度条 */
+  var positionMs: Long? = null
+  /** 章节预计时长（ms），用于媒体通知进度条 */
+  var durationMs: Long? = null
 }
 
 @InvokeArg
@@ -94,6 +98,8 @@ class TTSSessionSetEndOfBookArgs {
 @InvokeArg
 class TTSSessionStopArgs {
   var emitStoppedEvent: Boolean? = true
+  /** 是否同时停止前台服务；seek 重启会话时传 false */
+  var stopService: Boolean? = null
 }
 
 @TauriPlugin
@@ -176,12 +182,13 @@ class NativeTTSPlugin(private val activity: Activity) : Plugin(activity) {
   init {
     ensureDefaultEngineObserver()
     // 注册媒体动作分发器：通知/锁屏/媒体按键的播放、暂停、停止统一转发给前端 JS
-    MediaPlaybackService.setActionDispatcher { action ->
+    MediaPlaybackService.setActionDispatcher { action, positionMs ->
       val data = JSObject().apply {
         put("code", "media_action")
         put("action", action)
+        if (positionMs != null) put("positionMs", positionMs)
       }
-      println("[TTS][Plugin] media action dispatched action=$action")
+      println("[TTS][Plugin] media action dispatched action=$action positionMs=${positionMs ?: ""}")
       trigger(CHANNEL_NAME, data)
     }
   }
@@ -604,8 +611,15 @@ class NativeTTSPlugin(private val activity: Activity) : Plugin(activity) {
   fun set_playback_state(invoke: Invoke) {
     try {
       val args = invoke.parseArgs(SetPlaybackStateArgs::class.java)
-      println("[TTS][Plugin] set_playback_state: state=${args.state ?: ""} title=${args.title ?: ""} text=${args.text ?: ""} largeIcon=${args.largeIconPath?.take(32) ?: ""}")
-      MediaPlaybackService.updatePlaybackState(args.state, args.title, args.text, args.largeIconPath)
+      println("[TTS][Plugin] set_playback_state: state=${args.state ?: ""} title=${args.title ?: ""} text=${args.text ?: ""} position=${args.positionMs ?: ""} duration=${args.durationMs ?: ""} largeIcon=${args.largeIconPath?.take(32) ?: ""}")
+      MediaPlaybackService.updatePlaybackState(
+        args.state,
+        args.title,
+        args.text,
+        args.largeIconPath,
+        args.positionMs,
+        args.durationMs,
+      )
       invoke.resolve()
     } catch (e: Exception) {
       invoke.reject("Failed to set playback state: ${e.message}")
@@ -704,7 +718,7 @@ class NativeTTSPlugin(private val activity: Activity) : Plugin(activity) {
   fun tts_session_stop(invoke: Invoke) {
     try {
       val args = invoke.parseArgs(TTSSessionStopArgs::class.java)
-      sessionRunner.stop(args.emitStoppedEvent ?: true)
+      sessionRunner.stop(args.emitStoppedEvent ?: true, args.stopService ?: true)
       try {
         textToSpeech?.stop()
       } catch (_: Exception) {

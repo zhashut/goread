@@ -97,6 +97,10 @@ export const useTTS = ({
   const notificationBookIdRef = useRef<number | undefined>(notificationBookId);
   /** 当前朗读句文本（来自会话高亮 Range） */
   const narrationTextRef = useRef('');
+  /** 章节进度（positionMs/durationMs），随会话 progress 更新 */
+  const playbackProgressRef = useRef({ positionMs: 0, durationMs: 0 });
+  /** 进度是否有新值：仅在变化时下发，避免文案更新把进度条拉回旧位置 */
+  const progressDirtyRef = useRef(true);
   /** 封面路径（本地路径或 data URL），仅用于通知大图标 */
   const coverPathRef = useRef<string | undefined>(undefined);
   /** 封面是否需要随下一次通知更新一起下发 */
@@ -172,11 +176,15 @@ export const useTTS = ({
     if (!(client instanceof NativeTTSClient)) return;
     const largeIconPath = coverDirtyRef.current ? coverPathRef.current : undefined;
     coverDirtyRef.current = false;
+    const includeProgress = progressDirtyRef.current;
+    progressDirtyRef.current = false;
     void client.setPlaybackState(
       next,
       notificationTitleRef.current || undefined,
       buildNotificationText(),
       largeIconPath,
+      includeProgress ? Math.max(0, Math.round(playbackProgressRef.current.positionMs)) : undefined,
+      includeProgress ? Math.max(0, Math.round(playbackProgressRef.current.durationMs)) : undefined,
     );
   }, [buildNotificationText]);
 
@@ -220,6 +228,18 @@ export const useTTS = ({
     scheduleNotificationPush();
   }, [scheduleNotificationPush]);
 
+  /** 章节进度变化（用于媒体通知进度条/拖动） */
+  const handlePlaybackProgress = useCallback(
+    (progress: { positionMs: number; durationMs: number }) => {
+      playbackProgressRef.current = progress;
+      progressDirtyRef.current = true;
+      // 进度（尤其 seek 后）立即推送，避免系统进度条停在旧位置；
+      // 进度事件本身约每句一次，频率不高。
+      pushPlaybackState(stateRef.current);
+    },
+    [pushPlaybackState],
+  );
+
   /**
    * 会话状态变化：更新 React 状态，并同步到原生媒体通知（仅 native 插件模式）。
    * 以会话状态为唯一数据源，Service 只负责渲染，避免通知按钮与实际朗读状态不一致。
@@ -227,6 +247,8 @@ export const useTTS = ({
   const handleSessionState = useCallback((next: TTSState) => {
     setState(next);
     stateRef.current = next;
+    // 状态变化同步一次进度（暂停/恢复/停止时位置需要立即对齐）
+    progressDirtyRef.current = true;
     // 状态变化立即推送（丢弃节流中的待发送，避免旧状态覆盖新状态）
     if (notificationTimerRef.current !== null) {
       clearTimeout(notificationTimerRef.current);
@@ -312,8 +334,10 @@ export const useTTS = ({
       clientRef.current = client;
 
       if (client instanceof NativeTTSClient) {
-        // 新会话：重置逐句文案与封面下发标记
+        // 新会话：重置逐句文案、进度与封面下发标记
         narrationTextRef.current = '';
+        playbackProgressRef.current = { positionMs: 0, durationMs: 0 };
+        progressDirtyRef.current = true;
         coverDirtyRef.current = false;
         if (isAndroid()) void resolveNotificationCover();
         const info = client.getInitInfo();
@@ -380,6 +404,7 @@ export const useTTS = ({
         },
         {
           onNarration: handleNarration,
+          onPlaybackProgress: handlePlaybackProgress,
           // 后台保活失败不影响朗读，只提示用户“后台可能没有通知”
           onBackgroundServiceError: () => onWarningRef.current?.('listenBackgroundServiceFailed'),
         },
@@ -420,6 +445,7 @@ export const useTTS = ({
     releaseActiveTTS,
     handleSessionState,
     handleNarration,
+    handlePlaybackProgress,
     resolveNotificationCover,
   ]);
 

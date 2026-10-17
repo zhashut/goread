@@ -14,6 +14,7 @@ import {
   findAnchorStartOffsetWithContext,
 } from '../../../utils/ttsSegmentSlicer';
 import { encodeSectionCursor, decodeSectionCursor } from '../../../utils/ttsSegment';
+import { buildAnchorAtTextRatio } from '../../../utils/ttsAnchor';
 import { log } from '../../index';
 import { txtCacheService, type TxtChapterContent } from '../../formats/txt/txtCacheService';
 import { txtPreloader } from '../../formats/txt/txtPreloader';
@@ -273,6 +274,30 @@ export class TxtContentProvider implements TTSContentProvider {
 
   notifyDocumentUpdated(): void {
     this.#anchorLocator.invalidate();
+  }
+
+  /** 章节文本长度（用于媒体通知的章节时长估算） */
+  getSectionTextLength(sectionIndex: number): number | null {
+    const text = this.#getChapterText(sectionIndex);
+    return text ? text.length : null;
+  }
+
+  /** 把章节内比例换算成可朗读起点（进度条拖动） */
+  buildAnchorAtRatio(sectionIndex: number, ratio: number): TTSReadingAnchor | null {
+    const text = this.#getChapterText(sectionIndex);
+    return text ? buildAnchorAtTextRatio(text, ratio) : null;
+  }
+
+  /** 起播 anchor 在章节内的近似字符偏移（初始化进度条基准） */
+  getAnchorTextOffset(
+    sectionIndex: number,
+    anchor: TTSReadingAnchor | null | undefined,
+  ): number | null {
+    if (!anchor) return null;
+    const text = this.#getChapterText(sectionIndex);
+    if (!text) return null;
+    const offset = findAnchorStartOffsetWithContext(text, anchor, 0);
+    return offset >= 0 ? offset : null;
   }
 
   /**
