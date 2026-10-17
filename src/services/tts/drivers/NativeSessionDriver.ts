@@ -12,6 +12,7 @@ import type {
   TTSSessionRequestMoreEvent,
   TTSSessionSegmentDoneEvent,
   TTSSessionWaitingMoreEvent,
+  TTSMediaAction,
 } from '../types';
 import {
   invokeTTSManagedSessionPause,
@@ -51,6 +52,8 @@ type NativeEventPayload = {
   message?: string;
   prevEngine?: string;
   engine?: string;
+  /** 媒体控件动作（code=media_action 时下发） */
+  action?: string;
   anchor?: { quote?: string; prefix?: string; suffix?: string } | null;
 };
 
@@ -272,6 +275,16 @@ export class NativeSessionDriver implements IBackendSessionDriver {
           engine: event.engine,
         });
         return true;
+      }
+      // 媒体控件（通知/锁屏/耳机按键）动作：交给会话层执行真正的暂停/继续/停止
+      case 'media_action': {
+        const action = event.action;
+        if (action === 'play' || action === 'pause' || action === 'stop') {
+          const mediaAction: TTSMediaAction = action;
+          listeners.onMediaAction?.(mediaAction);
+          return true;
+        }
+        return false;
       }
       default:
         return false;

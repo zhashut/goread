@@ -8,6 +8,7 @@ const COMMANDS: &[&str] = &[
   "set_voice",
   "get_all_voices",
   "set_media_session_active",
+  "set_playback_state",
   "open_tts_settings",
   "install_tts_data",
   "shutdown",

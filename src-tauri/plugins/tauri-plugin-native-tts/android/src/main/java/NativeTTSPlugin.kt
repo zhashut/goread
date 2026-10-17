@@ -45,6 +45,14 @@ class SetMediaSessionActiveArgs {
 }
 
 @InvokeArg
+class SetPlaybackStateArgs {
+  /** playing / paused / stopped */
+  var state: String? = null
+  var title: String? = null
+  var text: String? = null
+}
+
+@InvokeArg
 class TTSSessionAnchorArgs {
   var quote: String? = null
   var prefix: String? = null
@@ -165,6 +173,21 @@ class NativeTTSPlugin(private val activity: Activity) : Plugin(activity) {
 
   init {
     ensureDefaultEngineObserver()
+    // 注册媒体动作分发器：通知/锁屏/媒体按键的播放、暂停、停止统一转发给前端 JS
+    MediaPlaybackService.setActionDispatcher { action ->
+      val data = JSObject().apply {
+        put("code", "media_action")
+        put("action", action)
+      }
+      println("[TTS][Plugin] media action dispatched action=$action")
+      trigger(CHANNEL_NAME, data)
+    }
+  }
+
+  override fun onDestroy() {
+    // 插件销毁后不再有 JS 接收者，清空分发器避免持有旧插件实例
+    MediaPlaybackService.setActionDispatcher(null)
+    super.onDestroy()
   }
 
   private fun ensureDefaultEngineObserver() {
@@ -561,6 +584,22 @@ class NativeTTSPlugin(private val activity: Activity) : Plugin(activity) {
       invoke.resolve()
     } catch (e: Exception) {
       invoke.reject("Failed to set media session active: ${e.message}")
+    }
+  }
+
+  /**
+   * 同步播放状态与通知文案（由前端会话回写）。
+   * Service 只渲染状态，不主动改变播放状态，避免与前端 TTSSession 双份状态。
+   */
+  @Command
+  fun set_playback_state(invoke: Invoke) {
+    try {
+      val args = invoke.parseArgs(SetPlaybackStateArgs::class.java)
+      println("[TTS][Plugin] set_playback_state: state=${args.state ?: ""} title=${args.title ?: ""} text=${args.text ?: ""}")
+      MediaPlaybackService.updatePlaybackState(args.state, args.title, args.text)
+      invoke.resolve()
+    } catch (e: Exception) {
+      invoke.reject("Failed to set playback state: ${e.message}")
     }
   }
 

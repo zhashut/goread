@@ -39,6 +39,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             commands::set_voice,
             commands::get_all_voices,
             commands::set_media_session_active,
+            commands::set_playback_state,
             commands::open_tts_settings,
             commands::install_tts_data,
             commands::shutdown,

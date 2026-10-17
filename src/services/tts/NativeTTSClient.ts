@@ -1,8 +1,9 @@
 import type { ITTSClient } from './TTSClient';
-import type { TTSVoice } from './types';
+import type { TTSState, TTSVoice } from './types';
 import { TTS_RATE_DEFAULT } from '../../constants/tts';
 import { loadTauriCore } from './core/tauriCore';
 import { NativeSessionDriver } from './drivers/NativeSessionDriver';
+import { isAndroid } from '../../utils/platform';
 import { log, logError } from '../index';
 
 declare global {
@@ -226,6 +227,25 @@ export class NativeTTSClient implements ITTSClient {
     } catch (e) {
       logError('[TTS][Native] plugin 初始化异常', e);
       return false;
+    }
+  }
+
+  /**
+   * 把朗读状态同步到 Android 前台服务的媒体通知（仅 plugin 模式有效）。
+   * 状态由前端会话回写，Service 只渲染不决策；title/text 为后续动态文案预留。
+   */
+  async setPlaybackState(state: TTSState, title?: string, text?: string): Promise<void> {
+    // 媒体通知是 Android 前台服务能力，其他平台不下发
+    if (this.#mode !== 'plugin' || !isAndroid()) return;
+    try {
+      const core = await loadTauriCore();
+      if (!core?.invoke) return;
+      await core.invoke('native_tts_set_playback_state', {
+        payload: { state, title, text },
+      });
+    } catch (e) {
+      // 通知状态同步失败不影响朗读
+      logError('[TTS][Native] 同步播放状态失败', e);
     }
   }
 

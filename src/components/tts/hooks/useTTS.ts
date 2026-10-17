@@ -85,6 +85,18 @@ export const useTTS = ({
     setState('stopped');
   }, []);
 
+  /**
+   * 会话状态变化：更新 React 状态，并同步到原生媒体通知（仅 native 插件模式）。
+   * 以会话状态为唯一数据源，Service 只负责渲染，避免通知按钮与实际朗读状态不一致。
+   */
+  const handleSessionState = useCallback((next: TTSState) => {
+    setState(next);
+    const client = clientRef.current;
+    if (client instanceof NativeTTSClient) {
+      void client.setPlaybackState(next);
+    }
+  }, []);
+
   useEffect(() => {
     return () => {
       void releaseActiveTTS();
@@ -206,7 +218,7 @@ export const useTTS = ({
       const newSession = new TTSSession(
         provider,
         driver,
-        setState,
+        handleSessionState,
         onReadingActivity,
         () => {
           if (sessionRef.current !== newSession) return;
@@ -242,7 +254,7 @@ export const useTTS = ({
       pendingStopRef.current = false;
       lockRef.current = 'idle';
     }
-  }, [listenSupported, rendererRef, onReadingActivity, releaseActiveTTS]);
+  }, [listenSupported, rendererRef, onReadingActivity, releaseActiveTTS, handleSessionState]);
 
   const stop = useCallback(async (): Promise<void> => {
     if (lockRef.current === 'starting' || sessionRef.current || clientRef.current) {

@@ -56,6 +56,16 @@ pub struct SetMediaSessionActiveRequest {
     pub foreground_service_text: Option<String>,
 }
 
+/// 播放状态同步请求：状态由前端会话回写，Service 只负责渲染媒体通知
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetPlaybackStateRequest {
+    /// playing / paused / stopped
+    pub state: Option<String>,
+    pub title: Option<String>,
+    pub text: Option<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GetVoicesResponse {

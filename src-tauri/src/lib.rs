@@ -160,6 +160,17 @@ async fn native_tts_set_media_session_active<R: Runtime>(
         .map_err(|e| e.to_string())
 }
 
+/// 同步朗读播放状态到 Android 前台服务媒体通知（由前端 TTSSession 回写）
+#[tauri::command]
+async fn native_tts_set_playback_state<R: Runtime>(
+    app: AppHandle<R>,
+    payload: tauri_plugin_native_tts::SetPlaybackStateRequest,
+) -> Result<(), String> {
+    app.native_tts()
+        .set_playback_state(payload)
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 async fn native_tts_shutdown<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     app.native_tts().shutdown().map_err(|e| e.to_string())
@@ -471,6 +482,7 @@ pub fn run() {
             native_tts_set_rate,
             native_tts_set_voice,
             native_tts_set_media_session_active,
+            native_tts_set_playback_state,
             native_tts_shutdown,
             native_tts_session_start,
             native_tts_session_push,

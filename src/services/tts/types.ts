@@ -107,6 +107,12 @@ export interface TTSSessionEngineChangedEvent {
   engine?: string;
 }
 
+/**
+ * 媒体控件动作（Android 通知/锁屏/耳机按键触发）
+ * 仅三种：播放、暂停、停止
+ */
+export type TTSMediaAction = 'play' | 'pause' | 'stop';
+
 /** 会话事件统一回调集合 */
 export interface TTSSessionListeners {
   onProgress?: (event: TTSSessionProgressEvent) => void;
@@ -117,5 +123,7 @@ export interface TTSSessionListeners {
   onResumed?: (event: TTSSessionPauseStateEvent) => void;
   onEnd?: (event: TTSSessionEndEvent) => void;
   onEngineChanged?: (event: TTSSessionEngineChangedEvent) => void;
+  /** 媒体控件动作（仅 native-tts 插件模式会下发） */
+  onMediaAction?: (action: TTSMediaAction) => void;
 }
 

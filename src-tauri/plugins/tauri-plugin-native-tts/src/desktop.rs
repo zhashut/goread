@@ -31,6 +31,12 @@ impl<R: Runtime> NativeTts<R> {
     ) -> crate::Result<()> {
         Err(crate::Error::UnsupportedPlatformError)
     }
+
+    /// 桌面端没有前台媒体通知，播放状态同步为无害空操作（前端仅在 plugin 模式下调用）
+    pub fn set_playback_state(&self, _payload: SetPlaybackStateRequest) -> crate::Result<()> {
+        Ok(())
+    }
+
     pub fn open_tts_settings(&self) -> crate::Result<()> {
         Err(crate::Error::UnsupportedPlatformError)
     }

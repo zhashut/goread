@@ -200,6 +200,32 @@ Denies the set_media_session_active command without any pre-configured scope.
 <tr>
 <td>
 
+`native-tts:allow-set-playback-state`
+
+</td>
+<td>
+
+Enables the set_playback_state command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`native-tts:deny-set-playback-state`
+
+</td>
+<td>
+
+Denies the set_playback_state command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `native-tts:allow-set-rate`
 
 </td>

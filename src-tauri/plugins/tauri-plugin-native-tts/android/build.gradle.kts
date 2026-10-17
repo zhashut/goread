@@ -34,5 +34,7 @@ android {
 
 dependencies {
     implementation("androidx.core:core-ktx:1.12.0")
+    // MediaSessionCompat + MediaStyle：用于锁屏媒体控件与媒体通知
+    implementation("androidx.media:media:1.7.0")
     implementation(project(":tauri-android"))
 }

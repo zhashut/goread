@@ -379,6 +379,18 @@
           "markdownDescription": "Denies the set_media_session_active command without any pre-configured scope."
         },
         {
+          "description": "Enables the set_playback_state command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-playback-state",
+          "markdownDescription": "Enables the set_playback_state command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_playback_state command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-playback-state",
+          "markdownDescription": "Denies the set_playback_state command without any pre-configured scope."
+        },
+        {
           "description": "Enables the set_rate command without any pre-configured scope.",
           "type": "string",
           "const": "allow-set-rate",

@@ -7,6 +7,7 @@ import type {
   TTSSessionRequestMoreEvent,
   TTSSessionSegmentDoneEvent,
   TTSState,
+  TTSMediaAction,
 } from './types';
 import type {
   IBackendSessionDriver,
@@ -288,7 +289,43 @@ export class TTSSession {
       onResumed: (event) => this.#handleResumed(event),
       onEnd: (event) => this.#handleEnd(event),
       onEngineChanged: () => this.#handleEngineChanged(),
+      onMediaAction: (action) => this.#handleMediaAction(action),
     };
+  }
+
+  /**
+   * 媒体控件动作：通知栏/锁屏/耳机按键。
+   *
+   * 播放、暂停复用会话自身的 pause/resume；停止等价于用户点“停止听书”
+   * （结束会话并通知上层释放 client），但**不回跳阅读位置**，与 App 内停止行为一致。
+   */
+  #handleMediaAction(action: TTSMediaAction): void {
+    if (this.#disposed) return;
+    log(`[TTSSession] media_action=${action} state=${this.#state}`, 'info');
+    switch (action) {
+      case 'play':
+        void this.resume();
+        break;
+      case 'pause':
+        void this.pause();
+        break;
+      case 'stop':
+        void this.#stopFromMediaControl();
+        break;
+      default:
+        break;
+    }
+  }
+
+  /** 媒体控件“停止”：走与主动 shutdown 相同的收尾，再通知上层释放 client */
+  async #stopFromMediaControl(): Promise<void> {
+    if (this.#disposed) return;
+    await this.shutdown();
+    try {
+      this.#onEnded?.({ reason: 'stopped' });
+    } catch (e) {
+      logError('[TTSSession] onEnded 异常', e);
+    }
   }
 
   #handleProgress(event: TTSSessionProgressEvent): void {

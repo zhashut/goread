@@ -33,6 +33,14 @@ pub(crate) async fn set_media_session_active<R: Runtime>(
 }
 
 #[command]
+pub(crate) async fn set_playback_state<R: Runtime>(
+    app: AppHandle<R>,
+    payload: SetPlaybackStateRequest,
+) -> Result<()> {
+    app.native_tts().set_playback_state(payload)
+}
+
+#[command]
 pub(crate) async fn open_tts_settings<R: Runtime>(app: AppHandle<R>) -> Result<()> {
     app.native_tts().open_tts_settings()
 }
