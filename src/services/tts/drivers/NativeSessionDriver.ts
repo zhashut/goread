@@ -54,6 +54,8 @@ type NativeEventPayload = {
   engine?: string;
   /** 媒体控件动作（code=media_action 时下发） */
   action?: string;
+  /** 当前句文本（code=session_progress 时下发） */
+  text?: string;
   anchor?: { quote?: string; prefix?: string; suffix?: string } | null;
 };
 
@@ -207,6 +209,7 @@ export class NativeSessionDriver implements IBackendSessionDriver {
           sectionIndex: event.sectionIndex ?? 0,
           chunkIndex: event.chunkIndex ?? 0,
           cursor: event.cursor,
+          text: event.text,
           anchor: event.anchor && event.anchor.quote
             ? {
                 quote: event.anchor.quote,

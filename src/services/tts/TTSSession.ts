@@ -73,6 +73,10 @@ export class TTSSession {
   #latestAnchor: TTSReadingAnchor | null = null;
   /** 当前高亮的 DOM Range（用于提取朗读中的句子文本） */
   #currentRange: Range | null = null;
+  /** 当前朗读句文本（优先取后端下发的 segment 文本，后台不渲染时也可用） */
+  #latestNarrationText = '';
+  /** 回到前台对齐中：期间跳过跟读渲染，避免与 restore 并发操作渲染器 */
+  #foregroundRealigning = false;
   #lastActivityNotifyTs = 0;
   #batchSize = DEFAULT_BATCH_SIZE;
   #managed = false;
@@ -363,6 +367,9 @@ export class TTSSession {
     const previousSectionIndex = this.#latestSectionIndex;
     this.#latestSectionIndex = event.sectionIndex;
     this.#latestAnchor = event.anchor ?? null;
+    if (event.text && event.text.trim()) {
+      this.#latestNarrationText = event.text.trim();
+    }
     void this.#handleProgressAsync(event, previousSectionIndex);
   }
 
@@ -371,6 +378,8 @@ export class TTSSession {
     previousSectionIndex: number,
   ): Promise<void> {
     try {
+      // 前台对齐期间渲染器由 restore 接管，避免并发切章/翻页
+      if (this.#foregroundRealigning) return;
       await this.#provider.followProgressPosition?.(
         {
           sectionIndex: event.sectionIndex,
@@ -378,6 +387,7 @@ export class TTSSession {
         },
         previousSectionIndex,
       );
+      if (this.#foregroundRealigning) return;
       this.#applyReadingPosition(event.sectionIndex, event.anchor, true);
       this.#notifyNarration();
     } catch (e) {
@@ -385,10 +395,12 @@ export class TTSSession {
     }
   }
 
-  /** 把当前高亮句子的文本上报给上层（媒体通知动态文案） */
+  /** 把当前朗读句文本上报给上层（媒体通知动态文案） */
   #notifyNarration(): void {
     if (!this.#onNarration) return;
-    const text = this.#currentRange?.toString().replace(/\s+/g, ' ').trim() ?? '';
+    // 优先用后端下发的 segment 文本：后台/未渲染时 Range 可能拿不到
+    const source = this.#latestNarrationText || this.#currentRange?.toString() || '';
+    const text = source.replace(/\s+/g, ' ').trim();
     if (!text) return;
     try {
       this.#onNarration(text);
@@ -511,19 +523,51 @@ export class TTSSession {
 
   #handleVisibilityChange = (): void => {
     if (typeof document === 'undefined' || document.hidden) return;
-    if (this.#disposed || this.#state !== 'playing') return;
+    if (this.#disposed) return;
+    // 播放中或暂停中都需要把视图对齐到最新朗读位置
+    if (this.#state !== 'playing' && this.#state !== 'paused') return;
     if (!this.#hasReceivedProgress || this.#latestSectionIndex < 0) return;
+    if (this.#foregroundRealigning) return;
     const now = Date.now();
     if (now - this.#lastForegroundRealignTs < FOREGROUND_REALIGN_COOLDOWN_MS) return;
     this.#lastForegroundRealignTs = now;
-    const applied = this.#applyReadingPosition(this.#latestSectionIndex, this.#latestAnchor, false);
-    if (applied) {
-      log(
-        `[TTSSession] foreground realign sectionIndex=${this.#latestSectionIndex}`,
-        'info',
-      );
-    }
+    this.#foregroundRealigning = true;
+    void this.#realignToLatestPosition().finally(() => {
+      this.#foregroundRealigning = false;
+    });
   };
+
+  /**
+   * 回到前台时把阅读视图真正对齐到最新朗读位置。
+   *
+   * 后台期间渲染器会跳过跟读（如 EpubPositionRestorer.followHorizontalProgress 在
+   * document.hidden 时直接返回），长时间后台可能已跨过多章；此时只在当前章节内
+   * locateAnchor 必然落空，表现为“回到应用仍停在切后台时的页”。
+   * 因此这里先走 provider.restoreReadingPosition 切章/翻页，再重建高亮。
+   */
+  async #realignToLatestPosition(): Promise<void> {
+    let sectionIndex = this.#latestSectionIndex;
+    let anchor = this.#latestAnchor;
+    try {
+      await this.#provider.restoreReadingPosition({ sectionIndex, anchor });
+      // 恢复期间朗读并未暂停，可能又跨章：以最新位置再对齐一次（最多两次）
+      if (this.#latestSectionIndex !== sectionIndex) {
+        sectionIndex = this.#latestSectionIndex;
+        anchor = this.#latestAnchor;
+        await this.#provider.restoreReadingPosition({ sectionIndex, anchor });
+      }
+    } catch (e) {
+      logError('[TTSSession] 前台恢复朗读位置失败', e);
+    }
+    if (this.#disposed) return;
+    const applied = this.#applyReadingPosition(sectionIndex, anchor, false);
+    // 恢复后同步一次通知文案（后台期间可能因为未渲染而没更新）
+    this.#notifyNarration();
+    log(
+      `[TTSSession] foreground realign sectionIndex=${sectionIndex} applied=${applied}`,
+      applied ? 'info' : 'warn',
+    );
+  }
 
   #applyReadingPosition(
     sectionIndex: number,

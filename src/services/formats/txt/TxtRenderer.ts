@@ -1756,6 +1756,9 @@ export class TxtRenderer implements IBookRenderer {
       // 横向恢复朗读位置：切章并渲染章内页
       goToChapterPage: (chapterIndex, pageInChapter) =>
         this.goToChapterPage(chapterIndex, pageInChapter),
+      // 纵向恢复朗读位置：目标章节不在窗口时切章（保持纵向渲染）
+      goToChapterVertical: (chapterIndex) =>
+        this.goToChapter(chapterIndex, 'vertical'),
       getVisibleStartPosition: () => this.getVisibleStartPositionForTTS(),
     });
   }

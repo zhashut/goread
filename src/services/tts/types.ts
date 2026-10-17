@@ -66,6 +66,8 @@ export interface TTSSessionProgressEvent {
   chunkIndex: number;
   cursor?: string;
   anchor?: TTSReadingAnchor | null;
+  /** 当前句文本（native-tts 插件模式下发，供通知动态文案使用） */
+  text?: string;
 }
 
 /** 会话补给请求：队列接近低水位时上抛 */

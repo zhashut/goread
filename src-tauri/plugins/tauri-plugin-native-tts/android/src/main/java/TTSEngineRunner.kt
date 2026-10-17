@@ -410,6 +410,8 @@ internal class TTSEngineRunner(
       put("segmentId", segment.id)
       put("sectionIndex", segment.sectionIndex)
       put("chunkIndex", segment.chunkIndex)
+      // 带上当前句文本：前端可用于媒体通知动态文案（后台渲染暂停时仍可更新）
+      put("text", segment.text.take(300))
       segment.cursor?.let { put("cursor", it) }
       putAnchor(this, segment.anchor)
     }

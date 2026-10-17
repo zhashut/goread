@@ -45,6 +45,8 @@ export interface TxtContentProviderContext {
   goToPage: (page: number) => Promise<void>;
   /** 横向：切章并渲染章内页（供恢复朗读位置使用） */
   goToChapterPage?: (chapterIndex: number, pageInChapter: number) => Promise<void>;
+  /** 纵向：跳到指定章节并保持纵向渲染（目标章节不在已加载窗口时恢复位置用） */
+  goToChapterVertical?: (chapterIndex: number) => Promise<void>;
   /** 取当前视口顶部位置（横纵均返回 { sectionIndex: 章节索引, anchor }） */
   getVisibleStartPosition?: () => TTSReadingPosition | null;
 }
@@ -243,7 +245,20 @@ export class TxtContentProvider implements TTSContentProvider {
 
   async restoreReadingPosition(position: TTSReadingPosition): Promise<void> {
     if (this.#ctx.isVerticalMode()) {
-      const roots = this.#resolveVerticalSectionRoots(position.sectionIndex);
+      let roots = this.#resolveVerticalSectionRoots(position.sectionIndex);
+      if (roots.length === 0) {
+        // 纵向窗口未加载目标章节（长时间后台/大跨度跳转）：先切到该章再重试
+        const goToChapterVertical = this.#ctx.goToChapterVertical;
+        if (goToChapterVertical) {
+          try {
+            await goToChapterVertical(position.sectionIndex);
+            this.notifyDocumentUpdated();
+          } catch (e) {
+            log(`[TTS][Txt] 纵向恢复切章失败: ${(e as Error).message ?? ''}`, 'warn');
+          }
+          roots = this.#resolveVerticalSectionRoots(position.sectionIndex);
+        }
+      }
       if (roots.length === 0) return;
       const range = this.locateAnchor(position.sectionIndex, position.anchor);
       if (range) {
