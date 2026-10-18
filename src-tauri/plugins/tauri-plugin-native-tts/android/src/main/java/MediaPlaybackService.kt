@@ -47,6 +47,16 @@ class MediaPlaybackService : Service() {
    */
   private var audioFocusRequest: Any? = null
   private var audioFocusHeld = false
+  /**
+   * 是否因为“临时失去音频焦点”而暂停。
+   * 用于其他媒体应用释放焦点（AUDIOFOCUS_GAIN）时自动恢复播放并重新挂出通知；
+   * 用户手动暂停时为 false，不会自动恢复。
+   */
+  private var pausedByAudioFocus = false
+  /** 焦点回来后是否自动恢复（仅临时丢失时；永久丢失保持暂停，只恢复通知） */
+  private var autoResumeOnFocusGain = false
+  /** 焦点回收轮询是否已排队 */
+  private var focusCheckScheduled = false
 
   /** 媒体通知大图标（封面）缓存：仅当封面路径变化时重新解码 */
   private var largeIconBitmap: Bitmap? = null
@@ -58,10 +68,35 @@ class MediaPlaybackService : Service() {
    */
   private val audioFocusListener = AudioManager.OnAudioFocusChangeListener { change ->
     when (change) {
-      AudioManager.AUDIOFOCUS_LOSS,
+      AudioManager.AUDIOFOCUS_LOSS -> {
+        // 永久丢失（其他音乐/视频 App 抢占）：不自动恢复，只暂停；
+        // 但保留焦点请求并开始轮询，等对方释放后重新挂出通知。
+        beginAudioFocusPause(canAutoResume = false)
+      }
       AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
-      AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> dispatchAction(MEDIA_ACTION_PAUSE)
+      AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+        // 临时丢失（来电/导航/短暂抢占）：焦点回来时自动恢复
+        beginAudioFocusPause(canAutoResume = true)
+      }
+      AudioManager.AUDIOFOCUS_GAIN -> {
+        finishAudioFocusPause()
+      }
       else -> Unit
+    }
+  }
+
+  /** 用户主动恢复播放时清理焦点暂停状态 */
+  private fun onUserResumed() {
+    pausedByAudioFocus = false
+    autoResumeOnFocusGain = false
+    cancelFocusRegainCheck()
+  }
+
+  /** 焦点回收轮询：部分系统不会在永久丢失后补发 GAIN，需要主动探测其他媒体是否已停止 */
+  private val focusRegainRunnable = object : Runnable {
+    override fun run() {
+      focusCheckScheduled = false
+      checkFocusRegain()
     }
   }
 
@@ -119,6 +154,14 @@ class MediaPlaybackService : Service() {
     /** 最近一次启动请求的通知正文缓存，与 [lastTitle] 同源写入、同时生效 */
     @Volatile
     private var lastText = DEFAULT_TEXT
+
+    /** 服务是否已启动（含正在前台提升中）；为 false 说明服务已被系统/厂商回收 */
+    fun isStartRequested(): Boolean = startRequested
+
+    /** 用户主动恢复播放：取消焦点丢失的自动恢复/轮询标记 */
+    fun notifyUserResumed() {
+      instance?.onUserResumed()
+    }
 
     /** 最近一次播放状态：Service 未创建时也先缓存，创建后直接以该状态渲染媒体通知 */
     @Volatile
@@ -339,6 +382,9 @@ class MediaPlaybackService : Service() {
     startRequested = false
     pendingStop = false
     instance = null
+    pausedByAudioFocus = false
+    autoResumeOnFocusGain = false
+    cancelFocusRegainCheck()
     releaseWakeLock()
     abandonAudioFocus()
     try {
@@ -404,6 +450,14 @@ class MediaPlaybackService : Service() {
     lastTitle = title
     lastText = text
     lastPlaybackState = state
+    // 停止状态结束焦点暂停轮询，避免复活幽灵通知；
+    // playing 不在这里清除：焦点丢失时可能还有旧 progress 回写 playing，
+    // 会误清自动恢复标记。用户恢复播放由 tts_session_resume 显式通知。
+    if (state == PLAYBACK_STOPPED) {
+      pausedByAudioFocus = false
+      autoResumeOnFocusGain = false
+      cancelFocusRegainCheck()
+    }
     resolveLargeIcon(lastLargeIconPath)
     println("[TTS][Service] applyPlaybackState state=$state position=$lastPositionMs duration=$lastDurationMs title=$title text=$text")
     mediaSession?.let { session ->
@@ -539,10 +593,28 @@ class MediaPlaybackService : Service() {
       .build()
   }
 
-  /** 把媒体动作转发给前端（主线程，且未注册接收者时仅记录日志） */
-  private fun dispatchAction(action: String, positionMs: Long? = null) {
+  /**
+   * 把媒体动作转发给前端（主线程，且未注册接收者时仅记录日志）。
+   *
+   * fromAudioFocus 为 true 表示由音频焦点丢失触发，用于区分“自动暂停”和“用户暂停”：
+   * 用户手动暂停/播放/停止会清除自动恢复标记。
+   */
+  private fun dispatchAction(
+    action: String,
+    positionMs: Long? = null,
+    fromAudioFocus: Boolean = false,
+  ) {
+    if (!fromAudioFocus) {
+      when (action) {
+        MEDIA_ACTION_PAUSE, MEDIA_ACTION_PLAY, MEDIA_ACTION_STOP -> {
+          pausedByAudioFocus = false
+          autoResumeOnFocusGain = false
+          cancelFocusRegainCheck()
+        }
+      }
+    }
     val dispatcher = actionDispatcher
-    println("[TTS][Service] dispatch media action=$action positionMs=${positionMs ?: ""} hasDispatcher=${dispatcher != null}")
+    println("[TTS][Service] dispatch media action=$action positionMs=${positionMs ?: ""} fromAudioFocus=$fromAudioFocus hasDispatcher=${dispatcher != null}")
     if (dispatcher == null) return
     mainHandler.post { dispatcher.invoke(action, positionMs) }
   }
@@ -551,13 +623,110 @@ class MediaPlaybackService : Service() {
   // 音频焦点
   // ---------------------------------------------------------------------------
 
-  /** 播放时持有音频焦点，暂停/停止时释放；失去焦点通知前端暂停 */
+  /** 开始一轮“焦点丢失暂停”：记录是否自动恢复，并启动焦点回收轮询 */
+  private fun beginAudioFocusPause(canAutoResume: Boolean) {
+    if (lastPlaybackState == PLAYBACK_STOPPED) return
+    pausedByAudioFocus = true
+    autoResumeOnFocusGain = canAutoResume && lastPlaybackState == PLAYBACK_PLAYING
+    // 永久丢失后旧焦点请求已失效：清掉标记，轮询/用户点播放时才能重新申请
+    if (!canAutoResume) {
+      audioFocusHeld = false
+      audioFocusRequest = null
+    }
+    println(
+      "[TTS][Service] audioFocus lost: canAutoResume=$canAutoResume " +
+        "autoResume=$autoResumeOnFocusGain state=$lastPlaybackState"
+    )
+    // 已经手动暂停时不再重复下发暂停，只需等待焦点回来补挂通知
+    if (lastPlaybackState == PLAYBACK_PLAYING) {
+      dispatchAction(MEDIA_ACTION_PAUSE, fromAudioFocus = true)
+    }
+    scheduleFocusRegainCheck()
+  }
+
+  /** 焦点已恢复（系统补发 GAIN）：按来源决定恢复播放还是只刷新通知 */
+  private fun finishAudioFocusPause() {
+    if (!pausedByAudioFocus) {
+      // 手动暂停期间收到 GAIN：至少重新挂出通知，避免厂商系统把暂停卡片移除
+      postPlaybackUpdate()
+      return
+    }
+    cancelFocusRegainCheck()
+    val resume = autoResumeOnFocusGain && lastPlaybackState == PLAYBACK_PAUSED
+    pausedByAudioFocus = false
+    autoResumeOnFocusGain = false
+    if (resume) {
+      println("[TTS][Service] audioFocus gain after transient loss, resume playback")
+      dispatchAction(MEDIA_ACTION_PLAY)
+    } else {
+      println("[TTS][Service] audioFocus gain, repost paused media notification")
+      postPlaybackUpdate()
+      // 强制媒体会话重新激活：部分 ROM 会在此前把暂停中的媒体卡片移除
+      try {
+        mediaSession?.let { session ->
+          session.isActive = false
+          session.isActive = true
+        }
+      } catch (_: Exception) {
+      }
+      // 重新激活后再挂一次，确保系统媒体卡片重新出现
+      postPlaybackUpdate()
+    }
+  }
+
+  private fun scheduleFocusRegainCheck() {
+    if (focusCheckScheduled) return
+    focusCheckScheduled = true
+    mainHandler.postDelayed(focusRegainRunnable, 2000L)
+  }
+
+  private fun cancelFocusRegainCheck() {
+    focusCheckScheduled = false
+    mainHandler.removeCallbacks(focusRegainRunnable)
+  }
+
+  /**
+   * 探测其他媒体是否已经停止；停止后重新申请焦点并补挂通知。
+   *
+   * 永久丢失（AUDIOFOCUS_LOSS）后系统不会自动补发 GAIN，
+   * 仅靠监听器无法知道“其他媒体 App 已被关闭”，通知就一直不回来。
+   */
+  private fun checkFocusRegain() {
+    if (!pausedByAudioFocus) return
+    val audioManager = getSystemService(AudioManager::class.java)
+    if (audioManager == null) {
+      scheduleFocusRegainCheck()
+      return
+    }
+    // 仍有其他音乐在播放：继续等
+    if (audioManager.isMusicActive) {
+      scheduleFocusRegainCheck()
+      return
+    }
+    // 旧请求在永久丢失时已失效：先清掉再重新申请
+    abandonAudioFocus(audioManager)
+    requestAudioFocus(audioManager)
+    if (!audioFocusHeld) {
+      scheduleFocusRegainCheck()
+      return
+    }
+    println("[TTS][Service] audioFocus regained by polling, repost notification")
+    finishAudioFocusPause()
+  }
+
+  /**
+   * 播放时持有音频焦点；暂停时保留焦点请求，停止时才释放。
+   *
+   * 暂停时如果直接 abandon，其他媒体播放结束后系统不会给 GoRead 发
+   * AUDIOFOCUS_GAIN，通知/媒体会话就缺少“被重新挂出”的时机。
+   * 保留请求可以让暂停中的应用在其他媒体释放焦点时重新显示通知。
+   */
   private fun updateAudioFocus(state: String) {
     val audioManager = getSystemService(AudioManager::class.java) ?: return
-    if (state == PLAYBACK_PLAYING) {
-      requestAudioFocus(audioManager)
-    } else {
-      abandonAudioFocus(audioManager)
+    when (state) {
+      PLAYBACK_PLAYING -> requestAudioFocus(audioManager)
+      PLAYBACK_STOPPED -> abandonAudioFocus(audioManager)
+      else -> Unit // PAUSED：保留焦点请求，等待 GAIN
     }
   }
 

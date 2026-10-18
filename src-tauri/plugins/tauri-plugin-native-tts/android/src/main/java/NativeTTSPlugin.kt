@@ -617,6 +617,15 @@ class NativeTTSPlugin(private val activity: Activity) : Plugin(activity) {
     try {
       val args = invoke.parseArgs(SetPlaybackStateArgs::class.java)
       println("[TTS][Plugin] set_playback_state: state=${args.state ?: ""} title=${args.title ?: ""} text=${args.text ?: ""} position=${args.positionMs ?: ""} duration=${args.durationMs ?: ""} largeIcon=${args.largeIconPath?.take(32) ?: ""}")
+      // 防御：Service 可能被系统/厂商清理掉，但前端还以为后台保活仍开启。
+      // playing/paused 状态下如果服务不在，主动重建，否则通知永远不会再出现。
+      val state = args.state?.trim()?.lowercase()
+      if ((state == "playing" || state == "paused") && !MediaPlaybackService.isStartRequested()) {
+        val title = args.title ?: MediaPlaybackService.DEFAULT_TITLE
+        val text = args.text ?: MediaPlaybackService.DEFAULT_TEXT
+        println("[TTS][Plugin] set_playback_state: foreground service missing, restart title=$title text=$text")
+        MediaPlaybackService.requestStart(activity, title, text)
+      }
       MediaPlaybackService.updatePlaybackState(
         args.state,
         args.title,
@@ -749,6 +758,8 @@ class NativeTTSPlugin(private val activity: Activity) : Plugin(activity) {
   @Command
   fun tts_session_resume(invoke: Invoke) {
     try {
+      // 用户主动继续播放：清除音频焦点暂停标记，避免稍后又被自动恢复逻辑干扰
+      MediaPlaybackService.notifyUserResumed()
       sessionRunner.resume()
       invoke.resolve()
     } catch (e: Exception) {
