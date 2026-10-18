@@ -12,7 +12,7 @@ import { log, logError, getReaderSettings, saveReaderSettings } from '../../../s
 import { coverService } from '../../../services/cover';
 import { ensureNotificationPermission } from '../../../utils/notificationPermission';
 import { isAndroid } from '../../../utils/platform';
-import { TTS_RATE_DEFAULT } from '../../../constants/tts';
+import { TTS_CHARS_PER_SECOND_PRIORS, TTS_RATE_DEFAULT } from '../../../constants/tts';
 import { createTTSClient, type TTSFailReason } from './createTTSClient';
 
 /** 通知文案更新的最小间隔（毫秒）：避免逐句 notify 过于频繁 */
@@ -98,7 +98,11 @@ export const useTTS = ({
   /** 当前朗读句文本（来自会话高亮 Range） */
   const narrationTextRef = useRef('');
   /** 章节进度（positionMs/durationMs），随会话 progress 更新 */
-  const playbackProgressRef = useRef({ positionMs: 0, durationMs: 0 });
+  const playbackProgressRef = useRef<{
+    positionMs: number;
+    durationMs: number;
+    chapterTitle?: string;
+  }>({ positionMs: 0, durationMs: 0 });
   /** 进度是否有新值：仅在变化时下发，避免文案更新把进度条拉回旧位置 */
   const progressDirtyRef = useRef(true);
   /** 封面路径（本地路径或 data URL），仅用于通知大图标 */
@@ -108,6 +112,8 @@ export const useTTS = ({
   const lastNotificationPushRef = useRef(0);
   const notificationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onWarningRef = useRef(onWarning);
+  /** 当前语音的语速档案 key：引擎|语音|语言 */
+  const speedProfileKeyRef = useRef('');
 
   const isActive = state !== 'stopped';
 
@@ -161,7 +167,9 @@ export const useTTS = ({
 
   /** 组装通知正文：章节名 · 当前句（超长截断） */
   const buildNotificationText = useCallback((): string | undefined => {
-    const subtitle = notificationSubtitleRef.current.trim();
+    // 章节标题优先用 TTS progress 携带的 section 标题（跟随朗读章节），
+    // 阅读器当前页的 TOC 标题只作为初始兜底。
+    const subtitle = (playbackProgressRef.current.chapterTitle || notificationSubtitleRef.current).trim();
     const sentence = narrationTextRef.current.trim();
     const base = subtitle && sentence ? `${subtitle} · ${sentence}` : sentence || subtitle;
     if (!base) return undefined;
@@ -178,6 +186,7 @@ export const useTTS = ({
     coverDirtyRef.current = false;
     const includeProgress = progressDirtyRef.current;
     progressDirtyRef.current = false;
+    const skip = sessionRef.current?.getSkipAvailability();
     void client.setPlaybackState(
       next,
       notificationTitleRef.current || undefined,
@@ -185,6 +194,8 @@ export const useTTS = ({
       largeIconPath,
       includeProgress ? Math.max(0, Math.round(playbackProgressRef.current.positionMs)) : undefined,
       includeProgress ? Math.max(0, Math.round(playbackProgressRef.current.durationMs)) : undefined,
+      skip?.canSkipPrevious,
+      skip?.canSkipNext,
     );
   }, [buildNotificationText]);
 
@@ -228,9 +239,23 @@ export const useTTS = ({
     scheduleNotificationPush();
   }, [scheduleNotificationPush]);
 
+  /** 实测语速回写：按“引擎+语音+语言”持久化，供下次直接使用 */
+  const handleSpeedMeasured = useCallback((cpsAtRate1: number) => {
+    const key = speedProfileKeyRef.current;
+    if (!key || !Number.isFinite(cpsAtRate1) || cpsAtRate1 <= 0) return;
+    const settings = getReaderSettings();
+    const profiles = { ...(settings.ttsVoiceSpeedProfiles || {}) };
+    profiles[key] = {
+      cpsAtRate1: Math.round(cpsAtRate1 * 100) / 100,
+      updatedAt: Date.now(),
+    };
+    saveReaderSettings({ ttsVoiceSpeedProfiles: profiles });
+    log(`[TTS] 语速档案更新 key=${key} cpsAtRate1=${cpsAtRate1}`, 'info');
+  }, []);
+
   /** 章节进度变化（用于媒体通知进度条/拖动） */
   const handlePlaybackProgress = useCallback(
-    (progress: { positionMs: number; durationMs: number }) => {
+    (progress: { positionMs: number; durationMs: number; chapterTitle?: string }) => {
       playbackProgressRef.current = progress;
       progressDirtyRef.current = true;
       // 进度（尤其 seek 后）立即推送，避免系统进度条停在旧位置；
@@ -333,10 +358,23 @@ export const useTTS = ({
       }
       clientRef.current = client;
 
+      let initialCharsPerSecond: number | undefined;
       if (client instanceof NativeTTSClient) {
+        // 组装语速档案 key，并读取历史实测值作为本轮初值
+        const engine = client.getInitInfo().defaultEngine || client.name;
+        const voiceId = client.getVoiceId() || 'default';
+        const voiceLang = client.getVoices().find((v) => v.id === voiceId)?.lang
+          || client.getPrimaryLang()
+          || 'default';
+        const speedKey = `${engine}|${voiceId}|${voiceLang}`;
+        speedProfileKeyRef.current = speedKey;
+        const profile = getReaderSettings().ttsVoiceSpeedProfiles?.[speedKey]?.cpsAtRate1;
+        // 没有历史实测值时，用语音语言先验（zh 4.5 / en 15 ...）作为种子
+        const langKey = (voiceLang || '').split('-')[0].toLowerCase();
+        initialCharsPerSecond = profile ?? TTS_CHARS_PER_SECOND_PRIORS[langKey];
         // 新会话：重置逐句文案、进度与封面下发标记
         narrationTextRef.current = '';
-        playbackProgressRef.current = { positionMs: 0, durationMs: 0 };
+        playbackProgressRef.current = { positionMs: 0, durationMs: 0, chapterTitle: undefined };
         progressDirtyRef.current = true;
         coverDirtyRef.current = false;
         if (isAndroid()) void resolveNotificationCover();
@@ -405,6 +443,7 @@ export const useTTS = ({
         {
           onNarration: handleNarration,
           onPlaybackProgress: handlePlaybackProgress,
+          onSpeedMeasured: handleSpeedMeasured,
           // 后台保活失败不影响朗读，只提示用户“后台可能没有通知”
           onBackgroundServiceError: () => onWarningRef.current?.('listenBackgroundServiceFailed'),
         },
@@ -414,6 +453,7 @@ export const useTTS = ({
       const success = await newSession.start({
         rate: ttsRate,
         voiceId: effectiveVoiceId || undefined,
+        charsPerSecondAtRate1: initialCharsPerSecond,
       });
 
       if (pendingStopRef.current) {
@@ -446,6 +486,7 @@ export const useTTS = ({
     handleSessionState,
     handleNarration,
     handlePlaybackProgress,
+    handleSpeedMeasured,
     resolveNotificationCover,
   ]);
 

@@ -5,5 +5,7 @@
     <string name="tts_notification_channel_description">朗读时显示朗读进度与播放控制</string>
     <string name="tts_action_play">播放</string>
     <string name="tts_action_pause">暂停</string>
+    <string name="tts_action_prev_chapter">上一章</string>
+    <string name="tts_action_next_chapter">下一章</string>
     <string name="tts_action_stop">停止</string>
 </resources>

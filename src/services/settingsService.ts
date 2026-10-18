@@ -31,6 +31,8 @@ export type ReaderSettings = {
   ttsVoiceByEngine?: Record<string, string>;
   ttsPreferredEngine?: string;
   ttsNativeDefaultEngine?: string;
+  /** 按“引擎|语音|语言”持久化的实测语速（rate=1 字符/秒） */
+  ttsVoiceSpeedProfiles?: Record<string, { cpsAtRate1: number; updatedAt: number }>;
 };
 
 const SETTINGS_KEY = 'reader_settings_v1';

@@ -56,6 +56,9 @@ class SetPlaybackStateArgs {
   var positionMs: Long? = null
   /** 章节预计时长（ms），用于媒体通知进度条 */
   var durationMs: Long? = null
+  /** 当前章节是否存在上一章/下一章（通知按钮显隐） */
+  var canSkipPrevious: Boolean? = null
+  var canSkipNext: Boolean? = null
 }
 
 @InvokeArg
@@ -619,6 +622,8 @@ class NativeTTSPlugin(private val activity: Activity) : Plugin(activity) {
         args.largeIconPath,
         args.positionMs,
         args.durationMs,
+        args.canSkipPrevious,
+        args.canSkipNext,
       )
       invoke.resolve()
     } catch (e: Exception) {

@@ -412,6 +412,8 @@ internal class TTSEngineRunner(
       put("chunkIndex", segment.chunkIndex)
       // 带上当前句文本：前端可用于媒体通知动态文案（后台渲染暂停时仍可更新）
       put("text", segment.text.take(300))
+      // 完整句的可朗读字符数（不受上面截断影响），供前端做语速校准
+      put("speakableLength", segment.text.count { !it.isWhitespace() })
       segment.cursor?.let { put("cursor", it) }
       putAnchor(this, segment.anchor)
     }

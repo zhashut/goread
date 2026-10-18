@@ -710,6 +710,7 @@ export class EpubRenderer implements IBookRenderer {
       getTotalSections: () => this.getSectionCount(),
       getCurrentSectionIndex: () => this.getCurrentSectionIndex(),
       getHiddenSections: () => this._lifecycleHook.state.hiddenSections,
+      getSectionTitle: (idx) => this.getTTSSectionTitleByIndex(idx),
       getCurrentSectionRoot: () => this.getCurrentTTSSectionRoot(),
       getSectionRootByIndex: (idx) => this.getTTSSectionRootByIndex(idx),
       getVisibleStartPosition: () => this.getVisibleStartPositionForTTS(),
@@ -764,6 +765,25 @@ export class EpubRenderer implements IBookRenderer {
     if (this._readingMode === 'vertical' && this._verticalRenderHook) {
       const idx = this.getCurrentSectionIndex();
       return this.getTTSSectionRootByIndex(idx);
+    }
+    return null;
+  }
+
+  /** 按 spine 索引从 TOC 取章节标题（同一章节有多个锚点时取第一个） */
+  private getTTSSectionTitleByIndex(sectionIndex: number): string | null {
+    const { toc, spine } = this._lifecycleHook.state;
+    if (!toc?.length || !spine?.length) return null;
+    const stack: TocItem[] = [...toc];
+    while (stack.length > 0) {
+      const item = stack.shift()!;
+      if (item.location != null) {
+        const idx = getSpineIndexForHref(String(item.location), spine);
+        if (idx === sectionIndex) {
+          const title = item.title?.trim();
+          if (title) return title;
+        }
+      }
+      if (item.children?.length) stack.push(...item.children);
     }
     return null;
   }

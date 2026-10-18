@@ -91,6 +91,15 @@ export interface TTSContentProvider {
    */
   buildAnchorAtRatio?(sectionIndex: number, ratio: number): TTSReadingAnchor | null;
 
+  /** 章节内“可朗读字符数”（去掉空白/换行），用于时长估算 */
+  getSectionSpeakableLength?(sectionIndex: number): number | null;
+
+  /** 相邻章节索引（跳过 EPUB 隐藏章节等）；无相邻章节时返回 null */
+  getAdjacentSectionIndex?(current: number, direction: 'prev' | 'next'): number | null;
+
+  /** 章节标题（用于媒体通知随朗读章节更新）；未知时返回 null */
+  getSectionTitle?(sectionIndex: number): string | null;
+
   /**
    * 章节内 anchor 的近似字符偏移。
    * 用于起播位置不是章首时，初始化进度条基准；不支持时返回 null。

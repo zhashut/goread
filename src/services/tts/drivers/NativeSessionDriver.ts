@@ -58,6 +58,8 @@ type NativeEventPayload = {
   positionMs?: number;
   /** 当前句文本（code=session_progress 时下发） */
   text?: string;
+  /** 当前句可朗读字符数（完整句） */
+  speakableLength?: number;
   anchor?: { quote?: string; prefix?: string; suffix?: string } | null;
 };
 
@@ -212,6 +214,7 @@ export class NativeSessionDriver implements IBackendSessionDriver {
           chunkIndex: event.chunkIndex ?? 0,
           cursor: event.cursor,
           text: event.text,
+          speakableLength: event.speakableLength,
           anchor: event.anchor && event.anchor.quote
             ? {
                 quote: event.anchor.quote,
@@ -291,6 +294,10 @@ export class NativeSessionDriver implements IBackendSessionDriver {
         }
         if (action === 'seek') {
           listeners.onMediaAction?.('seek', event.positionMs);
+          return true;
+        }
+        if (action === 'prev-chapter' || action === 'next-chapter') {
+          listeners.onMediaAction?.(action);
           return true;
         }
         return false;

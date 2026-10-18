@@ -80,6 +80,8 @@ class MediaPlaybackService : Service() {
     const val ACTION_PLAY = "com.tauri_app.native_tts.action.PLAY"
     const val ACTION_PAUSE = "com.tauri_app.native_tts.action.PAUSE"
     const val ACTION_STOP = "com.tauri_app.native_tts.action.STOP"
+    const val ACTION_PREV = "com.tauri_app.native_tts.action.PREV_CHAPTER"
+    const val ACTION_NEXT = "com.tauri_app.native_tts.action.NEXT_CHAPTER"
 
     /** 前后端约定的播放状态 */
     const val PLAYBACK_PLAYING = "playing"
@@ -90,6 +92,8 @@ class MediaPlaybackService : Service() {
     const val MEDIA_ACTION_PLAY = "play"
     const val MEDIA_ACTION_PAUSE = "pause"
     const val MEDIA_ACTION_STOP = "stop"
+    const val MEDIA_ACTION_PREV_CHAPTER = "prev-chapter"
+    const val MEDIA_ACTION_NEXT_CHAPTER = "next-chapter"
     const val MEDIA_ACTION_SEEK = "seek"
 
     private const val MEDIA_SESSION_TAG = "GoReadTTS"
@@ -123,6 +127,12 @@ class MediaPlaybackService : Service() {
     /** 最近一次封面路径（本地文件路径或 data URL），用于媒体通知大图标 */
     @Volatile
     private var lastLargeIconPath: String? = null
+
+    /** 当前章节是否存在上一章/下一章（媒体通知按钮显隐） */
+    @Volatile
+    private var lastCanSkipPrevious = false
+    @Volatile
+    private var lastCanSkipNext = false
 
     /** 当前章节内播放位置（ms），用于媒体通知进度条 */
     @Volatile
@@ -181,6 +191,8 @@ class MediaPlaybackService : Service() {
       lastPlaybackState = PLAYBACK_PLAYING
       lastPositionMs = 0L
       lastDurationMs = 0L
+      lastCanSkipPrevious = false
+      lastCanSkipNext = false
       lastPositionUpdatedAt = SystemClock.elapsedRealtime()
       val intent = Intent(context, MediaPlaybackService::class.java).apply {
         putExtra(EXTRA_TITLE, title)
@@ -236,6 +248,8 @@ class MediaPlaybackService : Service() {
       largeIconPath: String?,
       positionMs: Long?,
       durationMs: Long?,
+      canSkipPrevious: Boolean?,
+      canSkipNext: Boolean?,
     ) {
       if (state != null) lastPlaybackState = normalizePlaybackState(state)
       if (!title.isNullOrBlank()) lastTitle = title
@@ -246,6 +260,8 @@ class MediaPlaybackService : Service() {
         lastPositionUpdatedAt = SystemClock.elapsedRealtime()
       }
       if (durationMs != null) lastDurationMs = durationMs.coerceAtLeast(0L)
+      if (canSkipPrevious != null) lastCanSkipPrevious = canSkipPrevious
+      if (canSkipNext != null) lastCanSkipNext = canSkipNext
       instance?.postPlaybackUpdate()
     }
 
@@ -280,18 +296,20 @@ class MediaPlaybackService : Service() {
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
     val action = intent?.action
     // 通知按钮/媒体按键动作：只转发给前端，状态由前端回写，避免双份状态
-    if (action == ACTION_PLAY || action == ACTION_PAUSE || action == ACTION_STOP) {
+    val mediaAction = when (action) {
+      ACTION_PLAY -> MEDIA_ACTION_PLAY
+      ACTION_PAUSE -> MEDIA_ACTION_PAUSE
+      ACTION_STOP -> MEDIA_ACTION_STOP
+      ACTION_PREV -> MEDIA_ACTION_PREV_CHAPTER
+      ACTION_NEXT -> MEDIA_ACTION_NEXT_CHAPTER
+      else -> null
+    }
+    if (mediaAction != null) {
       if (!foregroundPromoted) {
         // 极端场景（服务曾被回收后由 PendingIntent 拉起）：仍要先完成前台提升
         promoteToForeground(lastTitle, lastText)
       }
-      dispatchAction(
-        when (action) {
-          ACTION_PLAY -> MEDIA_ACTION_PLAY
-          ACTION_PAUSE -> MEDIA_ACTION_PAUSE
-          else -> MEDIA_ACTION_STOP
-        }
-      )
+      dispatchAction(mediaAction)
       return START_NOT_STICKY
     }
 
@@ -358,6 +376,8 @@ class MediaPlaybackService : Service() {
         override fun onPlay() = dispatchAction(MEDIA_ACTION_PLAY)
         override fun onPause() = dispatchAction(MEDIA_ACTION_PAUSE)
         override fun onStop() = dispatchAction(MEDIA_ACTION_STOP)
+        override fun onSkipToPrevious() = dispatchAction(MEDIA_ACTION_PREV_CHAPTER)
+        override fun onSkipToNext() = dispatchAction(MEDIA_ACTION_NEXT_CHAPTER)
         override fun onSeekTo(pos: Long) {
           // 先更新缓存并立即刷新 PlaybackState，避免进度条在重启会话前跳回旧位置
           lastPositionMs = pos.coerceAtLeast(0L)
@@ -485,11 +505,13 @@ class MediaPlaybackService : Service() {
 
   /** 播放状态与可用动作：进度条可拖动（ACTION_SEEK_TO），按钮仍为播放/暂停/停止 */
   private fun buildPlaybackState(state: String): PlaybackStateCompat {
-    val actions = PlaybackStateCompat.ACTION_PLAY or
+    var actions = PlaybackStateCompat.ACTION_PLAY or
       PlaybackStateCompat.ACTION_PAUSE or
       PlaybackStateCompat.ACTION_PLAY_PAUSE or
       PlaybackStateCompat.ACTION_STOP or
       PlaybackStateCompat.ACTION_SEEK_TO
+    if (lastCanSkipPrevious) actions = actions or PlaybackStateCompat.ACTION_SKIP_TO_PREVIOUS
+    if (lastCanSkipNext) actions = actions or PlaybackStateCompat.ACTION_SKIP_TO_NEXT
     val playbackState = when (state) {
       PLAYBACK_PAUSED -> PlaybackStateCompat.STATE_PAUSED
       PLAYBACK_STOPPED -> PlaybackStateCompat.STATE_STOPPED
@@ -689,6 +711,17 @@ class MediaPlaybackService : Service() {
     }
 
     val compactIndices = mutableListOf<Int>()
+    // Android 12 及以下的 compact 最多 3 个：上一章 / 播放暂停 / 下一章；
+    // 若没有上下章，则补上停止按钮。
+    if (lastCanSkipPrevious) {
+      compactIndices.add(
+        addAction(
+          android.R.drawable.ic_media_previous,
+          R.string.tts_action_prev_chapter,
+          ACTION_PREV
+        )
+      )
+    }
     if (state == PLAYBACK_PLAYING) {
       compactIndices.add(
         addAction(
@@ -706,18 +739,28 @@ class MediaPlaybackService : Service() {
         )
       )
     }
-    compactIndices.add(
-      addAction(
-        android.R.drawable.ic_menu_close_clear_cancel,
-        R.string.tts_action_stop,
-        ACTION_STOP
+    if (lastCanSkipNext) {
+      compactIndices.add(
+        addAction(
+          android.R.drawable.ic_media_next,
+          R.string.tts_action_next_chapter,
+          ACTION_NEXT
+        )
       )
+    }
+    val stopIndex = addAction(
+      android.R.drawable.ic_menu_close_clear_cancel,
+      R.string.tts_action_stop,
+      ACTION_STOP
     )
+    if (compactIndices.size < 3) {
+      compactIndices.add(stopIndex)
+    }
 
     mediaSession?.let { session ->
       val style = MediaStyle()
         .setMediaSession(session.sessionToken)
-        .setShowActionsInCompactView(*compactIndices.toIntArray())
+        .setShowActionsInCompactView(*compactIndices.take(3).toIntArray())
       builder.setStyle(style)
     }
 

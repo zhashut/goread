@@ -34,6 +34,8 @@ export interface EpubContentProviderContext extends EpubPositionRestorerContext 
   getVisibleStartPosition?: () => TTSReadingPosition | null;
   /** 取不参与阅读顺序的章节下标（EPUB3 导航文档等），供后端跳过 */
   getHiddenSections?: () => number[];
+  /** 章节标题（按 spine 索引，用于媒体通知） */
+  getSectionTitle?: (sectionIndex: number) => string | null;
 }
 
 /**
@@ -156,6 +158,34 @@ export class EpubContentProvider implements TTSContentProvider {
   buildAnchorAtRatio(sectionIndex: number, ratio: number): TTSReadingAnchor | null {
     const text = this.#resolveSectionRootExact(sectionIndex)?.textContent;
     return text ? buildAnchorAtTextRatio(text, ratio) : null;
+  }
+
+  /** 章节内可朗读字符数（去空白） */
+  getSectionSpeakableLength(sectionIndex: number): number | null {
+    const text = this.#resolveSectionRootExact(sectionIndex)?.textContent;
+    if (!text) return null;
+    const length = text.replace(/\s+/g, '').length;
+    return length > 0 ? length : null;
+  }
+
+  /** 章节标题（媒体通知随朗读章节更新） */
+  getSectionTitle(sectionIndex: number): string | null {
+    const title = this.#ctx.getSectionTitle?.(sectionIndex)?.trim();
+    return title ? title : null;
+  }
+
+  /** 相邻章节（跳过 EPUB3 隐藏章节） */
+  getAdjacentSectionIndex(current: number, direction: 'prev' | 'next'): number | null {
+    if (current < 0) return null;
+    const total = this.#ctx.getTotalSections();
+    if (total <= 0) return null;
+    const hidden = new Set(this.#ctx.getHiddenSections?.() ?? []);
+    let index = current + (direction === 'next' ? 1 : -1);
+    while (index >= 0 && index < total) {
+      if (!hidden.has(index)) return index;
+      index += direction === 'next' ? 1 : -1;
+    }
+    return null;
   }
 
   /** 起播 anchor 在章节内的近似字符偏移（初始化进度条基准） */

@@ -5,5 +5,7 @@
     <string name="tts_notification_channel_description">Shows reading progress and playback controls while reading aloud</string>
     <string name="tts_action_play">Play</string>
     <string name="tts_action_pause">Pause</string>
+    <string name="tts_action_prev_chapter">Previous chapter</string>
+    <string name="tts_action_next_chapter">Next chapter</string>
     <string name="tts_action_stop">Stop</string>
 </resources>

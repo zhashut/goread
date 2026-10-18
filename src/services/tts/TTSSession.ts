@@ -16,7 +16,7 @@ import type {
 import { TTSSessionRefiller, type TTSSessionRefillHint } from './TTSSessionRefiller';
 import { HighlightManager } from './core/highlightManager';
 import { log, logError } from '../index';
-import { TTS_CHARS_PER_SECOND_EN, TTS_CHARS_PER_SECOND_ZH } from '../../constants/tts';
+import { getTtsDefaultCharsPerSecond } from '../../constants/tts';
 
 /** 会话内可观察事件回调 */
 export type TTSSessionStateChangeCallback = (state: TTSState) => void;
@@ -34,6 +34,11 @@ export interface TTSSessionStartOptions {
   startSectionIndex?: number;
   /** 用户当前阅读位置 anchor，用于从用户实际朗读处开始 */
   startAnchor?: TTSReadingAnchor | null;
+  /**
+   * 该语音在 rate=1 时的实测/历史语速（字符/秒）。
+   * 有值则作为本轮时长估算初值；否则用语言先验。
+   */
+  charsPerSecondAtRate1?: number;
 }
 
 const DEFAULT_BATCH_SIZE = 60;
@@ -48,6 +53,8 @@ const FOREGROUND_REALIGN_COOLDOWN_MS = 500;
 export interface TTSPlaybackProgress {
   positionMs: number;
   durationMs: number;
+  /** 当前朗读章节标题（用于媒体通知，跟随 TTS progress 更新） */
+  chapterTitle?: string;
 }
 
 /**
@@ -59,6 +66,8 @@ export interface TTSPlaybackProgress {
 export interface TTSSessionCallbacks {
   onNarration?: (text: string) => void;
   onPlaybackProgress?: (progress: TTSPlaybackProgress) => void;
+  /** 实测语速（rate=1 字符/秒），用于按“引擎+语音+语言”持久化 */
+  onSpeedMeasured?: (charsPerSecondAtRate1: number) => void;
   onBackgroundServiceError?: (reason?: string) => void;
 }
 
@@ -76,6 +85,7 @@ export class TTSSession {
   #onEnded?: TTSSessionEndedCallback;
   #onNarration?: (text: string) => void;
   #onPlaybackProgress?: (progress: TTSPlaybackProgress) => void;
+  #onSpeedMeasured?: (charsPerSecondAtRate1: number) => void;
   #onBackgroundServiceError?: (reason?: string) => void;
 
   #state: TTSState = 'stopped';
@@ -89,6 +99,8 @@ export class TTSSession {
   #currentRange: Range | null = null;
   /** 当前朗读句文本（优先取后端下发的 segment 文本，后台不渲染时也可用） */
   #latestNarrationText = '';
+  /** 当前朗读章节标题（由 Provider 按 sectionIndex 解析，不依赖阅读器当前页） */
+  #latestSectionTitle = '';
   /** 回到前台对齐中：期间跳过跟读渲染，避免与 restore 并发操作渲染器 */
   #foregroundRealigning = false;
   #lastActivityNotifyTs = 0;
@@ -103,8 +115,10 @@ export class TTSSession {
   #lastStartOptions: TTSSessionStartOptions | null = null;
   /** 本章预计总时长（ms），0 表示未知 */
   #chapterDurationMs = 0;
-  /** 本章文本长度（字符数），用于把 anchor 偏移换算成进度 */
+  /** 本章原始文本长度（用于 anchor 偏移 → 进度比例） */
   #chapterTextLength = 0;
+  /** 本章可朗读字符数（去空白，用于时长估算） */
+  #chapterSpeakableLength = 0;
   /** seek 后的章节内基准位置（ms） */
   #chapterBaseMs = 0;
   /** 已累计的播放时长（ms，不含当前正在播放的片段） */
@@ -115,6 +129,20 @@ export class TTSSession {
   #seekInProgress = false;
   /** 重启期间收到的最新一次 seek（合并处理，避免丢失最后一次拖动） */
   #pendingSeekMs: number | null = null;
+
+  // ---- 实测语速（按语音学习） ----
+  /** 当前语音在 rate=1 时的字符/秒；0 表示未知，使用语言先验 */
+  #charsPerSecondAtRate1 = 0;
+  /** 本轮累计的采样时长（ms），≥阈值后才开始校准 */
+  #speedSampleMs = 0;
+  /** 上一次 progress 的时间戳（null 表示不采样） */
+  #lastProgressAt: number | null = null;
+  /** 上一句的可朗读字符数 */
+  #lastSegmentSpeakable = 0;
+  /** 上一次校准/持久化的时间戳（节流） */
+  #lastCalibrationAt = 0;
+  /** 是否已有真实采样（避免把语言先验当成实测值持久化） */
+  #hasMeasuredSpeed = false;
 
   constructor(
     provider: TTSContentProvider,
@@ -131,6 +159,7 @@ export class TTSSession {
     this.#onEnded = onEnded;
     this.#onNarration = callbacks?.onNarration;
     this.#onPlaybackProgress = callbacks?.onPlaybackProgress;
+    this.#onSpeedMeasured = callbacks?.onSpeedMeasured;
     this.#onBackgroundServiceError = callbacks?.onBackgroundServiceError;
   }
 
@@ -144,9 +173,13 @@ export class TTSSession {
 
     this.#batchSize = Math.max(1, options.batchSize ?? DEFAULT_BATCH_SIZE);
     this.#lastStartOptions = { ...options };
+    if (options.charsPerSecondAtRate1 && options.charsPerSecondAtRate1 > 0) {
+      this.#charsPerSecondAtRate1 = options.charsPerSecondAtRate1;
+    }
     // 新会话/seek 重启：章节进度从零开始（seek 会在重启后设置基准位置）
     this.#chapterDurationMs = 0;
     this.#chapterTextLength = 0;
+    this.#chapterSpeakableLength = 0;
     this.#chapterBaseMs = 0;
     this.#chapterElapsedMs = 0;
     this.#chapterResumeTs = null;
@@ -326,6 +359,7 @@ export class TTSSession {
   /** 主动停止时保持当前页面位置，不再做停止后的回跳恢复 */
   async shutdown(): Promise<void> {
     if (this.#disposed) return;
+    this.#persistSpeedEstimate();
     this.#disposed = true;
     log('[TTSSession] shutdown', 'info');
     try {
@@ -393,9 +427,60 @@ export class TTSSession {
       case 'seek':
         void this.#seekToPosition(positionMs ?? 0);
         break;
+      case 'prev-chapter':
+        void this.#jumpToAdjacentChapter('prev');
+        break;
+      case 'next-chapter':
+        void this.#jumpToAdjacentChapter('next');
+        break;
       default:
         break;
     }
+  }
+
+  /**
+   * 上一章/下一章：从目标章节开头重启会话。
+   * 暂停状态下也自动开始播放（与主流听书软件一致）。
+   */
+  async #jumpToAdjacentChapter(direction: 'prev' | 'next'): Promise<void> {
+    if (this.#disposed || this.#state === 'stopped') return;
+    if (this.#seekInProgress) return;
+    const current = this.#latestSectionIndex;
+    if (current < 0) return;
+    const target = this.#provider.getAdjacentSectionIndex?.(current, direction) ?? null;
+    if (target == null) {
+      log(`[TTSSession] ${direction}-chapter ignored: no adjacent section current=${current}`, 'warn');
+      return;
+    }
+    this.#seekInProgress = true;
+    try {
+      log(`[TTSSession] ${direction}-chapter: ${current} -> ${target}`, 'info');
+      this.#latestSectionIndex = target;
+      this.#latestAnchor = null;
+      this.#latestSectionTitle = this.#provider.getSectionTitle?.(target)?.trim() || '';
+      await this.#restartAt(target, null);
+      // 自动播放：start() 已把状态置为 playing；这里只重置章节进度
+      this.#chapterDurationMs = 0;
+      this.#chapterSpeakableLength = 0;
+      this.#chapterBaseMs = 0;
+      this.#chapterElapsedMs = 0;
+      this.#chapterResumeTs = this.#state === 'playing' ? Date.now() : null;
+      this.#emitPlaybackProgress();
+    } finally {
+      this.#seekInProgress = false;
+    }
+  }
+
+  /** 当前章节是否存在上一章/下一章（供媒体通知控制按钮显隐） */
+  getSkipAvailability(): { canSkipPrevious: boolean; canSkipNext: boolean } {
+    const current = this.#latestSectionIndex;
+    if (current < 0 || !this.#provider.getAdjacentSectionIndex) {
+      return { canSkipPrevious: false, canSkipNext: false };
+    }
+    return {
+      canSkipPrevious: this.#provider.getAdjacentSectionIndex(current, 'prev') != null,
+      canSkipNext: this.#provider.getAdjacentSectionIndex(current, 'next') != null,
+    };
   }
 
   /** 媒体控件“停止”：走与主动 shutdown 相同的收尾，再通知上层释放 client */
@@ -411,6 +496,7 @@ export class TTSSession {
 
   #handleProgress(event: TTSSessionProgressEvent): void {
     if (this.#disposed) return;
+    this.#trackSpeechRate(event);
     this.#hasReceivedProgress = true;
     this.#notifyActivity();
     const previousSectionIndex = this.#latestSectionIndex;
@@ -420,6 +506,8 @@ export class TTSSession {
       this.#latestNarrationText = event.text.trim();
     }
     if (previousSectionIndex !== event.sectionIndex) {
+      // 章节标题跟随 TTS 的 sectionIndex，而不是阅读器当前页（后台/未渲染时也能更新）
+      this.#latestSectionTitle = this.#provider.getSectionTitle?.(event.sectionIndex)?.trim() || '';
       // 进入新章节：先重置章节内进度；
       // 时长/进度基准要等 followProgressPosition 把新章节渲染出来后再计算（见 #handleProgressAsync）
       this.#chapterBaseMs = 0;
@@ -500,6 +588,7 @@ export class TTSSession {
   #handleEnd(event: TTSSessionEndEvent): void {
     if (this.#disposed) return;
     log(`[TTSSession] session_end reason=${event.reason}`, 'info');
+    this.#persistSpeedEstimate();
     this.#disposed = true;
     if (this.#managed && this.#driver.managedSessionStop) {
       void this.#driver.managedSessionStop();
@@ -545,10 +634,15 @@ export class TTSSession {
     if (this.#state === 'playing' && this.#chapterResumeTs !== null) {
       this.#chapterElapsedMs += Math.max(0, now - this.#chapterResumeTs);
       this.#chapterResumeTs = null;
+      // 暂停会截断当前句，不能把暂停时长计入语速采样
+      this.#lastProgressAt = null;
+      this.#lastSegmentSpeakable = 0;
     }
     this.#state = next;
     if (next === 'playing') {
       this.#chapterResumeTs = now;
+      this.#lastProgressAt = now;
+      this.#lastSegmentSpeakable = 0;
     }
     try {
       this.#onStateChange?.(next);
@@ -562,24 +656,102 @@ export class TTSSession {
   // 媒体通知章节进度（估算）与拖动跳转
   // ---------------------------------------------------------------------------
 
-  /** 按章节字符数 + 语速估算本章时长；未知长度时返回 0 */
+  /** 当前应使用的字符/秒（rate=1）：优先实测，其次语言先验 */
+  #effectiveCharsPerSecond(sampleText?: string): number {
+    if (this.#charsPerSecondAtRate1 > 0) return this.#charsPerSecondAtRate1;
+    return getTtsDefaultCharsPerSecond(sampleText ?? this.#latestNarrationText);
+  }
+
+  /** 按章节可朗读字符数 + 语速估算本章时长；未知长度时返回 0 */
   #updateChapterDuration(sectionIndex: number, sampleText?: string): void {
-    const length = this.#provider.getSectionTextLength?.(sectionIndex) ?? 0;
-    this.#chapterTextLength = Math.max(0, length);
-    if (length <= 0) {
+    const rawLength = this.#provider.getSectionTextLength?.(sectionIndex) ?? 0;
+    this.#chapterTextLength = Math.max(0, rawLength);
+    const speakable = this.#provider.getSectionSpeakableLength?.(sectionIndex) ?? rawLength;
+    this.#chapterSpeakableLength = Math.max(0, speakable);
+    if (this.#chapterSpeakableLength <= 0) {
       this.#chapterDurationMs = 0;
       return;
     }
     const rate = Math.max(0.1, this.#lastStartOptions?.rate ?? 1);
-    const sample = (sampleText ?? this.#latestNarrationText).trim();
-    // 无样本时按中文估算（应用主要面向中文书籍）
-    const isCjk = sample ? /[\u4e00-\u9fff]/.test(sample) : true;
-    const baseCps = isCjk ? TTS_CHARS_PER_SECOND_ZH : TTS_CHARS_PER_SECOND_EN;
-    this.#chapterDurationMs = Math.max(1000, Math.round((length / (baseCps * rate)) * 1000));
+    const cps = this.#effectiveCharsPerSecond(sampleText);
+    this.#chapterDurationMs = Math.max(
+      1000,
+      Math.round((this.#chapterSpeakableLength / (cps * rate)) * 1000),
+    );
     log(
-      `[TTSSession] chapter duration: section=${sectionIndex} chars=${length} rate=${rate} cps=${baseCps} durationMs=${this.#chapterDurationMs}`,
+      `[TTSSession] chapter duration: section=${sectionIndex} rawChars=${this.#chapterTextLength} speakable=${this.#chapterSpeakableLength} rate=${rate} cps=${cps.toFixed(2)} durationMs=${this.#chapterDurationMs}`,
       'info',
     );
+  }
+
+  /** 用最新的实测语速重算本章时长（不改变当前播放位置） */
+  #refreshChapterDuration(): void {
+    if (this.#chapterSpeakableLength <= 0) return;
+    const previousDuration = this.#chapterDurationMs;
+    const rate = Math.max(0.1, this.#lastStartOptions?.rate ?? 1);
+    const cps = this.#effectiveCharsPerSecond();
+    this.#chapterDurationMs = Math.max(
+      1000,
+      Math.round((this.#chapterSpeakableLength / (cps * rate)) * 1000),
+    );
+    // seek 后的进度基准是“毫秒偏移”，时长变化时按比例缩放，保持相同文本位置的比例
+    if (previousDuration > 0) {
+      const fraction = Math.min(1, Math.max(0, this.#chapterBaseMs / previousDuration));
+      this.#chapterBaseMs = fraction * this.#chapterDurationMs;
+    }
+    this.#emitPlaybackProgress();
+  }
+
+  /** 根据上一句的真实播放间隔采样语速（含句间间隔），并用 EMA 平滑 */
+  #trackSpeechRate(event: TTSSessionProgressEvent): void {
+    const now = Date.now();
+    if (this.#state === 'playing' && this.#lastProgressAt !== null) {
+      const elapsed = now - this.#lastProgressAt;
+      const chars = this.#lastSegmentSpeakable;
+      if (elapsed >= 500 && elapsed <= 30000 && chars >= 5) {
+        const rate = Math.max(0.1, this.#lastStartOptions?.rate ?? 1);
+        const measured = chars / (elapsed / 1000) / rate;
+        this.#speedSampleMs += elapsed;
+        this.#charsPerSecondAtRate1 = this.#charsPerSecondAtRate1 > 0
+          ? this.#charsPerSecondAtRate1 * 0.8 + measured * 0.2
+          : measured;
+        this.#hasMeasuredSpeed = true;
+        this.#maybeCalibrate(now);
+      }
+    }
+    this.#lastProgressAt = now;
+    this.#lastSegmentSpeakable = event.speakableLength
+      ?? (event.text ? event.text.replace(/\s+/g, '').length : 0);
+  }
+
+  /** 样本足够且距上次校准 ≥30s 时，刷新时长并持久化语速 */
+  #maybeCalibrate(now: number): void {
+    if (!this.#hasMeasuredSpeed) return;
+    if (this.#speedSampleMs < 8000) return;
+    if (now - this.#lastCalibrationAt < 30000) return;
+    if (this.#charsPerSecondAtRate1 <= 0) return;
+    this.#lastCalibrationAt = now;
+    const cps = Math.round(this.#charsPerSecondAtRate1 * 100) / 100;
+    log(
+      `[TTSSession] speed calibrated: cpsAtRate1=${cps} sampleMs=${this.#speedSampleMs}`,
+      'info',
+    );
+    this.#refreshChapterDuration();
+    try {
+      this.#onSpeedMeasured?.(cps);
+    } catch (e) {
+      logError('[TTSSession] onSpeedMeasured 异常', e);
+    }
+  }
+
+  /** 会话结束时持久化最终语速 */
+  #persistSpeedEstimate(): void {
+    if (!this.#hasMeasuredSpeed || this.#charsPerSecondAtRate1 <= 0) return;
+    try {
+      this.#onSpeedMeasured?.(Math.round(this.#charsPerSecondAtRate1 * 100) / 100);
+    } catch (e) {
+      logError('[TTSSession] onSpeedMeasured 异常', e);
+    }
   }
 
   /** 用起播 anchor 的字符偏移初始化进度基准（从章中起播时进度条不会从 0 开始） */
@@ -618,6 +790,7 @@ export class TTSSession {
         // 必须取整：原生侧（Rust/Kotlin）用 i64/Long 接收，浮点会导致命令解析失败
         positionMs: Math.max(0, Math.round(this.#currentPositionMs())),
         durationMs: Math.max(0, Math.round(this.#chapterDurationMs)),
+        chapterTitle: this.#latestSectionTitle || undefined,
       });
     } catch (e) {
       logError('[TTSSession] onPlaybackProgress 异常', e);
@@ -676,9 +849,12 @@ export class TTSSession {
   }
 
   /** 在当前章节内重启后端会话（保留 client 与前台服务） */
-  async #restartAt(sectionIndex: number, anchor: TTSReadingAnchor): Promise<void> {
+  async #restartAt(sectionIndex: number, anchor: TTSReadingAnchor | null): Promise<void> {
     const options = this.#lastStartOptions;
     if (!options) return;
+    const measuredCps = this.#charsPerSecondAtRate1;
+    this.#lastProgressAt = null;
+    this.#lastSegmentSpeakable = 0;
     // 先解绑事件监听：非托管 stop 可能发出 session_end，不能让本次 seek 被当成“用户停止”
     const managed = this.#managed;
     this.#cleanupListeners();
@@ -699,8 +875,10 @@ export class TTSSession {
     this.#latestNarrationText = '';
     this.#hasReceivedProgress = false;
     const restarted = await this.start({ ...options, startSectionIndex: sectionIndex, startAnchor: anchor });
+    // start() 会用 options 里的历史语速覆盖实测值，这里恢复本次会话的学习结果
+    if (measuredCps > 0) this.#charsPerSecondAtRate1 = measuredCps;
     if (!restarted) {
-      log('[TTSSession] seek 重启会话失败', 'warn');
+      log('[TTSSession] 重启会话失败', 'warn');
     }
   }
 

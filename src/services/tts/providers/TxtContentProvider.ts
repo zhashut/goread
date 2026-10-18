@@ -39,6 +39,10 @@ export interface TxtContentProviderContext {
   getCurrentPage: () => number;
   /** 当前章节索引（0-based） */
   getCurrentChapterIndex?: () => number;
+  /** 章节总数（用于上一章/下一章边界判断） */
+  getChapterCount?: () => number;
+  /** 章节标题（用于媒体通知） */
+  getChapterTitle?: (chapterIndex: number) => string | null;
   /** 指定章节在拼接内容窗口中的字符区间（纵向窗口多章拼接时用于按内容偏移精确定位） */
   getChapterContentRange?: (chapterIndex: number) => { start: number; end: number } | null;
   /** 纵向滚动容器 */
@@ -286,6 +290,29 @@ export class TxtContentProvider implements TTSContentProvider {
   buildAnchorAtRatio(sectionIndex: number, ratio: number): TTSReadingAnchor | null {
     const text = this.#getChapterText(sectionIndex);
     return text ? buildAnchorAtTextRatio(text, ratio) : null;
+  }
+
+  /** 章节内可朗读字符数（去空白） */
+  getSectionSpeakableLength(sectionIndex: number): number | null {
+    const text = this.#getChapterText(sectionIndex);
+    if (!text) return null;
+    const length = text.replace(/\s+/g, '').length;
+    return length > 0 ? length : null;
+  }
+
+  /** 章节标题（媒体通知随朗读章节更新） */
+  getSectionTitle(sectionIndex: number): string | null {
+    const title = this.#ctx.getChapterTitle?.(sectionIndex)?.trim();
+    return title ? title : null;
+  }
+
+  /** 相邻章节（TXT 无隐藏章节） */
+  getAdjacentSectionIndex(current: number, direction: 'prev' | 'next'): number | null {
+    if (current < 0) return null;
+    const count = this.#ctx.getChapterCount?.() ?? 0;
+    if (count <= 0) return null;
+    const next = current + (direction === 'next' ? 1 : -1);
+    return next >= 0 && next < count ? next : null;
   }
 
   /** 起播 anchor 在章节内的近似字符偏移（初始化进度条基准） */

@@ -117,6 +117,11 @@ export class NativeTTSClient implements ITTSClient {
     return this.#currentVoiceId;
   }
 
+  /** 当前主语言（仅用于语速档案的 key） */
+  getPrimaryLang(): string {
+    return this.#primaryLang;
+  }
+
   setPrimaryLang(lang: string): void {
     this.#primaryLang = lang;
   }
@@ -244,6 +249,8 @@ export class NativeTTSClient implements ITTSClient {
     largeIconPath?: string,
     positionMs?: number,
     durationMs?: number,
+    canSkipPrevious?: boolean,
+    canSkipNext?: boolean,
   ): Promise<void> {
     // 媒体通知是 Android 前台服务能力，其他平台不下发
     if (this.#mode !== 'plugin' || !isAndroid()) return;
@@ -260,7 +267,16 @@ export class NativeTTSClient implements ITTSClient {
       const core = await loadTauriCore();
       if (!core?.invoke) return;
       await core.invoke('native_tts_set_playback_state', {
-        payload: { state, title, text, largeIconPath, positionMs, durationMs },
+        payload: {
+          state,
+          title,
+          text,
+          largeIconPath,
+          positionMs,
+          durationMs,
+          canSkipPrevious,
+          canSkipNext,
+        },
       });
     } catch (e) {
       // 通知状态同步失败不影响朗读

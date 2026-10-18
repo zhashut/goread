@@ -1748,6 +1748,8 @@ export class TxtRenderer implements IBookRenderer {
       getPages: () => this._pages,
       getCurrentPage: () => this._currentPage,
       getCurrentChapterIndex: () => this._currentChapterIndex,
+      getChapterCount: () => this._bookMeta?.chapters.length ?? 0,
+      getChapterTitle: (index) => this._bookMeta?.chapters[index]?.title ?? null,
       getContainer: () => this._container,
       // 章节在拼接窗口中的字符区间：TTS 按内容偏移精确定位高亮（同名句段消歧）
       getChapterContentRange: (chapterIndex) =>

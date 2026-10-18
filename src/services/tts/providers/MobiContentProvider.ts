@@ -1,4 +1,4 @@
-import type { BookFormat } from '../../formats/types';
+import type { BookFormat, TocItem } from '../../formats/types';
 import type { TTSReadingAnchor } from '../types';
 import type {
   TTSContentProvider,
@@ -20,6 +20,8 @@ export interface MobiContentProviderContext {
   getFilePath: () => string | null;
   /** 章节总数 */
   getSectionCount: () => number;
+  /** 目录（location 形如 section:<index>），用于媒体通知章节标题 */
+  getToc: () => TocItem[];
   /** 当前 ShadowRoot，包含所有 .mobi-section 节点 */
   getShadowRoot: () => ShadowRoot | null;
   /** 滚动容器，回前台时定位高亮用 */
@@ -120,6 +122,38 @@ export class MobiContentProvider implements TTSContentProvider {
   buildAnchorAtRatio(sectionIndex: number, ratio: number): TTSReadingAnchor | null {
     const text = this.#getSections()[sectionIndex]?.textContent;
     return text ? buildAnchorAtTextRatio(text, ratio) : null;
+  }
+
+  /** 章节内可朗读字符数（去空白） */
+  getSectionSpeakableLength(sectionIndex: number): number | null {
+    const text = this.#getSections()[sectionIndex]?.textContent;
+    if (!text) return null;
+    const length = text.replace(/\s+/g, '').length;
+    return length > 0 ? length : null;
+  }
+
+  /** 章节标题（媒体通知随朗读章节更新） */
+  getSectionTitle(sectionIndex: number): string | null {
+    const stack: TocItem[] = [...this.#ctx.getToc()];
+    while (stack.length > 0) {
+      const item = stack.shift()!;
+      const match = /^section:(\d+)/.exec(String(item.location ?? ''));
+      if (match && Number(match[1]) === sectionIndex) {
+        const title = item.title?.trim();
+        if (title) return title;
+      }
+      if (item.children?.length) stack.push(...item.children);
+    }
+    return null;
+  }
+
+  /** 相邻章节（MOBI sections 连续） */
+  getAdjacentSectionIndex(current: number, direction: 'prev' | 'next'): number | null {
+    if (current < 0) return null;
+    const count = this.#ctx.getSectionCount();
+    if (count <= 0) return null;
+    const next = current + (direction === 'next' ? 1 : -1);
+    return next >= 0 && next < count ? next : null;
   }
 
   /** 起播 anchor 在章节内的近似字符偏移（初始化进度条基准） */

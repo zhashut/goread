@@ -70,6 +70,9 @@ pub struct SetPlaybackStateRequest {
     pub position_ms: Option<i64>,
     /// 章节预计时长（ms），用于媒体通知进度条
     pub duration_ms: Option<i64>,
+    /// 当前章节是否存在上一章/下一章（通知按钮显隐）
+    pub can_skip_previous: Option<bool>,
+    pub can_skip_next: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

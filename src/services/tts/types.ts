@@ -66,8 +66,10 @@ export interface TTSSessionProgressEvent {
   chunkIndex: number;
   cursor?: string;
   anchor?: TTSReadingAnchor | null;
-  /** 当前句文本（native-tts 插件模式下发，供通知动态文案使用） */
+  /** 当前句文本（native-tts 插件模式下发，供通知动态文案使用；可能被截断） */
   text?: string;
+  /** 当前句可朗读字符数（完整句，不截断；用于语速校准） */
+  speakableLength?: number;
 }
 
 /** 会话补给请求：队列接近低水位时上抛 */
@@ -111,9 +113,9 @@ export interface TTSSessionEngineChangedEvent {
 
 /**
  * 媒体控件动作（Android 通知/锁屏/耳机按键触发）
- * play/pause/stop 为按钮；seek 为进度条拖动（positionMs 表示章节内目标位置）
+ * play/pause/stop 为按钮；seek 为进度条拖动；prev-chapter/next-chapter 为章节跳转
  */
-export type TTSMediaAction = 'play' | 'pause' | 'stop' | 'seek';
+export type TTSMediaAction = 'play' | 'pause' | 'stop' | 'seek' | 'prev-chapter' | 'next-chapter';
 
 /** 会话事件统一回调集合 */
 export interface TTSSessionListeners {

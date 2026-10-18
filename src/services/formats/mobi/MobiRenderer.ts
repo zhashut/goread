@@ -180,6 +180,7 @@ export class MobiRenderer implements IBookRenderer {
       getBookId: () => this._lifecycleHook.state.bookId,
       getFilePath: () => this._lifecycleHook.state.filePath,
       getSectionCount: () => this._lifecycleHook.state.sectionCount,
+      getToc: () => this._lifecycleHook.state.toc,
       getShadowRoot: () => this._renderHook?.state.shadowRoot || null,
       getScrollContainer: () => this._renderHook?.state.scrollContainer || null,
       getVisibleStartPosition: () => this.getVisibleStartPositionForTTS(),

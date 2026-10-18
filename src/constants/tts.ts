@@ -5,11 +5,29 @@ export const TTS_RATE_DEFAULT = 1.0;
 export const TTS_RATE_STEP = 0.1;
 
 /**
- * 估算“听书时长”用的基准语速（字符/秒，rate = 1.0）。
- * 仅用于媒体通知进度条，实际语速因 TTS 引擎/语音/语言而异，存在误差。
+ * 估算“听书时长”用的语言先验（字符/秒，rate = 1.0）。
+ *
+ * 参考同类产品公开值（Readox 等）：
+ * zh≈4.5、en≈15、ja/ko≈7、fr≈17、es/de≈18。
+ * 仅作为初始种子；实际会按“引擎+语音+语言”在播放中学习并持久化。
  */
-export const TTS_CHARS_PER_SECOND_ZH = 5.5;
-export const TTS_CHARS_PER_SECOND_EN = 12.0;
+export const TTS_CHARS_PER_SECOND_PRIORS: Record<string, number> = {
+  zh: 4.5,
+  en: 15,
+  ja: 7,
+  ko: 7,
+  fr: 17,
+  es: 18,
+  de: 18,
+};
+
+/** 未知语言的保守回退（中文应用默认按中文先验） */
+export const getTtsDefaultCharsPerSecond = (sample?: string): number => {
+  const text = (sample ?? '').trim();
+  if (!text) return TTS_CHARS_PER_SECOND_PRIORS.zh;
+  if (/[\u4e00-\u9fff]/.test(text)) return TTS_CHARS_PER_SECOND_PRIORS.zh;
+  return TTS_CHARS_PER_SECOND_PRIORS.en;
+};
 
 // Web Speech API 黑名单语音（系统内置特效音色）
 export const WEB_SPEECH_BLACKLISTED_VOICES = [
