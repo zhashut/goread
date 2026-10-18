@@ -186,6 +186,10 @@ export class WebSpeechSessionDriver implements IBackendSessionDriver {
         chunkIndex: segment.chunkIndex,
         cursor: segment.cursor,
         anchor: segment.anchor ?? null,
+        // 与原生驱动保持一致：供通知文案、语速采样和章节时长估算使用
+        text: segment.text,
+        speakableLength: segment.text.replace(/\s+/g, '').length,
+        sectionSpeakableLength: segment.sectionSpeakableLength,
       });
     };
     utterance.onend = () => {

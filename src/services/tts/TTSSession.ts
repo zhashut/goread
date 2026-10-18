@@ -16,7 +16,11 @@ import type {
 import { TTSSessionRefiller, type TTSSessionRefillHint } from './TTSSessionRefiller';
 import { HighlightManager } from './core/highlightManager';
 import { log, logError } from '../index';
-import { getTtsDefaultCharsPerSecond } from '../../constants/tts';
+import {
+  getTtsDefaultCharsPerSecond,
+  TTS_SPEED_PRIOR_MAX_FACTOR,
+  TTS_SPEED_PRIOR_MIN_FACTOR,
+} from '../../constants/tts';
 
 /** 会话内可观察事件回调 */
 export type TTSSessionStateChangeCallback = (state: TTSState) => void;
@@ -119,6 +123,9 @@ export class TTSSession {
   #chapterTextLength = 0;
   /** 本章可朗读字符数（去空白，用于时长估算） */
   #chapterSpeakableLength = 0;
+  /** 最近一次后端下发的整章可朗读字符数及其章节（语速变化时复用，避免前端 DOM 统计不准） */
+  #backendSectionSpeakableLength = 0;
+  #backendSectionSpeakableSection = -1;
   /** seek 后的章节内基准位置（ms） */
   #chapterBaseMs = 0;
   /** 已累计的播放时长（ms，不含当前正在播放的片段） */
@@ -462,6 +469,7 @@ export class TTSSession {
       // 自动播放：start() 已把状态置为 playing；这里只重置章节进度
       this.#chapterDurationMs = 0;
       this.#chapterSpeakableLength = 0;
+      this.#chapterTextLength = 0;
       this.#chapterBaseMs = 0;
       this.#chapterElapsedMs = 0;
       this.#chapterResumeTs = this.#state === 'playing' ? Date.now() : null;
@@ -496,11 +504,14 @@ export class TTSSession {
 
   #handleProgress(event: TTSSessionProgressEvent): void {
     if (this.#disposed) return;
-    this.#trackSpeechRate(event);
     this.#hasReceivedProgress = true;
     this.#notifyActivity();
     const previousSectionIndex = this.#latestSectionIndex;
     this.#latestSectionIndex = event.sectionIndex;
+    if (typeof event.sectionSpeakableLength === 'number' && event.sectionSpeakableLength > 0) {
+      this.#backendSectionSpeakableLength = Math.floor(event.sectionSpeakableLength);
+      this.#backendSectionSpeakableSection = event.sectionIndex;
+    }
     this.#latestAnchor = event.anchor ?? null;
     if (event.text && event.text.trim()) {
       this.#latestNarrationText = event.text.trim();
@@ -508,12 +519,17 @@ export class TTSSession {
     if (previousSectionIndex !== event.sectionIndex) {
       // 章节标题跟随 TTS 的 sectionIndex，而不是阅读器当前页（后台/未渲染时也能更新）
       this.#latestSectionTitle = this.#provider.getSectionTitle?.(event.sectionIndex)?.trim() || '';
-      // 进入新章节：先重置章节内进度；
-      // 时长/进度基准要等 followProgressPosition 把新章节渲染出来后再计算（见 #handleProgressAsync）
+      // 进入新章节必须清空上一章时长/长度，否则新章节会沿用旧时长：
+      // 旧时长偏短 -> 进度条很快满格；拿不到文本 -> 进度归零。
+      this.#chapterDurationMs = 0;
+      this.#chapterSpeakableLength = 0;
+      this.#chapterTextLength = 0;
       this.#chapterBaseMs = 0;
       this.#chapterElapsedMs = 0;
       this.#chapterResumeTs = this.#state === 'playing' ? Date.now() : null;
     }
+    // 语速采样放在切章重置之后：校准时刷新的是当前章节，不会用旧章节长度算完又立刻被清空
+    this.#trackSpeechRate(event);
     void this.#handleProgressAsync(event, previousSectionIndex);
   }
 
@@ -521,9 +537,36 @@ export class TTSSession {
     event: TTSSessionProgressEvent,
     previousSectionIndex: number,
   ): Promise<void> {
+    if (this.#disposed) return;
+    // 并发 progress 可能乱序：旧章节的异步处理不能覆盖最新章节
+    if (event.sectionIndex !== this.#latestSectionIndex) return;
+
+    // 1) 先根据后端整章字符数更新时长/基准。
+    //    这一步不依赖章节是否已渲染，也不依赖高亮成功，
+    //    避免纵向模式高亮/locateAnchor 抛错时把章节时长留在 0。
+    const needsChapterStats =
+      previousSectionIndex !== event.sectionIndex || this.#chapterDurationMs <= 0;
+    if (needsChapterStats) {
+      this.#updateChapterDuration(
+        event.sectionIndex,
+        event.text,
+        event.sectionSpeakableLength,
+      );
+      this.#applyAnchorAsProgressBase(event.sectionIndex, event.anchor);
+      // 先上报一次：切章瞬间通知可能还显示上一章的满格进度，
+      // 这里立即用新章节时长/基准覆盖，避免旧进度停留到渲染完成。
+      this.#emitPlaybackProgress();
+    }
+
+    // 前台对齐期间渲染由 restore 接管，只更新通知进度
+    if (this.#foregroundRealigning) {
+      this.#notifyNarration();
+      this.#emitPlaybackProgress();
+      return;
+    }
+
+    // 2) 前台跟随/高亮失败只影响高亮，不能影响通知进度上报
     try {
-      // 前台对齐期间渲染器由 restore 接管，避免并发切章/翻页
-      if (this.#foregroundRealigning) return;
       await this.#provider.followProgressPosition?.(
         {
           sectionIndex: event.sectionIndex,
@@ -531,19 +574,34 @@ export class TTSSession {
         },
         previousSectionIndex,
       );
-      if (this.#foregroundRealigning) return;
+    } catch (e) {
+      logError('[TTSSession] followProgressPosition 异常', e);
+    }
+    if (this.#disposed || event.sectionIndex !== this.#latestSectionIndex) return;
+
+    try {
       this.#applyReadingPosition(event.sectionIndex, event.anchor, true);
-      // 章节切换/首段/seek 重启后，等新章节渲染完成再读章节文本来估算时长与基准
-      if (previousSectionIndex !== event.sectionIndex || this.#chapterDurationMs <= 0) {
-        this.#updateChapterDuration(event.sectionIndex, event.text);
-        this.#applyAnchorAsProgressBase(event.sectionIndex, event.anchor);
-      }
-      this.#notifyNarration();
-      // 章节进度随朗读推进刷新（系统会按 speed 插值，不需要逐帧上报）
-      this.#emitPlaybackProgress();
     } catch (e) {
       logError('[TTSSession] locateAnchor / highlight 异常', e);
     }
+
+    // 只在切章/seek 的首个 progress 补一次基准：
+    // 后续句子的 anchor 不能再当基准，否则会和已累计的播放时间重复计算
+    if (needsChapterStats && this.#chapterDurationMs > 0) {
+      this.#applyAnchorAsProgressBase(event.sectionIndex, event.anchor);
+    }
+    // 兜底：没有后端整章字符数且章节刚渲染出来时，再用前端文本统计一次
+    if (this.#chapterDurationMs <= 0) {
+      this.#updateChapterDuration(
+        event.sectionIndex,
+        event.text,
+        event.sectionSpeakableLength,
+      );
+      this.#applyAnchorAsProgressBase(event.sectionIndex, event.anchor);
+    }
+
+    this.#notifyNarration();
+    this.#emitPlaybackProgress();
   }
 
   /** 把当前朗读句文本上报给上层（媒体通知动态文案） */
@@ -658,15 +716,48 @@ export class TTSSession {
 
   /** 当前应使用的字符/秒（rate=1）：优先实测，其次语言先验 */
   #effectiveCharsPerSecond(sampleText?: string): number {
-    if (this.#charsPerSecondAtRate1 > 0) return this.#charsPerSecondAtRate1;
-    return getTtsDefaultCharsPerSecond(sampleText ?? this.#latestNarrationText);
+    const prior = getTtsDefaultCharsPerSecond(sampleText ?? this.#latestNarrationText);
+    if (this.#charsPerSecondAtRate1 > 0) {
+      // 历史档案可能是异常采样写入的，超出语言先验合理区间时收敛回边界，
+      // 否则章节时长会明显短于实际播放时间，进度条提前满格。
+      return Math.min(
+        prior * TTS_SPEED_PRIOR_MAX_FACTOR,
+        Math.max(prior * TTS_SPEED_PRIOR_MIN_FACTOR, this.#charsPerSecondAtRate1),
+      );
+    }
+    return prior;
   }
 
   /** 按章节可朗读字符数 + 语速估算本章时长；未知长度时返回 0 */
-  #updateChapterDuration(sectionIndex: number, sampleText?: string): void {
+  #updateChapterDuration(
+    sectionIndex: number,
+    sampleText?: string,
+    speakableOverride?: number,
+  ): void {
+    // 未显式传入时，复用该章节最近一次后端下发的整章字符数
+    if (
+      (speakableOverride === undefined || speakableOverride <= 0) &&
+      this.#backendSectionSpeakableSection === sectionIndex
+    ) {
+      speakableOverride = this.#backendSectionSpeakableLength;
+    }
     const rawLength = this.#provider.getSectionTextLength?.(sectionIndex) ?? 0;
-    this.#chapterTextLength = Math.max(0, rawLength);
-    const speakable = this.#provider.getSectionSpeakableLength?.(sectionIndex) ?? rawLength;
+    // 优先用后端下发的整章字符数：它来自后端真正切片的完整章节文本，
+    // 比前端 DOM/缓存统计更可靠（纵向模式章节可能只渲染了部分）。
+    const backendSpeakable =
+      typeof speakableOverride === 'number' && speakableOverride > 0
+        ? Math.floor(speakableOverride)
+        : 0;
+    const speakable =
+      backendSpeakable > 0
+        ? backendSpeakable
+        : (this.#provider.getSectionSpeakableLength?.(sectionIndex) ?? rawLength);
+    // 后端给的是整章长度；前端 DOM 在纵向模式可能只拿到部分章节，
+    // 不能把部分长度当分母算 anchor 基准，否则基准可能直接接近满格。
+    this.#chapterTextLength =
+      backendSpeakable > 0
+        ? backendSpeakable
+        : Math.max(0, rawLength > 0 ? rawLength : speakable);
     this.#chapterSpeakableLength = Math.max(0, speakable);
     if (this.#chapterSpeakableLength <= 0) {
       this.#chapterDurationMs = 0;
@@ -674,12 +765,18 @@ export class TTSSession {
     }
     const rate = Math.max(0.1, this.#lastStartOptions?.rate ?? 1);
     const cps = this.#effectiveCharsPerSecond(sampleText);
+    const previousDuration = this.#chapterDurationMs;
     this.#chapterDurationMs = Math.max(
       1000,
       Math.round((this.#chapterSpeakableLength / (cps * rate)) * 1000),
     );
+    // 语速变化导致时长变化时，按比例缩放 seek 基准，避免位置突然跳到满格
+    if (previousDuration > 0 && this.#chapterBaseMs > 0) {
+      const fraction = Math.min(1, Math.max(0, this.#chapterBaseMs / previousDuration));
+      this.#chapterBaseMs = fraction * this.#chapterDurationMs;
+    }
     log(
-      `[TTSSession] chapter duration: section=${sectionIndex} rawChars=${this.#chapterTextLength} speakable=${this.#chapterSpeakableLength} rate=${rate} cps=${cps.toFixed(2)} durationMs=${this.#chapterDurationMs}`,
+      `[TTSSession] chapter duration: section=${sectionIndex} backendSpeakable=${backendSpeakable} rawChars=${this.#chapterTextLength} speakable=${this.#chapterSpeakableLength} rate=${rate} cps=${cps.toFixed(2)} durationMs=${this.#chapterDurationMs}`,
       'info',
     );
   }
@@ -711,12 +808,24 @@ export class TTSSession {
       if (elapsed >= 500 && elapsed <= 30000 && chars >= 5) {
         const rate = Math.max(0.1, this.#lastStartOptions?.rate ?? 1);
         const measured = chars / (elapsed / 1000) / rate;
-        this.#speedSampleMs += elapsed;
-        this.#charsPerSecondAtRate1 = this.#charsPerSecondAtRate1 > 0
-          ? this.#charsPerSecondAtRate1 * 0.8 + measured * 0.2
-          : measured;
-        this.#hasMeasuredSpeed = true;
-        this.#maybeCalibrate(now);
+        // 过滤异常采样：引擎跳句/事件抖动会让 measured 偏离真实语速一个数量级
+        const prior = getTtsDefaultCharsPerSecond(event.text ?? this.#latestNarrationText);
+        if (
+          measured >= prior * TTS_SPEED_PRIOR_MIN_FACTOR &&
+          measured <= prior * TTS_SPEED_PRIOR_MAX_FACTOR
+        ) {
+          this.#speedSampleMs += elapsed;
+          this.#charsPerSecondAtRate1 = this.#charsPerSecondAtRate1 > 0
+            ? this.#charsPerSecondAtRate1 * 0.8 + measured * 0.2
+            : measured;
+          this.#hasMeasuredSpeed = true;
+          this.#maybeCalibrate(now);
+        } else {
+          log(
+            `[TTSSession] speed sample ignored: measured=${measured.toFixed(2)} prior=${prior.toFixed(2)} chars=${chars} elapsedMs=${elapsed}`,
+            'warn',
+          );
+        }
       }
     }
     this.#lastProgressAt = now;

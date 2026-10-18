@@ -451,6 +451,7 @@ fn map_to_native_segment(
         chunk_index: seg.chunk_index,
         cursor: Some(seg.cursor.clone()),
         anchor: seg.anchor.as_ref().map(map_anchor),
+        section_speakable_length: seg.section_speakable_length,
     })
 }
 

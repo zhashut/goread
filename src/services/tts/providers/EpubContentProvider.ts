@@ -160,7 +160,6 @@ export class EpubContentProvider implements TTSContentProvider {
     return text ? buildAnchorAtTextRatio(text, ratio) : null;
   }
 
-  /** 章节内可朗读字符数（去空白） */
   getSectionSpeakableLength(sectionIndex: number): number | null {
     const text = this.#resolveSectionRootExact(sectionIndex)?.textContent;
     if (!text) return null;
@@ -212,6 +211,14 @@ export class EpubContentProvider implements TTSContentProvider {
    * 不支持按索引查询时才退回当前 root。
    */
   #resolveSectionRootExact(sectionIndex: number): Element | null {
+    // 横向模式只渲染当前章节；索引不一致时不能拿当前 root 兜底，
+    // 否则会把上一章的文本长度/偏移当成新章节的（表现为进度条直接满格）。
+    if (
+      this.#ctx.getReadingMode() === 'horizontal' &&
+      sectionIndex !== this.#ctx.getCurrentSectionIndex()
+    ) {
+      return null;
+    }
     const byIndex = this.#ctx.getSectionRootByIndex?.(sectionIndex);
     if (byIndex) return byIndex;
     return this.#ctx.getSectionRootByIndex ? null : this.#ctx.getCurrentSectionRoot();

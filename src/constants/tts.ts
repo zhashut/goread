@@ -21,6 +21,14 @@ export const TTS_CHARS_PER_SECOND_PRIORS: Record<string, number> = {
   de: 18,
 };
 
+/**
+ * 语速采样/历史值的合理区间（相对语言先验）。
+ * 引擎跳句、进度事件抖动、后台缓冲都会产生异常采样，超出区间直接丢弃，
+ * 避免语速被带偏后章节时长短于实际播放时间（表现为进度条提前满格）。
+ */
+export const TTS_SPEED_PRIOR_MIN_FACTOR = 0.4;
+export const TTS_SPEED_PRIOR_MAX_FACTOR = 2.5;
+
 /** 未知语言的保守回退（中文应用默认按中文先验） */
 export const getTtsDefaultCharsPerSecond = (sample?: string): number => {
   const text = (sample ?? '').trim();

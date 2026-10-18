@@ -60,6 +60,8 @@ type NativeEventPayload = {
   text?: string;
   /** 当前句可朗读字符数（完整句） */
   speakableLength?: number;
+  /** 当前章节整章可朗读字符数 */
+  sectionSpeakableLength?: number;
   anchor?: { quote?: string; prefix?: string; suffix?: string } | null;
 };
 
@@ -215,6 +217,7 @@ export class NativeSessionDriver implements IBackendSessionDriver {
           cursor: event.cursor,
           text: event.text,
           speakableLength: event.speakableLength,
+          sectionSpeakableLength: event.sectionSpeakableLength,
           anchor: event.anchor && event.anchor.quote
             ? {
                 quote: event.anchor.quote,
@@ -352,6 +355,7 @@ export class NativeSessionDriver implements IBackendSessionDriver {
     chunkIndex: number;
     cursor?: string;
     anchor?: { quote: string; prefix?: string; suffix?: string } | null;
+    sectionSpeakableLength?: number;
   }> {
     // 朗读文本先剔除引号类符号；整段仅引号时无可朗读内容，直接丢弃该片段
     // （停顿标点保留，anchor 保持原文，用于原生侧上报进度后的高亮定位）
@@ -365,6 +369,7 @@ export class NativeSessionDriver implements IBackendSessionDriver {
         sectionIndex: seg.sectionIndex,
         chunkIndex: seg.chunkIndex,
         cursor: seg.cursor,
+        sectionSpeakableLength: seg.sectionSpeakableLength,
         anchor: seg.anchor
           ? {
               quote: seg.anchor.quote,

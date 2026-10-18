@@ -152,6 +152,14 @@ pub fn slice_text_to_segments(opts: SliceOptions) -> SliceResult {
 
     let mut segments: Vec<TtsSegmentDto> = Vec::new();
     let mut search_byte: usize = 0;
+    // 整章可朗读字符数：后端持有完整章节文本，比前端 DOM/缓存统计更可靠
+    let section_speakable_length = Some(
+        opts.text
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .count()
+            .min(u32::MAX as usize) as u32,
+    );
 
     for (i, chunk) in chunks.iter().enumerate() {
         let i_i32 = i as i32;
@@ -181,6 +189,7 @@ pub fn slice_text_to_segments(opts: SliceOptions) -> SliceResult {
             chunk_index: i_i32,
             cursor: cursor_encoder(opts.section_index, i_i32),
             anchor: Some(create_anchor(opts.text, start, end)),
+            section_speakable_length,
         });
     }
 

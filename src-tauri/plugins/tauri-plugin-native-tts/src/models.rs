@@ -100,6 +100,9 @@ pub struct TTSSessionSegment {
     pub chunk_index: i32,
     pub cursor: Option<String>,
     pub anchor: Option<TTSSessionAnchor>,
+    /// 所属章节的整章可朗读字符数（前端估算进度条总时长用）
+    #[serde(default)]
+    pub section_speakable_length: Option<u32>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

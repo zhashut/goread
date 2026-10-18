@@ -57,6 +57,8 @@ export interface TTSSegment {
   chunkIndex: number;
   cursor: string;
   anchor?: TTSReadingAnchor | null;
+  /** 所属章节整章可朗读字符数（后端切片时计算，用于估算章节总时长） */
+  sectionSpeakableLength?: number;
 }
 
 /** 会话进度事件：原生在每段开始播报时上抛 */
@@ -70,6 +72,8 @@ export interface TTSSessionProgressEvent {
   text?: string;
   /** 当前句可朗读字符数（完整句，不截断；用于语速校准） */
   speakableLength?: number;
+  /** 当前章节整章可朗读字符数（后端下发，跨章/后台都可靠） */
+  sectionSpeakableLength?: number;
 }
 
 /** 会话补给请求：队列接近低水位时上抛 */

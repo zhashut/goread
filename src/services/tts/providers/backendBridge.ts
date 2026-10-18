@@ -25,6 +25,7 @@ type RawSegment = {
   chunkIndex: number;
   cursor: string;
   anchor?: RawAnchor | null;
+  sectionSpeakableLength?: number;
 };
 
 type RawResponse = {
@@ -110,6 +111,7 @@ const toSegment = (raw: RawSegment): TTSSegment => ({
   chunkIndex: raw.chunkIndex,
   cursor: raw.cursor,
   anchor: toAnchor(raw.anchor ?? null),
+  sectionSpeakableLength: raw.sectionSpeakableLength,
 });
 
 /** 把 Rust 端原始 anchor 转成前端 TTSReadingAnchor */
