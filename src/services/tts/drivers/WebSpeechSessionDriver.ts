@@ -190,6 +190,7 @@ export class WebSpeechSessionDriver implements IBackendSessionDriver {
         text: segment.text,
         speakableLength: segment.text.replace(/\s+/g, '').length,
         sectionSpeakableLength: segment.sectionSpeakableLength,
+        sectionChunkCount: segment.sectionChunkCount,
       });
     };
     utterance.onend = () => {
@@ -197,6 +198,9 @@ export class WebSpeechSessionDriver implements IBackendSessionDriver {
       this.#listeners?.onSegmentDone?.({
         segmentId: segment.id,
         cursor: segment.cursor,
+        sectionIndex: segment.sectionIndex,
+        chunkIndex: segment.chunkIndex,
+        sectionChunkCount: segment.sectionChunkCount,
       });
       this.#current = null;
       this.#playNext();

@@ -62,6 +62,8 @@ type NativeEventPayload = {
   speakableLength?: number;
   /** 当前章节整章可朗读字符数 */
   sectionSpeakableLength?: number;
+  /** 当前章节总 chunk 数 */
+  sectionChunkCount?: number;
   anchor?: { quote?: string; prefix?: string; suffix?: string } | null;
 };
 
@@ -218,6 +220,7 @@ export class NativeSessionDriver implements IBackendSessionDriver {
           text: event.text,
           speakableLength: event.speakableLength,
           sectionSpeakableLength: event.sectionSpeakableLength,
+          sectionChunkCount: event.sectionChunkCount,
           anchor: event.anchor && event.anchor.quote
             ? {
                 quote: event.anchor.quote,
@@ -247,6 +250,9 @@ export class NativeSessionDriver implements IBackendSessionDriver {
         const payload: TTSSessionSegmentDoneEvent = {
           segmentId: event.segmentId ?? '',
           cursor: event.cursor,
+          sectionIndex: event.sectionIndex,
+          chunkIndex: event.chunkIndex,
+          sectionChunkCount: event.sectionChunkCount,
         };
         listeners.onSegmentDone?.(payload);
         return true;
@@ -356,6 +362,7 @@ export class NativeSessionDriver implements IBackendSessionDriver {
     cursor?: string;
     anchor?: { quote: string; prefix?: string; suffix?: string } | null;
     sectionSpeakableLength?: number;
+    sectionChunkCount?: number;
   }> {
     // 朗读文本先剔除引号类符号；整段仅引号时无可朗读内容，直接丢弃该片段
     // （停顿标点保留，anchor 保持原文，用于原生侧上报进度后的高亮定位）
@@ -370,6 +377,7 @@ export class NativeSessionDriver implements IBackendSessionDriver {
         chunkIndex: seg.chunkIndex,
         cursor: seg.cursor,
         sectionSpeakableLength: seg.sectionSpeakableLength,
+        sectionChunkCount: seg.sectionChunkCount,
         anchor: seg.anchor
           ? {
               quote: seg.anchor.quote,

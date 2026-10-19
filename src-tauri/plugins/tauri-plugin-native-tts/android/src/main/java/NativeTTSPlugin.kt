@@ -79,6 +79,8 @@ class TTSSessionSegmentArgs {
   var anchor: TTSSessionAnchorArgs? = null
   /** 所属章节整章可朗读字符数（用于前端估算章节总时长） */
   var sectionSpeakableLength: Int? = null
+  /** 所属章节总 chunk 数（用于前端按文本比例推进进度条） */
+  var sectionChunkCount: Int? = null
 }
 
 @InvokeArg

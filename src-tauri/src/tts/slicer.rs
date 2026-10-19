@@ -160,6 +160,9 @@ pub fn slice_text_to_segments(opts: SliceOptions) -> SliceResult {
             .count()
             .min(u32::MAX as usize) as u32,
     );
+    // 整章 chunk 总数：进度条按 chunkIndex / sectionChunkCount 推进，
+    // 不再受墙钟时间/缓冲停顿影响（章节切分和 cursor 使用同一套 chunk 下标）
+    let section_chunk_count = Some(chunks.len().min(u32::MAX as usize) as u32);
 
     for (i, chunk) in chunks.iter().enumerate() {
         let i_i32 = i as i32;
@@ -190,6 +193,7 @@ pub fn slice_text_to_segments(opts: SliceOptions) -> SliceResult {
             cursor: cursor_encoder(opts.section_index, i_i32),
             anchor: Some(create_anchor(opts.text, start, end)),
             section_speakable_length,
+            section_chunk_count,
         });
     }
 

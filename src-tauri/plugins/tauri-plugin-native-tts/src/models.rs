@@ -103,6 +103,9 @@ pub struct TTSSessionSegment {
     /// 所属章节的整章可朗读字符数（前端估算进度条总时长用）
     #[serde(default)]
     pub section_speakable_length: Option<u32>,
+    /// 所属章节的总 chunk 数（前端按文本比例推进进度条）
+    #[serde(default)]
+    pub section_chunk_count: Option<u32>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

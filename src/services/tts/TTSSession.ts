@@ -126,6 +126,12 @@ export class TTSSession {
   /** 最近一次后端下发的整章可朗读字符数及其章节（语速变化时复用，避免前端 DOM 统计不准） */
   #backendSectionSpeakableLength = 0;
   #backendSectionSpeakableSection = -1;
+  /** 本章总 chunk 数（后端下发；文本进度的分母） */
+  #chapterChunkCount = 0;
+  /** 已完成的 chunk 数（文本进度；0 = 章首，chunkCount = 章末） */
+  #chapterCompletedChunks = 0;
+  /** 下一次 progress 是否必须重置文本进度（seek/跳章/新会话后 chunkIndex 可能回退） */
+  #textProgressNeedsReset = true;
   /** seek 后的章节内基准位置（ms） */
   #chapterBaseMs = 0;
   /** 已累计的播放时长（ms，不含当前正在播放的片段） */
@@ -187,6 +193,9 @@ export class TTSSession {
     this.#chapterDurationMs = 0;
     this.#chapterTextLength = 0;
     this.#chapterSpeakableLength = 0;
+    this.#chapterChunkCount = 0;
+    this.#chapterCompletedChunks = 0;
+    this.#textProgressNeedsReset = true;
     this.#chapterBaseMs = 0;
     this.#chapterElapsedMs = 0;
     this.#chapterResumeTs = null;
@@ -470,6 +479,9 @@ export class TTSSession {
       this.#chapterDurationMs = 0;
       this.#chapterSpeakableLength = 0;
       this.#chapterTextLength = 0;
+      this.#chapterChunkCount = 0;
+      this.#chapterCompletedChunks = 0;
+      this.#textProgressNeedsReset = true;
       this.#chapterBaseMs = 0;
       this.#chapterElapsedMs = 0;
       this.#chapterResumeTs = this.#state === 'playing' ? Date.now() : null;
@@ -524,9 +536,31 @@ export class TTSSession {
       this.#chapterDurationMs = 0;
       this.#chapterSpeakableLength = 0;
       this.#chapterTextLength = 0;
+      this.#chapterChunkCount = 0;
+      this.#chapterCompletedChunks = 0;
+      this.#textProgressNeedsReset = true;
       this.#chapterBaseMs = 0;
       this.#chapterElapsedMs = 0;
       this.#chapterResumeTs = this.#state === 'playing' ? Date.now() : null;
+    }
+    // 文本进度：用 chunkIndex / sectionChunkCount 表示“读到哪”，
+    // 不再用墙钟时间；缓冲、停顿、事件延迟都不会推进进度条。
+    if (
+      typeof event.sectionChunkCount === 'number' &&
+      event.sectionChunkCount > 0
+    ) {
+      this.#chapterChunkCount = Math.floor(event.sectionChunkCount);
+    }
+    if (typeof event.chunkIndex === 'number' && event.chunkIndex >= 0) {
+      const chunkIndex = Math.floor(event.chunkIndex);
+      if (this.#textProgressNeedsReset) {
+        // seek/跳章后首次 progress：直接采用目标 chunk，允许回退
+        this.#chapterCompletedChunks = chunkIndex;
+        this.#textProgressNeedsReset = false;
+      } else {
+        // 正常播放时只允许前进，避免乱序事件让进度回退
+        this.#chapterCompletedChunks = Math.max(this.#chapterCompletedChunks, chunkIndex);
+      }
     }
     // 语速采样放在切章重置之后：校准时刷新的是当前章节，不会用旧章节长度算完又立刻被清空
     this.#trackSpeechRate(event);
@@ -633,6 +667,22 @@ export class TTSSession {
   }
 
   #handleSegmentDone(event: TTSSessionSegmentDoneEvent): void {
+    // 一句话播完：文本进度推进到 chunkIndex + 1；章末最后一个 chunk 完成后到达 100%
+    if (
+      event.sectionIndex != null &&
+      event.sectionIndex === this.#latestSectionIndex &&
+      event.chunkIndex != null
+    ) {
+      if (
+        typeof event.sectionChunkCount === 'number' &&
+        event.sectionChunkCount > 0
+      ) {
+        this.#chapterChunkCount = Math.floor(event.sectionChunkCount);
+      }
+      const completed = Math.floor(event.chunkIndex) + 1;
+      this.#chapterCompletedChunks = Math.max(this.#chapterCompletedChunks, completed);
+      this.#emitPlaybackProgress();
+    }
     this.#refiller?.notifySegmentDone(event.cursor);
   }
 
@@ -777,7 +827,7 @@ export class TTSSession {
       this.#chapterBaseMs = fraction * this.#chapterDurationMs;
     }
     log(
-      `[TTSSession] chapter duration: section=${sectionIndex} backendSpeakable=${backendSpeakable} rawChars=${this.#chapterTextLength} speakable=${this.#chapterSpeakableLength} rate=${rate} cps=${cps.toFixed(2)} durationMs=${this.#chapterDurationMs}`,
+      `[TTSSession] chapter duration: section=${sectionIndex} backendSpeakable=${backendSpeakable} chunks=${this.#chapterChunkCount} rawChars=${this.#chapterTextLength} speakable=${this.#chapterSpeakableLength} rate=${rate} cps=${cps.toFixed(2)} durationMs=${this.#chapterDurationMs}`,
       'info',
     );
   }
@@ -882,9 +932,24 @@ export class TTSSession {
     this.#chapterBaseMs = ratio * this.#chapterDurationMs;
   }
 
-  /** 当前章节内位置（ms）：seek 基准 + 已播放/正在播放的时长 */
+  /**
+   * 当前章节内位置（ms）。
+   *
+   * 优先使用“文本进度”：已完成 chunk 数 / 本章总 chunk 数。
+   * 这样只要本章还有文本没读完，进度就不会到 100%，
+   * 不受 TTS 缓冲、句间停顿、后台事件延迟和语速估算偏差影响。
+   *
+   * 旧原生/旧驱动没有 sectionChunkCount 时，回退到墙钟时间。
+   */
   #currentPositionMs(): number {
     if (this.#chapterDurationMs <= 0) return 0;
+    if (this.#chapterChunkCount > 0) {
+      const fraction = Math.min(
+        1,
+        Math.max(0, this.#chapterCompletedChunks / this.#chapterChunkCount),
+      );
+      return Math.round(this.#chapterDurationMs * fraction);
+    }
     let elapsed = this.#chapterElapsedMs;
     if (this.#state === 'playing' && this.#chapterResumeTs !== null) {
       elapsed += Math.max(0, Date.now() - this.#chapterResumeTs);
@@ -965,6 +1030,9 @@ export class TTSSession {
     const measuredCps = this.#charsPerSecondAtRate1;
     this.#lastProgressAt = null;
     this.#lastSegmentSpeakable = 0;
+    this.#chapterChunkCount = 0;
+    this.#chapterCompletedChunks = 0;
+    this.#textProgressNeedsReset = true;
     // 先解绑事件监听：非托管 stop 可能发出 session_end，不能让本次 seek 被当成“用户停止”
     const managed = this.#managed;
     this.#cleanupListeners();

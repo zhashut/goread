@@ -31,6 +31,8 @@ internal data class TTSSessionSegment(
   val anchor: TTSSessionAnchor?,
   /** 所属章节整章可朗读字符数（后端切片时计算，前端估算总时长用） */
   val sectionSpeakableLength: Int?,
+  /** 所属章节总 chunk 数（前端按文本比例推进进度条） */
+  val sectionChunkCount: Int?,
 )
 
 internal enum class TTSSessionState {
@@ -246,6 +248,7 @@ internal class TTSEngineRunner(
       cursor = args.cursor,
       anchor = anchor,
       sectionSpeakableLength = args.sectionSpeakableLength,
+      sectionChunkCount = args.sectionChunkCount,
     )
   }
 
@@ -419,6 +422,8 @@ internal class TTSEngineRunner(
       put("speakableLength", segment.text.count { !it.isWhitespace() })
       // 整章可朗读字符数：前端据此计算章节总时长（跨章/后台都可靠）
       segment.sectionSpeakableLength?.let { put("sectionSpeakableLength", it) }
+      // 整章 chunk 总数：前端用 chunkIndex / sectionChunkCount 推进文本进度
+      segment.sectionChunkCount?.let { put("sectionChunkCount", it) }
       segment.cursor?.let { put("cursor", it) }
       putAnchor(this, segment.anchor)
     }
@@ -429,6 +434,10 @@ internal class TTSEngineRunner(
     val data = JSObject().apply {
       put("code", "session_segment_done")
       put("segmentId", segment.id)
+      // 带上章节/ chunk 信息：前端据此把文本进度推进到该 chunk 完成
+      put("sectionIndex", segment.sectionIndex)
+      put("chunkIndex", segment.chunkIndex)
+      segment.sectionChunkCount?.let { put("sectionChunkCount", it) }
       segment.cursor?.let { put("cursor", it) }
     }
     emitEvent(data)

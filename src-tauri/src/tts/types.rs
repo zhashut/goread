@@ -26,6 +26,9 @@ pub struct TtsSegmentDto {
     /// 该片段所属章节的整章可朗读字符数（去空白），用于前端估算章节总时长
     #[serde(skip_serializing_if = "Option::is_none")]
     pub section_speakable_length: Option<u32>,
+    /// 该片段所属章节的总 chunk 数，用于前端按“已读文本比例”推进进度条
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub section_chunk_count: Option<u32>,
 }
 
 /// 起播位置：用户当前阅读处
