@@ -105,8 +105,8 @@ export class TTSSession {
   #latestNarrationText = '';
   /** 当前朗读章节标题（由 Provider 按 sectionIndex 解析，不依赖阅读器当前页） */
   #latestSectionTitle = '';
-  /** 回到前台对齐中：期间跳过跟读渲染，避免与 restore 并发操作渲染器 */
-  #foregroundRealigning = false;
+  /** 视图对齐中：期间跳过 progress 驱动的视图操作，避免与恢复渲染并发 */
+  #aligning = false;
   #lastActivityNotifyTs = 0;
   #batchSize = DEFAULT_BATCH_SIZE;
   #managed = false;
@@ -558,14 +558,14 @@ export class TTSSession {
       this.#emitPlaybackProgress();
     }
 
-    // 前台对齐期间渲染由 restore 接管，只更新通知进度
-    if (this.#foregroundRealigning) {
+    // 对齐进行中：视图操作交给当前这次对齐接管，这里只更新文案与进度
+    if (this.#aligning) {
       this.#notifyNarration();
       this.#emitPlaybackProgress();
       return;
     }
 
-    // 2) 前台跟随/高亮失败只影响高亮，不能影响通知进度上报
+    // 2) 格式私有的进度定位（TXT 同章翻页等），交给 Provider
     try {
       await this.#provider.followProgressPosition?.(
         {
@@ -579,10 +579,11 @@ export class TTSSession {
     }
     if (this.#disposed || event.sectionIndex !== this.#latestSectionIndex) return;
 
+    // 3) 统一定位 + 高亮 + 吸附（跨章时内部先恢复章节）
     try {
-      this.#applyReadingPosition(event.sectionIndex, event.anchor, true);
+      await this.#alignViewToNarration(event.sectionIndex, event.anchor ?? null);
     } catch (e) {
-      logError('[TTSSession] locateAnchor / highlight 异常', e);
+      logError('[TTSSession] 视图对齐异常', e);
     }
 
     // 只在切章/seek 的首个 progress 补一次基准：
@@ -978,7 +979,7 @@ export class TTSSession {
     // 停止旧会话（且不停止前台服务），避免 session_end 事件误结束本次 seek。
     this.#refiller = null;
     this.#managed = false;
-    this.#foregroundRealigning = false;
+    this.#aligning = false;
     this.#highlightManager.clear();
     this.#currentRange = null;
     this.#latestNarrationText = '';
@@ -1033,64 +1034,52 @@ export class TTSSession {
     // 播放中或暂停中都需要把视图对齐到最新朗读位置
     if (this.#state !== 'playing' && this.#state !== 'paused') return;
     if (!this.#hasReceivedProgress || this.#latestSectionIndex < 0) return;
-    if (this.#foregroundRealigning) return;
     const now = Date.now();
     if (now - this.#lastForegroundRealignTs < FOREGROUND_REALIGN_COOLDOWN_MS) return;
     this.#lastForegroundRealignTs = now;
-    this.#foregroundRealigning = true;
-    void this.#realignToLatestPosition().finally(() => {
-      this.#foregroundRealigning = false;
-    });
+    // 后台期间朗读可能已跨过多章，且渲染器在后台不跟读：回前台立即对齐一次
+    void this.#alignViewToNarration(this.#latestSectionIndex, this.#latestAnchor)
+      .finally(() => this.#notifyNarration());
   };
 
   /**
-   * 回到前台时把阅读视图真正对齐到最新朗读位置。
+   * 把阅读视图对齐到指定朗读位置（每句 progress、回前台共用这一条路径）。
    *
-   * 后台期间渲染器会跳过跟读（如 EpubPositionRestorer.followHorizontalProgress 在
-   * document.hidden 时直接返回），长时间后台可能已跨过多章；此时只在当前章节内
-   * locateAnchor 必然落空，表现为“回到应用仍停在切后台时的页”。
-   * 因此这里先走 provider.restoreReadingPosition 切章/翻页，再重建高亮。
+   * 同章：直接在当前 DOM 定位 → 高亮 → 吸附到朗读所在列；
+   * 跨章（或用户此前翻到了其它章节）：先由 Provider 恢复章节，再定位、高亮、吸附。
+   * 未命中时保留上一句高亮：跨章瞬间 DOM 可能尚未就绪，清空会让用户看到“朗读中却没有高亮”。
    */
-  async #realignToLatestPosition(): Promise<void> {
-    let sectionIndex = this.#latestSectionIndex;
-    let anchor = this.#latestAnchor;
-    try {
-      await this.#provider.restoreReadingPosition({ sectionIndex, anchor });
-      // 恢复期间朗读并未暂停，可能又跨章：以最新位置再对齐一次（最多两次）
-      if (this.#latestSectionIndex !== sectionIndex) {
-        sectionIndex = this.#latestSectionIndex;
-        anchor = this.#latestAnchor;
-        await this.#provider.restoreReadingPosition({ sectionIndex, anchor });
-      }
-    } catch (e) {
-      logError('[TTSSession] 前台恢复朗读位置失败', e);
-    }
-    if (this.#disposed) return;
-    const applied = this.#applyReadingPosition(sectionIndex, anchor, false);
-    // 恢复后同步一次通知文案（后台期间可能因为未渲染而没更新）
-    this.#notifyNarration();
-    log(
-      `[TTSSession] foreground realign sectionIndex=${sectionIndex} applied=${applied}`,
-      applied ? 'info' : 'warn',
-    );
-  }
-
-  #applyReadingPosition(
+  async #alignViewToNarration(
     sectionIndex: number,
-    anchor: TTSReadingAnchor | null | undefined,
-    clearOnMiss: boolean,
-  ): boolean {
-    const range = this.#provider.locateAnchor(sectionIndex, anchor);
-    if (!range) {
-      if (clearOnMiss) {
-        this.#highlightManager.clear();
-        this.#currentRange = null;
+    anchor: TTSReadingAnchor | null,
+  ): Promise<boolean> {
+    if (this.#disposed) return false;
+    // 后台不操作视图（渲染器内部的帧等待在后台不会触发）
+    if (typeof document !== 'undefined' && document.hidden) return false;
+    if (this.#aligning) return false;
+    this.#aligning = true;
+    let path: 'same-chapter' | 'restore' = 'same-chapter';
+    try {
+      let range = this.#provider.locateAnchor(sectionIndex, anchor);
+      if (!range) {
+        path = 'restore';
+        await this.#provider.restoreReadingPosition({ sectionIndex, anchor });
+        if (this.#disposed) return false;
+        // 恢复期间朗读可能已推进到新章节：旧的定位交给下一句处理
+        if (sectionIndex !== this.#latestSectionIndex) return false;
+        range = this.#provider.locateAnchor(sectionIndex, anchor);
       }
-      return false;
+      if (!range) {
+        log(`[TTS][Align] section=${sectionIndex} path=miss lastPath=${path}`, 'warn');
+        return false;
+      }
+      this.#currentRange = range;
+      this.#highlightManager.apply(range);
+      this.#highlightManager.maybeScrollIntoView(range);
+      log(`[TTS][Align] section=${sectionIndex} path=${path}`, 'info');
+      return true;
+    } finally {
+      this.#aligning = false;
     }
-    this.#currentRange = range;
-    this.#highlightManager.apply(range);
-    this.#highlightManager.maybeScrollIntoView(range);
-    return true;
   }
 }

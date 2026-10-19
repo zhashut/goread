@@ -41,7 +41,7 @@ export interface EpubContentProviderContext extends EpubPositionRestorerContext 
 /**
  * EPUB 格式的 TTS 内容供给方
  * 内容拉取统一委托给 Rust 端 tts_get_segments；
- * 前端只保留 anchor 高亮定位与停止后的阅读位置回写。
+ * 前端只保留 anchor 高亮定位与阅读位置恢复（章节对齐由 TTSSession 统一驱动）。
  */
 export class EpubContentProvider implements TTSContentProvider {
   readonly format: BookFormat = 'epub';
@@ -58,6 +58,7 @@ export class EpubContentProvider implements TTSContentProvider {
       goToProgress: ctx.goToProgress,
       setSectionIndex: ctx.setSectionIndex,
       getCurrentSectionRoot: ctx.getCurrentSectionRoot,
+      isSectionRendered: ctx.isSectionRendered,
     });
   }
 
@@ -120,6 +121,10 @@ export class EpubContentProvider implements TTSContentProvider {
     return this.#ctx.getVisibleStartPosition?.() ?? null;
   }
 
+  /**
+   * 按 anchor 定位当前可高亮的 Range
+   * 只在实际渲染了该章节时才定位；否则返回 null，交由上层先恢复章节
+   */
   locateAnchor(
     sectionIndex: number,
     anchor: TTSReadingAnchor | null | undefined,
@@ -133,35 +138,25 @@ export class EpubContentProvider implements TTSContentProvider {
     await this.#restorer.restore(position.sectionIndex, position.anchor);
   }
 
-  async followProgressPosition(
-    position: TTSReadingPosition,
-    previousSectionIndex: number,
-  ): Promise<boolean> {
-    if (this.#ctx.getReadingMode() !== 'horizontal') return false;
-    if (previousSectionIndex < 0) return false;
-    if (position.sectionIndex === previousSectionIndex) return false;
-    return this.#restorer.followHorizontalProgress(position.sectionIndex, position.anchor);
-  }
-
   notifyDocumentUpdated(): void {
     this.#anchorLocator.invalidate();
   }
 
   /** 章节文本长度（用于媒体通知的章节时长估算） */
   getSectionTextLength(sectionIndex: number): number | null {
-    const root = this.#resolveSectionRootExact(sectionIndex);
+    const root = this.#resolveSectionRoot(sectionIndex);
     const length = root?.textContent?.length ?? 0;
     return length > 0 ? length : null;
   }
 
   /** 把章节内比例换算成可朗读起点（进度条拖动） */
   buildAnchorAtRatio(sectionIndex: number, ratio: number): TTSReadingAnchor | null {
-    const text = this.#resolveSectionRootExact(sectionIndex)?.textContent;
+    const text = this.#resolveSectionRoot(sectionIndex)?.textContent;
     return text ? buildAnchorAtTextRatio(text, ratio) : null;
   }
 
   getSectionSpeakableLength(sectionIndex: number): number | null {
-    const text = this.#resolveSectionRootExact(sectionIndex)?.textContent;
+    const text = this.#resolveSectionRoot(sectionIndex)?.textContent;
     if (!text) return null;
     const length = text.replace(/\s+/g, '').length;
     return length > 0 ? length : null;
@@ -193,34 +188,20 @@ export class EpubContentProvider implements TTSContentProvider {
     anchor: TTSReadingAnchor | null | undefined,
   ): number | null {
     if (!anchor?.quote) return null;
-    const text = this.#resolveSectionRootExact(sectionIndex)?.textContent;
+    const text = this.#resolveSectionRoot(sectionIndex)?.textContent;
     return text ? findTextOffsetByQuote(text, anchor.quote) : null;
   }
 
-  #resolveSectionRoot(sectionIndex: number): Element | null {
-    if (this.#ctx.getSectionRootByIndex) {
-      const byIndex = this.#ctx.getSectionRootByIndex(sectionIndex);
-      if (byIndex) return byIndex;
-    }
-    return this.#ctx.getCurrentSectionRoot();
-  }
-
   /**
-   * 只返回“确实是该 index”的章节根。
-   * 时长/进度/seek 不能用当前 root 兜底，否则章节切换瞬间会读到上一章文本；
-   * 不支持按索引查询时才退回当前 root。
+   * 取章节内容根
+   * “确实是该 index”的判定统一在渲染器内（`EpubRenderer.getRenderedSectionShadowRoot`：
+   * 横向比对实际渲染章节、纵向按已渲染章节集合），本方法不再重复判定，
+   * 以免两处判据不同源（时长/进度/seek/高亮都不能用当前 root 兜底）。
    */
-  #resolveSectionRootExact(sectionIndex: number): Element | null {
-    // 横向模式只渲染当前章节；索引不一致时不能拿当前 root 兜底，
-    // 否则会把上一章的文本长度/偏移当成新章节的（表现为进度条直接满格）。
-    if (
-      this.#ctx.getReadingMode() === 'horizontal' &&
-      sectionIndex !== this.#ctx.getCurrentSectionIndex()
-    ) {
-      return null;
-    }
+  #resolveSectionRoot(sectionIndex: number): Element | null {
     const byIndex = this.#ctx.getSectionRootByIndex?.(sectionIndex);
     if (byIndex) return byIndex;
+    // 渲染器不支持按索引查询时（非 EPUB 上下文）才退回当前 root
     return this.#ctx.getSectionRootByIndex ? null : this.#ctx.getCurrentSectionRoot();
   }
 }

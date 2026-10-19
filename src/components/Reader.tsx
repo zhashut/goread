@@ -189,13 +189,11 @@ export const Reader: React.FC = () => {
     listenToastMsg,
     clearListenToast,
     notifyTtsDocumentUpdated,
-    markTtsViewOutOfSync,
   } = useReaderTTS({
     rendererRef,
     isEpubDom,
     isMobi,
     isTxt,
-    readingMode,
     onReadingActivity: !isExternal ? markReadingActive : undefined,
     // 媒体通知标题/副标题/封面（仅 Android 原生通知使用）
     notificationTitle: (isExternal ? externalTitle : book?.title) || undefined,
@@ -351,7 +349,6 @@ export const Reader: React.FC = () => {
       readingMode,
       isExternal,
       markReadingActive,
-      onUserNavigate: (pageNum) => markTtsViewOutOfSync(pageNum),
     }
   });
 

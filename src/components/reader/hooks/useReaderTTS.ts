@@ -9,7 +9,6 @@ interface UseReaderTTSOptions {
     isEpubDom: boolean;
     isMobi: boolean;
     isTxt: boolean;
-    readingMode: 'horizontal' | 'vertical';
     onReadingActivity?: () => void;
     /** 通知标题（书名），仅 Android 原生媒体通知使用 */
     notificationTitle?: string;
@@ -29,8 +28,6 @@ interface UseReaderTTSReturn {
     listenToastMsg: string;
     clearListenToast: () => void;
     notifyTtsDocumentUpdated: () => void;
-    /** 留作占位：横向阅读时若发现页面切换需要刷新 anchor 索引 */
-    markTtsViewOutOfSync: (pageNum: number) => void;
 }
 
 /**
@@ -42,7 +39,6 @@ export const useReaderTTS = ({
     isEpubDom,
     isMobi,
     isTxt,
-    readingMode: _readingMode,
     onReadingActivity,
     notificationTitle,
     notificationSubtitle,
@@ -88,12 +84,6 @@ export const useReaderTTS = ({
         }
     }, [tts.toggle, tReader]);
 
-    const markTtsViewOutOfSync = useCallback((_pageNum: number) => {
-        if (!tts.isActive) return;
-        // 翻页时通知 Provider 重新计算 anchor 索引
-        tts.notifyDocumentUpdated();
-    }, [tts.isActive, tts.notifyDocumentUpdated]);
-
     return {
         listenSupported,
         isListening: tts.isActive,
@@ -103,6 +93,5 @@ export const useReaderTTS = ({
         listenToastMsg,
         clearListenToast: () => setListenToastMsg(''),
         notifyTtsDocumentUpdated: tts.notifyDocumentUpdated,
-        markTtsViewOutOfSync,
     };
 };

@@ -28,7 +28,6 @@ type NavigationProps = {
         readingMode: "horizontal" | "vertical";
         isExternal: boolean;
         markReadingActive: () => void;
-        onUserNavigate?: (pageNum: number) => void;
     };
 };
 
@@ -55,7 +54,7 @@ export const useNavigation = ({
         latestPreciseProgressRef,
     } = readerState;
     const { verticalCanvasRefs, rendererRef } = refs;
-    const { readingMode, isExternal, markReadingActive, onUserNavigate } = data;
+    const { readingMode, isExternal, markReadingActive } = data;
 
     const goToPage = useCallback(
         async (pageNum: number) => {
@@ -69,7 +68,6 @@ export const useNavigation = ({
             const isTxt = renderer && renderer instanceof TxtRenderer;
 
             markReadingActive();
-            onUserNavigate?.(pageNum);
 
             if (
                 isDomRender &&
@@ -170,7 +168,6 @@ export const useNavigation = ({
         [
             totalPages,
             markReadingActive,
-            onUserNavigate,
             setCurrentPage,
             isDomRender,
             rendererRef,
@@ -188,15 +185,6 @@ export const useNavigation = ({
         const renderer = rendererRef.current;
         if (readingMode === "horizontal" && renderer && renderer instanceof EpubRenderer) {
             markReadingActive();
-            try {
-                const p =
-                    typeof (renderer as any).getInstantPreciseProgress === "function"
-                        ? (renderer as any).getInstantPreciseProgress()
-                        : typeof (renderer as any).getPreciseProgress === "function"
-                            ? (renderer as any).getPreciseProgress()
-                            : currentPage;
-                onUserNavigate?.(p);
-            } catch { }
             void renderer.nextPage().catch(async (e) => {
                 await logError("EPUB 翻动失败", { error: String(e) });
             });
@@ -219,7 +207,6 @@ export const useNavigation = ({
                     return;
                 }
                 if (turned) {
-                    onUserNavigate?.(currentPage);
                     if (latestPreciseProgressRef) {
                         const precise = renderer.getPreciseProgress();
                         latestPreciseProgressRef.current = precise ?? 1;
@@ -247,21 +234,12 @@ export const useNavigation = ({
             }
         }
         goToPage(currentPage + 1);
-    }, [rendererRef, readingMode, markReadingActive, onUserNavigate, currentPage, goToPage, latestPreciseProgressRef, isExternal, book]);
+    }, [rendererRef, readingMode, markReadingActive, currentPage, goToPage, latestPreciseProgressRef, isExternal, book]);
 
     const prevPage = useCallback(async () => {
         const renderer = rendererRef.current;
         if (readingMode === "horizontal" && renderer && renderer instanceof EpubRenderer) {
             markReadingActive();
-            try {
-                const p =
-                    typeof (renderer as any).getInstantPreciseProgress === "function"
-                        ? (renderer as any).getInstantPreciseProgress()
-                        : typeof (renderer as any).getPreciseProgress === "function"
-                            ? (renderer as any).getPreciseProgress()
-                            : currentPage;
-                onUserNavigate?.(p);
-            } catch { }
             void renderer.prevPage().catch(async (e) => {
                 await logError("EPUB 翻动失败", { error: String(e) });
             });
@@ -280,7 +258,6 @@ export const useNavigation = ({
                         return;
                     }
                     if (turned) {
-                        onUserNavigate?.(currentPage);
                         if (latestPreciseProgressRef) {
                             const precise = renderer.getPreciseProgress();
                             latestPreciseProgressRef.current = precise ?? 1;
@@ -298,7 +275,6 @@ export const useNavigation = ({
                 if (currentChapterIndex > 0) {
                     const prevChapter = currentChapterIndex - 1;
                     const chapterEndProgress = prevChapter + 1 + TXT_CHAPTER_OFFSET_MAX;
-                    onUserNavigate?.(currentChapterIndex + 1);
                     if (latestPreciseProgressRef) {
                         latestPreciseProgressRef.current = chapterEndProgress;
                     }
@@ -323,7 +299,7 @@ export const useNavigation = ({
             }
         }
         goToPage(currentPage - 1);
-    }, [rendererRef, readingMode, markReadingActive, onUserNavigate, currentPage, goToPage, latestPreciseProgressRef, isExternal, book]);
+    }, [rendererRef, readingMode, markReadingActive, currentPage, goToPage, latestPreciseProgressRef, isExternal, book]);
 
     const toggleFinish = useCallback(async () => {
         if (isExternal || !book) return;

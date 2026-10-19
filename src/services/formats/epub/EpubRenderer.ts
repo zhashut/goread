@@ -215,7 +215,7 @@ export class EpubRenderer implements IBookRenderer {
 
     // 导航 hook
     const navigationContext = {
-      getSectionRoot: (sectionIndex: number) => this.getSectionRootForNavigation(sectionIndex),
+      getSectionRoot: (sectionIndex: number) => this.getRenderedSectionShadowRoot(sectionIndex),
       getScrollContainer: () => this.getScrollContainer(),
       getScrollAxis: (): 'x' | 'y' => (this._readingMode === 'horizontal' ? 'x' : 'y'),
       goToPage: (page: number) => this.goToPage(page),
@@ -512,16 +512,18 @@ export class EpubRenderer implements IBookRenderer {
   }
 
   /**
-   * 取指定章节的 shadow root（供锚点定位使用）
-   * 纵向模式为对应章节容器；横向模式只存在当前章节
+   * 取指定章节的 shadow root（只返回「确实是该章节」的根）
+   * 纵向模式为对应章节容器（多章节同时渲染）；横向模式只渲染当前章节，
+   * 因此必须用「实际渲染章节」判定，不能用会被 TTS 提前改写的 currentPage。
+   * 锚点定位（导航）与 TTS 定位共用本方法，是章节根匹配的唯一判据。
    */
-  private getSectionRootForNavigation(sectionIndex: number): ShadowRoot | null {
+  private getRenderedSectionShadowRoot(sectionIndex: number): ShadowRoot | null {
     if (this._readingMode === 'vertical') {
       const wrapper = this._verticalRenderHook?.state.sectionContainers.get(sectionIndex);
       return wrapper?.shadowRoot ?? null;
     }
     if (this._readingMode === 'horizontal') {
-      if (sectionIndex !== this.getCurrentSectionIndex()) return null;
+      if (sectionIndex !== this._horizontalRenderHook?.state.renderedSectionIndex) return null;
       return this._currentContainer?.shadowRoot ?? null;
     }
     return null;
@@ -713,6 +715,7 @@ export class EpubRenderer implements IBookRenderer {
       getSectionTitle: (idx) => this.getTTSSectionTitleByIndex(idx),
       getCurrentSectionRoot: () => this.getCurrentTTSSectionRoot(),
       getSectionRootByIndex: (idx) => this.getTTSSectionRootByIndex(idx),
+      isSectionRendered: (idx) => this.getRenderedSectionShadowRoot(idx) != null,
       getVisibleStartPosition: () => this.getVisibleStartPositionForTTS(),
       goToProgress: (progress) => this.goToPage(progress),
       setSectionIndex: (idx) => this.setCurrentSectionIndexForTTS(idx),
@@ -788,14 +791,14 @@ export class EpubRenderer implements IBookRenderer {
     return null;
   }
 
+  /**
+   * TTS 用：按索引取章节内容根（.epub-section-content）
+   * 章节索引与实际渲染章节不一致时返回 null，交由上层先恢复章节再定位，
+   * 避免拿当前章节的 DOM 去搜另一章的 anchor（会误命中或误清高亮）。
+   */
   private getTTSSectionRootByIndex(sectionIndex: number): Element | null {
-    if (this._readingMode === 'vertical' && this._verticalRenderHook) {
-      const wrapper = this._verticalRenderHook.state.sectionContainers.get(sectionIndex);
-      const shadow = wrapper?.shadowRoot;
-      const content = shadow?.querySelector('.epub-section-content');
-      return (content as Element | null) ?? null;
-    }
-    return this.getCurrentTTSSectionRoot();
+    const shadow = this.getRenderedSectionShadowRoot(sectionIndex);
+    return (shadow?.querySelector('.epub-section-content') as Element | null) ?? null;
   }
 }
 

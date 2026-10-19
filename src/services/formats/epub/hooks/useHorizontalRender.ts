@@ -45,10 +45,18 @@ export interface HorizontalRenderContext {
 
 /** 横向渲染状态 */
 export interface HorizontalRenderState {
+  /** 对外页码与精确进度（可被 TTS 同步，不用于渲染判定） */
   currentPage: number;
   currentPreciseProgress: number;
   readingMode: 'horizontal' | 'vertical';
   container: HTMLElement | null;
+  /**
+   * 实际渲染在容器里的章节索引（0-based），-1 表示容器里没有内容。
+   * 只由 renderSection 成功后写入、destroy 时重置；
+   * 渲染判定与章节根查询必须以它为准，不能用外部可改写的 currentPage。
+   * （纵向模式对应 state.renderedSections）
+   */
+  renderedSectionIndex: number;
 }
 
 /** 横向渲染 Hook 返回接口 */
@@ -71,6 +79,7 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
     currentPreciseProgress: 1,
     readingMode: 'horizontal',
     container: null,
+    renderedSectionIndex: -1,
   };
 
   const MAX_RATIO = 0.999999;
@@ -576,6 +585,8 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
     // 更新当前页码和进度
     const page = sectionIndex + 1;
     state.currentPage = page;
+    // 容器里此刻真正渲染的是这个章节：渲染判定/章节根查询的唯一事实源
+    state.renderedSectionIndex = sectionIndex;
     const emitted = typeof progressToEmit === 'number' && isFinite(progressToEmit) && progressToEmit > 0
       ? progressToEmit
       : page;
@@ -614,6 +625,8 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
 
     container.innerHTML = '';
     container.scrollLeft = 0;
+    // 容器刚被清空：清零实际渲染章节，强制随后的 renderSection 生效
+    state.renderedSectionIndex = -1;
     container.style.cssText = `
         width: 100%;
         height: 100%;
@@ -677,9 +690,14 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
     styleEl.textContent = next;
   };
 
+  /** 容器当前实际渲染的页码（1-based）；未渲染时退回对外页码 */
+  const getRenderedPage = (): number => {
+    return state.renderedSectionIndex >= 0 ? state.renderedSectionIndex + 1 : (state.currentPage || 1);
+  };
+
   const getInstantPreciseProgress = (): number => {
     const container = state.container;
-    const page = state.currentPage || 1;
+    const page = getRenderedPage();
     if (!container) return page;
     const denom = getHorizontalDenom(container);
     if (denom <= 0) return page;
@@ -694,11 +712,13 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
     if (!shadow) return false;
 
     const initialProgress = options?.initialVirtualPage;
+    // “就地更新样式”只对实际渲染中的章节成立：否则应交给 renderHorizontal 完整重渲染
+    const renderedPage = getRenderedPage();
     const targetPage =
       typeof initialProgress === 'number' && isFinite(initialProgress) && initialProgress > 0
         ? Math.floor(initialProgress)
-        : state.currentPage;
-    if (targetPage !== state.currentPage) return false;
+        : renderedPage;
+    if (targetPage !== renderedPage) return false;
 
     const hasThemeChange =
       options?.theme !== undefined ||
@@ -757,7 +777,10 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
       return;
     }
 
-    if (intPage !== state.currentPage || !state.container.shadowRoot) {
+    // 判据用「实际渲染章节」而不是 currentPage：currentPage 会被 TTS 的
+    // setSectionIndex 提前改写，用它判定会跳过渲染，导致视图停在旧章节。
+    // 注意单位：intPage 是 1-based 页码，renderedSectionIndex 是 0-based 章节索引
+    if (intPage - 1 !== state.renderedSectionIndex || !state.container.shadowRoot) {
       await renderSection(intPage - 1, state.container, {
         ...lastRenderOptions,
         theme: context.currentTheme,
@@ -881,6 +904,8 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
       } catch { }
     }
     state.container = null;
+    // 容器内容已清空：实际渲染章节归零，下一次 goToPage 必然触发渲染
+    state.renderedSectionIndex = -1;
   };
 
   return {
