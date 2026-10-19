@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::time::Duration;
 
 use tauri::{AppHandle, Runtime};
 
@@ -7,10 +8,14 @@ use crate::tts::dispatcher::common::{get_text_segments, SectionBatchConfig};
 use crate::tts::types::{TtsGetSegmentsRequest, TtsGetSegmentsResponse};
 use crate::txt_commands::METADATA_CACHE;
 
-/// TXT 单批次配置：最多跨 4 章
+/// TXT 单批次配置
+///
+/// TXT 章节整体较大，正常一批会在首章内部就达到 segments 上限；
+/// 安全阀比 EPUB/MOBI 更小，因为单章加载需要读文件（比读已缓存的章节 HTML 更贵）。
 const TXT_BATCH: SectionBatchConfig = SectionBatchConfig {
-    max_sections_per_batch: 4,
     id_prefix: "txt",
+    max_examined_sections: 64,
+    max_batch_load_time: Duration::from_millis(250),
 };
 
 /// TXT 取片入口：按章节加载内容，cursor 用 sectionIndex:chunkIndex 形式

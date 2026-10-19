@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::time::Duration;
 
 use tauri::{AppHandle, Manager, Runtime};
 use tokio::sync::Mutex;
@@ -10,10 +11,14 @@ use crate::tts::dispatcher::common::{get_text_segments, SectionBatchConfig};
 use crate::tts::dispatcher::html_text::extract_plain_text;
 use crate::tts::types::{TtsGetSegmentsRequest, TtsGetSegmentsResponse};
 
-/// EPUB 单批次配置：最多跨 12 章
+/// EPUB 单批次配置
+///
+/// - 时间预算吸收“章大/章小、存储快/慢”的差异，不再用固定跨章数做配额；
+/// - 安全阀只兜底大量空章/隐藏章（如 EPUB3 导航文档）的扫描风暴。
 const EPUB_BATCH: SectionBatchConfig = SectionBatchConfig {
-    max_sections_per_batch: 12,
     id_prefix: "epub",
+    max_examined_sections: 128,
+    max_batch_load_time: Duration::from_millis(250),
 };
 
 /// EPUB 取片入口：从章节缓存按 cursor 续传地拉取 segments

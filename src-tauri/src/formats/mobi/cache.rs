@@ -11,6 +11,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::fs;
 use tokio::sync::RwLock;
 
+use crate::formats::common::refresh_meta_access_time;
+
 /// 缓存根目录
 fn mobi_cache_root() -> PathBuf {
     if let Ok(dir) = std::env::var("GOREAD_MOBI_CACHE_ROOT") {
@@ -279,14 +281,17 @@ impl MobiCacheManager {
         if let Some((meta, html_content)) =
             self.read_section_entry_from_dir(&cache_dir, section_index).await?
         {
-            let updated_meta = SectionCacheMeta {
-                last_access_time: Self::now_millis(),
-                ..meta.clone()
-            };
-            if let Ok(updated_meta_json) = serde_json::to_string(&updated_meta) {
-                let meta_path = cache_dir.join(format!("{}.meta.json", section_index));
-                let _ = fs::write(&meta_path, updated_meta_json).await;
-            }
+            // 访问时间回写节流：TTS 取片会按章反复读缓存，逐次回写 meta 是纯额外 I/O
+            refresh_meta_access_time(
+                &cache_dir.join(format!("{}.meta.json", section_index)),
+                meta.last_access_time,
+                Self::now_millis(),
+                |now| SectionCacheMeta {
+                    last_access_time: now,
+                    ..meta.clone()
+                },
+            )
+            .await;
 
             return Ok(Some(SectionCacheData {
                 html: html_content,
@@ -439,14 +444,16 @@ impl MobiCacheManager {
             .await?
         {
             let mime_type = meta.mime_type.clone();
-            let updated_meta = ResourceCacheMeta {
-                last_access_time: Self::now_millis(),
-                ..meta
-            };
-            if let Ok(updated_meta_json) = serde_json::to_string(&updated_meta) {
-                let meta_path = cache_dir.join(format!("{}.meta.json", resource_hash));
-                let _ = fs::write(&meta_path, updated_meta_json).await;
-            }
+            refresh_meta_access_time(
+                &cache_dir.join(format!("{}.meta.json", resource_hash)),
+                meta.last_access_time,
+                Self::now_millis(),
+                |now| ResourceCacheMeta {
+                    last_access_time: now,
+                    ..meta
+                },
+            )
+            .await;
             return Ok(Some((data, mime_type)));
         }
 
