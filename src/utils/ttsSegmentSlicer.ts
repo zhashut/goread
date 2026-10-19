@@ -232,6 +232,10 @@ export const sliceTextToSegments = (options: SliceTextOptions): SliceTextResult 
   const chunks = splitTextToChunks(text);
   const segments: TTSSegment[] = [];
   let searchOffset = 0;
+  // 与 Rust slicer 保持一致：整章长度/chunk 总数随每个 segment 下发。
+  // Web Speech 走前端切片，没有这两个字段就会退化为墙钟进度。
+  const sectionSpeakableLength = text.replace(/\s+/g, '').length;
+  const sectionChunkCount = chunks.length;
 
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i]!;
@@ -257,6 +261,8 @@ export const sliceTextToSegments = (options: SliceTextOptions): SliceTextResult 
       chunkIndex: i,
       cursor: cursorEncoder(sectionIndex, i),
       anchor: createAnchor(text, start, end),
+      sectionSpeakableLength,
+      sectionChunkCount,
     });
   }
 

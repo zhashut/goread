@@ -12,9 +12,14 @@ import {
   EpubPositionRestorer,
   type EpubPositionRestorerContext,
 } from './epub/EpubPositionRestorer';
-import { invokeTTSGetSegments } from './backendBridge';
-import { buildAnchorAtTextRatio, findTextOffsetByQuote } from '../../../utils/ttsAnchor';
-import { log, logError } from '../../index';
+import { fetchBackendSegmentsSafe } from './backendBridge';
+import { resolveProviderStartPosition } from './TTSContentProvider';
+import {
+  buildAnchorAtTextRatio,
+  findAnchorTextOffset,
+  getSpeakableLength,
+} from '../../../utils/ttsAnchor';
+import { log } from '../../index';
 
 /** EpubContentProvider 所需的上下文 */
 export interface EpubContentProviderContext extends EpubPositionRestorerContext {
@@ -67,17 +72,7 @@ export class EpubContentProvider implements TTSContentProvider {
   ): Promise<TTSContentProviderBatch> {
     const request = this.buildBackendRequest(req);
     if (!request) return { segments: [], cursor: null, hasMore: false };
-    try {
-      const batch = await invokeTTSGetSegments(request);
-      return {
-        segments: batch.segments,
-        cursor: batch.cursor,
-        hasMore: batch.hasMore,
-      };
-    } catch (e) {
-      logError('[TTS][EpubProvider] tts_get_segments 失败', e);
-      return { segments: [], cursor: null, hasMore: false };
-    }
+    return fetchBackendSegmentsSafe(request, 'EpubProvider');
   }
 
   buildBackendRequest(
@@ -93,7 +88,7 @@ export class EpubContentProvider implements TTSContentProvider {
       );
       return null;
     }
-    const start = this.#resolveStartPosition(req);
+    const start = resolveProviderStartPosition(req, this.#ctx.getVisibleStartPosition);
     const hiddenSections = this.#ctx.getHiddenSections?.() ?? [];
     return {
       bookId,
@@ -108,17 +103,6 @@ export class EpubContentProvider implements TTSContentProvider {
       readingMode: this.#ctx.getReadingMode(),
       hiddenSections: hiddenSections.length > 0 ? hiddenSections : undefined,
     };
-  }
-
-  /**
-   * cursor=null 且调用方未传 startPosition 时，从可视区域顶部计算起点
-   */
-  #resolveStartPosition(
-    req: TTSContentProviderGetSegmentsRequest,
-  ): TTSReadingPosition | null {
-    if (req.cursor) return null;
-    if (req.startPosition) return req.startPosition;
-    return this.#ctx.getVisibleStartPosition?.() ?? null;
   }
 
   /**
@@ -158,7 +142,7 @@ export class EpubContentProvider implements TTSContentProvider {
   getSectionSpeakableLength(sectionIndex: number): number | null {
     const text = this.#resolveSectionRoot(sectionIndex)?.textContent;
     if (!text) return null;
-    const length = text.replace(/\s+/g, '').length;
+    const length = getSpeakableLength(text);
     return length > 0 ? length : null;
   }
 
@@ -187,9 +171,8 @@ export class EpubContentProvider implements TTSContentProvider {
     sectionIndex: number,
     anchor: TTSReadingAnchor | null | undefined,
   ): number | null {
-    if (!anchor?.quote) return null;
     const text = this.#resolveSectionRoot(sectionIndex)?.textContent;
-    return text ? findTextOffsetByQuote(text, anchor.quote) : null;
+    return findAnchorTextOffset(text, anchor);
   }
 
   /**

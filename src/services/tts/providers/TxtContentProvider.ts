@@ -14,7 +14,9 @@ import {
   findAnchorStartOffsetWithContext,
 } from '../../../utils/ttsSegmentSlicer';
 import { encodeSectionCursor, decodeSectionCursor } from '../../../utils/ttsSegment';
-import { buildAnchorAtTextRatio } from '../../../utils/ttsAnchor';
+import { resolveProviderStartPosition } from './TTSContentProvider';
+import { invokeTTSGetSegments } from './backendBridge';
+import { buildAnchorAtTextRatio, getSpeakableLength } from '../../../utils/ttsAnchor';
 import { log } from '../../index';
 import { txtCacheService, type TxtChapterContent } from '../../formats/txt/txtCacheService';
 import { txtPreloader } from '../../formats/txt/txtPreloader';
@@ -88,6 +90,16 @@ export class TxtContentProvider implements TTSContentProvider {
   async getSegments(
     req: TTSContentProviderGetSegmentsRequest,
   ): Promise<TTSContentProviderBatch> {
+    // Tauri 环境优先走 Rust 统一取片：错误处理、chunk 下标、section 统计
+    // 与 EPUB/MOBI 完全一致；只有纯浏览器（无 Tauri invoke）才回退本地切片。
+    const request = this.buildBackendRequest(req);
+    if (request) {
+      try {
+        return await invokeTTSGetSegments(request);
+      } catch {
+        // 纯 Web Speech / 后端不可用：继续走下方本地切片
+      }
+    }
     return await this.#getChapterSegments(req);
   }
 
@@ -96,7 +108,7 @@ export class TxtContentProvider implements TTSContentProvider {
   ): BackendTTSRequest | null {
     const filePath = this.#ctx.getFilePath();
     if (!filePath) return null;
-    const startPosition = this.#resolveStartPosition(req);
+    const startPosition = resolveProviderStartPosition(req, this.#ctx.getVisibleStartPosition);
     // 注意：fallbackSectionIndex 恒为章节索引（后端 txt.rs 按章节取片）
     const fallbackSectionIndex =
       startPosition?.sectionIndex ??
@@ -296,7 +308,7 @@ export class TxtContentProvider implements TTSContentProvider {
   getSectionSpeakableLength(sectionIndex: number): number | null {
     const text = this.#getChapterText(sectionIndex);
     if (!text) return null;
-    const length = text.replace(/\s+/g, '').length;
+    const length = getSpeakableLength(text);
     return length > 0 ? length : null;
   }
 
@@ -419,7 +431,9 @@ export class TxtContentProvider implements TTSContentProvider {
     // 起点解析：cursor 优先，其次 startPosition，最后当前阅读位置
     const cursor = decodeSectionCursor(req.cursor);
     // 只有首批（无 cursor）才需要视口起点；续读批的章内位置由 cursor 给出
-    const startPosition = cursor ? null : this.#resolveStartPosition(req);
+    const startPosition = cursor
+      ? null
+      : resolveProviderStartPosition(req, this.#ctx.getVisibleStartPosition);
     let startChapter: number;
     let startChunk: number;
     if (cursor) {
@@ -550,14 +564,7 @@ export class TxtContentProvider implements TTSContentProvider {
     return findStartChunkIndexByAnchor(text, startPosition.anchor);
   }
 
-  /** cursor=null 时优先用调用方传入的 startPosition，否则用 ctx 提供的视口起点 */
-  #resolveStartPosition(
-    req: TTSContentProviderGetSegmentsRequest,
-  ): TTSReadingPosition | null {
-    if (req.cursor) return null;
-    if (req.startPosition) return req.startPosition;
-    return this.#ctx.getVisibleStartPosition?.() ?? null;
-  }
+
 
   // ======================== 横向恢复定位 ========================
 

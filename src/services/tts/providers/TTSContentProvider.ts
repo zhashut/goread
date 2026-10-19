@@ -39,6 +39,21 @@ export interface TTSContentProviderGetSegmentsRequest {
   startPosition?: TTSReadingPosition | null;
 }
 
+/**
+ * 解析 provider 的起播位置：cursor 优先；否则用调用方显式传入的 startPosition；
+ * 最后回退到渲染器提供的可视区域起点。
+ *
+ * EPUB/MOBI/TXT 的规则完全一致，集中在这里避免各 provider 复制。
+ */
+export const resolveProviderStartPosition = (
+  req: TTSContentProviderGetSegmentsRequest,
+  getVisibleStartPosition?: () => TTSReadingPosition | null,
+): TTSReadingPosition | null => {
+  if (req.cursor) return null;
+  if (req.startPosition) return req.startPosition;
+  return getVisibleStartPosition?.() ?? null;
+};
+
 /** Provider 取片响应 */
 export interface TTSContentProviderBatch {
   segments: TTSSegment[];

@@ -1,5 +1,28 @@
 use serde::{Deserialize, Serialize};
 
+
+/// TTS 支持的书籍格式。
+///
+/// 请求 DTO 仍用字符串跨 IPC 传输，进入 Rust 后统一解析成枚举，
+/// 避免在命令层反复对 `format.as_str()` 做字符串 switch。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TtsFormat {
+    Epub,
+    Mobi,
+    Txt,
+}
+
+impl TtsFormat {
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw {
+            "epub" => Some(Self::Epub),
+            "mobi" => Some(Self::Mobi),
+            "txt" => Some(Self::Txt),
+            _ => None,
+        }
+    }
+}
+
 /// 朗读定位锚点：与前端 TTSReadingAnchor 字段一致
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TtsAnchorDto {

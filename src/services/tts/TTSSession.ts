@@ -803,12 +803,9 @@ export class TTSSession {
       backendSpeakable > 0
         ? backendSpeakable
         : (this.#provider.getSectionSpeakableLength?.(sectionIndex) ?? rawLength);
-    // 后端给的是整章长度；前端 DOM 在纵向模式可能只拿到部分章节，
-    // 不能把部分长度当分母算 anchor 基准，否则基准可能直接接近满格。
-    this.#chapterTextLength =
-      backendSpeakable > 0
-        ? backendSpeakable
-        : Math.max(0, rawLength > 0 ? rawLength : speakable);
+    // anchor 偏移是按原始文本（含空白）算的，base 的分母也必须用原始长度；
+    // 后端 speakable 只用于时长估算。文本进度模式不使用 base，这里的口径只影响旧驱动 fallback。
+    this.#chapterTextLength = Math.max(0, rawLength > 0 ? rawLength : speakable);
     this.#chapterSpeakableLength = Math.max(0, speakable);
     if (this.#chapterSpeakableLength <= 0) {
       this.#chapterDurationMs = 0;
@@ -919,6 +916,11 @@ export class TTSSession {
     sectionIndex: number,
     anchor: TTSReadingAnchor | null | undefined,
   ): void {
+    // 文本进度模式位置由 chunk 比例决定，anchor 毫秒基准不再参与
+    if (this.#chapterChunkCount > 0) {
+      this.#chapterBaseMs = 0;
+      return;
+    }
     if (this.#chapterDurationMs <= 0 || this.#chapterTextLength <= 0) {
       this.#chapterBaseMs = 0;
       return;
@@ -1006,14 +1008,19 @@ export class TTSSession {
       return;
     }
     const duration = this.#chapterDurationMs;
+    const chapterSpeakableLength = this.#chapterSpeakableLength;
+    const chapterTextLength = this.#chapterTextLength;
     const wasPaused = this.#state === 'paused';
     log(
       `[TTSSession] seek: sectionIndex=${sectionIndex} ratio=${ratio.toFixed(3)} positionMs=${positionMs} durationMs=${duration}`,
       'info',
     );
     await this.#restartAt(sectionIndex, anchor);
-    // 重启后把进度基准对齐到拖动位置，避免进度条跳回章节开头
+    // 重启后把进度基准对齐到拖动位置，避免进度条跳回章节开头。
+    // start() 会清空章节统计，这里恢复，保证后续语速校准还能重算本章时长。
     this.#chapterDurationMs = duration;
+    this.#chapterSpeakableLength = chapterSpeakableLength;
+    this.#chapterTextLength = chapterTextLength;
     this.#chapterBaseMs = ratio * duration;
     this.#chapterElapsedMs = 0;
     this.#chapterResumeTs = this.#state === 'playing' ? Date.now() : null;

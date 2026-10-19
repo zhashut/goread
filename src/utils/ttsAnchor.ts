@@ -25,6 +25,19 @@ const clampRatio = (ratio: number): number => {
 
 const normalize = (text: string): string => text.replace(/\s+/g, ' ').trim();
 
+/** 可朗读字符数（去空白），供章节时长估算与 TTS 进度共用 */
+export const getSpeakableLength = (text: string | null | undefined): number =>
+  text ? text.replace(/\s+/g, '').length : 0;
+
+/** anchor.quote 在章节文本中的近似偏移；无文本/anchor 时返回 null */
+export const findAnchorTextOffset = (
+  text: string | null | undefined,
+  anchor: TTSReadingAnchor | null | undefined,
+): number | null => {
+  if (!text || !anchor?.quote) return null;
+  return findTextOffsetByQuote(text, anchor.quote);
+};
+
 export const buildAnchorAtTextRatio = (
   text: string,
   ratio: number,

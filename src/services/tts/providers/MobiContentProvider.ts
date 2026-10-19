@@ -8,9 +8,14 @@ import type {
   TTSReadingPosition,
 } from './TTSContentProvider';
 import { AnchorLocator } from './AnchorLocator';
-import { invokeTTSGetSegments } from './backendBridge';
-import { buildAnchorAtTextRatio, findTextOffsetByQuote } from '../../../utils/ttsAnchor';
-import { log, logError } from '../../index';
+import { fetchBackendSegmentsSafe } from './backendBridge';
+import { resolveProviderStartPosition } from './TTSContentProvider';
+import {
+  buildAnchorAtTextRatio,
+  findAnchorTextOffset,
+  getSpeakableLength,
+} from '../../../utils/ttsAnchor';
+import { log } from '../../index';
 
 /** MOBI Provider 上下文 */
 export interface MobiContentProviderContext {
@@ -50,17 +55,7 @@ export class MobiContentProvider implements TTSContentProvider {
   ): Promise<TTSContentProviderBatch> {
     const request = this.buildBackendRequest(req);
     if (!request) return { segments: [], cursor: null, hasMore: false };
-    try {
-      const batch = await invokeTTSGetSegments(request);
-      return {
-        segments: batch.segments,
-        cursor: batch.cursor,
-        hasMore: batch.hasMore,
-      };
-    } catch (e) {
-      logError('[TTS][MobiProvider] tts_get_segments 失败', e);
-      return { segments: [], cursor: null, hasMore: false };
-    }
+    return fetchBackendSegmentsSafe(request, 'MobiProvider');
   }
 
   buildBackendRequest(
@@ -76,7 +71,7 @@ export class MobiContentProvider implements TTSContentProvider {
       );
       return null;
     }
-    const start = this.#resolveStartPosition(req);
+    const start = resolveProviderStartPosition(req, this.#ctx.getVisibleStartPosition);
     const fallback = start?.sectionIndex ?? this.#findVisibleSectionIndex();
     return {
       bookId,
@@ -128,7 +123,7 @@ export class MobiContentProvider implements TTSContentProvider {
   getSectionSpeakableLength(sectionIndex: number): number | null {
     const text = this.#getSections()[sectionIndex]?.textContent;
     if (!text) return null;
-    const length = text.replace(/\s+/g, '').length;
+    const length = getSpeakableLength(text);
     return length > 0 ? length : null;
   }
 
@@ -161,19 +156,11 @@ export class MobiContentProvider implements TTSContentProvider {
     sectionIndex: number,
     anchor: TTSReadingAnchor | null | undefined,
   ): number | null {
-    if (!anchor?.quote) return null;
     const text = this.#getSections()[sectionIndex]?.textContent;
-    return text ? findTextOffsetByQuote(text, anchor.quote) : null;
+    return findAnchorTextOffset(text, anchor);
   }
 
-  /** cursor=null 时优先用调用方传入的 startPosition，否则用 ctx 提供的视口起点 */
-  #resolveStartPosition(
-    req: TTSContentProviderGetSegmentsRequest,
-  ): TTSReadingPosition | null {
-    if (req.cursor) return null;
-    if (req.startPosition) return req.startPosition;
-    return this.#ctx.getVisibleStartPosition?.() ?? null;
-  }
+  
 
   #getSections(): HTMLElement[] {
     const shadow = this.#ctx.getShadowRoot();

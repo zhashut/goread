@@ -14,7 +14,8 @@ export type TTSFailReason =
 /** 创建客户端结果 */
 export interface CreateTTSClientResult {
   client: ITTSClient | null;
-  failReason: TTSFailReason;
+  /** 成功时为空；仅 client 为 null 时提供失败原因 */
+  failReason?: TTSFailReason;
 }
 
 /** 优先级（用户偏好引擎） */
@@ -53,25 +54,29 @@ async function pickClientOnAndroid(
 ): Promise<CreateTTSClientResult> {
   if (preferred === 'web-speech') {
     const web = await tryWebSpeech(true);
-    if (web) return { client: web, failReason: 'listenFailedUnknown' };
-  }
-  if (preferred === 'native-tts') {
-    const native = await tryNative();
-    const info = native?.getInitInfo();
-    if (native && info?.offlineReady) return { client: native, failReason: 'listenFailedUnknown' };
-    await native?.shutdown().catch(() => {});
+    if (web) return { client: web };
   }
 
-  const native = await tryNative();
-  const nativeInfo = native?.getInitInfo();
-  if (native && nativeInfo?.offlineReady) {
-    return { client: native, failReason: 'listenFailedUnknown' };
+  // 用户指定 native 时只尝试一次；失败后保留实例用于后续 missing_data 兜底，
+  // 不再像旧逻辑那样 shutdown 后立刻重复 init 同一个引擎。
+  let native: NativeTTSClient | null = null;
+  let nativeInfo: ReturnType<NativeTTSClient['getInitInfo']> | undefined;
+  if (preferred === 'native-tts') {
+    native = await tryNative();
+    nativeInfo = native?.getInitInfo();
+    if (native && nativeInfo?.offlineReady) return { client: native };
+  }
+
+  if (!native) {
+    native = await tryNative();
+    nativeInfo = native?.getInitInfo();
+    if (native && nativeInfo?.offlineReady) return { client: native };
   }
 
   const webLocal = await tryWebSpeech(false);
   if (webLocal) {
     await native?.shutdown().catch(() => {});
-    return { client: webLocal, failReason: 'listenFailedUnknown' };
+    return { client: webLocal };
   }
 
   if (
@@ -79,13 +84,13 @@ async function pickClientOnAndroid(
     && nativeInfo
     && (nativeInfo.status === 'missing_data' || nativeInfo.status === 'lang_not_supported')
   ) {
-    return { client: native, failReason: 'listenFailedUnknown' };
+    return { client: native };
   }
 
   const webAny = await tryWebSpeech(true);
   if (webAny) {
     await native?.shutdown().catch(() => {});
-    return { client: webAny, failReason: 'listenFailedUnknown' };
+    return { client: webAny };
   }
 
   const w = window as any;
@@ -102,21 +107,21 @@ async function pickClientOnDesktop(
 ): Promise<CreateTTSClientResult> {
   if (preferred === 'native-tts') {
     const native = await tryNative();
-    if (native) return { client: native, failReason: 'listenFailedUnknown' };
-  }
-  if (preferred === 'web-speech') {
-    const web = await tryWebSpeech(true);
-    if (web) return { client: web, failReason: 'listenFailedUnknown' };
+    if (native) return { client: native };
   }
 
+  // preferred=web-speech 时这里就是首选；否则作为 native 失败后的兜底。
+  // 旧逻辑在 preferred=web-speech 时会连续 tryWebSpeech(true) 两次。
   const web = await tryWebSpeech(true);
-  if (web) return { client: web, failReason: 'listenFailedUnknown' };
+  if (web) return { client: web };
 
   if (!NativeTTSClient.isAvailable()) {
     return { client: null, failReason: 'listenFailedNoVoice' };
   }
-  const native = await tryNative();
-  if (native) return { client: native, failReason: 'listenFailedUnknown' };
+  if (preferred !== 'native-tts') {
+    const native = await tryNative();
+    if (native) return { client: native };
+  }
   return { client: null, failReason: 'listenFailedNativeInit' };
 }
 
