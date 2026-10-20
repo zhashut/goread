@@ -105,6 +105,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_native_tts::NativeTtsExt;
+use tauri_plugin_ios_bridge::IosBridgeExt;
 use tokio::sync::Mutex;
 use tts::session_manager::ManagedTtsSessionState;
 
@@ -303,6 +304,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_native_tts::init())
+        .plugin(tauri_plugin_ios_bridge::init())
         .setup(|app| {
             app.manage(Arc::new(ManagedTtsSessionState::new()));
             // 设置数据库连接

@@ -33,7 +33,11 @@ class ExternalFileOpenBridge {
             "mimeType": mimeType,
             "displayName": fileName,
             "fromNewIntent": fromNewIntent,
-            "platform": "ios"
+            "platform": "ios",
+            // iOS 沙盒内文件有真实绝对路径，前端 useExternalFileOpen.ts 的
+            // ExternalFileEventDetail 会读 detail.path，并优先用它做路径解析
+            // （resolveLocalPathFromUri(rawPath = file.path || file.uri)）。
+            "path": url.path
         ]
         
         guard let data = try? JSONSerialization.data(withJSONObject: payload, options: []),
