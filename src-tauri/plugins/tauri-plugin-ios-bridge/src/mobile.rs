@@ -1,3 +1,4 @@
+use serde::de::DeserializeOwned;
 use tauri::{
     plugin::{PluginApi, PluginHandle},
     AppHandle, Runtime,
@@ -6,14 +7,12 @@ use tauri::{
 #[cfg(target_os = "ios")]
 tauri::ios_plugin_binding!(init_plugin_ios_bridge);
 
-pub fn init<R: Runtime, C>(
+/// 仅 iOS 参与编译（模块 cfg 见 lib.rs），其它平台走 desktop.rs 的 no-op token。
+pub fn init<R: Runtime, C: DeserializeOwned>(
     _app: &AppHandle<R>,
     api: PluginApi<R, C>,
 ) -> crate::Result<IosBridge<R>> {
-    #[cfg(target_os = "ios")]
     let handle = api.register_ios_plugin(init_plugin_ios_bridge)?;
-    #[cfg(not(target_os = "ios"))]
-    let handle = api.register_android_plugin("com.tauri_app.ios_bridge", "IOSBridgePlugin")?;
     Ok(IosBridge(handle))
 }
 

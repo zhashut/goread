@@ -233,9 +233,21 @@ final class TTSSessionRunner {
       "segmentId": segment.id,
       "sectionIndex": segment.sectionIndex,
       "chunkIndex": segment.chunkIndex,
+      // 带上当前句文本：前端用于媒体通知动态文案
+      "text": String(segment.text.prefix(300)),
+      // 完整句的可朗读字符数（不受上面截断影响），供前端做语速校准
+      "speakableLength": speakableLength(of: segment.text),
     ]
     if let cursor = segment.cursor {
       data["cursor"] = cursor
+    }
+    // 整章可朗读字符数：前端据此计算章节总时长（跨章/后台都可靠）
+    if let sectionLength = segment.sectionSpeakableLength {
+      data["sectionSpeakableLength"] = sectionLength
+    }
+    // 整章 chunk 总数：前端用 chunkIndex / sectionChunkCount 推进文本进度
+    if let sectionChunkCount = segment.sectionChunkCount {
+      data["sectionChunkCount"] = sectionChunkCount
     }
     if let anchor = segment.anchor {
       var anchorData: JSObject = ["quote": anchor.quote]
@@ -254,11 +266,21 @@ final class TTSSessionRunner {
     var data: JSObject = [
       "code": "session_segment_done",
       "segmentId": segment.id,
+      // 带上章节/chunk 信息：前端据此把文本进度推进到该 chunk 完成
+      "sectionIndex": segment.sectionIndex,
+      "chunkIndex": segment.chunkIndex,
     ]
+    if let sectionChunkCount = segment.sectionChunkCount {
+      data["sectionChunkCount"] = sectionChunkCount
+    }
     if let cursor = segment.cursor {
       data["cursor"] = cursor
     }
     host?.emitEvent(data)
+  }
+
+  private func speakableLength(of text: String) -> Int {
+    text.unicodeScalars.count { !CharacterSet.whitespacesAndNewlines.contains($0) }
   }
 
   private func emitRequestMore() {
@@ -316,3 +338,4 @@ final class TTSSessionRunner {
     ])
   }
 }
+

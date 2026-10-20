@@ -21,6 +21,31 @@ struct SetMediaSessionActiveArgs: Decodable {
   let foregroundServiceText: String?
 }
 
+/// 与 Android `set_playback_state` 对齐的播放状态载荷。
+/// iOS 没有前台服务语义，这里把同名命令映射为系统 Now Playing 卡片信息
+/// （标题 / 进度 / 时长 / 可跳转性）与远程控制能力（播放 / 暂停 / 上下章 / 拖动）。
+struct SetPlaybackStateArgs: Decodable {
+  let state: String?
+  let title: String?
+  let text: String?
+  let largeIconPath: String?
+  let positionMs: Int?
+  let durationMs: Int?
+  let canSkipPrevious: Bool?
+  let canSkipNext: Bool?
+}
+
+/// Now Playing 卡片的状态缓存，由 `set_playback_state` 持续回填。
+struct NowPlayingState {
+  var state: String? = nil
+  var title: String? = nil
+  var text: String? = nil
+  var positionMs: Double = 0
+  var durationMs: Double = 0
+  var canSkipPrevious: Bool = true
+  var canSkipNext: Bool = true
+}
+
 struct TTSSessionAnchorArgs: Codable {
   let quote: String?
   let prefix: String?
@@ -35,6 +60,10 @@ struct TTSSessionSegmentArgs: Codable {
   let chunkIndex: Int?
   let cursor: String?
   let anchor: TTSSessionAnchorArgs?
+  /// 所属章节整章可朗读字符数（后端切片时算好，前端估算章节总时长用）
+  let sectionSpeakableLength: Int?
+  /// 所属章节总 chunk 数（前端按 chunkIndex / sectionChunkCount 推进文本进度）
+  let sectionChunkCount: Int?
 }
 
 struct TTSSessionStartArgs: Decodable {
@@ -95,6 +124,8 @@ struct TTSSessionSegment {
   let chunkIndex: Int
   let cursor: String?
   let anchor: TTSSessionAnchor?
+  let sectionSpeakableLength: Int?
+  let sectionChunkCount: Int?
 }
 
 extension TTSSessionSegment {
@@ -121,7 +152,9 @@ extension TTSSessionSegment {
       sectionIndex: args.sectionIndex ?? 0,
       chunkIndex: args.chunkIndex ?? 0,
       cursor: args.cursor,
-      anchor: anchor
+      anchor: anchor,
+      sectionSpeakableLength: args.sectionSpeakableLength,
+      sectionChunkCount: args.sectionChunkCount
     )
   }
 
@@ -129,3 +162,4 @@ extension TTSSessionSegment {
     (args ?? []).compactMap(Self.fromArgs)
   }
 }
+

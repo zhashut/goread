@@ -265,14 +265,15 @@ export class NativeTTSClient implements ITTSClient {
     canSkipPrevious?: boolean,
     canSkipNext?: boolean,
   ): Promise<void> {
-    // 媒体通知是 Android 前台服务能力，其他平台不下发
-    if (this.#mode !== 'plugin' || !isAndroid()) return;
+    // 媒体通知/锁屏能力：Android 走前台服务；iOS 走系统 Now Playing 卡片。
+    // 二者都由原生插件承载，故 plugin 模式下 Android/iOS 都下发，桌面/Web 不下发。
+    if (this.#mode !== 'plugin' || !(isAndroid() || isIOSLikePlatform())) return;
     try {
       if (state === 'playing') {
-        // 播放中确保前台服务在跑（暂停后仍保持，方便媒体通知继续显示播放按钮）
+        // 播放中确保前台服务在跑（Android）或激活音频会话（iOS），暂停后仍保持以显示控制
         await this.#setBackgroundPlaybackActive(true, title, text);
       } else if (state === 'paused') {
-        // 暂停不停止前台服务：媒体通知/播放按钮需要保留，便于继续播放
+        // 暂停不停止原生会话：媒体通知/控制卡片可继续播放
       } else {
         await this.#setBackgroundPlaybackActive(false);
       }
@@ -292,7 +293,7 @@ export class NativeTTSClient implements ITTSClient {
         },
       });
     } catch (e) {
-      // 通知状态同步失败不影响朗读
+      // 状态同步失败不影响朗读
       logError('[TTS][Native] 同步播放状态失败', e);
     }
   }

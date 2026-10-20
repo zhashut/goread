@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import MediaPlayer
 import Tauri
 import UIKit
 
@@ -14,9 +15,21 @@ class NativeTTSPlugin: Plugin, AVSpeechSynthesizerDelegate, NativeTTSSessionHost
   private var mediaSessionRequested = false
   private var primaryLang = "zh-CN"
 
+  // 中文注释: 播放状态缓存，用于回填 Now Playing 卡片存根与锁屏进度。
+  private var nowPlaying = NowPlayingState()
+  private var remoteCommandsRegistered = false
+  private var interruptionObserver: NSObjectProtocol?
+
   override init() {
     super.init()
     speechSynthesizer.delegate = self
+    observeAudioInterruption()
+  }
+
+  deinit {
+    if let observer = interruptionObserver {
+      NotificationCenter.default.removeObserver(observer)
+    }
   }
 
   var synthesizer: AVSpeechSynthesizer {
@@ -62,6 +75,39 @@ class NativeTTSPlugin: Plugin, AVSpeechSynthesizerDelegate, NativeTTSSessionHost
     invoke.resolve()
   }
 
+  /// 与 Android `set_playback_state` 对齐：把播放状态同步到系统 Now Playing 卡片，
+  /// 并确保远程控制命令已注册。iOS 没有前台服务，锁屏/控制中心的卡片与按键即对等承载。
+  @objc public func set_playback_state(_ invoke: Invoke) throws {
+    let args = try invoke.parseArgs(SetPlaybackStateArgs.self)
+    runOnMain { [self] in
+      nowPlaying.state = args.state
+      nowPlaying.title = args.title
+      nowPlaying.text = args.text
+      if let position = args.positionMs, position >= 0 {
+        nowPlaying.positionMs = Double(position)
+      }
+      if let duration = args.durationMs, duration >= 0 {
+        nowPlaying.durationMs = Double(duration)
+      }
+      if let canPrev = args.canSkipPrevious {
+        nowPlaying.canSkipPrevious = canPrev
+      }
+      if let canNext = args.canSkipNext {
+        nowPlaying.canSkipNext = canNext
+      }
+
+      // 只要前端下发过播放/暂停态，就认为需要对外暴露锁屏控制（含这里的激活音频会话）。
+      if args.state == "playing" || args.state == "paused" {
+        mediaSessionRequested = true
+        try? activateAudioSession()
+        ensureNowPlaying()
+      } else {
+        clearNowPlayingIfIdle()
+      }
+    }
+    invoke.resolve()
+  }
+
   @objc public func open_tts_settings(_ invoke: Invoke) {
     // 中文注释: iOS 没有公开的系统 TTS 设置页，这里退化为应用设置页。
     guard let url = URL(string: UIApplication.openSettingsURLString) else {
@@ -89,6 +135,8 @@ class NativeTTSPlugin: Plugin, AVSpeechSynthesizerDelegate, NativeTTSSessionHost
     isInitialized = false
     currentVoiceId = ""
     mediaSessionRequested = false
+    nowPlaying = NowPlayingState()
+    MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
     releaseAudioSessionIfNeeded(force: true)
     invoke.resolve()
   }
@@ -179,6 +227,152 @@ class NativeTTSPlugin: Plugin, AVSpeechSynthesizerDelegate, NativeTTSSessionHost
 
   func emitEvent(_ data: JSObject) {
     trigger(ttsChannelName, data: data)
+  }
+
+  // ---------------------------------------------------------------------------
+  // 系统 Now Playing 卡片 + 控制中心/锁屏媒体控制（对等 Android 媒体通知）
+  // ---------------------------------------------------------------------------
+
+  private func ensureNowPlaying() {
+    registerRemoteCommandsIfNeeded()
+    updateNowPlayingInfo()
+  }
+
+  private func clearNowPlayingIfIdle() {
+    // 只有 stopped 且确实没在朗读时才清空卡片；暂停/播放中保留卡片以便继续控制。
+    if nowPlaying.state == "stopped" && !speechSynthesizer.isSpeaking && !speechSynthesizer.isPaused {
+      MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+    }
+  }
+
+  private func updateNowPlayingInfo() {
+    var info: [String: Any] = [:]
+    if let title = nowPlaying.title, !title.isEmpty {
+      info[MPMediaItemPropertyTitle] = title
+    }
+    if let text = nowPlaying.text, !text.isEmpty {
+      info[MPMediaItemPropertyArtist] = text
+    }
+    if nowPlaying.durationMs > 0 {
+      info[MPMediaItemPropertyPlaybackDuration] = NSNumber(value: nowPlaying.durationMs / 1000.0)
+    }
+
+    let isPlaying = nowPlaying.state == "playing"
+    info[MPNowPlayingInfoPropertyPlaybackRate] = NSNumber(value: isPlaying ? 1.0 : 0.0)
+
+    info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = NSNumber(value: nowPlaying.positionMs / 1000.0)
+    MPNowPlayingInfoCenter.default().nowPlayingInfo = info
+  }
+
+  private func registerRemoteCommandsIfNeeded() {
+    guard !remoteCommandsRegistered else { return }
+    remoteCommandsRegistered = true
+    let center = MPRemoteCommandCenter.shared()
+
+    center.playCommand.isEnabled = true
+    center.playCommand.addTarget { [weak self] _ in
+      self?.dispatchMediaAction("play")
+      return .success
+    }
+
+    center.pauseCommand.isEnabled = true
+    center.pauseCommand.addTarget { [weak self] _ in
+      self?.dispatchMediaAction("pause")
+      return .success
+    }
+
+    center.togglePlayPauseCommand.isEnabled = true
+    center.togglePlayPauseCommand.addTarget { [weak self] _ in
+      // 前端只消费明确的 play/pause，这里按当前朗读状态决定发哪个。
+      let action: String
+      if let self, self.speechSynthesizer.isSpeaking {
+        action = "pause"
+      } else {
+        action = "play"
+      }
+      self?.dispatchMediaAction(action)
+      return .success
+    }
+
+    center.previousTrackCommand.isEnabled = true
+    center.previousTrackCommand.addTarget { [weak self] _ in
+      self?.dispatchMediaAction("prev-chapter")
+      return .success
+    }
+
+    center.nextTrackCommand.isEnabled = true
+    center.nextTrackCommand.addTarget { [weak self] _ in
+      self?.dispatchMediaAction("next-chapter")
+      return .success
+    }
+
+    center.changePlaybackPositionCommand.isEnabled = true
+    center.changePlaybackPositionCommand.addTarget { [weak self] event in
+      guard let positionEvent = event as? MPChangePlaybackPositionCommandEvent else {
+        return .commandFailed
+      }
+      let positionMs = Int64(positionEvent.positionTime * 1000)
+      self?.dispatchMediaAction("seek", positionMs: positionMs)
+      return .success
+    }
+  }
+
+  /// 把控制中心/锁屏的媒体按键统一转发给前端会话层（code=media_action，与 Android 对齐）。
+  private func dispatchMediaAction(_ action: String, positionMs: Int64? = nil) {
+    runOnMain { [self] in
+      var data = JSObject()
+      data["code"] = "media_action"
+      data["action"] = action
+      if let positionMs {
+        data["positionMs"] = positionMs
+      }
+      emitEvent(data)
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // 音频中断（对前端循环）：对应 Android 的音频焦点丢失/抢回
+  // ---------------------------------------------------------------------------
+
+  private func observeAudioInterruption() {
+    interruptionObserver = NotificationCenter.default.addObserver(
+      forName: AVAudioSession.interruptionNotification,
+      object: AVAudioSession.sharedInstance(),
+      queue: .main
+    ) { [weak self] notification in
+      self?.handleAudioInterruption(notification)
+    }
+  }
+
+  private func handleAudioInterruption(_ notification: Notification) {
+    guard let userInfo = notification.userInfo,
+          let rawType = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
+          let type = AVAudioSession.InterruptionType(rawValue: rawType)
+    else {
+      return
+    }
+
+    switch type {
+    case .began:
+      // 被打断：发给前端会话层去真正暂停（对等 Android dispatchAction(PAUSE, fromAudioFocus)）。
+      // 前端收到 media_action(pause) 后会同步 UI 并回调 tts_session_pause 停掉引擎。
+      guard speechSynthesizer.isSpeaking || speechSynthesizer.isPaused else { return }
+      dispatchMediaAction("pause")
+
+    case .ended:
+      // 前台通知结束：如有 shouldResume，打包给前端按用户策略恢复（对 Android 焦点恢复自动续播）。
+      if let opts = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt,
+         AVAudioSession.InterruptionOptions(rawValue: opts).contains(.shouldResume) {
+        runOnMain { [self] in
+          var data = JSObject()
+          data["code"] = "media_action"
+          data["action"] = "play"
+          emitEvent(data)
+        }
+      }
+    @unknown default:
+      break
+    }
   }
 
   private func buildInitResponse(requestedLang: String) -> InitResponse {
@@ -303,3 +497,4 @@ class NativeTTSPlugin: Plugin, AVSpeechSynthesizerDelegate, NativeTTSSessionHost
 func initPluginNativeTTS() -> Plugin {
   NativeTTSPlugin()
 }
+
