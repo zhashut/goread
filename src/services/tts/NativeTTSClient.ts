@@ -50,6 +50,19 @@ type SetMediaSessionActivePayload = {
   foregroundServiceText?: string;
 };
 
+const hasBridgeRuntime = (): boolean => typeof window.TTSBridge !== 'undefined';
+
+const hasTauriPluginRuntime = (): boolean => {
+  const w = window as any;
+  return typeof w?.__TAURI__?.core?.invoke === 'function' || typeof w?.__TAURI__?.invoke === 'function';
+};
+
+const isIOSLikePlatform = (): boolean => {
+  const ua = navigator.userAgent || '';
+  const platform = navigator.platform || '';
+  return /iphone|ipad|ipod/i.test(ua) || (platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+};
+
 /**
  * 原生 TTS 客户端
  * 仅负责：引擎初始化 / 语音查询与配置 / 前台服务保活 / 关闭
@@ -75,7 +88,7 @@ export class NativeTTSClient implements ITTSClient {
   #sessionDriver: NativeSessionDriver | null = null;
 
   static isAvailable(): boolean {
-    return typeof window.TTSBridge !== 'undefined';
+    return hasBridgeRuntime() || hasTauriPluginRuntime();
   }
 
   getInitInfo(): NativeTTSInitInfo {
@@ -285,7 +298,7 @@ export class NativeTTSClient implements ITTSClient {
   }
 
   async #initBridge(): Promise<boolean> {
-    if (!NativeTTSClient.isAvailable()) {
+    if (!hasBridgeRuntime()) {
       this.initialized = false;
       return false;
     }
@@ -373,15 +386,21 @@ export class NativeTTSClient implements ITTSClient {
     // 启动时带上真实文案，避免首个通知先闪默认文案、下一次 notify 才更新
     const notificationTitle = title || 'GoRead TTS';
     const notificationText = text || 'Reading in background';
+    // iOS 没有 Android 前台服务语义，只保留音频会话激活，不再要求 keep foreground
     const payload: SetMediaSessionActivePayload = active
-      ? {
-          active: true,
-          keepAppInForeground: true,
-          notificationTitle,
-          notificationText,
-          foregroundServiceTitle: notificationTitle,
-          foregroundServiceText: notificationText,
-        }
+      ? (isIOSLikePlatform()
+          ? {
+              active: true,
+              keepAppInForeground: false,
+            }
+          : {
+              active: true,
+              keepAppInForeground: true,
+              notificationTitle,
+              notificationText,
+              foregroundServiceTitle: notificationTitle,
+              foregroundServiceText: notificationText,
+            })
       : {
           active: false,
           keepAppInForeground: false,
@@ -396,4 +415,5 @@ export class NativeTTSClient implements ITTSClient {
     }
   }
 }
+
 
