@@ -20,6 +20,9 @@ import {
   type EpubReadingOrder,
 } from './readingOrder';
 import { extractBodyContent, normalizeBookCssForShadow } from '../../../../utils/htmlUtils';
+import { parseFixedLayoutViewport } from '../layout/viewportSpec';
+import { createFixedLayoutStage, isFixedLayoutEnabled, EPUB_FIXED_VIEWPORT_CLASS } from '../layout/fixedLayoutStage';
+import { createFixedLayoutSectionManager } from '../layout/fixedLayoutSectionManager';
 import { hasActiveSelectionIn } from '../../../../utils/selection';
 import { stabilizeScrollTop } from './scrollStabilizer';
 
@@ -98,6 +101,19 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
   let lastScrollLeftWhenIdle = 0;
   /** 选字期间钉住的滚动位置；null 表示当前未钉住 */
   let selectionPinLeft: number | null = null;
+  /** 固定版式章节管理器：流式书籍不注册章节，也不创建额外监听 */
+  const fixedLayoutManager = createFixedLayoutSectionManager(
+    {
+      getContainer: () => state.container,
+      getSectionWrapper: () => null,
+    },
+    {
+      // 横向翻页整页垂直居中
+      applyOptions: { verticalAlign: 'center' },
+      // 横向已有容器 ResizeObserver，避免重复监听
+      observeContainer: false,
+    },
+  );
 
   /** 内容区 padding 两侧总和，与 useEpubTheme 中 .epub-section-content { padding: 16px } 对应 */
   const CONTENT_PADDING_X = 32;
@@ -126,6 +142,9 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
   const ensureScrollWidthAligned = (container: HTMLElement): void => {
     const shadow = container.shadowRoot;
     if (!shadow) return;
+
+    // 固定版式由舞台缩放控制尺寸，不做分栏对齐
+    if (shadow.querySelector(`.${EPUB_FIXED_VIEWPORT_CLASS}`)) return;
 
     const contentEl = shadow.querySelector('.epub-section-content') as HTMLElement | null;
     if (!contentEl) return;
@@ -229,6 +248,8 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
     resizeObserver = new ResizeObserver(() => {
       if (!state.container) return;
       applyHorizontalLayoutVars(state.container, lastRenderOptions);
+      // 固定版式按新的容器尺寸重算缩放（流式书籍为空操作）
+      fixedLayoutManager.rescale(state.renderedSectionIndex);
       ensureScrollWidthAligned(state.container);
       // 选中文字时，浏览器可能因选字工具栏/放大镜改变视口尺寸而触发本回调；
       // 此时若回写滚动位置会同样与浏览器的选区滚动互相争夺，跳过本次位置还原
@@ -519,6 +540,11 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
       }
     }
 
+    // 固定版式书籍按章节声明逻辑视口尺寸；流式书籍返回 null，保持原渲染路径
+    const fixedViewport = isFixedLayoutEnabled()
+      ? parseFixedLayoutViewport(cacheEntry.rawHtml)
+      : null;
+
     // 使用资源缓存恢复 Blob URL
     let restoredHtml = cacheEntry.rawHtml;
     try {
@@ -533,6 +559,8 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
     }
 
     // 构建 Shadow DOM，注入主题样式和原始样式
+    // 重新渲染前释放旧的固定版式舞台
+    fixedLayoutManager.release(sectionIndex);
     let shadow = container.shadowRoot;
     if (!shadow) {
       shadow = container.attachShadow({ mode: 'open' });
@@ -547,7 +575,7 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
       ...options,
       theme,
       readingMode: 'horizontal',
-    });
+    }, { fixedLayout: Boolean(fixedViewport) });
     shadow.appendChild(themeStyle);
 
     if (cacheEntry.rawStyles.length > 0) {
@@ -562,8 +590,10 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
           stylesText = stylesText.split(placeholder).join(blobUrl);
         }
       }
-      // 归一化书籍 CSS：html/:root->:host、剥离根 font-size、rem->em，保证 rem 随阅读器字号缩放
-      stylesText = normalizeBookCssForShadow(stylesText);
+      // 归一化书籍 CSS：html/:root->:host、rem->em；固定版式保留书籍根字号作为 em 基准
+      stylesText = normalizeBookCssForShadow(stylesText, {
+        preserveRootFontSize: Boolean(fixedViewport),
+      });
       const originalStyle = document.createElement('style');
       originalStyle.textContent = stylesText;
       shadow.appendChild(originalStyle);
@@ -572,7 +602,16 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
     const content = document.createElement('div');
     content.className = 'epub-section-content';
     content.innerHTML = extractBodyContent(restoredHtml);
-    shadow.appendChild(content);
+
+    // 固定版式：书籍按逻辑像素写死页面，需要整体缩放到阅读器视口
+    if (fixedViewport) {
+      const handle = createFixedLayoutStage(content, fixedViewport);
+      fixedLayoutManager.register(sectionIndex, handle);
+      shadow.appendChild(handle.host);
+      fixedLayoutManager.rescale(sectionIndex);
+    } else {
+      shadow.appendChild(content);
+    }
 
     // 接入链接点击处理（章内锚点 / 跨章节跳转 / 外部链接）
     context.onSectionRendered?.(content, sectionIndex);
@@ -614,6 +653,8 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
     const theme = options?.theme || context.currentTheme || 'light';
     state.readingMode = 'horizontal';
     state.container = container;
+
+    fixedLayoutManager.releaseAll();
 
     lastRenderOptions = options;
     applyHorizontalLayoutVars(container, options);
@@ -683,7 +724,10 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
     const shadow = container.shadowRoot;
     if (!shadow) return;
     const theme = options?.theme || context.currentTheme || 'light';
-    const next = context.themeHook.getThemeStyles({ ...options, theme, readingMode: 'horizontal' });
+    const next = context.themeHook.getThemeStyles(
+      { ...options, theme, readingMode: 'horizontal' },
+      { fixedLayout: fixedLayoutManager.has(state.renderedSectionIndex) },
+    );
     const styleEl =
       shadow.querySelector('style[data-epub-theme-style]') || shadow.querySelector('style');
     if (!styleEl) return;
@@ -880,6 +924,7 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
   const destroy = (): void => {
     // 释放选字钉住状态，避免下次渲染沿用旧位置
     selectionPinLeft = null;
+    fixedLayoutManager.releaseAll();
     if (resizeObserver) {
       try {
         resizeObserver.disconnect();

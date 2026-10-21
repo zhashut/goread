@@ -5,6 +5,7 @@
 
 import { RenderOptions } from '../../types';
 import { getReaderPageBackground } from '../../../../constants/readerTheme';
+import { EPUB_FIXED_CONTENT_CLASS } from '../layout/fixedLayoutStage';
 
 /** 主题颜色配置 */
 export interface ThemeColors {
@@ -12,10 +13,16 @@ export interface ThemeColors {
   textColor: string;
 }
 
+/** 主题样式上下文 */
+export interface EpubThemeStyleContext {
+  /** 固定版式：只输出最小样式集，避免覆盖书籍的绝对尺寸与图片尺寸 */
+  fixedLayout?: boolean;
+}
+
 /** 主题样式 Hook 返回接口 */
 export interface EpubThemeHook {
   /** 获取主题样式字符串（用于 Shadow DOM） */
-  getThemeStyles: (options?: RenderOptions) => string;
+  getThemeStyles: (options?: RenderOptions, context?: EpubThemeStyleContext) => string;
   /** 计算主题颜色 */
   getThemeColors: (theme: string) => ThemeColors;
 }
@@ -44,8 +51,9 @@ export function useEpubTheme(): EpubThemeHook {
 
   /**
    * 获取主题样式字符串（用于 Shadow DOM）
+   * 固定版式使用独立的最小样式集，保持书籍自身的绝对尺寸与图片尺寸。
    */
-  const getThemeStyles = (options?: RenderOptions): string => {
+  const getThemeStyles = (options?: RenderOptions, context?: EpubThemeStyleContext): string => {
     const theme = options?.theme || 'light';
     const readingMode = options?.readingMode || 'vertical';
     const fontSize = options?.fontSize || 16;
@@ -53,6 +61,11 @@ export function useEpubTheme(): EpubThemeHook {
     const fontFamily = options?.fontFamily || 'serif';
 
     const { bgColor, textColor } = getThemeColors(theme);
+
+    // 固定版式：页面尺寸、字体与布局全部由书籍决定，阅读器只提供底色与信纸外留白
+    if (context?.fixedLayout) {
+      return getFixedLayoutStyles(bgColor, textColor);
+    }
 
     const layoutCss = readingMode === 'horizontal'
       ? `
@@ -165,4 +178,33 @@ export function useEpubTheme(): EpubThemeHook {
     getThemeStyles,
     getThemeColors,
   };
+}
+
+/**
+ * 固定版式主题样式：只保留底色、字色与内容容器重置，
+ * 不注入 padding / max-width / 分栏 / 图片自适应等流式规则，
+ * 避免覆盖书籍以绝对像素写死的排版。
+ * 根字号固定为 16px，不跟随阅读器字号设置；书籍自身的根字号规则会在其后覆盖。
+ */
+function getFixedLayoutStyles(bgColor: string, textColor: string): string {
+  return `
+      :host {
+        display: block;
+        background-color: ${bgColor};
+        color: ${textColor};
+        font-size: 16px;
+      }
+
+      .${EPUB_FIXED_CONTENT_CLASS} {
+        padding: 0;
+        margin: 0;
+        max-width: none;
+        width: 100%;
+        height: 100%;
+        box-sizing: border-box;
+        column-width: auto;
+        column-count: auto;
+        column-fill: auto;
+      }
+    `;
 }

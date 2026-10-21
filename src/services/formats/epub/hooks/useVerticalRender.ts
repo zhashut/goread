@@ -22,6 +22,12 @@ import {
   type EpubReadingOrder,
 } from './readingOrder';
 import { extractBodyContent, normalizeBookCssForShadow } from '../../../../utils/htmlUtils';
+import { parseFixedLayoutViewport } from '../layout/viewportSpec';
+import { createFixedLayoutStage, isFixedLayoutEnabled } from '../layout/fixedLayoutStage';
+import {
+  createFixedLayoutSectionManager,
+  type FixedLayoutSectionManager,
+} from '../layout/fixedLayoutSectionManager';
 import { stabilizeScrollTop } from './scrollStabilizer';
 
 /** 纵向渲染上下文 */
@@ -129,6 +135,12 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
   const wrapperHeightRafIds = new Map<number, number[]>();
   const wrapperResizeObservers = new Map<number, ResizeObserver>();
   const wrapperImageCleanupFns = new Map<number, Array<() => void>>();
+  /** 固定版式章节管理器：流式书籍不产生任何监听与舞台 */
+  const createSectionManager = (): FixedLayoutSectionManager => createFixedLayoutSectionManager({
+    getContainer: () => state.scrollContainer,
+    getSectionWrapper: (index) => state.sectionContainers.get(index) ?? null,
+  });
+  let fixedLayoutManager = createSectionManager();
 
   /**
    * 设置导航 hook
@@ -514,7 +526,14 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
       }
 
       if (cacheEntry) {
+        // 固定版式书籍在 head 中声明逻辑视口尺寸；流式书籍返回 null，保持原渲染路径
+        const fixedViewport = isFixedLayoutEnabled()
+          ? parseFixedLayoutViewport(cacheEntry.rawHtml)
+          : null;
         try {
+          // 重新渲染前释放旧的固定版式舞台，避免残留节点
+          fixedLayoutManager.release(index);
+
           // 使用 shadow DOM 隔离样式（复用已存在的 Shadow Root 或创建新的）
           let shadow = wrapper.shadowRoot;
           clearWrapperHeightSync(index);
@@ -528,7 +547,9 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
           // 注入主题样式
           const style = document.createElement('style');
           style.setAttribute('data-epub-theme-style', '');
-          style.textContent = themeHook.getThemeStyles(options);
+          style.textContent = themeHook.getThemeStyles(options, {
+            fixedLayout: Boolean(fixedViewport),
+          });
           shadow.appendChild(style);
 
           // 注入原文档样式（占位符稍后统一替换）
@@ -587,8 +608,10 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
 
           // 注入经过占位符替换的原文档样式
           if (stylesText) {
-            // 归一化书籍 CSS：html/:root->:host、剥离根 font-size、rem->em，保证 rem 随阅读器字号缩放
-            stylesText = normalizeBookCssForShadow(stylesText);
+            // 归一化书籍 CSS：html/:root->:host、rem->em；固定版式保留书籍根字号作为 em 基准
+            stylesText = normalizeBookCssForShadow(stylesText, {
+              preserveRootFontSize: Boolean(fixedViewport),
+            });
             const originalStyleEl = document.createElement('style');
             originalStyleEl.textContent = stylesText;
             shadow.appendChild(originalStyleEl);
@@ -598,8 +621,25 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
           const content = document.createElement('div');
           content.className = 'epub-section-content';
           content.innerHTML = extractBodyContent(restoredHtml);
-          shadow.appendChild(content);
-          setupWrapperHeightSync(index, wrapper, content);
+
+          // 固定版式：书籍按逻辑像素写死页面，需要整体缩放到阅读器视口
+          let heightSyncTarget: HTMLElement | null = null;
+          if (fixedViewport) {
+            // 规范要求固定版式不注入阅读器外边距，取消章节容器内边距与最小高度
+            wrapper.style.padding = '0';
+            wrapper.style.minHeight = '0';
+            const handle = createFixedLayoutStage(content, fixedViewport);
+            fixedLayoutManager.register(index, handle);
+            shadow.appendChild(handle.host);
+            // 缩放后同步章节高度；固定页面高度不随内容变化，无需再挂 ResizeObserver
+            fixedLayoutManager.rescale(index);
+          } else {
+            shadow.appendChild(content);
+            heightSyncTarget = content;
+          }
+          if (heightSyncTarget) {
+            setupWrapperHeightSync(index, wrapper, heightSyncTarget);
+          }
 
           // 处理链接点击事件
           if (navigationHook) {
@@ -814,6 +854,9 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
     // 保存滚动容器引用
     state.scrollContainer = container;
 
+    // 容器重建前释放上一轮的固定版式舞台
+    fixedLayoutManager.releaseAll();
+
     // 清空容器
     container.innerHTML = '';
     container.style.cssText = `
@@ -1006,6 +1049,7 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
 
     state.verticalContinuousMode = false;
     clearAllWrapperHeightSync();
+    fixedLayoutManager.releaseAll();
     state.sectionContainers.clear();
     state.renderedSections.clear();
     state.renderingInProgress.clear();
@@ -1040,6 +1084,9 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
     // 临时保存原有状态
     const originalSectionContainers = state.sectionContainers;
     const originalRenderedSections = state.renderedSections;
+    // 固定版式舞台按章节索引登记，预热期间需要隔离，避免覆盖真实渲染状态
+    const originalFixedLayoutManager = fixedLayoutManager;
+    fixedLayoutManager = createSectionManager();
 
     // 创建临时状态
     state.sectionContainers = new Map();
@@ -1082,6 +1129,9 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
       log(`[EPUB预热] 预热流程完成`).catch(() => { });
     } finally {
       indices.forEach((index) => clearWrapperHeightSync(index));
+      // 释放预热产生的固定版式舞台
+      fixedLayoutManager.releaseAll();
+      fixedLayoutManager = originalFixedLayoutManager;
       // 清理临时容器
       offscreenContainer.remove();
 
@@ -1092,16 +1142,19 @@ export function useVerticalRender(context: VerticalRenderContext): VerticalRende
   };
 
   const updateThemeStyles = (options?: RenderOptions) => {
-    const next = themeHook.getThemeStyles(options);
     for (const [index, wrapper] of state.sectionContainers.entries()) {
       const shadow = wrapper.shadowRoot;
       if (!shadow) continue;
       const styleEl =
         shadow.querySelector('style[data-epub-theme-style]') || shadow.querySelector('style');
       if (!styleEl) continue;
-      styleEl.textContent = next;
+      // 固定版式章节需要独立的主题样式集，避免覆盖书籍绝对尺寸
+      styleEl.textContent = themeHook.getThemeStyles(options, {
+        fixedLayout: fixedLayoutManager.has(index),
+      });
       const content = shadow.querySelector('.epub-section-content');
-      if (content instanceof HTMLElement) {
+      if (content instanceof HTMLElement && !fixedLayoutManager.has(index)) {
+        // 固定版式的高度由舞台缩放决定，不参与内容高度同步
         setupWrapperHeightSync(index, wrapper, content);
       }
     }
