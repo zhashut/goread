@@ -1,0 +1,292 @@
+name: Build iOS IPA
+
+# 说明:
+#   未签名模式 (默认): CI 编译打包, 产出未签名 .ipa 存档. 需 Mac + Xcode 重新签名后才能安装到 iPhone.
+#   签名模式 (需 Secrets): 在 CI 上完成签名, 产出可直接安装的 .ipa. 需配置 4 个 Secrets:
+#     - DEVELOPMENT_TEAM       : Apple 开发者团队 ID (免费/付费账号均有)
+#     - CERTIFICATE_P12        : .p12 证书 Base64 编码
+#     - CERTIFICATE_PASSWORD   : .p12 证书导出时设置的密码
+#     - PROVISIONING_PROFILE   : .mobileprovision 描述文件 Base64 编码
+#
+#   触发方式:
+#     1. 推送到 ios 分支 → 自动执行未签名构建
+#     2. 手动触发 → 可选择 unsigned / signed
+#     3. 推送 tag v* → 自动构建并创建 Release
+#
+#   Secrets 导出方法 (Mac 上):
+#     .p12 证书: Xcode → Keychain Access → 导出 "Apple Development: xxx" → 设密码 → base64 编码
+#     描述文件: Xcode → 下载或从 developer.apple.com 获取 → base64 编码
+#     Team ID:  free Apple ID → developer.apple.com → Account → Membership → Team ID
+
+on:
+  push:
+    branches: [ios]
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      sign:
+        description: '构建模式（signed 需配置 Secrets）'
+        type: choice
+        options:
+          - 'unsigned'
+          - 'signed'
+        default: 'unsigned'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache npm dependencies
+        uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-npm-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      # ========== 签名准备（仅 signed 模式）==========
+      - name: Import Apple Development Certificate
+        if: github.event.inputs.sign == 'signed'
+        run: |
+          echo "Importing development certificate..."
+          mkdir -p ~/tmp/certs
+          echo "${{ secrets.CERTIFICATE_P12 }}" | base64 -d > ~/tmp/certs/certificate.p12
+
+          # Create keychain
+          KEYCHAIN_NAME="build.keychain"
+          KEYCHAIN_PATH="$RUNNER_TEMP/$KEYCHAIN_NAME"
+          echo "Creating keychain: $KEYCHAIN_PATH"
+          security create-keychain -p "$RUNNER_TEMP" "$KEYCHAIN_PATH"
+
+          # Import p12
+          security import ~/tmp/certs/certificate.p12 \
+            -P "${{ secrets.CERTIFICATE_PASSWORD }}" \
+            -A \
+            -t SSL \
+            -k "$KEYCHAIN_PATH"
+
+          # Unlock keychain
+          security unlock-keychain -p "$RUNNER_TEMP" "$KEYCHAIN_PATH"
+
+          # Set default keychain and login timeout
+          security default-keychain -set "$KEYCHAIN_PATH"
+          security set-keychain-settings -u 7200 -u "$KEYCHAIN_PATH"
+
+          # Store keychain name in GITHUB_ENV for later steps
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> $GITHUB_ENV
+
+      - name: Import Provisioning Profile
+        if: github.event.inputs.sign == 'signed'
+        run: |
+          echo "Importing provisioning profile..."
+          echo "${{ secrets.PROVISIONING_PROFILE }}" | base64 -d > ~/tmp/GoRead.mobileprovision
+
+          # Install mobileprovision to user's Library
+          MOBILEPROVISION_PATH="$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
+          mkdir -p "$MOBILEPROVISION_PATH"
+          cp ~/tmp/GoRead.mobileprovision "$MOBILEPROVISION_PATH/"
+
+          # Extract TeamID and UUID from the profile
+          echo "Decoding profile..."
+          security cms -D -i ~/tmp/GoRead.mobileprovision > ~/tmp/profile_decoded.plist
+
+          PROFILE_UUID=$(plutil -extract UUID raw ~/tmp/profile_decoded.plist)
+          PROFILE_TEAM=$(plutil -extract TeamID raw ~/tmp/profile_decoded.plist 2>/dev/null || echo "")
+
+          echo "Provisioning Profile UUID: $PROFILE_UUID"
+          echo "Provisioning Profile Team: $PROFILE_TEAM"
+          echo "PROVISIONING_PROFILE_UUID=$PROFILE_UUID" >> $GITHUB_ENV
+
+      # ========== 构建 ==========
+      - name: Set Development Team ID
+        run: |
+          if [ -n "$DEVELOPMENT_TEAM" ]; then
+            echo "Using Development Team: $DEVELOPMENT_TEAM"
+            PROJECT_YML="src-tauri/gen/apple/project.yml"
+            if [ -f "$PROJECT_YML" ]; then
+              sed -i '' 's/DEVELOPMENT_TEAM:.*/DEVELOPMENT_TEAM: "'"${DEVELOPMENT_TEAM}"'"/' "$PROJECT_YML"
+              echo "Updated project.yml with Team ID: $DEVELOPMENT_TEAM"
+            fi
+          else
+            echo "No DEVELOPMENT_TEAM secret found, building unsigned"
+          fi
+        env:
+          DEVELOPMENT_TEAM: ${{ secrets.DEVELOPMENT_TEAM }}
+
+      # 说明: tauri ios build 会自动复用仓库内已提交的 src-tauri/gen/apple 工程
+      # （tauri-cli 2.x 无 xcode-project 子命令，旧工程 pbxproj 引用自洽可直接构建）
+      - name: Build iOS
+        run: |
+          if [ -n "$DEVELOPMENT_TEAM" ]; then
+            npx tauri ios build --debug --team-id "$DEVELOPMENT_TEAM"
+          else
+            # CI runner 无 Apple ID 账号与描述文件: 向 pbxproj 注入禁签配置后构建
+            # 说明: tauri-cli 2.9.2 的 build 阶段硬编码 xcodebuild 参数, 无法透传
+            # CODE_SIGNING_ALLOWED, 故直接改工程文件（仅 CI 工作区, 不提交）;
+            # 产物为未签名 .app, 安装时由用户侧载工具（Sideloadly/AltStore 等）重签
+            perl -pi -e 's/CODE_SIGN_STYLE = Automatic;/CODE_SIGN_STYLE = Automatic;\n\t\t\t\tCODE_SIGNING_ALLOWED = NO;/g' \
+              src-tauri/gen/apple/GoRead.xcodeproj/project.pbxproj
+            # tauri ios build 末尾的 exportArchive 需要 Apple 账号签名, CI 上必然失败;
+            # 此时 .app 已编译完成（DerivedData）, 容忍该失败由下一步直接取 .app 打包
+            npx tauri ios build --debug --ci || echo "WARN: tauri export step failed (expected without Apple account), .app is built"
+          fi
+        env:
+          DEVELOPMENT_TEAM: ${{ secrets.DEVELOPMENT_TEAM }}
+
+      # ========== 签名 & 打包 ==========
+      - name: Re-sign IPA with certificate
+        if: github.event.inputs.sign == 'signed'
+        run: |
+          echo "Re-signing app bundle with imported certificate..."
+
+          # Find the .app
+          APP_PATH=""
+          for dir in \
+            "src-tauri/target/aarch64-apple-ios/debug/bundle/app" \
+            "src-tauri/gen/apple/GoRead_iOS/build/Debug-iphoneos"; do
+            if [ -d "$dir/GoRead.app" ]; then
+              APP_PATH="$dir/GoRead.app"
+              break
+            fi
+          done
+
+          if [ -z "$APP_PATH" ]; then
+            APP_PATH=$(find src-tauri -name "GoRead.app" -type d 2>/dev/null | head -1)
+          fi
+
+          if [ -z "$APP_PATH" ]; then
+            echo "ERROR: GoRead.app not found!"
+            exit 1
+          fi
+
+          echo "Signing app at: $APP_PATH"
+
+          # Get the identity from the keychain
+          IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | grep "Apple Development" | head -1 | awk '{print $1}')
+          echo "Signing identity: $IDENTITY"
+
+          # Sign the app
+          xcrun codesign \
+            --force \
+            --sign "Apple Development" \
+            --timestamp \
+            -o runtime \
+            --entitlements src-tauri/gen/apple/GoRead_iOS/GoRead_iOS.entitlements \
+            "$APP_PATH"
+
+          # Create IPA
+          mkdir -p ipa/Payload
+          cp -R "$APP_PATH" ipa/Payload/
+          cd ipa
+          zip -r ../GoRead-signed.ipa Payload/
+          cd ..
+
+          echo "Created signed IPA: $(ls -lh GoRead-signed.ipa)"
+
+      - name: Package unsigned IPA
+        if: github.event.inputs.sign != 'signed'
+        run: |
+          echo "=============================================="
+          echo "  未签名模式: 产出 .ipa 仅供存档"
+          echo "  安装到 iPhone 需在 Mac 上 Xcode 重新签名"
+          echo "  步骤: Xcode 打开工程 → 选 Team → Build → Run"
+          echo "=============================================="
+
+          APP_PATH=""
+          for dir in \
+            "src-tauri/target/aarch64-apple-ios/debug/bundle/app" \
+            "src-tauri/gen/apple/GoRead_iOS/build/Debug-iphoneos"; do
+            if [ -d "$dir/GoRead.app" ]; then
+              APP_PATH="$dir/GoRead.app"
+              break
+            fi
+          done
+
+          if [ -z "$APP_PATH" ]; then
+            # tauri ios build 编译产物落在 Xcode DerivedData（export 签名失败不影响 .app）,
+            # 优先从 DerivedData 查找 debug-iphoneos 下的 .app
+            APP_PATH=$(find "$HOME/Library/Developer/Xcode/DerivedData" -name "GoRead.app" -path "*iphoneos*" -type d 2>/dev/null | head -1)
+          fi
+
+          if [ -z "$APP_PATH" ]; then
+            APP_PATH=$(find src-tauri -name "GoRead.app" -type d 2>/dev/null | head -1)
+          fi
+
+          if [ -z "$APP_PATH" ]; then
+            echo "ERROR: GoRead.app not found!"
+            exit 1
+          fi
+
+          mkdir -p ipa/Payload
+          cp -R "$APP_PATH" ipa/Payload/
+          cd ipa
+          zip -r ../GoRead-unsigned.ipa Payload/
+          cd ..
+
+          echo "Created unsigned IPA (存档用, 不能直接安装): $(ls -lh GoRead-unsigned.ipa)"
+
+      # ========== 上传产物 ==========
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GoRead-IPA-${{ github.event.inputs.sign || 'unsigned' }}
+          path: GoRead-*.ipa
+          retention-days: 7
+
+      # ========== 创建 Release（仅 tag 推送）==========
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            GoRead-signed.ipa
+            GoRead-unsigned.ipa
+          name: GoRead iOS v${{ github.ref_name }}
+          body: |
+            ## GoRead iOS v${{ github.ref_name }}
+
+            ### 已签名 IPA（可直接安装）
+            - `GoRead-signed.ipa`：已在 CI 上签名，连接 Xcode 后安装到设备
+            - 安装: Xcode → Window → Devices → 选择设备 → Install
+
+            ### 未签名 IPA（需手动签名）
+            - `GoRead-unsigned.ipa`：在 Mac 上用 Xcode 打开 → 选 Team → 重新签名安装
+
+            > 签名证书有效期 1 年，过期后需更新 GitHub Secrets
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

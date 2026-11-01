@@ -5,6 +5,7 @@
   "deleteFailed": "Delete failed, please try again",
   "deleteSuccess": "Deleted successfully",
   "moveTo": "Move to group",
+  "moveToRoot": "Move to Root",
   "moveFailed": "Move failed, please try again",
   "loadGroupsFailed": "Failed to load group list",
   "changeGroup": "Change Group",

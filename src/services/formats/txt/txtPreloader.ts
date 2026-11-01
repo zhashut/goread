@@ -4,7 +4,7 @@
  * 利用页面切换动画的时间完成目录解析，减少进入阅读页的等待时间
  */
 
-import { log, logError, getInvoke } from '../../index';
+import { log, logError, getInvoke, getTxtChapterRegex } from '../../index';
 import { txtCacheService, TxtBookMeta, TxtChapterContent } from './txtCacheService';
 
 /** 预加载任务状态 */
@@ -173,6 +173,7 @@ class TxtPreloader {
                 filePath,
                 chapterIndex: centerIndex,
                 extraChapters: toLoad.filter(i => i !== centerIndex),
+                chapterRegex: getTxtChapterRegex() ?? null,
             });
 
             // 存入缓存
@@ -216,7 +217,7 @@ class TxtPreloader {
         const start = typeof performance !== 'undefined' ? performance.now() : Date.now();
         try {
             const invoke = await getInvoke();
-            const meta = await invoke<TxtBookMeta>('txt_load_metadata', { filePath });
+            const meta = await invoke<TxtBookMeta>('txt_load_metadata', { filePath, chapterRegex: getTxtChapterRegex() ?? null });
 
             // 存入缓存
             txtCacheService.setMetadata(bookId, meta);

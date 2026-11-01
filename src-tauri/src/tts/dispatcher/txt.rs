@@ -6,7 +6,7 @@ use tauri::{AppHandle, Runtime};
 use crate::formats::txt::{TxtBookMeta, TxtEngine};
 use crate::tts::dispatcher::common::{get_text_segments, SectionBatchConfig};
 use crate::tts::types::{TtsGetSegmentsRequest, TtsGetSegmentsResponse};
-use crate::txt_commands::METADATA_CACHE;
+use crate::txt_commands::{metadata_cache_key, METADATA_CACHE};
 
 /// TXT 单批次配置
 ///
@@ -23,7 +23,7 @@ pub async fn get_segments<R: Runtime>(
     _app: &AppHandle<R>,
     req: &TtsGetSegmentsRequest,
 ) -> Result<TtsGetSegmentsResponse, String> {
-    let meta = ensure_metadata(&req.file_path)?;
+    let meta = ensure_metadata(&req.file_path, req.chapter_regex.as_deref())?;
     let total_chapters = meta.chapters.len() as i32;
     let file_path = req.file_path.clone();
 
@@ -38,16 +38,24 @@ pub async fn get_segments<R: Runtime>(
 }
 
 /// 复用 txt_commands 的元数据缓存；未命中时自动解析并写入
-fn ensure_metadata(file_path: &str) -> Result<TxtBookMeta, String> {
+///
+/// # 参数
+/// - `file_path`: TXT 文件路径
+/// - `chapter_regex`: 自定义章节识别正则；与阅读侧共用同一组合缓存键
+///
+/// # 返回值
+/// 成功返回书籍元信息，失败返回错误描述
+fn ensure_metadata(file_path: &str, chapter_regex: Option<&str>) -> Result<TxtBookMeta, String> {
+    let cache_key = metadata_cache_key(file_path, chapter_regex);
     {
         let cache = METADATA_CACHE.lock().map_err(|e| e.to_string())?;
-        if let Some(m) = cache.get(file_path) {
+        if let Some(m) = cache.get(&cache_key) {
             return Ok(m.clone());
         }
     }
-    let m = TxtEngine::load_metadata(file_path).map_err(|e| e.to_string())?;
+    let m = TxtEngine::load_metadata_with(file_path, chapter_regex).map_err(|e| e.to_string())?;
     let mut cache = METADATA_CACHE.lock().map_err(|e| e.to_string())?;
-    cache.insert(file_path.to_string(), m.clone());
+    cache.insert(cache_key, m.clone());
     Ok(m)
 }
 

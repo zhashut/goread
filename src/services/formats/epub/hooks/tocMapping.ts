@@ -7,6 +7,13 @@ const unmatchedSections = new Set<string>();
 /** 去除锚点，返回纯路径 */
 const stripAnchor = (href: string): string => href.split('#')[0];
 
+/**
+ * 归一化 EPUB 内部路径分隔符：反斜杠 → 正斜杠
+ * zip 内规范分隔符是 /，但 Windows 上 NCX 路径经 PathBuf 处理后缓存可能含 \，
+ * 不归一化会导致 TOC href 与 spine 精确/endsWith/文件名三级匹配全部失败
+ */
+const normalizePath = (p: string): string => p.replace(/\\/g, '/');
+
 /** 提取文件名部分（最后一段路径） */
 const getFileName = (href: string): string => href.split('/').pop() || '';
 
@@ -25,7 +32,7 @@ export const getTocHrefForSection = (
 ): string | null => {
   if (!toc || toc.length === 0 || !spine || !spine[sectionIndex]) return null;
 
-  const currentHref = spine[sectionIndex];
+  const currentHref = normalizePath(spine[sectionIndex]);
   const spineBase = stripAnchor(currentHref);
   const spineFileName = getFileName(spineBase);
 
@@ -47,7 +54,7 @@ export const getTocHrefForSection = (
   // 优先级 1 & 2：精确匹配 / 去锚点精确匹配
   matched = flat.find((item) => {
     if (!item.location) return false;
-    const locStr = String(item.location);
+    const locStr = normalizePath(String(item.location));
     if (locStr === currentHref) return true;
     const locBase = stripAnchor(locStr);
     return locBase === spineBase;
@@ -57,7 +64,7 @@ export const getTocHrefForSection = (
   if (!matched) {
     matched = flat.find((item) => {
       if (!item.location) return false;
-      const locBase = stripAnchor(String(item.location));
+      const locBase = stripAnchor(normalizePath(String(item.location)));
       return spineBase.endsWith(locBase) || locBase.endsWith(spineBase);
     });
   }
@@ -66,13 +73,13 @@ export const getTocHrefForSection = (
   if (!matched && spineFileName) {
     matched = flat.find((item) => {
       if (!item.location) return false;
-      const locFileName = getFileName(stripAnchor(String(item.location)));
+      const locFileName = getFileName(stripAnchor(normalizePath(String(item.location))));
       return locFileName === spineFileName;
     });
   }
 
   if (matched && matched.location) {
-    return String(matched.location);
+    return normalizePath(String(matched.location));
   }
 
   // 匹配失败属于正常情况（cover/titlepage 等非正文章节不在 TOC 中），仅首次记录
@@ -96,26 +103,28 @@ export const getSpineIndexForHref = (
 ): number => {
   if (!spine || spine.length === 0 || !href) return -1;
 
-  const hrefBase = stripAnchor(href);
+  const normHref = normalizePath(href);
+  const hrefBase = stripAnchor(normHref);
   const hrefFileName = getFileName(hrefBase);
 
-  // 精确匹配 / 去锚点精确匹配
+  // 精确匹配 / 去锚点精确匹配（两侧均归一化分隔符）
   let idx = spine.findIndex((s) => {
-    if (s === href) return true;
-    return stripAnchor(s) === hrefBase;
+    const normS = normalizePath(s);
+    if (normS === normHref) return true;
+    return stripAnchor(normS) === hrefBase;
   });
   if (idx >= 0) return idx;
 
   // endsWith 匹配（处理路径前缀差异）
   idx = spine.findIndex((s) => {
-    const sBase = stripAnchor(s);
+    const sBase = stripAnchor(normalizePath(s));
     return sBase.endsWith(hrefBase) || hrefBase.endsWith(sBase);
   });
   if (idx >= 0) return idx;
 
   // 文件名匹配
   if (hrefFileName) {
-    idx = spine.findIndex((s) => getFileName(stripAnchor(s)) === hrefFileName);
+    idx = spine.findIndex((s) => getFileName(stripAnchor(normalizePath(s))) === hrefFileName);
     if (idx >= 0) return idx;
   }
 

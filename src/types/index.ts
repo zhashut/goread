@@ -1,3 +1,9 @@
+// 书架页签类型：最近 / 本地 / 网络书架（nas:<NAS连接id> 动态页签）
+export type BookshelfTab = 'recent' | 'all' | `nas:${string}`;
+
+// 翻页动画效果：slide=平移，cover=覆盖，none=无动画（仅横向分页模式生效，默认 slide）
+export type PageTurnEffect = 'slide' | 'cover' | 'none';
+
 // 书籍数据模型接口
 export interface IBook {
   id: number;
@@ -13,12 +19,16 @@ export interface IBook {
   status?: number;        // 阅读状态：0=阅读中，1=已读完
   finished_at?: number | null;   // 完成时间戳
   recent_order?: number;  // 最近阅读排序值，值越大越靠前
-  theme?: 'light' | 'dark' | null;
+  theme?: 'light' | 'dark' | 'sepia' | 'green' | 'gray' | null; // 阅读主题（按书记忆，与 services/formats/types 的 ReaderTheme 对齐）
   font_size?: number | null;
   reading_mode?: 'horizontal' | 'vertical' | null; // 阅读模式：horizontal=横向分页，vertical=纵向滚动
+  page_turn_effect?: PageTurnEffect | null; // 翻页动画效果：slide=平移，cover=覆盖，none=无动画（按书记忆，仅横向模式生效）
   precise_progress?: number;
   hide_divider?: boolean;
   toc_sort?: number | null;
+  source?: string;         // 书籍来源：'nas'=网络书架缓存书，缺省=本地导入
+  source_conn_id?: string; // NAS 连接 id（source 为 'nas' 时有效）
+  source_path?: string;    // NAS 远端文件路径（source 为 'nas' 时有效）
 }
 
 export interface IGroup {

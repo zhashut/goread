@@ -40,7 +40,7 @@ class NativeTTSPlugin: Plugin, AVSpeechSynthesizerDelegate, NativeTTSSessionHost
     currentRate
   }
 
-  @objc(init:) public func initialize(_ invoke: Invoke) throws {
+  @objc(init:error:) public func initialize(_ invoke: Invoke) throws {
     let args = try invoke.parseArgs(InitArgs.self)
     let requestedLang = normalizedLanguage(args.lang) ?? primaryLang
     primaryLang = requestedLang
@@ -324,7 +324,7 @@ class NativeTTSPlugin: Plugin, AVSpeechSynthesizerDelegate, NativeTTSSessionHost
       data["code"] = "media_action"
       data["action"] = action
       if let positionMs {
-        data["positionMs"] = positionMs
+        data["positionMs"] = Int(positionMs)
       }
       emitEvent(data)
     }
@@ -466,7 +466,19 @@ class NativeTTSPlugin: Plugin, AVSpeechSynthesizerDelegate, NativeTTSSessionHost
     }
   }
 
-  private func runOnMain<T>(_ work: () throws -> T) rethrows -> T {
+  private func runOnMain<T>(_ work: () -> T) -> T {
+    if Thread.isMainThread {
+      return work()
+    }
+
+    var output: T?
+    DispatchQueue.main.sync {
+      output = work()
+    }
+    return output!
+  }
+
+  private func runOnMain<T>(_ work: () throws -> T) throws -> T {
     if Thread.isMainThread {
       return try work()
     }

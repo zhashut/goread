@@ -308,6 +308,17 @@ export class EpubRenderer implements IBookRenderer {
   }
 
   /**
+   * 设置触摸手势接管标志（T30 统一翻页手势层集成点）
+   * 阅读器统一手势层接管横向拖拽后置 true：渲染层内部触摸翻页流（setupTouchScroll）
+   * 全部让位，避免内外两层手势对同一触摸序列双重响应造成重复翻页
+   * @param active true=统一手势层接管；false=恢复内部触摸流
+   * @returns void
+   */
+  setTouchGestureTakeover(active: boolean): void {
+    this._horizontalRenderHook?.setTouchGestureTakeover(active);
+  }
+
+  /**
    * 渲染 EPUB 到容器
    */
   async renderPage(

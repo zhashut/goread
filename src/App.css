@@ -15,19 +15,20 @@
 .reader-range::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
   background: #ffffff;
-  border: 2px solid #d15158;
-  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.2);
+  border: none;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
 }
 .reader-range::-moz-range-thumb {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
   background: #ffffff;
-  border: 2px solid #d15158;
+  border: none;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
 }
 
 .logo.react:hover {
@@ -298,9 +299,12 @@ button {
   padding-right: var(--display-cutout-inset-right, 0px);
 }
 
-/* Import page: hard reset bubble effects inside this scope */
-.import-page button,
-.import-page input {
+/* Import page: hard reset bubble effects inside this scope
+   （.wifi-copy-btn 除外：WiFi 传书的拷贝大按钮依赖自身 inline 实底样式；
+     .wifi-import-btn 除外：WiFi 传书的导入大按钮依赖自身 inline 实底样式；
+     .nas-btn / .nas-input 除外：NAS 获取页全部按钮与表单输入框依赖自身 inline 样式） */
+.import-page button:not(.wifi-copy-btn):not(.wifi-import-btn):not(.nas-btn),
+.import-page input:not(.nas-input) {
   box-shadow: none !important;
   border: none !important;
   border-radius: 0 !important;

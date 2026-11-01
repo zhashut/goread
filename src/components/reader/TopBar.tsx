@@ -1,23 +1,28 @@
 import React from "react";
 import { useTranslation } from 'react-i18next';
-import { TOP_DRAWER_RADIUS } from "../../constants/ui";
+import { getReaderMenuText, getReaderPageBackground } from "../../constants/readerTheme";
+import type { ReaderTheme } from "../../services/formats/types";
 import { getSafeAreaInsets } from "../../utils/layout";
 
 interface TopBarProps {
   visible: boolean;
   bookTitle?: string;
+  theme: ReaderTheme;
   onBack: () => void;
   isFinished?: boolean;
   onToggleFinish?: () => void;
 }
 
-export const TopBar: React.FC<TopBarProps> = ({ visible, bookTitle, onBack, isFinished, onToggleFinish }) => {
+export const TopBar: React.FC<TopBarProps> = ({ visible, bookTitle, theme, onBack, isFinished, onToggleFinish }) => {
   const { t } = useTranslation('reader');
-  
+
   // 去除书名中的文件后缀
   const displayTitle = bookTitle?.replace(/\.(txt|epub|pdf|mobi|azw3?|fb2|cbz|cbr|djvu|html?|md)$/i, '');
-  
+
   if (!visible) return null;
+
+  // 菜单底色与阅读页同色，前景色随主题明暗（参考主流阅读器样式）
+  const menuText = getReaderMenuText(theme);
 
   return (
     <div
@@ -34,14 +39,12 @@ export const TopBar: React.FC<TopBarProps> = ({ visible, bookTitle, onBack, isFi
         right: 0,
         transform: "none",
         boxSizing: "border-box",
-        backgroundColor: "rgba(26,26,26,0.92)",
+        backgroundColor: getReaderPageBackground(theme),
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
-        color: "white",
-        borderRadius: `0 0 ${TOP_DRAWER_RADIUS}px ${TOP_DRAWER_RADIUS}px`,
+        color: menuText,
         padding: `calc(${getSafeAreaInsets().top} + 12px) 16px 12px 16px`,
-        boxShadow: "0 6px 24px rgba(0,0,0,0.35)",
         zIndex: 12,
       }}
     >
@@ -57,18 +60,19 @@ export const TopBar: React.FC<TopBarProps> = ({ visible, bookTitle, onBack, isFi
             WebkitAppearance: "none",
             appearance: "none",
             padding: "4px",
-            color: "#fff",
+            color: menuText,
             cursor: "pointer",
-            fontSize: "16px",
             display: "flex",
             alignItems: "center",
           }}
           title={t('back')}
         >
-          {"<"}
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block" }}>
+            <path d="M15 5l-7 7 7 7" />
+          </svg>
         </button>
       </div>
-      
+
       <div
         style={{
           fontSize: "17px",
@@ -83,7 +87,7 @@ export const TopBar: React.FC<TopBarProps> = ({ visible, bookTitle, onBack, isFi
       >
         {displayTitle}
       </div>
-      
+
       {/* 右侧标记已读按钮 */}
       <div
         onClick={onToggleFinish}
@@ -95,12 +99,12 @@ export const TopBar: React.FC<TopBarProps> = ({ visible, bookTitle, onBack, isFi
           cursor: "pointer",
           padding: "4px 0",
           borderRadius: "4px",
-          color: isFinished ? "#ff5252" : "white",
+          color: isFinished ? "#ff5252" : menuText,
           fontSize: "14px",
           justifyContent: "flex-end",
         }}
       >
-        <svg viewBox="0 0 24 24" width="20" height="20" style={{ fill: isFinished ? "#ff5252" : "white", display: "block" }}>
+        <svg viewBox="0 0 24 24" width="20" height="20" style={{ fill: isFinished ? "#ff5252" : menuText, display: "block" }}>
           <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>
         </svg>
         <span>{isFinished ? t('finished') : t('read')}</span>

@@ -3,7 +3,7 @@
  * 提供书籍相关的数据库操作服务
  */
 
-import { IBook } from '../types';
+import { IBook, PageTurnEffect } from '../types';
 import { getInvoke, logError } from './commonService';
 import type { ReaderTheme } from './formats/types';
 
@@ -23,6 +23,7 @@ export interface IBookService {
   updateBookTheme(id: number, theme: ReaderTheme | null): Promise<void>;
   updateBookFontSize(id: number, fontSize: number | null): Promise<void>;
   updateBookReadingMode(id: number, readingMode: 'horizontal' | 'vertical' | null): Promise<void>;
+  updateBookPageTurnEffect(id: number, effect: PageTurnEffect): Promise<void>;
   updateBookHideDivider(id: number, hide: boolean): Promise<void>;
   updateBookTocSort(id: number, tocSort: number): Promise<void>;
   resetAllBookThemes(): Promise<void>;
@@ -109,6 +110,17 @@ export class TauriBookService implements IBookService {
   async updateBookReadingMode(id: number, readingMode: 'horizontal' | 'vertical' | null): Promise<void> {
     const invoke = await getInvoke();
     await invoke('update_book_reading_mode', { id, readingMode });
+  }
+
+  /**
+   * 更新书籍的翻页动画效果（按书记忆持久化到 books.page_turn_effect 列）
+   * - 参数 id：书籍 id
+   * - 参数 effect：翻页效果 'slide'（平移）/'cover'（覆盖）/'none'（无动画）
+   * - 返回：Promise，写入失败时抛出后端错误
+   */
+  async updateBookPageTurnEffect(id: number, effect: PageTurnEffect): Promise<void> {
+    const invoke = await getInvoke();
+    await invoke('update_book_page_turn_effect', { id, pageTurnEffect: effect });
   }
 
   async updateBookHideDivider(id: number, hide: boolean): Promise<void> {

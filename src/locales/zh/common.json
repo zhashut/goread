@@ -22,6 +22,8 @@
   "operationFailed": "操作失败",
   "bookNotFound": "书籍不存在",
   "loadBookFailed": "加载书籍失败",
+  "nasConnectionMissing": "网络书架连接不存在或已删除，无法重新下载该书籍",
+  "nasCacheRestoreFailed": "重新下载网络书架书籍失败: {{reason}}",
   "unsupportedFormat": "暂不支持 {{format}} 格式",
   "addBookmarkFailed": "添加书签失败",
   "deleteBookmarkFailed": "删除书签失败",

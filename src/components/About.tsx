@@ -1,7 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useAppNav } from '../router/useAppNav';
-import { getSafeAreaInsets } from '../utils/layout';
 import { PageHeader } from './PageHeader';
 import { getVersion } from '@tauri-apps/api/app';
 import { openUrl } from '@tauri-apps/plugin-opener';
@@ -62,8 +60,6 @@ const LIBRARIES: LibraryInfo[] = [
 
 export const About: React.FC = () => {
   const { t } = useTranslation('about');
-  const nav = useAppNav();
-  const safeArea = getSafeAreaInsets();
   const [version, setVersion] = useState<string>('0.1.0');
   const [donateModalVisible, setDonateModalVisible] = useState(false);
 
@@ -108,6 +104,12 @@ export const About: React.FC = () => {
       minHeight: '100vh',
       height: '100vh',
       overflow: 'auto',
+      // border-box 契约：避让高度必须从 100vh 内部扣除；默认 content-box 会把盒子撑出视口，
+      // 被外层 overflow:hidden 裁剪后避让失效，末尾内容永远滚不到菜单栏上方
+      boxSizing: 'border-box',
+      // 避让全局底部菜单栏，保证末尾内容可完整滚动至菜单栏上方；
+      // 末尾开源库分组卡片自带 margin-bottom 10px，加 6px 补差，滚动到底时间隙与书架/设置/统计统一为 16px
+      paddingBottom: 'calc(var(--goread-navbar-h) + 6px)',
       fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
       color: '#212121',
       WebkitTapHighlightColor: 'transparent',
@@ -247,7 +249,6 @@ export const About: React.FC = () => {
         {/* 顶部导航栏 */}
         <PageHeader
           title={t('title')}
-          onBack={() => nav.goBack()}
           sticky
         />
 
@@ -345,9 +346,6 @@ export const About: React.FC = () => {
           </div>
         ))}
       </div>
-
-      {/* 底部安全区域 */}
-      <div style={{ height: safeArea.bottom }} />
 
       {/* 捐赠弹窗 */}
       {donateModalVisible && (

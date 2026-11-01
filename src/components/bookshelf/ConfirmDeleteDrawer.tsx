@@ -1,8 +1,7 @@
 import React from "react";
 import { useTranslation } from "react-i18next";
-import { getSafeAreaInsets } from "../../utils/layout";
 
-export type DeleteContext = "recent" | "all-groups" | "group-detail";
+export type DeleteContext = "recent" | "all" | "group-detail";
 
 export interface ConfirmDeleteDrawerProps {
   open: boolean;
@@ -19,17 +18,19 @@ const ConfirmDeleteDrawer: React.FC<ConfirmDeleteDrawerProps> = ({
   onCancel,
   onConfirm,
 }) => {
-  if (!open) return null;
+  // Hooks 必须在条件 return 之前调用：本组件常驻挂载（open 控制渲染），
+  // 若任一 Hook 放在 return null 之后，open 在 false/true 间切换会导致
+  // hooks 数量跳变，违反 React Hooks 规则（React error #310），渲染崩溃
+  const [deleteLocal, setDeleteLocal] = React.useState(false);
   const { t } = useTranslation("bookshelf");
+  if (!open) return null;
   const title = t("deleteDrawer.title");
   const desc =
     context === "recent"
       ? t("deleteDrawer.descRecent", { count })
-      : context === "all-groups"
-        ? t("deleteDrawer.descAllGroups", { count })
+      : context === "all"
+        ? t("deleteDrawer.descAll", { count })
         : t("deleteDrawer.descGroupDetail", { count });
-
-  const [deleteLocal, setDeleteLocal] = React.useState(false);
 
   return (
     <div
@@ -80,7 +81,7 @@ const ConfirmDeleteDrawer: React.FC<ConfirmDeleteDrawerProps> = ({
         >
           {desc}
         </div>
-        {["all-groups", "group-detail"].includes(context) && (
+        {["all", "group-detail"].includes(context) && (
           <button
             onClick={() => setDeleteLocal((v) => !v)}
             style={{
@@ -134,7 +135,8 @@ const ConfirmDeleteDrawer: React.FC<ConfirmDeleteDrawerProps> = ({
             display: "grid",
             gridTemplateColumns: "1fr 1fr",
             borderTop: "1px solid #eee",
-            padding: `12px 0 calc(12px + ${getSafeAreaInsets().bottom})`,
+            // 避让全局底部菜单栏（变量已含底部安全区高度）
+            padding: `12px 0 calc(12px + var(--goread-navbar-h))`,
           }}
         >
           <button

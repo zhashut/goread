@@ -20,7 +20,7 @@ import { buildAnchorAtTextRatio, getSpeakableLength } from '../../../utils/ttsAn
 import { log } from '../../index';
 import { txtCacheService, type TxtChapterContent } from '../../formats/txt/txtCacheService';
 import { txtPreloader } from '../../formats/txt/txtPreloader';
-import { getInvoke } from '../../index';
+import { getInvoke, getTxtChapterRegex } from '../../index';
 
 /** TXT 横向分页页范围 */
 export interface TxtPageRange {
@@ -122,6 +122,7 @@ export class TxtContentProvider implements TTSContentProvider {
       startPosition,
       fallbackSectionIndex,
       readingMode: this.#ctx.isVerticalMode() ? 'vertical' : 'horizontal',
+      chapterRegex: getTxtChapterRegex() ?? null,
     };
   }
 
@@ -532,6 +533,7 @@ export class TxtContentProvider implements TTSContentProvider {
         filePath,
         chapterIndex,
         extraChapters: null,
+        chapterRegex: getTxtChapterRegex() ?? null,
       });
       if (chapters.length > 0) {
         const chapter = chapters[0]!;

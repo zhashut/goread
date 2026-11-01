@@ -208,6 +208,7 @@ mod tests {
             total_sections: None,
             reading_mode: None,
             hidden_sections: None,
+            chapter_regex: None,
         }
     }
 

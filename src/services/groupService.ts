@@ -13,7 +13,6 @@ export interface IGroupService {
   getBooksByGroup(groupId: number): Promise<IBook[]>;
   moveBookToGroup(bookId: number, groupId?: number): Promise<void>;
   reorderGroupBooks(groupId: number, orderedIds: number[]): Promise<void>;
-  reorderGroups(orderedIds: number[]): Promise<void>;
   updateGroup(groupId: number, name: string): Promise<void>;
   deleteGroup(groupId: number, deleteLocal?: boolean): Promise<void>;
 }
@@ -42,6 +41,18 @@ export class TauriGroupService implements IGroupService {
     return await invoke('get_all_groups');
   }
 
+  /**
+   * 按名称精确查找分组（含空分组；WiFi 自动入库固定分组查重专用）
+   *
+   * @param name 分组名称（精确匹配）
+   * @returns 命中的分组；不存在返回 null
+   */
+  async findGroupByName(name: string): Promise<IGroup | null> {
+    const invoke = await getInvoke();
+    const found = await invoke<IGroup | null>('find_group_by_name', { name });
+    return found ?? null;
+  }
+
   async getBooksByGroup(groupId: number): Promise<IBook[]> {
     const invoke = await getInvoke();
     return await invoke('get_books_by_group', { groupId });
@@ -65,11 +76,6 @@ export class TauriGroupService implements IGroupService {
   async deleteGroup(groupId: number, deleteLocal: boolean = false): Promise<void> {
     const invoke = await getInvoke();
     await invoke('delete_group', { groupId, deleteLocal });
-  }
-
-  async reorderGroups(orderedIds: number[]): Promise<void> {
-    const invoke = await getInvoke();
-    await invoke('reorder_groups', { orderedIds });
   }
 }
 

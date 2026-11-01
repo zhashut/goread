@@ -1,18 +1,20 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAppNav } from "../../../router/useAppNav";
-import { IBook, IGroup } from "../../../types";
+import { IBook, IGroup, BookshelfTab } from "../../../types";
 
 /**
  * 管理选择模式的 Hook
  * 负责书籍/分组的多选逻辑、全选、退出选择模式
  */
 export const useSelectionMode = (params: {
-    activeTab: "recent" | "all";
+    activeTab: BookshelfTab;
     activeGroupId: number | null;
     filteredBooks: IBook[];
     filteredGroups: IGroup[];
+    /** 「全部」选项卡书架根目录的未分组书籍（参与全选计数） */
+    filteredUngroupedBooks?: IBook[];
 }) => {
-    const { activeTab, activeGroupId, filteredBooks, filteredGroups } = params;
+    const { activeTab, activeGroupId, filteredBooks, filteredGroups, filteredUngroupedBooks } = params;
     const nav = useAppNav();
 
     // 选择模式状态：由路由 state 驱动
@@ -22,8 +24,11 @@ export const useSelectionMode = (params: {
     const [selectedBookIds, setSelectedBookIds] = useState<Set<number>>(new Set());
     const [selectedGroupIds, setSelectedGroupIds] = useState<Set<number>>(new Set());
 
+    // 「全部」选项卡同时呈现分组与根目录书籍，计数为两者之和；其余页签仅统计书籍
     const selectedCount =
-        activeTab === "recent" ? selectedBookIds.size : selectedGroupIds.size;
+        activeTab === "all"
+            ? selectedGroupIds.size + selectedBookIds.size
+            : selectedBookIds.size;
 
     const [confirmOpen, setConfirmOpen] = useState(false);
 
@@ -65,12 +70,21 @@ export const useSelectionMode = (params: {
                 selectedBookIds.size === allIds.size && allIds.size > 0;
             setSelectedBookIds(isAllSelected ? new Set() : allIds);
         } else {
-            const allIds = new Set((filteredGroups || []).map((g) => g.id));
-            const isAllSelected =
-                selectedGroupIds.size === allIds.size && allIds.size > 0;
-            setSelectedGroupIds(isAllSelected ? new Set() : allIds);
+            // 「全部」选项卡：分组与根目录未分组书籍一并全选
+            const allGroupIds = new Set((filteredGroups || []).map((g) => g.id));
+            const allBookIds = new Set((filteredUngroupedBooks || []).map((b) => b.id));
+            const allCount = allGroupIds.size + allBookIds.size;
+            const selCount = selectedGroupIds.size + selectedBookIds.size;
+            const isAllSelected = selCount === allCount && allCount > 0;
+            if (isAllSelected) {
+                setSelectedGroupIds(new Set());
+                setSelectedBookIds(new Set());
+            } else {
+                setSelectedGroupIds(allGroupIds);
+                setSelectedBookIds(allBookIds);
+            }
         }
-    }, [activeTab, filteredBooks, filteredGroups, selectedBookIds.size, selectedGroupIds.size]);
+    }, [activeTab, filteredBooks, filteredGroups, filteredUngroupedBooks, selectedBookIds.size, selectedGroupIds.size]);
 
     const toggleBookSelection = useCallback((bookId: number) => {
         setSelectedBookIds((prev) => {

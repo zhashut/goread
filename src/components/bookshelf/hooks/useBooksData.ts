@@ -5,7 +5,8 @@ import { bookService, getReaderSettings, logError } from "../../../services";
 /**
  * 管理书籍数据的 Hook
  * 负责书籍列表加载、过滤
- * 排序由后端 recent_order 字段控制，前端直接使用后端返回的顺序
+ * 「最近」列表聚合任意页签中阅读过的书籍：按最近阅读时间降序排列；
+ * recent_order 仅作为“是否在最近列表”的标记（手动移除后清零），不再参与排序
  */
 export const useBooksData = (query: string) => {
     const [books, setBooks] = useState<IBook[]>([]);
@@ -14,41 +15,19 @@ export const useBooksData = (query: string) => {
         try {
             await bookService.initDatabase();
             const settings = getReaderSettings();
-            let list: IBook[] = [];
             // 明确检查 undefined，允许 0 (不限)
             const recentCount = settings.recentDisplayCount !== undefined ? settings.recentDisplayCount : 9;
-            if (recentCount === 0) {
-                // 不限制数量时，获取所有在「最近」列表中的书籍（以 recent_order 为准）
-                const allBooks = await bookService.getAllBooks();
-                list = (allBooks || [])
-                    .filter((b) => (b.recent_order ?? 0) > 0)
-                    .sort((a, b) => {
-                        // 先按 recent_order 排序（值大的在前），再按 last_read_time 排序
-                        const orderA = a.recent_order ?? 0;
-                        const orderB = b.recent_order ?? 0;
-                        if (orderB !== orderA) return orderB - orderA;
-                        return (b.last_read_time || 0) - (a.last_read_time || 0);
-                    });
-            } else {
-                const limit = Math.max(1, recentCount);
-                try {
-                    // 后端已按 recent_order 排序，直接使用返回顺序
-                    const recent = await bookService.getRecentBooks(limit);
-                    list = Array.isArray(recent) ? recent : [];
-                } catch {
-                    const allBooks = await bookService.getAllBooks();
-                    list = (allBooks || [])
-                        .filter((b) => (b.recent_order ?? 0) > 0)
-                        .sort((a, b) => {
-                            const orderA = a.recent_order ?? 0;
-                            const orderB = b.recent_order ?? 0;
-                            if (orderB !== orderA) return orderB - orderA;
-                            return (b.last_read_time || 0) - (a.last_read_time || 0);
-                        })
-                        .slice(0, limit);
-                }
+            const limit = recentCount > 0 ? Math.max(1, recentCount) : undefined;
+            // 聚合任意页签中阅读过的书籍：筛选「最近」列表成员（recent_order > 0，
+            // 手动移除后清零），按最近阅读时间降序排列；超出显示数量的书籍自动
+            // 被挤出列表，但其阅读历史（last_read_time）仍保留
+            const allBooks = await bookService.getAllBooks();
+            let list = (allBooks || [])
+                .filter((b) => (b.recent_order ?? 0) > 0)
+                .sort((a, b) => (b.last_read_time || 0) - (a.last_read_time || 0));
+            if (limit !== undefined) {
+                list = list.slice(0, limit);
             }
-            // 直接使用后端返回的顺序，无需前端再排序
             setBooks(list);
         } catch (error) {
             await logError('加载书籍列表失败', { error: String(error) });

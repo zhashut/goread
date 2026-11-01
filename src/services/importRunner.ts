@@ -1,4 +1,4 @@
-import { bookService, groupService, getInvoke, log, logError, getReaderSettings } from "./index";
+import { bookService, groupService, getInvoke, log, logError, getReaderSettings, getTxtChapterRegex } from "./index";
 import { READER_FONT_SIZE_DEFAULT } from "../constants/font";
 import { DEFAULT_READING_MODE } from "../constants/config";
 import { pathToTitle, waitNextFrame } from "./importUtils";
@@ -238,7 +238,7 @@ async function importEpubBook(filePath: string, _invoke: any, _logError: any, _o
 async function importTxtBook(filePath: string, invoke: any, logError: any): Promise<ImportResult> {
   let info: any = null;
   try {
-    info = await (await invoke)('txt_load_document', { filePath });
+    info = await (await invoke)('txt_load_document', { filePath, chapterRegex: getTxtChapterRegex() ?? null });
   } catch (err) {
     await logError('txt_load_document failed during import', { error: String(err), filePath });
   }
@@ -314,19 +314,31 @@ async function isLargeFile(filePath: string): Promise<boolean> {
   }
 }
 
+/**
+ * 按路径列表导入书籍到指定分组
+ *
+ * @param paths 书籍文件路径列表
+ * @param groupId 目标分组 ID；传 null 时不分组（书籍直接进入书架根，用于 WiFi 全自动入库）
+ * @param opts.silent 静默模式：不广播 import:start/progress/done 进度事件
+ *       （WiFi 全自动入库使用，避免触发书架的进度抽屉与导航）；完成仍广播 books:changed
+ */
 export const importPathsToExistingGroup = async (
   paths: string[],
-  groupId: number
+  groupId: number | null,
+  opts?: { silent?: boolean }
 ) => {
+  const silent = opts?.silent ?? false;
   const total = paths.length;
   const firstTitle = paths[0] ? pathToTitle(paths[0]) : "";
 
   // 广播开始事件
-  window.dispatchEvent(
-    new CustomEvent("goread:import:start", {
-      detail: { total, title: firstTitle },
-    })
-  );
+  if (!silent) {
+    window.dispatchEvent(
+      new CustomEvent("goread:import:start", {
+        detail: { total, title: firstTitle },
+      })
+    );
+  }
 
   let cancelled = false;
   const cancelHandler = () => {
@@ -352,7 +364,7 @@ export const importPathsToExistingGroup = async (
     const largeFile = isMobile ? await isLargeFile(filePath) : false;
 
     // 在处理前同步当前书籍标题到抽屉，current 保持为 i
-    {
+    if (!silent) {
       const title = pathToTitle(filePath) || "Unknown";
       window.dispatchEvent(
         new CustomEvent("goread:import:progress", {
@@ -439,7 +451,10 @@ export const importPathsToExistingGroup = async (
       });
     }
 
-    await groupService.moveBookToGroup(saved.id, groupId);
+    // 指定分组时才移动分组（null 表示不分组，保持书架根）
+    if (groupId != null) {
+      await groupService.moveBookToGroup(saved.id, groupId);
+    }
 
     if (format === 'txt') {
       try {
@@ -474,12 +489,14 @@ export const importPathsToExistingGroup = async (
     });
 
     // 完成一册后同步进度与标题
-    window.dispatchEvent(
-      new CustomEvent("goread:import:progress", {
-        detail: { current: i + 1, total, title },
-      })
-    );
-    await waitNextFrame();
+    if (!silent) {
+      window.dispatchEvent(
+        new CustomEvent("goread:import:progress", {
+          detail: { current: i + 1, total, title },
+        })
+      );
+      await waitNextFrame();
+    }
 
     // 增强 GC 时机 - 每本书导入后强制清理内存
     // 移动端串行化 - 大文件导入后增加额外延迟
@@ -492,7 +509,9 @@ export const importPathsToExistingGroup = async (
   }
 
   window.removeEventListener("goread:import:cancel", cancelHandler as any);
-  window.dispatchEvent(new CustomEvent("goread:import:done"));
+  if (!silent) {
+    window.dispatchEvent(new CustomEvent("goread:import:done"));
+  }
   window.dispatchEvent(new CustomEvent("goread:groups:changed"));
   window.dispatchEvent(new CustomEvent("goread:books:changed"));
 };
@@ -504,4 +523,21 @@ export const createGroupAndImport = async (
 ) => {
   const g = await groupService.addGroup(groupName.trim());
   await importPathsToExistingGroup(paths, g.id);
+};
+
+/**
+ * WiFi 全自动入库：接收文件（已在应用书库目录 library/ 内）静默导入
+ *
+ * 与手动导入共用同一套导入机制（格式解析/封面/默认阅读设置/TXT 预热），
+ * 完成后广播 goread:books:changed 使书架自动刷新。
+ *
+ * @param paths 书籍文件路径列表
+ * @param groupId 目标分组 ID；null 时不分组，书籍直接存入书架根目录
+ *                （「全部」选项卡与分组平级展示未分组书籍，无需强制建组）
+ */
+export const importPathsAuto = async (
+  paths: string[],
+  groupId: number | null
+) => {
+  await importPathsToExistingGroup(paths, groupId, { silent: true });
 };

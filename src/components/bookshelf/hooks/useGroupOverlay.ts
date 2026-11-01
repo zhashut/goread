@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from "react";
 import { useAppNav } from "../../../router/useAppNav";
+import { BookshelfTab } from "../../../types";
 
 /**
  * 管理分组详情覆盖层的 Hook
  * 负责覆盖层的打开/关闭状态及与 URL 的同步
  */
-export const useGroupOverlay = (activeTab: "recent" | "all") => {
+export const useGroupOverlay = (activeTab: BookshelfTab) => {
     const nav = useAppNav();
 
     const [groupOverlayOpen, setGroupOverlayOpen] = useState(false);
@@ -16,10 +17,10 @@ export const useGroupOverlay = (activeTab: "recent" | "all") => {
     useEffect(() => {
         // 检查是否有跨页面传递的 Tab 切换请求（例如从导入流程返回时清理了栈）
         const targetTab = sessionStorage.getItem('bookshelf_active_tab');
-        if (targetTab && (targetTab === 'recent' || targetTab === 'all')) {
+        if (targetTab && (targetTab === 'recent' || targetTab === 'all' || targetTab.startsWith('nas:'))) {
             sessionStorage.removeItem('bookshelf_active_tab');
             if (activeTab !== targetTab) {
-                nav.toBookshelf(targetTab as 'recent' | 'all', { replace: true, resetStack: false });
+                nav.toBookshelf(targetTab as BookshelfTab, { replace: true, resetStack: false });
             }
         }
 

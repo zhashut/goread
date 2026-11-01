@@ -22,11 +22,16 @@ import { FormatFilterButton } from "./FormatFilterButton";
 import { ImportBottomBar } from "./ImportBottomBar";
 import { useImportedBooks, useImportGrouping, useSearchOverlay, useSelectAll, useOverlayBackHandler } from "../hooks";
 import { checkStoragePermission as checkStoragePermissionUtil } from "../utils/storagePermission";
-import { logError } from "../services";
+import { logError, groupService } from "../services";
+import { importPathsAuto } from "../services/importRunner";
 import { useScanFormats } from "../hooks/useScanFormats";
 import { ScanFormatSelector } from "./ScanFormatSelector";
+import { WifiTransfer, type ReceivedFile } from "./WifiTransfer";
+import { NasBrowser } from "./NasBrowser";
+import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 
-type TabKey = "scan" | "browse";
+type TabKey = "scan" | "browse" | "wifi" | "nas";
 
 const fmtDate = (t?: number) => {
   if (!t) return "";
@@ -39,9 +44,33 @@ const fmtDate = (t?: number) => {
   return `${y}/${m}/${day} ${hh}:${mm}`;
 };
 
+/**
+ * 解析 WiFi 传书事件携带的分组 ID 为书架有效分组 ID（二次校验，防窗口期删组悬空）
+ *
+ * @param groupId 事件携带的分组 ID；null/undefined 表示不分组
+ * @returns 书架中仍存在的分组 ID；分组已失效或校验失败时回退 null（不分组）
+ */
+const resolveWifiTargetGroup = async (
+  groupId?: number | null
+): Promise<number | null> => {
+  if (groupId == null) return null;
+  try {
+    const groups = await groupService.getAllGroups();
+    if (groups.some((g) => g.id === groupId)) return groupId;
+    await logError("WiFi 传书指定分组已不存在，回退为不分组", { groupId });
+  } catch (e) {
+    await logError("校验 WiFi 传书目标分组失败，回退为不分组", {
+      groupId,
+      error: String(e),
+    });
+  }
+  return null;
+};
+
 export const ImportFiles: React.FC = () => {
   const { t } = useTranslation('bookshelf');
   const { t: tc } = useTranslation('common');
+  const { t: ti } = useTranslation('import');
   const { scanFormats, setScanFormats } = useScanFormats();
   const nav = useAppNav();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -69,6 +98,55 @@ export const ImportFiles: React.FC = () => {
     onReset: () => setBrowseSearch(""),
   });
 
+  // WiFi 传书：自动入库失败的降级列表（提升到容器层，跨 Tab 保留；正常情况下始终为空）
+  const [wifiReceived, setWifiReceived] = useState<ReceivedFile[]>([]);
+  // 全自动入库串行队列：多次上传逐本导入，避免并发导入互相干扰
+  const autoImportQueueRef = useRef<Promise<void>>(Promise.resolve());
+  useEffect(() => {
+    const unlisten = listen<ReceivedFile>("goread:wifi:received", (e) => {
+      const file = e.payload;
+      // 服务端已把文件移入应用书库目录 library/，这里按网页端所选分组静默导入，
+      // 对应书籍直接进入书架同源分组（分组数据与网页端共享同一 SQLite）；
+      // 导入失败时降级进入“待导入”手动列表，可在 WiFi 传书页重试导入或删除
+      autoImportQueueRef.current = autoImportQueueRef.current
+        .then(async () => {
+          await importPathsAuto([file.path], await resolveWifiTargetGroup(file.group_id));
+        })
+        .catch(async (err) => {
+          await logError("WiFi 自动入库失败，转入手动待导入列表", {
+            error: String(err),
+            path: file.path,
+          });
+          setWifiReceived((prev) => [...prev, file]);
+        });
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
+
+  // 挂载时恢复上传目录滞留文件：App 重启后内存中的“待导入”列表会丢失，
+  // 这里列出 wifi_uploads 内残留的接收文件（如上传时应用未在导入页、移动失败降级等场景），
+  // 与事件接收的记录按路径去重合并，交由 WiFi 传书页手动导入
+  useEffect(() => {
+    (async () => {
+      try {
+        const leftovers = await invoke<ReceivedFile[]>("wifi_list_uploads");
+        if (!leftovers || leftovers.length === 0) return;
+        setWifiReceived((prev) => {
+          const known = new Set(prev.map((r) => r.path));
+          const merged = [...prev];
+          for (const f of leftovers) {
+            if (!known.has(f.path)) merged.push(f);
+          }
+          return merged;
+        });
+      } catch (e) {
+        await logError("列出 WiFi 上传目录滞留文件失败", { error: String(e) });
+      }
+    })();
+  }, []);
+
   // 导入后的分组抽屉
   const {
     groupingOpen,
@@ -93,6 +171,10 @@ export const ImportFiles: React.FC = () => {
       // 计算进入了多少层目录（browseDirStack 第一层是根目录，不算）
       const depth = browseDirStack.length > 0 ? browseDirStack.length - 1 : 0;
       nav.finishImportFlow({ extraDepth: depth });
+    },
+    onWifiStaged: (originalPaths) => {
+      // WiFi 接收文件已移动进应用书库目录，同步清除对应“待导入”记录（不留历史）
+      setWifiReceived((prev) => prev.filter((r) => !originalPaths.includes(r.path)));
     },
   });
 
@@ -302,10 +384,9 @@ export const ImportFiles: React.FC = () => {
     setActiveTab("scan");
    // 跳转到结果页并传递数据
     const currentState = nav.location.state as any;
-    nav.toImportResults({ 
-      results: mapped, 
-      fromTab: currentState?.fromTab,
-      fromMenu: currentState?.fromMenu 
+    nav.toImportResults({
+      results: mapped,
+      fromTab: currentState?.fromTab
     });
   };
 
@@ -642,22 +723,9 @@ export const ImportFiles: React.FC = () => {
       </div>
     ) : undefined;
 
-    // 返回按钮回调
-    const handleBack = () => {
-      // 先关闭筛选菜单，避免遮罩层阻挡导航
-      setFilterMenuOpen(false);
-      setFormatMenuOpen(false);
-      
-      const state: any = nav.location.state || {};
-      // 直接退出导入页面，不再逐级返回
-      if (state.fromTab === "all") nav.toBookshelf('all');
-      else nav.toBookshelf('recent');
-    };
-
     return (
       <PageHeader
         title={scanList.length > 0 ? t('scanResult', { count: scanList.length }) : t('importFiles')}
-        onBack={handleBack}
         rightContent={
           <div style={{ display: 'flex', alignItems: 'center' }}>
             {activeTab === 'scan' && (
@@ -680,8 +748,8 @@ export const ImportFiles: React.FC = () => {
 
 const Tabs: React.FC = () => {
     const handleTabChange = (key: TabKey) => {
-      // 切换到"自动扫描"tab时，清空浏览目录的路径栈
-      if (key === "scan" && activeTab === "browse") {
+      // 离开"浏览全部"tab时，清空浏览目录的路径栈
+      if (activeTab === "browse" && key !== "browse") {
         // 计算进入了多少层目录（browseDirStack 第一层是根目录，不算）
         const depth = browseDirStack.length - 1;
         setBrowseStack([]);
@@ -696,7 +764,7 @@ const Tabs: React.FC = () => {
 
     return (
     <div style={{ display: "flex", padding: "8px 0 0 0" }}>
-      {(["scan", "browse"] as TabKey[]).map((key) => (
+      {(["scan", "browse", "wifi", "nas"] as TabKey[]).map((key) => (
         <button
           key={key}
           onClick={() => handleTabChange(key)}
@@ -717,7 +785,13 @@ const Tabs: React.FC = () => {
               fontSize: 14,
             }}
           >
-            {key === "scan" ? t('autoScan') : t('browseAll')}
+            {key === "scan"
+              ? t('autoScan')
+              : key === "browse"
+              ? t('browseAll')
+              : key === "wifi"
+              ? t('wifi.title')
+              : t('nas.tab')}
           </div>
           <div
             style={{
@@ -916,6 +990,8 @@ const Tabs: React.FC = () => {
         flexDirection: "column",
         boxSizing: "border-box",
         background: "#fff",
+        // 避让全局底部菜单栏（高度由 MainLayout 经 CSS 变量下发），使页面自身底部操作栏位于菜单栏上方
+        paddingBottom: "var(--goread-navbar-h)",
       }}
     >
       {/* Header Area */}
@@ -951,7 +1027,14 @@ const Tabs: React.FC = () => {
         `}
       </style>
       <div className="no-scrollbar" style={{ flex: 1, overflowY: "auto", position: "relative" }}>
-        {activeTab === "scan" ? (
+        {activeTab === "wifi" ? (
+          <WifiTransfer
+            onImportPaths={openGroupingWithPaths}
+            received={wifiReceived}
+          />
+        ) : activeTab === "nas" ? (
+          <NasBrowser onImportPaths={openGroupingWithPaths} />
+        ) : activeTab === "scan" ? (
           scanList.length === 0 && globalSearch.trim() === "" && !scanLoading ? (
             <ScanEmpty />
           ) : (
@@ -971,7 +1054,8 @@ const Tabs: React.FC = () => {
           )}
         </div>
 
-      {!(activeTab === "browse" && browseLoading && browseStack.length === 0) && (
+      {(activeTab === "scan" || activeTab === "browse") &&
+        !(activeTab === "browse" && browseLoading && browseStack.length === 0) && (
         <ImportBottomBar
           label={
             activeTab === "scan" &&
@@ -1075,6 +1159,7 @@ const Tabs: React.FC = () => {
           onNewGroupNameChange={(val) => setNewGroupName(val)}
           onChooseExistingGroup={openChooseGroup}
           onConfirmName={() => createGroupAndFinish(newGroupName)}
+          onImportToRoot={() => assignToGroupAndFinish(null)}
           loading={groupingLoading}
         />
       )}
@@ -1086,6 +1171,8 @@ const Tabs: React.FC = () => {
         groupPreviews={groupPreviews}
         onClose={() => setChooseGroupOpen(false)}
         onSelectGroup={assignToGroupAndFinish}
+        onSelectRoot={() => assignToGroupAndFinish(null)}
+        rootLabel={ti('bookshelfRoot')}
       />
     </div>
   );

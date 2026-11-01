@@ -3,7 +3,6 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import { initSafeAreaInsets } from "./utils/layout";
 import { statusBarService } from "./services/statusBarService";
-import { volumeKeyService } from "./services/volumeKeyService";
 import { preloadCoverRoot } from "./hooks/useCover";
 import { syncDiskCacheConfig } from "./constants/cache";
 import i18n from "./locales";
@@ -50,10 +49,7 @@ const setupApp = async () => {
     
     // 初始化移动平台的状态栏服务
     await statusBarService.init();
-    
-    // 初始化音量键翻页服务
-    await volumeKeyService.init();
-    
+
     // 预加载封面根目录路径（提高首页封面显示速度）
     preloadCoverRoot().catch(() => {});
     

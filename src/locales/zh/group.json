@@ -5,6 +5,7 @@
   "deleteFailed": "删除失败，请重试",
   "deleteSuccess": "删除成功",
   "moveTo": "移动到分组",
+  "moveToRoot": "移到根目录",
   "moveFailed": "移动失败，请重试",
   "loadGroupsFailed": "无法加载分组列表",
   "changeGroup": "更改分组",

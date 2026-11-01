@@ -3,7 +3,7 @@
  * 封装章节的加载、缓存和预加载逻辑
  */
 
-import { logError, getInvoke } from '../../../index';
+import { logError, getInvoke, getTxtChapterRegex } from '../../../index';
 import { txtCacheService, TxtBookMeta, TxtChapterContent } from '../txtCacheService';
 import { generateTxtBookId, txtPreloader } from '../txtPreloader';
 
@@ -72,6 +72,7 @@ export function useTxtChapterCache(options: UseTxtChapterCacheOptions): TxtChapt
             filePath,
             chapterIndex: index,
             extraChapters: null,
+            chapterRegex: getTxtChapterRegex() ?? null,
         });
 
         if (chapters.length === 0) {

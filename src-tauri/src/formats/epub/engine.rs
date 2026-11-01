@@ -167,7 +167,9 @@ fn convert_toc_level(navpoints: &[NavPoint], level: i32) -> Vec<TocItem> {
                 Some(np.label.clone())
             };
 
-            let location = Some(np.content.to_string_lossy().to_string());
+            // NCX content 经 PathBuf 在 Windows 上会产生反斜杠分隔符，
+            // 与 spine（正斜杠）不一致会导致前端目录跳转匹配失败，统一归一化为正斜杠
+            let location = Some(np.content.to_string_lossy().replace('\\', "/"));
 
             let children = convert_toc_level(&np.children, level + 1);
 

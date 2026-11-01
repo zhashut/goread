@@ -114,10 +114,18 @@ export const TocOverlay: React.FC<TocOverlayProps> = ({
                 tocItemRefs.current.set(sig, el as HTMLDivElement);
               }
             }}
+            onClick={(e) => {
+              e.stopPropagation();
+              // 整行热区：点击行内任意位置（标题/页码/空白）均触发跳转，
+              // 支持页码跳转和锚点跳转（Markdown 等格式）；箭头区域自行 stopPropagation 仅做折叠
+              if (typeof node.page === "number" || node.anchor) {
+                onGoToPage(node.page, node.anchor);
+              }
+            }}
             style={{
               padding: "8px",
               borderRadius: "6px",
-              cursor: "default",
+              cursor: (typeof node.page === "number" || node.anchor) ? "pointer" : "default",
               backgroundColor: isActive ? "#333" : "transparent",
             }}
             onMouseEnter={(e) => {
@@ -150,17 +158,9 @@ export const TocOverlay: React.FC<TocOverlayProps> = ({
               {caret}
             </span>
             <span
-              onClick={(e) => {
-                e.stopPropagation();
-                // 支持页码跳转和锚点跳转（Markdown 等格式）
-                if (typeof node.page === "number" || node.anchor) {
-                  onGoToPage(node.page, node.anchor);
-                }
-              }}
               style={{
                 fontSize: "13px",
                 color: isActive ? "#d15158" : "#ffffff",
-                cursor: (typeof node.page === "number" || node.anchor) ? "pointer" : "default",
               }}
             >
               {node.title}

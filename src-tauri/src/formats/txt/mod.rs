@@ -120,6 +120,21 @@ impl TxtEngine {
     /// 快速解析元数据（不加载全文内容到内存中保持）
     /// 返回章节元信息和目录，用于章节懒加载
     pub fn load_metadata(path: &str) -> Result<TxtBookMeta, BookError> {
+        Self::load_metadata_with(path, None)
+    }
+
+    /// 快速解析元数据（支持自定义章节识别正则）
+    ///
+    /// # 参数
+    /// - `path`: TXT 文件路径
+    /// - `chapter_regex`: 自定义章节识别正则；None、空白串或编译失败时使用内置模式
+    ///
+    /// # 返回值
+    /// 成功返回书籍元信息，失败返回 BookError
+    pub fn load_metadata_with(
+        path: &str,
+        chapter_regex: Option<&str>,
+    ) -> Result<TxtBookMeta, BookError> {
         // 检查文件是否存在
         if !Path::new(path).exists() {
             return Err(BookError::file_not_found(path));
@@ -171,7 +186,7 @@ impl TxtEngine {
             let title = Self::extract_title_from_path(path);
 
             // 解析目录并获取章节元信息
-            let parser = TocParser::new();
+            let parser = TocParser::with_custom_regex(chapter_regex);
             let toc = parser.parse(&normalized, &lines);
 
             // 将 TocItem 转换为 TxtChapterMeta，计算字节偏移量
@@ -208,7 +223,7 @@ impl TxtEngine {
             let title = Self::extract_title_from_path(path);
 
             // 解析目录并获取章节元信息
-            let parser = TocParser::new();
+            let parser = TocParser::with_custom_regex(chapter_regex);
             let toc = parser.parse(&normalized, &lines);
 
             // 将 TocItem 转换为 TxtChapterMeta，计算字节偏移量
@@ -1026,8 +1041,19 @@ impl TxtEngine {
 
     /// 章节识别，生成目录
     pub fn get_toc(&self) -> Vec<TocItem> {
+        self.get_toc_with(None)
+    }
+
+    /// 章节识别，生成目录（支持自定义章节识别正则）
+    ///
+    /// # 参数
+    /// - `chapter_regex`: 自定义章节识别正则；None、空白串或编译失败时使用内置模式
+    ///
+    /// # 返回值
+    /// 返回目录条目列表
+    pub fn get_toc_with(&self, chapter_regex: Option<&str>) -> Vec<TocItem> {
         // 使用新的 TOC 解析器
-        let parser = TocParser::new();
+        let parser = TocParser::with_custom_regex(chapter_regex);
         let mut toc = parser.parse(&self.content, &self.lines);
 
         // 如果仍然没有目录，创建一个默认条目

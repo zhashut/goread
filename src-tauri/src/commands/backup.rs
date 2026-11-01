@@ -243,7 +243,7 @@ pub async fn import_app_data(
     for book in books {
         if let Some(id) = book.id {
             sqlx::query(
-                "INSERT INTO books (id, title, file_path, cover_image, current_page, total_pages, last_read_time, group_id, position_in_group, created_at, status, finished_at, recent_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO books (id, title, file_path, cover_image, current_page, total_pages, last_read_time, group_id, position_in_group, created_at, status, finished_at, recent_order, reading_mode, hide_divider) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(id)
             .bind(book.title)
@@ -258,12 +258,14 @@ pub async fn import_app_data(
             .bind(book.status.unwrap_or(0))
             .bind(book.finished_at)
             .bind(book.recent_order)
+            .bind(book.reading_mode)
+            .bind(book.hide_divider)
             .execute(&mut *tx)
             .await
             .map_err(|e| format!("恢复 books 表失败: {}", e))?;
         } else {
             sqlx::query(
-                "INSERT INTO books (title, file_path, cover_image, current_page, total_pages, last_read_time, group_id, position_in_group, created_at, status, finished_at, recent_order) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO books (title, file_path, cover_image, current_page, total_pages, last_read_time, group_id, position_in_group, created_at, status, finished_at, recent_order, reading_mode, hide_divider) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(book.title)
             .bind(book.file_path)
@@ -277,6 +279,8 @@ pub async fn import_app_data(
             .bind(book.status.unwrap_or(0))
             .bind(book.finished_at)
             .bind(book.recent_order)
+            .bind(book.reading_mode)
+            .bind(book.hide_divider)
             .execute(&mut *tx)
             .await
             .map_err(|e| format!("恢复 books 表失败: {}", e))?;

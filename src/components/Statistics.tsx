@@ -1,13 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useAppNav } from '../router/useAppNav';
 import { statsService, logError } from '../services';
 import { IStatsSummary, IDailyStats, IRangeStats, IBookReadingStats } from '../types';
 import { HtmlCover } from './covers/HtmlCover';
 import { MarkdownCover } from './covers/MarkdownCover';
 import TxtIcon from './covers/TxtIcon';
 import { CoverImage } from './CoverImage';
-import { getSafeAreaInsets } from '../utils/layout';
 import { PageHeader } from './PageHeader';
 import { getDisplayTitle } from '../utils/bookTitle';
 
@@ -169,8 +167,7 @@ const COLORS = {
 
 export const Statistics: React.FC = () => {
   const { t, i18n } = useTranslation('statistics');
-  const nav = useAppNav();
-  
+
   // 状态
   const [summary, setSummary] = useState<IStatsSummary>({ total_time_seconds: 0, streak_days: 0, finished_books: 0 });
   const [rangeType, setRangeType] = useState<RangeType>('day');
@@ -443,7 +440,12 @@ export const Statistics: React.FC = () => {
         backgroundColor: COLORS.bgColor, 
         minHeight: '100vh',
         height: '100vh',
-        paddingBottom: `calc(${getSafeAreaInsets().bottom} + 40px)`,
+        // border-box 契约：避让高度必须从 100vh 内部扣除；默认 content-box 会把盒子撑出视口，
+        // 被外层 overflow:hidden 裁剪后避让失效，末尾内容永远滚不到菜单栏上方
+        boxSizing: 'border-box',
+        // 避让全局底部菜单栏（变量含安全区高度）；末尾热力图卡片自带 margin-bottom 20px，
+        // 减 4px 补差，滚动到底时末卡片与菜单栏间隙与书架/设置/关于统一为 16px
+        paddingBottom: 'calc(var(--goread-navbar-h) - 4px)',
         overflowY: 'auto',
         overflowX: 'hidden',
         scrollbarWidth: 'none',
@@ -455,7 +457,6 @@ export const Statistics: React.FC = () => {
       {/* 顶部导航栏 */}
       <PageHeader
         title={t('title')}
-        onBack={() => nav.goBack()}
         sticky
         backgroundColor={COLORS.cardBg}
         style={{ boxShadow: '0 1px 0 rgba(0,0,0,0.05)' }}

@@ -3,7 +3,6 @@ import { useTranslation } from "react-i18next";
 import { getReaderSettings, saveReaderSettings, ReaderSettings, LanguageSetting, bookService, log } from "../services";
 import { cacheConfigService } from "../services/cacheConfigService";
 import type { ReaderTheme } from "../services";
-import { useAppNav } from "../router/useAppNav";
 import { supportedLanguages, changeLanguage } from "../locales";
 import { getSystemAppLanguage } from "../services/systemLanguageService";
 // 注意：此处特意不导入 statusBarService
@@ -12,6 +11,7 @@ import {
   RECENT_DISPLAY_COUNT_OPTIONS,
   RECENT_DISPLAY_COUNT_UNLIMITED,
   DEFAULT_READING_MODE,
+  DEFAULT_CHAPTER_REGEX,
   SCROLL_SPEED_MIN,
   SCROLL_SPEED_MAX,
   SCROLL_SPEED_STEP,
@@ -37,12 +37,13 @@ import {
   SETTINGS_BUTTON_FONT_SIZE,
   SETTINGS_BUTTON_RADIUS,
   SETTINGS_BUTTON_FONT_WEIGHT,
-} from "../constants/ui";
-import { getSafeAreaInsets } from "../utils/layout";
-import { CustomSelect } from "./CustomSelect";
+  } from "../constants/ui";
+  import { CustomSelect } from "./CustomSelect";
 import { PageHeader } from "./PageHeader";
 import { exportAppData, importAppData, exitApp } from "../services/dataBackupService";
+import { nasCacheStats, nasCacheClear, formatNasBytes } from "../services/nasService";
 import { Toast } from "./Toast";
+import { txtPreloader } from "../services/formats/txt/txtPreloader";
 import { IconInfo } from "./Icons";
 import { Loading } from "./Loading";
 import { NativeTTSClient, WebSpeechClient } from "../services/tts";
@@ -70,12 +71,9 @@ export const Settings: React.FC = () => {
   const [notificationPermissionGranted, setNotificationPermissionGranted] = useState(
     () => hasNotificationPermission(),
   );
-
-  const nav = useAppNav();
-
-  const goBack = () => {
-    nav.goBack();
-  };
+  // NAS 网络书架缓存统计（null 表示尚未加载或不可用）与清空按钮的二次确认态
+  const [nasCacheInfo, setNasCacheInfo] = useState<{ file_count: number; total_bytes: number } | null>(null);
+  const [nasCacheConfirming, setNasCacheConfirming] = useState(false);
 
   // 处理语言切换
   const handleLanguageChange = async (lng: string | number) => {
@@ -307,6 +305,50 @@ export const Settings: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings.cacheExpiryDays]);
 
+  // 进入设置页时加载 NAS 缓存统计（文件数与占用空间）
+  useEffect(() => {
+    let disposed = false;
+    nasCacheStats()
+      .then((s) => {
+        if (!disposed) setNasCacheInfo(s);
+      })
+      .catch(() => {
+        if (!disposed) setNasCacheInfo(null);
+      });
+    return () => {
+      disposed = true;
+    };
+  }, []);
+
+  /**
+   * 清空 NAS 网络书架缓存
+   * 功能描述：首次点击进入二次确认态（3 秒未确认自动复位），确认后调用 nas_cache_clear
+   *          删除缓存文件并刷新统计；书籍记录与阅读进度保留，再次打开时自动重新下载。
+   * 参数说明：无。
+   * 返回值类型及用途：无返回（异步执行清空，结果经 Toast 提示）。
+   */
+  const handleNasCacheClear = useCallback(async () => {
+    if (!nasCacheConfirming) {
+      setNasCacheConfirming(true);
+      window.setTimeout(() => setNasCacheConfirming(false), 3000);
+      return;
+    }
+    try {
+      const removed = await nasCacheClear();
+      setToastMessage(t('nasCache.clearSuccess', { count: removed }));
+    } catch (e) {
+      void log(`[Settings] 清空 NAS 缓存失败: ${String(e)}`, "warn");
+      setToastMessage(t('nasCache.clearFailed'));
+    } finally {
+      setNasCacheConfirming(false);
+      try {
+        setNasCacheInfo(await nasCacheStats());
+      } catch {
+        setNasCacheInfo(null);
+      }
+    }
+  }, [nasCacheConfirming, t]);
+
   const Row: React.FC<{ label: string | React.ReactNode; right?: React.ReactNode }> = ({
     label,
     right,
@@ -509,7 +551,11 @@ export const Settings: React.FC = () => {
         backgroundColor: "#fafafa",
         display: "flex",
         flexDirection: "column",
-        paddingBottom: getSafeAreaInsets().bottom,
+        // border-box 契约：避让高度必须从 100vh 内部扣除；默认 content-box 会把盒子撑出视口，
+        // 被外层 overflow:hidden 裁剪后避让失效，末尾内容永远滚不到菜单栏上方
+        boxSizing: "border-box",
+        // 避让全局底部菜单栏（变量已含底部安全区高度）
+        paddingBottom: "var(--goread-navbar-h)",
         overflow: "hidden",
       }}
     >
@@ -531,7 +577,6 @@ export const Settings: React.FC = () => {
       
       <PageHeader
         title={t('title')}
-        onBack={goBack}
         style={{ boxShadow: "0 1px 6px rgba(0,0,0,0.08)" }}
       />
       <div
@@ -551,22 +596,6 @@ export const Settings: React.FC = () => {
             boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
           }}
         >
-        <Row
-          label={t('volumeKeyTurnPage')}
-          right={
-            <input
-              className="settings-toggle"
-              type="checkbox"
-              checked={settings.volumeKeyTurnPage}
-              onChange={(e) =>
-                setSettings((s) => ({
-                  ...s,
-                  volumeKeyTurnPage: e.target.checked,
-                }))
-              }
-            />
-          }
-        />
         <Row
           label={t('clickTurnPage')}
           right={
@@ -730,6 +759,60 @@ export const Settings: React.FC = () => {
         />
 
         <Row
+          label={t('chapterRegex.label')}
+          right={
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <input
+                type="text"
+                value={settings.txtChapterRegex ?? DEFAULT_CHAPTER_REGEX}
+                placeholder={DEFAULT_CHAPTER_REGEX}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  const prev = (settings.txtChapterRegex ?? DEFAULT_CHAPTER_REGEX).trim();
+                  setSettings((s) => ({ ...s, txtChapterRegex: value }));
+                  // 章节划分规则变化后，清空按旧规则预加载的 TXT 缓存
+                  if (value.trim() !== prev) {
+                    txtPreloader.clearAll();
+                  }
+                }}
+                style={{
+                  width: 180,
+                  padding: "4px 8px",
+                  fontSize: 13,
+                  border: "1px solid #ddd",
+                  borderRadius: 6,
+                  color: "#333",
+                  outline: "none",
+                }}
+              />
+              <button
+                style={{
+                  padding: SETTINGS_BUTTON_PADDING,
+                  fontSize: SETTINGS_BUTTON_FONT_SIZE,
+                  borderRadius: SETTINGS_BUTTON_RADIUS,
+                  fontWeight: SETTINGS_BUTTON_FONT_WEIGHT,
+                  border: "1px solid #d15158",
+                  background: "#fff",
+                  color: "#d15158",
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                }}
+                onClick={() => {
+                  const current = (settings.txtChapterRegex ?? DEFAULT_CHAPTER_REGEX).trim();
+                  setSettings((s) => ({ ...s, txtChapterRegex: DEFAULT_CHAPTER_REGEX }));
+                  if (current !== DEFAULT_CHAPTER_REGEX) {
+                    txtPreloader.clearAll();
+                    setToastMessage(t('chapterRegex.resetSuccess'));
+                  }
+                }}
+              >
+                {t('chapterRegex.reset')}
+              </button>
+            </div>
+          }
+        />
+
+        <Row
           label={t('renderQuality')}
           right={
             <CustomSelect
@@ -753,6 +836,9 @@ export const Settings: React.FC = () => {
                 value={settings.theme || "light"}
                 options={[
                   { value: "light", label: t('theme.light') },
+                  { value: "sepia", label: t('theme.sepia') },
+                  { value: "green", label: t('theme.green') },
+                  { value: "gray", label: t('theme.gray') },
                   { value: "dark", label: t('theme.dark') },
                 ]}
                 onChange={(val) => {
@@ -890,6 +976,35 @@ export const Settings: React.FC = () => {
                 }))
               }
             />
+          }
+        />
+
+        {/* NAS 网络书架缓存管理：展示缓存文件数与占用空间，支持一键清空（清空后再次打开自动重新下载，阅读进度保留） */}
+        <Row
+          label={t('nasCache.label')}
+          right={
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 13, color: "#999" }}>
+                {nasCacheInfo
+                  ? `${nasCacheInfo.file_count} ${t('nasCache.filesUnit')} / ${formatNasBytes(nasCacheInfo.total_bytes)}`
+                  : t('nasCache.unavailable')}
+              </span>
+              <button
+                onClick={handleNasCacheClear}
+                style={{
+                  height: 30,
+                  padding: "0 14px",
+                  border: "none",
+                  borderRadius: 15,
+                  background: nasCacheConfirming ? "#d15158" : "#f0f0f0",
+                  color: nasCacheConfirming ? "#fff" : "#555",
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                {nasCacheConfirming ? t('nasCache.confirmClear') : t('nasCache.clear')}
+              </button>
+            </div>
           }
         />
 

@@ -12,12 +12,13 @@ export type LanguageSetting = 'zh' | 'en' | 'system';
 
 // 阅读器设置类型
 export type ReaderSettings = {
-  volumeKeyTurnPage: boolean;
   clickTurnPage: boolean;
   showStatusBar: boolean;
   recentDisplayCount: number;
   defaultFontSize?: number;
   defaultReadingMode?: 'horizontal' | 'vertical';
+  /** TXT 章节识别正则（空白视为未配置，回退内置模式） */
+  txtChapterRegex?: string;
   scrollSpeed: number;
   pageGap: number;
   fontSize?: number;
@@ -60,4 +61,18 @@ export const saveReaderSettings = (settings: Partial<ReaderSettings>) => {
     logError('Save settings failed', { error: String(e) }).catch(() => {});
     return getReaderSettings();
   }
+};
+
+/**
+ * 获取当前章节识别正则
+ *
+ * 功能描述：读取 TXT 章节识别正则设置，去除首尾空白后非空才生效。
+ *
+ * 参数说明：无。
+ *
+ * 返回值类型及用途：返回正则字符串（传给后端 Tauri 命令）或 undefined（使用内置模式）。
+ */
+export const getTxtChapterRegex = (): string | undefined => {
+  const value = getReaderSettings().txtChapterRegex?.trim();
+  return value ? value : undefined;
 };

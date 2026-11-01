@@ -1,5 +1,5 @@
 import { BookInfo, TocItem } from '../../types';
-import { logError, getInvoke } from '../../../index';
+import { logError, getInvoke, getTxtChapterRegex } from '../../../index';
 import { txtPreloader } from '../txtPreloader';
 import { TxtBookMeta } from '../txtCacheService';
 import { useTxtChapterCache, type TxtChapterCacheHook } from './useTxtChapterCache';
@@ -107,6 +107,7 @@ async function loadDocumentFullMode(
     const invoke = await getInvoke();
     const result: TxtLoadResult = await invoke('txt_load_document', {
       filePath,
+      chapterRegex: getTxtChapterRegex() ?? null,
     });
     ctx.setContent(result.content);
     ctx.setEncoding(result.encoding);

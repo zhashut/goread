@@ -73,6 +73,12 @@ export interface HorizontalRenderHook {
   nextPage: () => Promise<void>;
   prevPage: () => Promise<void>;
   scrollBy: (deltaY: number) => void;
+  /**
+   * 设置触摸手势接管标志（T30 统一翻页手势层集成点）：
+   * 阅读器统一手势层接管横向拖拽后置 true，渲染层内部触摸翻页流（setupTouchScroll）全部让位，
+   * 避免内外两层手势对同一触摸序列双重响应造成重复翻页
+   */
+  setTouchGestureTakeover: (active: boolean) => void;
   destroy: () => void;
 }
 
@@ -97,6 +103,8 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
   let resizeObserver: ResizeObserver | null = null;
   let isSnapping = false;
   let isGestureActive = false;
+  /** 统一翻页手势层接管标志：true 时渲染层内部触摸翻页流全部让位（避免双重响应） */
+  let touchGestureTakeover = false;
   /** 无选区时最近一次的滚动位置：作为选字钉住的基准（浏览器为展示选区滚动之前的位置） */
   let lastScrollLeftWhenIdle = 0;
   /** 选字期间钉住的滚动位置；null 表示当前未钉住 */
@@ -379,6 +387,8 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
     };
 
     const onTouchStart = (e: TouchEvent) => {
+      // 统一手势层接管期间：内部触摸翻页流让位，避免双重响应
+      if (touchGestureTakeover) return;
       if (e.touches.length !== 1) return;
       if (isInteractiveTarget(e.target)) return;
       // 已存在文本选区时把手势交还给浏览器：此时的横向拖动多为拖拽选区手柄扩展选区，
@@ -391,6 +401,8 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
     };
 
     const onTouchMove = (e: TouchEvent) => {
+      // 统一手势层接管期间：内部触摸翻页流让位
+      if (touchGestureTakeover) return;
       if (!start) return;
       if (e.touches.length !== 1) {
         reset();
@@ -425,6 +437,8 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
     };
 
     const onTouchEnd = (_e: TouchEvent) => {
+      // 统一手势层接管期间：内部触摸翻页流让位
+      if (touchGestureTakeover) return;
       if (!start) return;
       const { horizontal, dx, left } = start;
       reset();
@@ -953,6 +967,19 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
     state.renderedSectionIndex = -1;
   };
 
+  /**
+   * 设置触摸手势接管标志
+   * @param active true=统一手势层接管（内部触摸翻页流让位）；false=恢复内部触摸流
+   * @returns void
+   */
+  const setTouchGestureTakeover = (active: boolean): void => {
+    touchGestureTakeover = active;
+    if (active) {
+      // 交出控制权时清掉内部半途手势，避免残留起点状态在恢复后误触发
+      isGestureActive = false;
+    }
+  };
+
   return {
     state,
     renderHorizontal,
@@ -963,6 +990,7 @@ export function useHorizontalRender(context: HorizontalRenderContext): Horizonta
     nextPage,
     prevPage,
     scrollBy,
+    setTouchGestureTakeover,
     destroy,
   };
 }

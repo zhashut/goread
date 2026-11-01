@@ -1,6 +1,7 @@
 import Foundation
 import Tauri
 import UIKit
+import WebKit
 
 /// iOS 原生桥接插件。
 ///
@@ -15,18 +16,58 @@ import UIKit
 ///   - StoragePermissionBridge → `window.IOSStoragePermissionBridge`（storagePermission.ts detectPlatform）
 ///   - VolumeKeyBridge         → `window.VolumeKeyBridge` + `volumeKeyBridgeReady`
 ///
-/// 注意：本插件依赖 Tauri iOS `Plugin` 基类在 WebView 加载后提供的 `webView`
-/// 引用。Tauri 的 `tauri-api`（Swift 包）不在本仓库内，而是由 `tauri ios` 生成
-/// 工程时写入各插件 `ios/.tauri/tauri-api`。接入时须以实际解析到的
-/// `tauri-api` 中 `Plugin.webView` 的获取时机/名称（可能为 `webView`、`window`
-/// 或 `load(webView:)` 回调）为准，必要时微调下面 `wireBridges()` 的触发点。
+/// 注意：tauri-api 的 `Plugin` 基类不暴露 `webView` 属性，唯一入口是
+/// `load(webview:)` 回调（Tauri 在 WebView 创建后经 `onWebviewCreated` 调用）。
+/// 本插件在该回调中缓存 webView 并触发 `wireBridgesIfReady()`。
 class IOSBridgePlugin: Plugin {
   private static var openUrlForwardingInstalled = false
+  private static var exceptionHandlerInstalled = false
   private var wired = false
+  private weak var bridgedWebView: WKWebView?
 
-  /// WebView 就绪后调用开关（具体触发点见文件头注释，接入时核对 tauri-api）。
+  /// Tauri 在 WebView 创建后回调（tauri-api `Plugin` 基类唯一入口），
+  /// 缓存 webView 并触发接线。
+  override public func load(webview: WKWebView) {
+    Self.installUncaughtExceptionHandlerIfNeeded()
+    bridgedWebView = webview
+    wireBridgesIfReady()
+  }
+
+  // MARK: - ObjC NSException 取证（R12/fix4）
+
+  /// 未捕获异常处理器：ObjC 层 NSException 不经过 Rust panic hook（lib.rs
+  /// install_ios_panic_hook 只覆盖 Rust panic），崩溃 .ips 中仅有 `abort() called`，
+  /// 拿不到异常 name/reason。本 handler 在异常 abort 前截获，把 name/reason/调用栈
+  /// 写入沙盒 Documents/panic.log（与 Rust panic hook 同文件，AFC 可拉）并 NSLog。
+  /// 必须在可能抛异常的启动链（wireBridgesIfReady → StatusBarBridge.setup 的
+  /// addChild 包装）之前安装；handler 为 C 函数指针，禁止捕获上下文，全部 IO 失败静默。
+  private static func installUncaughtExceptionHandlerIfNeeded() {
+    guard !exceptionHandlerInstalled else { return }
+    exceptionHandlerInstalled = true
+    NSSetUncaughtExceptionHandler { exception in
+      let text = """
+      [NSException] name=\(exception.name.rawValue)
+      reason: \(exception.reason ?? "<nil>")
+      stack:
+      \(exception.callStackSymbols.joined(separator: "\n"))
+      """
+      if let home = ProcessInfo.processInfo.environment["HOME"] {
+        let path = home + "/Documents/panic.log"
+        if !FileManager.default.fileExists(atPath: path) {
+          FileManager.default.createFile(atPath: path, contents: nil)
+        }
+        if let fh = FileHandle(forWritingAtPath: path) {
+          fh.seekToEndOfFile()
+          fh.write(text.data(using: .utf8) ?? Data())
+          try? fh.close()
+        }
+      }
+      NSLog("%@", text)
+    }
+  }
+
   func wireBridgesIfReady() {
-    guard !wired, let webView = self.webView else { return }
+    guard !wired, let webView = bridgedWebView else { return }
     wired = true
 
     ExternalFileOpenBridge.shared.setup(webView: webView)

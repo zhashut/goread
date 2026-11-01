@@ -136,6 +136,9 @@ const CHAPTER_PATTERN_DEFS: &[ChapterPatternDef] = &[
     },
 ];
 
+/// 用户自定义正则的优先级（高于所有内置模式的最高优先级 100）
+const CUSTOM_PATTERN_PRIORITY: i32 = 110;
+
 /// 编译后的章节模式
 struct CompiledPattern {
     regex: Regex,
@@ -411,6 +414,8 @@ impl Default for TocParserConfig {
 /// TOC 解析器
 pub struct TocParser {
     config: TocParserConfig,
+    /// 用户自定义章节识别正则（最高优先级；None 表示未配置或编译失败）
+    custom_regex: Option<Regex>,
 }
 
 impl TocParser {
@@ -418,13 +423,36 @@ impl TocParser {
     pub fn new() -> Self {
         Self {
             config: TocParserConfig::default(),
+            custom_regex: None,
         }
     }
 
     /// 使用自定义配置创建解析器
     #[allow(dead_code)]
     pub fn with_config(config: TocParserConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            custom_regex: None,
+        }
+    }
+
+    /// 使用自定义章节识别正则创建解析器
+    ///
+    /// # 参数
+    /// - `pattern`: 用户配置的正则表达式；None、空白串或编译失败时回退为 None（仅用内置模式）
+    ///
+    /// # 返回值
+    /// 返回携带自定义正则的解析器实例
+    #[allow(dead_code)]
+    pub fn with_custom_regex(pattern: Option<&str>) -> Self {
+        let custom_regex = pattern
+            .map(str::trim)
+            .filter(|p| !p.is_empty())
+            .and_then(|p| Regex::new(p).ok());
+        Self {
+            config: TocParserConfig::default(),
+            custom_regex,
+        }
     }
 
     /// 解析文本内容，生成目录
@@ -475,19 +503,38 @@ impl TocParser {
                 continue;
             }
 
-            // 尝试匹配所有模式
-            for pattern in COMPILED_PATTERNS.iter() {
-                if pattern.regex.is_match(trimmed) {
+            // 优先尝试用户自定义正则（最高优先级）
+            let mut matched_custom = false;
+            if let Some(custom) = self.custom_regex.as_ref() {
+                if custom.is_match(trimmed) {
                     candidates.push(CandidateChapter {
                         title: trimmed.to_string(),
                         char_offset,
                         line_number: line_num,
-                        pattern_name: pattern.name.to_string(),
-                        level: pattern.level,
-                        pattern_priority: pattern.priority,
-                        confidence: pattern.priority, // 初始置信度为优先级
+                        pattern_name: "custom".to_string(),
+                        level: 1,
+                        pattern_priority: CUSTOM_PATTERN_PRIORITY,
+                        confidence: CUSTOM_PATTERN_PRIORITY,
                     });
-                    break; // 每行只匹配第一个模式
+                    matched_custom = true;
+                }
+            }
+
+            // 自定义正则未命中时，再按优先级尝试内置模式
+            if !matched_custom {
+                for pattern in COMPILED_PATTERNS.iter() {
+                    if pattern.regex.is_match(trimmed) {
+                        candidates.push(CandidateChapter {
+                            title: trimmed.to_string(),
+                            char_offset,
+                            line_number: line_num,
+                            pattern_name: pattern.name.to_string(),
+                            level: pattern.level,
+                            pattern_priority: pattern.priority,
+                            confidence: pattern.priority, // 初始置信度为优先级
+                        });
+                        break; // 每行只匹配第一个模式
+                    }
                 }
             }
 

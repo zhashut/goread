@@ -341,31 +341,38 @@ export const GroupDetail: React.FC<{
     }
   };
 
-  const handleMoveBooks = async (targetGroupId: number) => {
+  /**
+   * 批量移动选中书籍到目标分组或根目录
+   * 参数说明：targetGroupId —— 目标分组 id；null 表示移到根目录（移出当前分组）
+   * 返回值类型：Promise<void>，移动成功后刷新数据、关闭抽屉并退出选择模式
+   */
+  const handleMoveBooks = async (targetGroupId: number | null) => {
     try {
       const ids = Array.from(selectedBookIds);
-      // 1. 移动书籍
+      // 1. 移动书籍（groupId 为空表示移出分组，回到书架根目录）
       for (const bid of ids) {
-        await groupService.moveBookToGroup(bid, targetGroupId);
+        await groupService.moveBookToGroup(bid, targetGroupId ?? undefined);
       }
 
-      // 2. 排序：将移动的书籍放在目标分组最前
-      // 获取目标分组当前书籍
-      const targetBooks = await groupService.getBooksByGroup(targetGroupId);
-      const targetBookIds = targetBooks.map((b) => b.id);
+      // 2. 移动到具体分组时排序：将移动的书籍放在目标分组最前；根目录保持默认排序，无需处理
+      if (targetGroupId != null) {
+        // 获取目标分组当前书籍
+        const targetBooks = await groupService.getBooksByGroup(targetGroupId);
+        const targetBookIds = targetBooks.map((b) => b.id);
 
-      // 保持源分组中的相对顺序
-      const currentBooks = booksRef.current || [];
-      const movedIdsOrdered = currentBooks
-        .filter((b) => selectedBookIds.has(b.id))
-        .map((b) => b.id);
+        // 保持源分组中的相对顺序
+        const currentBooks = booksRef.current || [];
+        const movedIdsOrdered = currentBooks
+          .filter((b) => selectedBookIds.has(b.id))
+          .map((b) => b.id);
 
-      // 过滤出目标分组中原有的书籍（不包含这次移动的）
-      const restIds = targetBookIds.filter((bid) => !selectedBookIds.has(bid));
+        // 过滤出目标分组中原有的书籍（不包含这次移动的）
+        const restIds = targetBookIds.filter((bid) => !selectedBookIds.has(bid));
 
-      const newOrder = [...movedIdsOrdered, ...restIds];
+        const newOrder = [...movedIdsOrdered, ...restIds];
 
-      await groupService.reorderGroupBooks(targetGroupId, newOrder);
+        await groupService.reorderGroupBooks(targetGroupId, newOrder);
+      }
 
       // 3. 刷新与退出
       await reloadBooksAndGroups();
@@ -523,6 +530,7 @@ export const GroupDetail: React.FC<{
         groupPreviews={groupPreviews}
         onClose={() => nav.goBack()}
         onSelectGroup={handleMoveBooks}
+        onSelectRoot={() => handleMoveBooks(null)}
         title={t('moveTo')}
       />
     </div>

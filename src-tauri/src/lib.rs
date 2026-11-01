@@ -10,8 +10,11 @@ mod tts;
 mod tts_commands;
 mod txt_commands;
 mod mobi_commands;
+mod wifi_transfer;
 
 // 导入所有命令
+use wifi_transfer::{wifi_list_uploads, wifi_stage_to_library, wifi_transfer_start, wifi_transfer_status, wifi_transfer_stop};
+use commands::webdav::{nas_cache_clear, nas_cache_stats, nas_open_remote, webdav_download, webdav_list};
 use commands::{
     add_book,
     // bookmark commands
@@ -44,6 +47,7 @@ use commands::{
     frontend_log,
     get_all_books,
     get_all_groups,
+    find_group_by_name,
     get_bookmarks,
     get_books_by_date_range,
     get_books_by_group,
@@ -77,6 +81,7 @@ use commands::{
     unmark_book_finished,
     update_book_progress,
     update_book_reading_mode,
+    update_book_page_turn_effect,
     update_book_theme,
     update_book_total_pages,
     update_book_font_size,
@@ -306,8 +311,104 @@ async fn tts_managed_session_status(
     Ok(state.inner().status().await)
 }
 
+/// iOS 平台全局 panic 钩子：把 panic 消息、触发位置、线程名与完整调用栈
+/// 写入沙盒 Documents/panic.log（追加模式）并经 NSLog 输出到系统日志。
+/// 背景：iOS 无 stderr，且 tauri setup 内 panic 后 unwind 会穿过 extern "C"
+/// 的 ObjC 委托边界触发 nounwind abort，.ips 崩溃日志中原始 panic 帧被销毁，
+/// 只有依赖本钩子才能拿到首次 panic 的消息与位置。
+/// 钩子内部禁止再 panic，所有 IO 失败均静默忽略。
+#[cfg(target_os = "ios")]
+fn install_ios_panic_hook() {
+    use std::io::Write;
+
+    extern "C" {
+        /// NSLog（Foundation）：向系统日志输出一条记录，第一参数为 NSString。
+        fn NSLog(message: *const std::ffi::c_void, ...);
+        /// CFStringCreateWithCString（CoreFoundation）：由 C 字符串构造 CFString。
+        fn CFStringCreateWithCString(
+            alloc: *const std::ffi::c_void,
+            c_str: *const std::ffi::c_char,
+            encoding: u32,
+        ) -> *mut std::ffi::c_void;
+    }
+    const K_CF_STRING_ENCODING_UTF8: u32 = 0x0800_0100;
+
+    // 安装时写入启动分隔行，便于在 panic.log 中区分多次启动。
+    let boot_ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    if let Ok(home) = std::env::var("HOME") {
+        let dir = format!("{home}/Documents");
+        if std::fs::create_dir_all(&dir).is_ok() {
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(format!("{dir}/panic.log"))
+            {
+                let _ = writeln!(f, "=== panic hook installed, boot={boot_ts} ===");
+            }
+        }
+    }
+
+    std::panic::set_hook(Box::new(move |info| {
+        let thread_name = std::thread::current()
+            .name()
+            .unwrap_or("<unnamed>")
+            .to_string();
+        let message = if let Some(s) = info.payload().downcast_ref::<&str>() {
+            (*s).to_string()
+        } else if let Some(s) = info.payload().downcast_ref::<String>() {
+            s.clone()
+        } else {
+            "<non-string panic payload>".to_string()
+        };
+        let location = info
+            .location()
+            .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
+            .unwrap_or_else(|| "<unknown>".to_string());
+        let backtrace = std::backtrace::Backtrace::force_capture().to_string();
+        let text = format!(
+            "[PANIC] thread={thread_name} at {location}\nmessage: {message}\nbacktrace:\n{backtrace}\n"
+        );
+
+        // 1) 写沙盒文件：iOS 沙盒内 HOME 环境变量指向 app 容器根目录。
+        if let Ok(home) = std::env::var("HOME") {
+            let dir = format!("{home}/Documents");
+            if std::fs::create_dir_all(&dir).is_ok() {
+                if let Ok(mut f) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(format!("{dir}/panic.log"))
+                {
+                    let _ = f.write_all(text.as_bytes());
+                }
+            }
+        }
+
+        // 2) NSLog 输出（% 需转义，避免被当作格式化占位符）。
+        let escaped = text.replace('%', "%%");
+        if let Ok(c) = std::ffi::CString::new(escaped) {
+            unsafe {
+                let ns = CFStringCreateWithCString(
+                    std::ptr::null(),
+                    c.as_ptr(),
+                    K_CF_STRING_ENCODING_UTF8,
+                );
+                if !ns.is_null() {
+                    NSLog(ns);
+                }
+            }
+        }
+    }));
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // iOS：先装 panic 钩子再进入 tauri Builder，保证 setup/启动链 panic 可取证。
+    #[cfg(target_os = "ios")]
+    install_ios_panic_hook();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -316,19 +417,27 @@ pub fn run() {
         .plugin(tauri_plugin_ios_bridge::init())
         .setup(|app| {
             app.manage(Arc::new(ManagedTtsSessionState::new()));
+            // 初始化 WiFi 传书状态（服务默认未启动）
+            app.manage(wifi_transfer::WifiTransferState::new());
             // 设置数据库连接
             tauri::async_runtime::block_on(async {
-                let app_data_dir = app.path().app_data_dir().unwrap();
-                std::fs::create_dir_all(&app_data_dir).unwrap();
+                let app_data_dir = app
+                    .path()
+                    .app_data_dir()
+                    .expect("setup: app_data_dir() failed");
+                std::fs::create_dir_all(&app_data_dir)
+                    .expect("setup: create_dir_all(app_data_dir) failed");
                 let db_path = app_data_dir.join("goread.db");
                 // sqlx 对 SQLite 推荐使用 sqlite:// 前缀，并使用正斜杠路径格式
                 let db_path_str = db_path.to_string_lossy().replace('\\', "/");
                 let database_url = format!("sqlite://{}?mode=rwc", db_path_str);
                 let opts = SqliteConnectOptions::from_str(&database_url)
-                    .unwrap()
+                    .expect("setup: SqliteConnectOptions::from_str failed")
                     .journal_mode(SqliteJournalMode::Wal)
                     .create_if_missing(true);
-                let pool = SqlitePool::connect_with(opts).await.unwrap();
+                let pool = SqlitePool::connect_with(opts)
+                    .await
+                    .expect("setup: SqlitePool::connect_with failed");
 
                 app.manage(Arc::new(Mutex::new(pool)));
                 app.manage(Arc::new(AtomicBool::new(false)));
@@ -390,6 +499,7 @@ pub fn run() {
             get_recent_books,
             update_book_progress,
             update_book_reading_mode,
+            update_book_page_turn_effect,
             update_book_theme,
             update_book_total_pages,
             update_book_font_size,
@@ -404,6 +514,7 @@ pub fn run() {
             rename_book,
             add_group,
             get_all_groups,
+            find_group_by_name,
             update_group,
             delete_group,
             get_books_by_group,
@@ -427,6 +538,18 @@ pub fn run() {
             batch_read_files,
             batch_import_books,
             batch_get_pdf_info,
+            // WiFi 传书命令
+            wifi_transfer_start,
+            wifi_transfer_stop,
+            wifi_transfer_status,
+            wifi_stage_to_library,
+            wifi_list_uploads,
+            // NAS WebDAV 命令
+            webdav_list,
+            webdav_download,
+            nas_open_remote,
+            nas_cache_stats,
+            nas_cache_clear,
             frontend_log,
             read_file_base64,
             read_file_chunked,

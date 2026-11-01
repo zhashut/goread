@@ -1,6 +1,5 @@
 {
   "title": "Settings",
-  "volumeKeyTurnPage": "Volume Key Page Turn",
   "clickTurnPage": "Tap to Turn Page",
   "showStatusBar": "Show Status Bar",
   "recentDisplayCount": "Recent Display Count",
@@ -26,6 +25,11 @@
   "ttsNotificationEnable": "Enable",
   "ttsRate": "TTS Speed",
   "unlimited": "Unlimited",
+  "chapterRegex": {
+    "label": "Chapter Regex",
+    "reset": "Reset",
+    "resetSuccess": "Reset successful"
+  },
   "cacheExpiry": {
     "label": "Cache Expiration",
     "unlimitedHint": "Cache never expires. ~256MB per format, least-used content evicted when exceeded.",
@@ -33,9 +37,21 @@
     "days_plural": "{{count}} days",
     "updateSuccess": "Settings updated"
   },
+  "nasCache": {
+    "label": "Web Bookshelf Cache",
+    "filesUnit": "file(s)",
+    "unavailable": "Unavailable",
+    "clear": "Clear",
+    "confirmClear": "Confirm clear?",
+    "clearSuccess": "Cleared {{count}} cached file(s)",
+    "clearFailed": "Clear failed, please retry"
+  },
   "theme": {
     "label": "Reading Theme",
     "light": "Light",
+    "sepia": "Sepia",
+    "green": "Green",
+    "gray": "Gray",
     "dark": "Dark",
     "reset": "Reset",
     "resetSuccess": "Reset Successful"

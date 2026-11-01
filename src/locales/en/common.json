@@ -22,6 +22,8 @@
   "operationFailed": "Operation failed",
   "bookNotFound": "Book not found",
   "loadBookFailed": "Failed to load book",
+  "nasConnectionMissing": "The network bookshelf connection no longer exists, unable to re-download this book",
+  "nasCacheRestoreFailed": "Failed to re-download book from network bookshelf: {{reason}}",
   "unsupportedFormat": "Format {{format}} is not supported",
   "addBookmarkFailed": "Failed to add bookmark",
   "deleteBookmarkFailed": "Failed to delete bookmark",

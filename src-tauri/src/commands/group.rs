@@ -14,9 +14,8 @@ pub async fn add_group(name: String, db: DbState<'_>) -> Result<Group, Error> {
 
     let pool = db.lock().await;
 
-    let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM groups WHERE name = ? AND book_count > 0",
-    )
+    // 查重含空分组：书架会展示空文件夹，同名文件夹不允许重复出现
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM groups WHERE name = ?")
     .bind(&trimmed)
     .fetch_one(&*pool)
     .await?;
@@ -25,8 +24,8 @@ pub async fn add_group(name: String, db: DbState<'_>) -> Result<Group, Error> {
         return Err(Error::from("分组名称已存在".to_string()));
     }
 
-    let max_order: Option<i64> =
-        sqlx::query_scalar("SELECT MAX(sort_order) FROM groups WHERE book_count > 0")
+    // 排序基准含空分组，保证全局 sort_order 单调递增
+    let max_order: Option<i64> = sqlx::query_scalar("SELECT MAX(sort_order) FROM groups")
             .fetch_one(&*pool)
             .await?;
     let next_order = max_order.unwrap_or(0) + 1;
@@ -51,13 +50,32 @@ pub async fn add_group(name: String, db: DbState<'_>) -> Result<Group, Error> {
 pub async fn get_all_groups(db: DbState<'_>) -> Result<Vec<Group>, Error> {
     let pool = db.lock().await;
 
+    // 空分组同样返回：用户可在书架直接创建文件夹，创建后需立即可见（即使还没有书）
     let groups = sqlx::query_as::<_, Group>(
-        "SELECT * FROM groups WHERE book_count > 0 ORDER BY sort_order DESC, created_at DESC",
+        "SELECT * FROM groups ORDER BY sort_order DESC, created_at DESC",
     )
     .fetch_all(&*pool)
     .await?;
 
     Ok(groups)
+}
+
+/// 按名称精确查找分组（不过滤空分组；WiFi 自动入库的固定分组查重专用）
+///
+/// 参数：db 数据库状态；name 分组名称（精确匹配）
+/// 返回值：命中的分组（含空分组，取 id 最小者）；不存在返回 None
+#[tauri::command]
+pub async fn find_group_by_name(db: DbState<'_>, name: String) -> Result<Option<Group>, Error> {
+    let pool = db.lock().await;
+
+    let group = sqlx::query_as::<_, Group>(
+        "SELECT * FROM groups WHERE name = ? ORDER BY id ASC LIMIT 1",
+    )
+    .bind(name)
+    .fetch_optional(&*pool)
+    .await?;
+
+    Ok(group)
 }
 
 #[tauri::command]
@@ -70,8 +88,9 @@ pub async fn update_group(group_id: i64, name: String, db: DbState<'_>) -> Resul
 
     let trimmed = name.trim().to_string();
 
+    // 查重含空分组：与 add_group 口径一致（书架展示空文件夹，重名一律不允许）
     let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM groups WHERE name = ? AND id != ? AND book_count > 0",
+        "SELECT COUNT(*) FROM groups WHERE name = ? AND id != ?",
     )
     .bind(&trimmed)
     .bind(group_id)
@@ -204,10 +223,7 @@ pub async fn move_book_to_group(
         .bind(pg)
         .bind(pg)
         .execute(&*pool).await?;
-        sqlx::query("DELETE FROM groups WHERE id = ? AND book_count = 0")
-            .bind(pg)
-            .execute(&*pool)
-            .await?;
+        // 分组作为「文件夹」持久存在：移出最后一本书后保留空分组，由用户手动删除
     }
     if let Some(ng) = group_id {
         sqlx::query(
@@ -250,10 +266,9 @@ pub async fn reorder_groups(
 ) -> Result<(), Error> {
     let pool = db.lock().await;
 
-    // 获取当前全局最大 sort_order 作为基准
+    // 获取当前全局最大 sort_order 作为基准（含空分组，与 add_group 口径一致）
     // 确保拖拽后的分组顺序值都高于未参与拖拽的分组
-    let max_order: Option<i64> =
-        sqlx::query_scalar("SELECT MAX(sort_order) FROM groups WHERE book_count > 0")
+    let max_order: Option<i64> = sqlx::query_scalar("SELECT MAX(sort_order) FROM groups")
             .fetch_one(&*pool)
             .await?;
 

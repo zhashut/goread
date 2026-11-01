@@ -118,7 +118,12 @@ impl PdfEngine {
                 candidates.push("./pdfium/macos".to_string());
                 candidates.push("./src/formats/pdf/pdfium/macos".to_string());
             }
-            #[cfg(target_os = "ios")] {
+            #[cfg(target_os = "ios")]
+            {
+                // iOS: 嵌入 .app/Frameworks 的 dylib 在启动时已随主二进制 LC_LOAD_DYLIB 被 dyld 加载，
+                // dlopen 使用 @executable_path 前缀可直接命中已加载实例；
+                // 相对路径候选在 iOS 上以 cwd='/' 解析必然落空，仅作兜底保留
+                candidates.push("@executable_path/Frameworks".to_string());
                 candidates.push("./pdfium/ios".to_string());
                 candidates.push("./src/formats/pdf/pdfium/ios".to_string());
             }

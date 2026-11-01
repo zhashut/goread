@@ -21,9 +21,9 @@ export const QUALITY_SCALE_MAP: Record<string, number> = {
 export const RECENT_DISPLAY_COUNT_OPTIONS = [5, 7, 9, 12, 15];
 export const RECENT_DISPLAY_COUNT_UNLIMITED = 0;
 
-// 默认阅读方式选项（仅作用于新导入的书籍）
+// 默认阅读方式选项（仅作用于新导入的书籍；默认横向阅读）
 export const READING_MODE_OPTIONS = ['horizontal', 'vertical'] as const;
-export const DEFAULT_READING_MODE = 'vertical' as const;
+export const DEFAULT_READING_MODE = 'horizontal' as const;
 
 // 滚动速度配置
 export const SCROLL_SPEED_MIN = 10;
@@ -38,14 +38,17 @@ export const PAGE_GAP_STEP = 1;
 // 设置保存防抖时间 (ms)
 export const SETTINGS_SAVE_DEBOUNCE_MS = 100;
 
+// TXT 章节识别正则默认值（用户可在设置中自定义）
+export const DEFAULT_CHAPTER_REGEX = '第[一二三四五六七八九十百千万零两0-9]+章';
+
 // 默认设置
 export const DEFAULT_SETTINGS = {
-  volumeKeyTurnPage: false,
   clickTurnPage: true,
   showStatusBar: false,
   recentDisplayCount: 9,
   defaultFontSize: READER_FONT_SIZE_DEFAULT,
   defaultReadingMode: DEFAULT_READING_MODE,
+  txtChapterRegex: DEFAULT_CHAPTER_REGEX,
   scrollSpeed: 120,
   pageGap: 2,
   readingMode: 'vertical' as const,

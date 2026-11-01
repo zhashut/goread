@@ -416,6 +416,10 @@ export const useInitReader = ({
                 log(`[Reader] 开始渲染横向模式页面: ${pageToRender}`);
                 await renderPage(pageToRender);
                 log("[Reader] 横向模式页面渲染完成");
+                // canvas 渲染分支必须置位 contentReady：手势层/键盘的 isBlocked 判定
+                // 依赖该标志，缺失会导致 PDF 等画布格式横向下拖拽与键盘翻页被永久拦截
+                setContentReady(true);
+                notifyTtsDocumentUpdated?.();
             } else {
                 const waitForCanvases = () => {
                     return new Promise<void>((resolve) => {
@@ -462,6 +466,9 @@ export const useInitReader = ({
                 });
 
                 log("[Reader] 纵向模式页面渲染完成");
+                // 同横向分支：canvas 渲染完成后置位 contentReady，解除 isBlocked 拦截
+                setContentReady(true);
+                notifyTtsDocumentUpdated?.();
 
                 const currentCanvas = verticalCanvasRefs.current.get(pageToRender);
                 if (currentCanvas && !hasInitializedRef.current) {

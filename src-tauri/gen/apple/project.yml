@@ -32,7 +32,6 @@ targets:
       - path: Assets.xcassets
       - path: Externals
       - path: GoRead_iOS
-      - path: ../../ios-bridge
       - path: assets
         buildPhase: resources
         type: folder
@@ -108,8 +107,10 @@ targets:
         LIBRARY_SEARCH_PATHS[arch=arm64]: $(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME) $(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME) $(SRCROOT)/../../src/formats/pdf/pdfium/ios
         ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES: true
         EXCLUDED_ARCHS[sdk=iphoneos*]: x86_64
-        DEVELOPMENT_TEAM: YOUR_TEAM_ID_HERE
+        DEVELOPMENT_TEAM: ""
         CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "Apple Development"
+        PROVISIONING_PROFILE_SPECIFIER: ""
       groups: [app]
     dependencies:
       - framework: libapp.a
@@ -124,7 +125,16 @@ targets:
       - sdk: UIKit.framework
       - sdk: WebKit.framework
     preBuildScripts:
-      - script: export PATH="$HOME/.nvm/versions/node/v24.12.0/bin:$PATH"; npm run -- tauri ios xcode-script -v --platform ${PLATFORM_DISPLAY_NAME:?} --sdk-root ${SDKROOT:?} --framework-search-paths "${FRAMEWORK_SEARCH_PATHS:?}" --header-search-paths "${HEADER_SEARCH_PATHS:?}" --gcc-preprocessor-definitions "${GCC_PREPROCESSOR_DEFINITIONS:-}" --configuration ${CONFIGURATION:?} ${FORCE_COLOR} ${ARCHS:?}
+      - script: |
+          # 兼容 CI（macos-latest）与本地 nvm 两种 Node 环境
+          if [ -d "$HOME/.nvm/versions/node/v24.12.0/bin" ]; then
+            export PATH="$HOME/.nvm/versions/node/v24.12.0/bin:$PATH"
+          fi
+          if ! command -v npm &> /dev/null; then
+            echo "ERROR: npm not found. Install Node.js >= 20"
+            exit 1
+          fi
+          npm run -- tauri ios xcode-script -v --platform ${PLATFORM_DISPLAY_NAME:?} --sdk-root ${SDKROOT:?} --framework-search-paths "${FRAMEWORK_SEARCH_PATHS:?}" --header-search-paths "${HEADER_SEARCH_PATHS:?}" --gcc-preprocessor-definitions "${GCC_PREPROCESSOR_DEFINITIONS:-}" --configuration ${CONFIGURATION:?} ${FORCE_COLOR} ${ARCHS:?}
         name: Build Rust Code
         basedOnDependencyAnalysis: false
         outputFiles:

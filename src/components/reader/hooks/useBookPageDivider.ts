@@ -14,9 +14,10 @@ export interface UseBookPageDividerResult {
 /**
  * 管理书籍页分隔线隐藏状态的 Hook
  * 支持 DB 持久化（内部书籍）与 LocalStorage 持久化（外部文件/旧版本兜底）
+ * 默认隐藏分隔线（纵向阅读默认隐藏）；用户显式设置后按书记忆
  */
 export const useBookPageDivider = (book?: IBook | null): UseBookPageDividerResult => {
-  const [hideDivider, setHideState] = useState<boolean>(false);
+  const [hideDivider, setHideState] = useState<boolean>(true);
   const [loading, setLoading] = useState<boolean>(true);
 
   // 初始化读取
@@ -44,7 +45,7 @@ export const useBookPageDivider = (book?: IBook | null): UseBookPageDividerResul
           if (saved !== null) {
             setHideState(saved === 'true');
           } else {
-            setHideState(false); // 默认显示
+            setHideState(true); // 默认隐藏（纵向阅读默认隐藏分隔线）
           }
         }
       } catch (error) {

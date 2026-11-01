@@ -16,7 +16,6 @@ import { useImportedBooks, useImportGrouping, useSearchOverlay, useSelectAll } f
 /** 普通模式下的顶部栏，使用 PageHeader 组件 */
 const Header: React.FC<{
   title: string;
-  onBack: () => void;
   filterFormat: 'ALL' | BookFormat;
   filterMenuOpen: boolean;
   onFilterOpenChange: (open: boolean) => void;
@@ -27,7 +26,6 @@ const Header: React.FC<{
   setSelectedPaths: React.Dispatch<React.SetStateAction<string[]>>;
 }> = ({
   title,
-  onBack,
   filterFormat,
   filterMenuOpen,
   onFilterOpenChange,
@@ -51,7 +49,6 @@ const Header: React.FC<{
   return (
     <PageHeader
       title={title}
-      onBack={onBack}
       rightContent={
         <div style={{ display: "flex", alignItems: "center" }}>
           <FormatFilterButton
@@ -214,6 +211,8 @@ export const ScanResults: React.FC = () => {
         boxSizing: "border-box",
         overflow: "hidden",
         background: "#fff",
+        // 避让全局底部菜单栏（高度由 MainLayout 经 CSS 变量下发），使导入操作栏位于菜单栏上方
+        paddingBottom: "var(--goread-navbar-h)",
       }}
     >
       {/* Header / Search overlay */}
@@ -229,13 +228,6 @@ export const ScanResults: React.FC = () => {
       ) : (
         <Header
           title={t('scanResults', { count: results.length })}
-          onBack={() => {
-            // 先关闭筛选菜单，避免遮罩层阻挡导航
-            setFilterMenuOpen(false);
-            
-            if (state?.fromTab === "all") nav.toBookshelf('all');
-            else nav.goBack();
-          }}
           filterFormat={filterFormat}
           filterMenuOpen={filterMenuOpen}
           onFilterOpenChange={(open) => setFilterMenuOpen(open)}
@@ -286,6 +278,7 @@ export const ScanResults: React.FC = () => {
           onNewGroupNameChange={(val) => setNewGroupName(val)}
           onChooseExistingGroup={openChooseGroup}
           onConfirmName={() => createGroupAndFinish(newGroupName)}
+          onImportToRoot={() => assignToGroupAndFinish(null)}
           loading={groupingLoading}
         />
       )}
@@ -297,6 +290,8 @@ export const ScanResults: React.FC = () => {
         groupPreviews={groupPreviews}
         onClose={() => setChooseGroupOpen(false)}
         onSelectGroup={assignToGroupAndFinish}
+        onSelectRoot={() => assignToGroupAndFinish(null)}
+        rootLabel={t('bookshelfRoot')}
       />
 
       <ImportBottomBar

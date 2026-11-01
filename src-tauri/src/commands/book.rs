@@ -149,6 +149,11 @@ pub async fn init_database(db: DbState<'_>) -> Result<(), Error> {
         .execute(&*pool)
         .await;
 
+    // 翻页动画效果字段迁移（按书记忆；slide=平移，cover=覆盖，none=无动画，默认平移）
+    let _ = sqlx::query("ALTER TABLE books ADD COLUMN page_turn_effect TEXT DEFAULT 'slide'")
+        .execute(&*pool)
+        .await;
+
     // 隐藏页分隔线字段迁移
     let _ = sqlx::query("ALTER TABLE books ADD COLUMN hide_divider INTEGER DEFAULT 0")
         .execute(&*pool)
@@ -160,6 +165,17 @@ pub async fn init_database(db: DbState<'_>) -> Result<(), Error> {
         .await;
 
     let _ = sqlx::query("ALTER TABLE books ADD COLUMN font_size INTEGER")
+        .execute(&*pool)
+        .await;
+
+    // NAS 网络书架字段迁移：来源标识、连接 id 与远端路径（缓存书身份定位用）
+    let _ = sqlx::query("ALTER TABLE books ADD COLUMN source TEXT")
+        .execute(&*pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE books ADD COLUMN source_conn_id TEXT")
+        .execute(&*pool)
+        .await;
+    let _ = sqlx::query("ALTER TABLE books ADD COLUMN source_path TEXT")
         .execute(&*pool)
         .await;
 
@@ -178,25 +194,68 @@ pub async fn init_database(db: DbState<'_>) -> Result<(), Error> {
         .execute(&*pool)
         .await;
 
-    // 首次升级时迁移：按 last_read_time 初始化 recent_order
-    let needs_migration: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM books WHERE recent_order IS NOT NULL")
-            .fetch_one(&*pool)
-            .await?;
+    // 一次性迁移标记表（供下方各一次性迁移使用）
+    let _ = sqlx::query("CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMARY KEY)")
+        .execute(&*pool)
+        .await;
 
-    if needs_migration == 0 {
+    // 一次性迁移：按 last_read_time 初始化 recent_order（老库升级首迁）
+    // 判定依据必须用 schema_migrations 标记而非「recent_order 全空」计数：
+    // 「最近」页删除的本质是 clear_recent 将 recent_order 置 NULL（阅读历史保留），
+    // 用户清空最近列表后全库 recent_order 计数归零，若按计数判定会被误认为
+    // 从未迁移的老库，重新按 last_read_time 分配 recent_order，导致已移除的
+    // 书籍复活重现。标记保证此迁移仅执行一次，与用户数据状态解耦。
+    let recent_order_migrated: Option<String> = sqlx::query_scalar(
+        "SELECT name FROM schema_migrations WHERE name = 'recent_order_backfill'",
+    )
+    .fetch_optional(&*pool)
+    .await
+    .unwrap_or(None);
+
+    if recent_order_migrated.is_none() {
         // 按 last_read_time 倒序，给每本有阅读记录的书分配 recent_order
         sqlx::query(
             "UPDATE books SET recent_order = (
-                SELECT COUNT(*) FROM books b2 
-                WHERE b2.last_read_time IS NOT NULL 
-                AND (b2.last_read_time < books.last_read_time 
+                SELECT COUNT(*) FROM books b2
+                WHERE b2.last_read_time IS NOT NULL
+                AND (b2.last_read_time < books.last_read_time
                      OR (b2.last_read_time = books.last_read_time AND b2.id < books.id))
             ) + 1
             WHERE last_read_time IS NOT NULL",
         )
         .execute(&*pool)
         .await?;
+        let _ = sqlx::query(
+            "INSERT OR IGNORE INTO schema_migrations (name) VALUES ('recent_order_backfill')",
+        )
+        .execute(&*pool)
+        .await;
+    }
+
+    // 一次性迁移：阅读默认值调整（书籍默认横向阅读；纵向阅读默认隐藏分隔线）
+    // 历史版本通过列 DEFAULT 将 reading_mode 回填为 'vertical'、hide_divider 回填为 0，
+    // 与用户显式设置值无法区分；此迁移将历史默认回填值清空为 NULL，
+    // 交由前端按新产品默认（横向 / 隐藏分隔线）处理。
+    // 通过 schema_migrations 标记保证只执行一次，此后用户显式设置不会被清除。
+    let reading_defaults_migrated: Option<String> = sqlx::query_scalar(
+        "SELECT name FROM schema_migrations WHERE name = 'reading_defaults_horizontal'",
+    )
+    .fetch_optional(&*pool)
+    .await
+    .unwrap_or(None);
+
+    if reading_defaults_migrated.is_none() {
+        let _ = sqlx::query("UPDATE books SET reading_mode = NULL WHERE reading_mode = 'vertical'")
+            .execute(&*pool)
+            .await;
+        let _ = sqlx::query("UPDATE books SET hide_divider = NULL WHERE hide_divider = 0")
+            .execute(&*pool)
+            .await;
+        let _ = sqlx::query(
+            "INSERT INTO schema_migrations (name) VALUES ('reading_defaults_horizontal')",
+        )
+        .execute(&*pool)
+        .await;
     }
 
     // groups 表 sort_order 字段迁移
@@ -263,7 +322,13 @@ pub async fn init_database(db: DbState<'_>) -> Result<(), Error> {
     .execute(&*pool)
     .await?;
 
-    sqlx::query("INSERT OR IGNORE INTO groups (id, name, book_count) VALUES (1, '默认分组', 0)")
+    // 清理基线遗留的「默认分组」种子分组（仅空组时删除）：
+    // 基线在每次启动时用 INSERT OR IGNORE 重新插入 id=1 的「默认分组」，
+    // 导致用户删除后重启即复活（表现为无法删除）。分组现为用户自管的
+    // 持久容器（见 T16 语义变更），不再需要种子；id 为 AUTOINCREMENT
+    // 单调递增不复用，此语句在 id=1 被删除后永久成为空操作。
+    // 含书的保护：仅删除空分组，书籍数据不受影响。
+    sqlx::query("DELETE FROM groups WHERE id = 1 AND book_count = 0")
         .execute(&*pool)
         .await?;
 
@@ -297,7 +362,7 @@ pub async fn add_book(
     };
 
     let result = sqlx::query(
-        "INSERT OR IGNORE INTO books (title, file_path, cover_image, total_pages) VALUES (?, ?, ?, ?)"
+        "INSERT OR IGNORE INTO books (title, file_path, cover_image, total_pages, reading_mode, hide_divider) VALUES (?, ?, ?, ?, NULL, NULL)"
     )
     .bind(&title)
     .bind(&path)
@@ -404,7 +469,7 @@ pub async fn update_book_theme(id: i64, theme: Option<String>, db: DbState<'_>) 
     let pool = db.lock().await;
 
     if let Some(t) = theme.as_deref() {
-        if t != "light" && t != "dark" {
+        if t != "light" && t != "dark" && t != "sepia" && t != "green" && t != "gray" {
             return Err(Error::Message("Invalid theme".to_string()));
         }
     }
@@ -443,6 +508,33 @@ pub async fn update_book_reading_mode(
 
     sqlx::query("UPDATE books SET reading_mode = ? WHERE id = ?")
         .bind(reading_mode.as_deref())
+        .bind(id)
+        .execute(&*pool)
+        .await?;
+
+    Ok(())
+}
+
+/// 更新书籍的翻页动画效果（按书记忆持久化）
+/// - 参数 id：书籍 id
+/// - 参数 page_turn_effect：翻页效果，合法值 "slide"（平移）/"cover"（覆盖）/"none"（无动画），None 表示清空回默认
+/// - 返回：成功 Ok(())，非法值返回错误
+#[tauri::command]
+pub async fn update_book_page_turn_effect(
+    id: i64,
+    page_turn_effect: Option<String>,
+    db: DbState<'_>,
+) -> Result<(), Error> {
+    let pool = db.lock().await;
+
+    if let Some(e) = page_turn_effect.as_deref() {
+        if e != "slide" && e != "cover" && e != "none" {
+            return Err(Error::Message("Invalid page turn effect".to_string()));
+        }
+    }
+
+    sqlx::query("UPDATE books SET page_turn_effect = ? WHERE id = ?")
+        .bind(page_turn_effect.as_deref())
         .bind(id)
         .execute(&*pool)
         .await?;
@@ -592,11 +684,30 @@ pub async fn delete_book(
                 }
             }
         }
+
+        // NAS 缓存书：删除记录时同步清理缓存文件（缓存非用户原始文件，随书籍删除）
+        if book.source.as_deref() == Some("nas") {
+            match tokio::fs::remove_file(&book.file_path).await {
+                Ok(_) => {
+                    println!("[delete_book] Deleted nas cache file: {}", book.file_path);
+                }
+                Err(e) => {
+                    eprintln!("[delete_book] Failed to delete nas cache file {}: {}", book.file_path, e);
+                }
+            }
+        }
     }
 
     let old_group: Option<i64> = sqlx::query_scalar("SELECT group_id FROM books WHERE id = ?")
         .bind(id)
         .fetch_one(&*pool)
+        .await?;
+
+    // 项目未启用 SQLite 外键级联（PRAGMA foreign_keys 默认关闭），
+    // 删除书籍记录前显式清理书签，避免 bookmarks 残留孤儿记录
+    sqlx::query("DELETE FROM bookmarks WHERE book_id = ?")
+        .bind(id)
+        .execute(&*pool)
         .await?;
 
     sqlx::query("DELETE FROM books WHERE id = ?")
@@ -605,16 +716,14 @@ pub async fn delete_book(
         .await?;
 
     if let Some(gid) = old_group {
+        // 分组为「持久容器」（见 T16/v1.7.0 语义）：删除书籍后仅同步 book_count，
+        // 空分组保留显示，由用户手动删除；不随书籍删除自动删除
         sqlx::query(
             "UPDATE groups SET book_count = (SELECT COUNT(*) FROM books WHERE group_id = ?) WHERE id = ?"
         )
         .bind(gid)
         .bind(gid)
         .execute(&*pool).await?;
-        sqlx::query("DELETE FROM groups WHERE id = ? AND book_count = 0")
-            .bind(gid)
-            .execute(&*pool)
-            .await?;
     }
     Ok(())
 }

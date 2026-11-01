@@ -12,6 +12,8 @@
   "howToGroup": "如何分组？",
   "inputNewGroupName": "输入新的分组名",
   "importToExistingGroup": "导入到现有分组",
+  "importToRoot": "不分组，导入到书架根目录",
+  "bookshelfRoot": "书架根目录",
   "confirmName": "确定命名",
   "existingGroups": "现有分组",
   "filterFormats": "筛选格式",

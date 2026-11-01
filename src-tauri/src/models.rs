@@ -19,9 +19,13 @@ pub struct Book {
     pub theme: Option<String>,
     pub font_size: Option<i64>,
     pub reading_mode: Option<String>, // 阅读模式：horizontal=横向分页，vertical=纵向滚动
+    pub page_turn_effect: Option<String>, // 翻页动画效果：slide=平移，cover=覆盖，none=无动画（按书记忆，仅横向模式生效）
     pub precise_progress: Option<f64>,
     pub hide_divider: Option<bool>,
     pub toc_sort: Option<i64>,
+    pub source: Option<String>,         // 书籍来源：None=本地导入，"nas"=网络书架缓存书
+    pub source_conn_id: Option<String>, // NAS 连接 id（source 为 "nas" 时有效）
+    pub source_path: Option<String>,    // NAS 远端文件路径（source 为 "nas" 时有效）
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -70,6 +74,7 @@ pub struct ReaderSettings {
     pub render_quality: String, // "low", "medium", "high"
     pub keep_screen_on: bool,
     pub auto_save_progress: bool,
+    pub page_turn_effect: String, // 翻页动画效果：slide=平移，cover=覆盖，none=无动画（默认 slide，仅横向模式生效）
 }
 
 // ==================== 阅读统计相关模型 ====================

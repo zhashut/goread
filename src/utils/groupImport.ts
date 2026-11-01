@@ -46,9 +46,15 @@ export const loadGroupsWithPreviews = async (): Promise<{ groups: IGroup[]; prev
   return { groups, previews };
 };
 
+/**
+ * 将待导入路径分配到指定分组并完成导入（先回调 onFinished 关闭抽屉，下一帧再执行导入）。
+ *
+ * 参数：pendingPaths 待导入路径列表；groupId 目标分组 id，null 表示不分组（书籍留在书架根目录）；onFinished 导入开始前回调
+ * 返回值：导入完成后 resolve；失败由调用方捕获处理
+ */
 export const assignToExistingGroupAndFinish = async (
   pendingPaths: string[],
-  groupId: number,
+  groupId: number | null,
   onFinished: () => void
 ): Promise<void> => {
   onFinished();

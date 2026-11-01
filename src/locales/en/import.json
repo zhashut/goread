@@ -12,6 +12,8 @@
   "howToGroup": "How to group?",
   "inputNewGroupName": "Enter new group name",
   "importToExistingGroup": "Import to existing group",
+  "importToRoot": "No group, import to bookshelf root",
+  "bookshelfRoot": "Bookshelf Root",
   "confirmName": "Confirm",
   "existingGroups": "Existing Groups",
   "filterFormats": "Filter formats",

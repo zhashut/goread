@@ -82,7 +82,7 @@ pub async fn batch_import_books(
 
         // 插入书籍
         let result = sqlx::query(
-            "INSERT OR IGNORE INTO books (title, file_path, cover_image, total_pages, group_id) VALUES (?, ?, ?, ?, ?)"
+            "INSERT OR IGNORE INTO books (title, file_path, cover_image, total_pages, group_id, reading_mode, hide_divider) VALUES (?, ?, ?, ?, ?, NULL, NULL)"
         )
         .bind(&book_meta.title)
         .bind(&book_meta.path)

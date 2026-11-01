@@ -1,12 +1,6 @@
-import React, {
-  useState,
-  useRef,
-  useLayoutEffect,
-  useEffect,
-  useCallback,
-} from "react";
-import { useOverlayBackHandler } from "../../hooks/useOverlayBackHandler";
+import React, { useState, useRef, useLayoutEffect } from "react";
 import { useTranslation } from "react-i18next";
+import { BookshelfTab } from "../../types";
 import {
   TOP_BAR_ICON_SIZE,
   TOP_BAR_TAB_FONT_SIZE,
@@ -15,26 +9,129 @@ import {
   TOP_BAR_ICON_GAP,
 } from "../../constants/ui";
 
+/** 顶栏标题字号（px） */
+const TOP_BAR_TITLE_FONT_SIZE = 20;
+/** ⋯下拉菜单项高度（px） */
+const MORE_MENU_ITEM_HEIGHT = 44;
+/** ⋯下拉菜单最小宽度（px） */
+const MORE_MENU_MIN_WIDTH = 148;
+/** 菜单图标颜色：创建分类（灰黑） */
+const MENU_ICON_COLOR_NEUTRAL = "#666";
+/** 菜单图标颜色：移动/删除（蓝） */
+const MENU_ICON_COLOR_BLUE = "#4A90D9";
+/** 菜单图标颜色：列表/网格模式（近黑） */
+const MENU_ICON_COLOR_DARK = "#333";
+
+/** 书架视图模式：网格 / 列表 */
+export type BookshelfViewMode = "grid" | "list";
+
 interface TopBarProps
   extends Omit<React.HTMLAttributes<HTMLDivElement>, "mode"> {
   /** Current mode: "default" (Tabs) or "selection" (Selection Mode) */
   mode: "default" | "selection";
 
   // --- Default Mode Props ---
-  activeTab?: "recent" | "all";
-  onTabChange?: (tab: "recent" | "all") => void;
+  activeTab?: BookshelfTab;
+  onTabChange?: (tab: BookshelfTab) => void;
   onSearch?: () => void;
-  /** Callback for menu actions */
-  onMenuAction?: (action: "import" | "settings" | "statistics" | "about") => void;
-  /** Callback when menu open state changes (e.g. to block gestures) */
-  onMenuOpenChange?: (open: boolean) => void;
+  /** ⋯菜单：创建分类 */
+  onCreateCategory?: () => void;
+  /** ⋯菜单：移动文件（进入选择模式） */
+  onMoveFiles?: () => void;
+  /** ⋯菜单：删除文件（进入选择模式） */
+  onDeleteFiles?: () => void;
+  /** 当前视图模式（控制菜单「列表模式/网格模式」文案与图标） */
+  viewMode?: BookshelfViewMode;
+  /** ⋯菜单：切换列表/网格模式 */
+  onToggleViewMode?: () => void;
+  /** 动态 NAS 页签列表（每项对应一条 NAS 连接，tab id 为 nas:<连接id>） */
+  nasTabs?: { id: string; name: string }[];
 
   // --- Selection Mode Props ---
   selectedCount?: number;
   onExitSelection?: () => void;
-  /** Custom actions for the right side in selection mode (e.g., Delete, Select All) */
+  /** Custom actions for the right side in selection mode (e.g., Select All) */
   selectionActions?: React.ReactNode;
 }
+
+/**
+ * ⋯菜单项：创建分类（文件夹+图标，灰黑）
+ * @param color 图标颜色
+ * @returns 文件夹加号 SVG 节点
+ */
+const CreateCategoryIcon = ({ color }: { color: string }) => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path
+      d="M3.5 6.5C3.5 5.4 4.4 4.5 5.5 4.5H9.3C9.8 4.5 10.3 4.7 10.6 5.1L11.8 6.5H18.5C19.6 6.5 20.5 7.4 20.5 8.5V17.5C20.5 18.6 19.6 19.5 18.5 19.5H5.5C4.4 19.5 3.5 18.6 3.5 17.5V6.5Z"
+      stroke={color}
+      strokeWidth="1.8"
+      strokeLinejoin="round"
+    />
+    <line x1="12" y1="10.5" x2="12" y2="15.5" stroke={color} strokeWidth="1.8" strokeLinecap="round" />
+    <line x1="9.5" y1="13" x2="14.5" y2="13" stroke={color} strokeWidth="1.8" strokeLinecap="round" />
+  </svg>
+);
+
+/**
+ * ⋯菜单项：移动文件（蓝色文件夹）
+ * @param color 图标颜色
+ * @returns 蓝色文件夹 SVG 节点
+ */
+const MoveFilesIcon = ({ color }: { color: string }) => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill={color} xmlns="http://www.w3.org/2000/svg">
+    <path d="M3.5 7C3.5 5.9 4.4 5 5.5 5H9.2C9.7 5 10.2 5.2 10.5 5.6L11.7 7H18.5C19.6 7 20.5 7.9 20.5 9V17C20.5 18.1 19.6 19 18.5 19H5.5C4.4 19 3.5 18.1 3.5 17V7Z" />
+    <path d="M10 13h5.2m0 0l-2-2m2 2l-2 2" stroke="#fff" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+  </svg>
+);
+
+/**
+ * ⋯菜单项：删除文件（蓝色垃圾桶）
+ * @param color 图标颜色
+ * @returns 蓝色垃圾桶 SVG 节点
+ */
+const DeleteFilesIcon = ({ color }: { color: string }) => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path
+      d="M4 6h16M9.5 6V4.8C9.5 4.3 9.9 4 10.4 4h3.2c.5 0 .9.3.9.8V6M6.2 6l.8 12.1c.1 1 .9 1.9 2 1.9h6c1.1 0 1.9-.9 2-1.9L17.8 6"
+      stroke={color}
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+    <line x1="10" y1="10" x2="10" y2="16" stroke={color} strokeWidth="1.7" strokeLinecap="round" />
+    <line x1="14" y1="10" x2="14" y2="16" stroke={color} strokeWidth="1.7" strokeLinecap="round" />
+  </svg>
+);
+
+/**
+ * ⋯菜单项：列表模式（横向列表图标）
+ * @param color 图标颜色
+ * @returns 列表图标 SVG 节点
+ */
+const ListModeIcon = ({ color }: { color: string }) => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <line x1="4" y1="6.5" x2="20" y2="6.5" stroke={color} strokeWidth="1.8" strokeLinecap="round" />
+    <line x1="4" y1="12" x2="20" y2="12" stroke={color} strokeWidth="1.8" strokeLinecap="round" />
+    <line x1="4" y1="17.5" x2="20" y2="17.5" stroke={color} strokeWidth="1.8" strokeLinecap="round" />
+    <circle cx="4" cy="6.5" r="0.9" fill={color} />
+    <circle cx="4" cy="12" r="0.9" fill={color} />
+    <circle cx="4" cy="17.5" r="0.9" fill={color} />
+  </svg>
+);
+
+/**
+ * ⋯菜单项：网格模式（四宫格图标）
+ * @param color 图标颜色
+ * @returns 网格图标 SVG 节点
+ */
+const GridModeIcon = ({ color }: { color: string }) => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect x="4" y="4" width="7" height="7" rx="1.5" stroke={color} strokeWidth="1.8" />
+    <rect x="13" y="4" width="7" height="7" rx="1.5" stroke={color} strokeWidth="1.8" />
+    <rect x="4" y="13" width="7" height="7" rx="1.5" stroke={color} strokeWidth="1.8" />
+    <rect x="13" y="13" width="7" height="7" rx="1.5" stroke={color} strokeWidth="1.8" />
+  </svg>
+);
 
 export const TopBar: React.FC<TopBarProps> = (props) => {
   const { t } = useTranslation('bookshelf');
@@ -44,18 +141,26 @@ export const TopBar: React.FC<TopBarProps> = (props) => {
     activeTab = "recent",
     onTabChange,
     onSearch,
-    onMenuAction,
-    onMenuOpenChange,
+    onCreateCategory,
+    onMoveFiles,
+    onDeleteFiles,
+    viewMode = "grid",
+    onToggleViewMode,
+    nasTabs = [],
     selectedCount = 0,
     onExitSelection,
     selectionActions,
     ...rest
   } = props;
   const { className, style, ...divProps } = rest;
+  // --- ⋯菜单开关状态 ---
+  const [menuOpen, setMenuOpen] = useState(false);
   // --- Tab Underline Logic (Default Mode) ---
   const tabsRef = useRef<HTMLDivElement | null>(null);
   const recentLabelRef = useRef<HTMLDivElement | null>(null);
   const allLabelRef = useRef<HTMLDivElement | null>(null);
+  // 动态 NAS 页签文字节点引用表：key 为连接 id（tab id 形如 nas:<id>，数量可变，无法用静态 ref）
+  const nasLabelRefsRef = useRef<Map<string, HTMLDivElement | null>>(new Map());
   const [underlinePos, setUnderlinePos] = useState<{
     left: number;
     width: number;
@@ -65,22 +170,34 @@ export const TopBar: React.FC<TopBarProps> = (props) => {
 
   const updateUnderline = () => {
     if (mode !== "default") return;
-    const target =
-      activeTab === "recent" ? recentLabelRef.current : allLabelRef.current;
+    // 按当前页签定位对应文字节点（recent / all / nas:<连接id> 动态页签）
+    let target: HTMLDivElement | null = null;
+    if (activeTab === "recent") {
+      target = recentLabelRef.current;
+    } else if (activeTab === "all") {
+      target = allLabelRef.current;
+    } else if (activeTab.startsWith("nas:")) {
+      target = nasLabelRefsRef.current.get(activeTab.slice(4)) ?? null;
+    }
     if (!target || !tabsRef.current) return;
     const tabsRect = tabsRef.current.getBoundingClientRect();
     const rect = target.getBoundingClientRect();
-    setUnderlinePos({ left: rect.left - tabsRect.left, width: rect.width });
+    // 页签容器可横向滚动，需叠加 scrollLeft 修正下划线偏移
+    setUnderlinePos({
+      left: rect.left - tabsRect.left + tabsRef.current.scrollLeft,
+      width: rect.width,
+    });
     setUnderlineReady(true);
   };
 
+  // activeTab / nasTabs 变化（切换页签、新增或删除连接）时重新定位下划线
   useLayoutEffect(() => {
     if (mode === "default") {
       updateUnderline();
       window.addEventListener("resize", updateUnderline);
       return () => window.removeEventListener("resize", updateUnderline);
     }
-  }, [activeTab, mode]);
+  }, [activeTab, mode, nasTabs]);
 
   // Ensure underline position is correct on mount
   useLayoutEffect(() => {
@@ -89,76 +206,6 @@ export const TopBar: React.FC<TopBarProps> = (props) => {
       requestAnimationFrame(updateUnderline);
     }
   }, [mode]);
-
-  // --- More Menu Logic (Default Mode) ---
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [menuPos, setMenuPos] = useState<{ left: number; top: number }>({
-    left: 0,
-    top: 0,
-  });
-  const menuRef = useRef<HTMLDivElement | null>(null);
-  const menuBtnRef = useRef<HTMLButtonElement | null>(null);
-
-  // 处理侧滑返回关闭菜单
-  const handleMenuClose = useCallback(() => {
-    setMenuOpen(false);
-  }, []);
-
-  const { closeForNavigation } = useOverlayBackHandler({
-    overlayId: "bookshelf-menu",
-    isOpen: menuOpen,
-    onClose: handleMenuClose,
-  });
-
-  useEffect(() => {
-    onMenuOpenChange?.(menuOpen);
-  }, [menuOpen, onMenuOpenChange]);
-
-  // Click outside to close menu
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onDown = (e: MouseEvent) => {
-      const target = e.target as Node | null;
-      const inMenu = !!(
-        menuRef.current &&
-        target &&
-        menuRef.current.contains(target)
-      );
-      const inBtn = !!(
-        menuBtnRef.current &&
-        target &&
-        menuBtnRef.current.contains(target)
-      );
-      if (!inMenu && !inBtn) setMenuOpen(false);
-    };
-    const onEsc = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setMenuOpen(false);
-    };
-    window.addEventListener("mousedown", onDown);
-    window.addEventListener("keydown", onEsc);
-    return () => {
-      window.removeEventListener("mousedown", onDown);
-      window.removeEventListener("keydown", onEsc);
-    };
-  }, [menuOpen]);
-
-  // Calculate menu position
-  useLayoutEffect(() => {
-    if (!menuOpen) return;
-    const btn = menuBtnRef.current;
-    const menu = menuRef.current;
-    if (!btn || !menu) return;
-    const btnRect = btn.getBoundingClientRect();
-    const vw = document.documentElement.clientWidth;
-    const edge = 14; // Safe margin
-    const menuWidth = menu.offsetWidth || 0;
-    let center = btnRect.left + btnRect.width / 2;
-    const maxCenter = vw - edge - menuWidth / 2;
-    const minCenter = edge + menuWidth / 2;
-    center = Math.max(minCenter, Math.min(maxCenter, center));
-    const top = btnRect.bottom + 6;
-    setMenuPos({ left: center, top });
-  }, [menuOpen]);
 
   if (mode === "selection") {
     return (
@@ -243,21 +290,229 @@ export const TopBar: React.FC<TopBarProps> = (props) => {
     <div
       className={className}
       style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
         marginBottom: `${TOP_BAR_MARGIN_BOTTOM}px`,
         ...style,
       }}
       {...divProps}
     >
+      {/* 第一行：居中标题「书架」+ 右侧搜索与⋯菜单图标 */}
+      <div
+        style={{
+          position: "relative",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          height: `${TOP_BAR_ICON_SIZE}px`,
+        }}
+      >
+        <div
+          style={{
+            fontSize: `${TOP_BAR_TITLE_FONT_SIZE}px`,
+            fontWeight: 600,
+            color: "#000",
+            lineHeight: `${TOP_BAR_ICON_SIZE}px`,
+          }}
+        >
+          {t('bookshelf')}
+        </div>
+        <div
+          style={{
+            position: "absolute",
+            right: 0,
+            top: 0,
+            height: "100%",
+            display: "flex",
+            alignItems: "center",
+            gap: `${TOP_BAR_ICON_GAP}px`,
+          }}
+        >
+          <button
+            title={tc('search')}
+            aria-label={tc('search')}
+            onClick={onSearch}
+            style={{
+              background: "transparent",
+              border: "none",
+              padding: 0,
+              margin: 0,
+              cursor: "pointer",
+              color: "#333",
+              WebkitAppearance: "none",
+              appearance: "none",
+              outline: "none",
+              boxShadow: "none",
+              borderRadius: 0,
+              display: "inline-flex",
+              alignItems: "center",
+            }}
+          >
+            <svg
+              width={TOP_BAR_ICON_SIZE}
+              height={TOP_BAR_ICON_SIZE}
+              viewBox="0 0 24 24"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <circle cx="11" cy="11" r="7" stroke="#333" strokeWidth="2" />
+              <line
+                x1="20"
+                y1="20"
+                x2="16.5"
+                y2="16.5"
+                stroke="#333"
+                strokeWidth="2"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
+          <button
+            title={t('more')}
+            aria-label={t('more')}
+            onClick={() => setMenuOpen((v) => !v)}
+            style={{
+              background: "transparent",
+              border: "none",
+              padding: 0,
+              margin: 0,
+              cursor: "pointer",
+              color: "#333",
+              WebkitAppearance: "none",
+              appearance: "none",
+              outline: "none",
+              boxShadow: "none",
+              borderRadius: 0,
+              display: "inline-flex",
+              alignItems: "center",
+            }}
+          >
+            <svg
+              width={TOP_BAR_ICON_SIZE}
+              height={TOP_BAR_ICON_SIZE}
+              viewBox="0 0 24 24"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <circle cx="5" cy="12" r="1.9" fill="#333" />
+              <circle cx="12" cy="12" r="1.9" fill="#333" />
+              <circle cx="19" cy="12" r="1.9" fill="#333" />
+            </svg>
+          </button>
+        </div>
+
+        {/* ⋯下拉菜单：创建分类 / 移动文件 / 删除文件 / 列表(网格)模式 */}
+        {menuOpen && (
+          <>
+            {/* 全屏透明遮罩：点击空白处关闭菜单 */}
+            <div
+              onClick={() => setMenuOpen(false)}
+              style={{
+                position: "fixed",
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                zIndex: 1000,
+              }}
+            />
+            <div
+              style={{
+                position: "absolute",
+                top: `calc(100% + 8px)`,
+                right: 0,
+                minWidth: `${MORE_MENU_MIN_WIDTH}px`,
+                background: "#fff",
+                borderRadius: 12,
+                boxShadow: "0 6px 24px rgba(0,0,0,0.14), 0 0 0 1px rgba(0,0,0,0.03)",
+                padding: "4px 0",
+                zIndex: 1001,
+                overflow: "hidden",
+              }}
+            >
+              {[
+                {
+                  key: "createCategory",
+                  label: t('createCategory'),
+                  icon: <CreateCategoryIcon color={MENU_ICON_COLOR_NEUTRAL} />,
+                  onClick: onCreateCategory,
+                },
+                {
+                  key: "moveFiles",
+                  label: t('moveFiles'),
+                  icon: <MoveFilesIcon color={MENU_ICON_COLOR_BLUE} />,
+                  onClick: onMoveFiles,
+                },
+                {
+                  key: "deleteFiles",
+                  label: t('deleteFiles'),
+                  icon: <DeleteFilesIcon color={MENU_ICON_COLOR_BLUE} />,
+                  onClick: onDeleteFiles,
+                },
+                {
+                  key: "viewMode",
+                  label: viewMode === "grid" ? t('listMode') : t('gridMode'),
+                  icon:
+                    viewMode === "grid" ? (
+                      <ListModeIcon color={MENU_ICON_COLOR_DARK} />
+                    ) : (
+                      <GridModeIcon color={MENU_ICON_COLOR_DARK} />
+                    ),
+                  onClick: onToggleViewMode,
+                },
+              ].map((item) => (
+                <button
+                  key={item.key}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    item.onClick?.();
+                  }}
+                  disabled={!item.onClick}
+                  style={{
+                    width: "100%",
+                    height: `${MORE_MENU_ITEM_HEIGHT}px`,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    padding: "0 16px",
+                    background: "transparent",
+                    border: "none",
+                    boxShadow: "none",
+                    borderRadius: 0,
+                    cursor: item.onClick ? "pointer" : "default",
+                    boxSizing: "border-box",
+                    textAlign: "left",
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 20,
+                      height: 20,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      flexShrink: 0,
+                    }}
+                  >
+                    {item.icon}
+                  </span>
+                  <span style={{ fontSize: 14, color: "#333" }}>{item.label}</span>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* 第二行：最近/本地/动态 NAS 选项卡（左对齐 + 下划线动画，超出时可横向滚动） */}
       <div
         ref={tabsRef}
+        className="no-scrollbar"
         style={{
           display: "flex",
           alignItems: "flex-end",
           position: "relative",
           paddingBottom: `${TOP_BAR_TAB_PADDING_BOTTOM}px`,
+          marginTop: "10px",
+          overflowX: "auto",
         }}
       >
         <button
@@ -275,6 +530,7 @@ export const TopBar: React.FC<TopBarProps> = (props) => {
             boxShadow: "none",
             borderRadius: 0,
             marginRight: "15px",
+            flexShrink: 0,
           }}
           title={t('recent')}
         >
@@ -303,6 +559,8 @@ export const TopBar: React.FC<TopBarProps> = (props) => {
             cursor: "pointer",
             boxShadow: "none",
             borderRadius: 0,
+            marginRight: "15px",
+            flexShrink: 0,
           }}
           title={t('all')}
         >
@@ -317,6 +575,44 @@ export const TopBar: React.FC<TopBarProps> = (props) => {
             {t('all')}
           </div>
         </button>
+        {/* 动态 NAS 页签：每个连接一个页签，名称与添加连接时的连接名保持一致 */}
+        {nasTabs.map((conn) => {
+          const tabId = `nas:${conn.id}` as BookshelfTab;
+          return (
+            <button
+              key={conn.id}
+              onClick={() => {
+                if (activeTab !== tabId) {
+                  onTabChange?.(tabId);
+                  setAnimateUnderline(true);
+                }
+              }}
+              style={{
+                background: "transparent",
+                border: "none",
+                padding: 0,
+                cursor: "pointer",
+                boxShadow: "none",
+                borderRadius: 0,
+                flexShrink: 0,
+              }}
+              title={conn.name}
+            >
+              <div
+                ref={(el) => {
+                  nasLabelRefsRef.current.set(conn.id, el);
+                }}
+                style={{
+                  fontSize: TOP_BAR_TAB_FONT_SIZE + "px",
+                  color: activeTab === tabId ? "#000" : "#bbb",
+                  transition: "color 200ms ease",
+                }}
+              >
+                {conn.name}
+              </div>
+            </button>
+          );
+        })}
         <div
           style={{
             position: "absolute",
@@ -332,265 +628,6 @@ export const TopBar: React.FC<TopBarProps> = (props) => {
           }}
         />
       </div>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          position: "relative",
-          gap: `${TOP_BAR_ICON_GAP}px`,
-        }}
-      >
-        <button
-          title={tc('search')}
-          aria-label={tc('search')}
-          onClick={onSearch}
-          style={{
-            background: "transparent",
-            border: "none",
-            padding: 0,
-            margin: 0,
-            cursor: "pointer",
-            color: "#333",
-            WebkitAppearance: "none",
-            appearance: "none",
-            outline: "none",
-            boxShadow: "none",
-            borderRadius: 0,
-            display: "inline-flex",
-            alignItems: "center",
-          }}
-        >
-          <svg
-            width={TOP_BAR_ICON_SIZE}
-            height={TOP_BAR_ICON_SIZE}
-            viewBox="0 0 24 24"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <circle cx="11" cy="11" r="7" stroke="#333" strokeWidth="2" />
-            <line
-              x1="20"
-              y1="20"
-              x2="16.5"
-              y2="16.5"
-              stroke="#333"
-              strokeWidth="2"
-              strokeLinecap="round"
-            />
-          </svg>
-        </button>
-        <button
-          ref={menuBtnRef}
-          title={tc('more')}
-          aria-label={tc('more')}
-          onClick={() => setMenuOpen((m) => !m)}
-          style={{
-            background: "transparent",
-            border: "none",
-            padding: 0,
-            margin: 0,
-            cursor: "pointer",
-            color: "#333",
-            WebkitAppearance: "none",
-            appearance: "none",
-            outline: "none",
-            boxShadow: "none",
-            borderRadius: 0,
-            display: "inline-flex",
-            alignItems: "center",
-          }}
-        >
-          <svg
-            width={TOP_BAR_ICON_SIZE}
-            height={TOP_BAR_ICON_SIZE}
-            viewBox="0 0 24 24"
-            fill="#333"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <circle cx="12" cy="5" r="2" />
-            <circle cx="12" cy="12" r="2" />
-            <circle cx="12" cy="19" r="2" />
-          </svg>
-        </button>
-        {menuOpen && (
-          <div
-            ref={menuRef}
-            style={{
-              position: "fixed",
-              left: menuPos.left,
-              top: menuPos.top,
-              transform: "translateX(-50%)",
-              background: "#fff",
-              border: "none",
-              boxShadow: "0 6px 16px rgba(0,0,0,0.12)",
-              borderRadius: "10px",
-              padding: "8px 14px",
-              width: "auto",
-              minWidth: "100px",
-              whiteSpace: "nowrap",
-              zIndex: 20,
-            }}
-          >
-            <MenuButton
-              onClick={() => {
-                closeForNavigation();
-                onMenuAction?.("import");
-              }}
-              icon={
-                <svg
-                  style={{ marginRight: "8px" }}
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                  stroke="#444"
-                  strokeWidth={2}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                  <polyline points="7 10 12 15 17 10" />
-                  <line x1="12" y1="15" x2="12" y2="3" />
-                </svg>
-              }
-              label={t('import')}
-            />
-            <MenuButton
-              onClick={() => {
-                closeForNavigation();
-                onMenuAction?.("statistics");
-              }}
-              icon={
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                  style={{ marginRight: "8px" }}
-                >
-                  <rect
-                    x="3"
-                    y="12"
-                    width="4"
-                    height="8"
-                    rx="1"
-                    stroke="#333"
-                    strokeWidth="1.5"
-                    fill="none"
-                  />
-                  <rect
-                    x="10"
-                    y="8"
-                    width="4"
-                    height="12"
-                    rx="1"
-                    stroke="#333"
-                    strokeWidth="1.5"
-                    fill="none"
-                  />
-                  <rect
-                    x="17"
-                    y="4"
-                    width="4"
-                    height="16"
-                    rx="1"
-                    stroke="#333"
-                    strokeWidth="1.5"
-                    fill="none"
-                  />
-                </svg>
-              }
-              label={t('statistics')}
-            />
-            <MenuButton
-              onClick={() => {
-                closeForNavigation();
-                onMenuAction?.("settings");
-              }}
-              icon={
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                  style={{ marginRight: "8px" }}
-                  stroke="#444"
-                  strokeWidth={2}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
-                  <circle cx="12" cy="12" r="3" />
-                </svg>
-              }
-              label={t('settings')}
-            />
-            <MenuButton
-              onClick={() => {
-                closeForNavigation();
-                onMenuAction?.("about");
-              }}
-              icon={
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                  style={{ marginRight: "8px" }}
-                  stroke="#444"
-                  strokeWidth={2}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <rect x="3" y="3" width="18" height="18" rx="5" ry="5" />
-                  <line x1="12" y1="16" x2="12" y2="12" />
-                  <line x1="12" y1="8" x2="12.01" y2="8" />
-                </svg>
-              }
-              label={t('about')}
-            />
-          </div>
-        )}
-      </div>
     </div>
-  );
-};
-
-// Helper component for menu buttons
-const MenuButton: React.FC<{
-  onClick: () => void;
-  icon: React.ReactNode;
-  label: string;
-}> = ({ onClick, icon, label }) => {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        width: "100%",
-        background: "transparent",
-        border: "none",
-        boxShadow: "none",
-        borderRadius: 0,
-        padding: "8px 6px",
-        cursor: "pointer",
-        color: "#333",
-        display: "flex",
-        alignItems: "center",
-        textAlign: "left",
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.backgroundColor = "#f7f7f7";
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.backgroundColor = "transparent";
-      }}
-    >
-      {icon}
-      <span>{label}</span>
-    </button>
   );
 };

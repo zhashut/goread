@@ -22,7 +22,7 @@ export { bookmarkService, TauriBookmarkService } from './bookmarkService';
 export type { IBookmarkService } from './bookmarkService';
 
 // ==================== 阅读器设置服务 ====================
-export { getReaderSettings, saveReaderSettings } from './settingsService';
+export { getReaderSettings, saveReaderSettings, getTxtChapterRegex } from './settingsService';
 export type { ReaderSettings, LanguageSetting } from './settingsService';
 
 // ==================== 阅读统计服务 ====================

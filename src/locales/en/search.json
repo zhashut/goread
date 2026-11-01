@@ -1,5 +1,8 @@
 {
   "placeholder": "Enter book title keywords...",
   "noFiles": "No file information",
-  "totalBooks": "{{count}} books"
+  "totalBooks": "{{count}} books",
+  "nasSection": "Network bookshelf",
+  "nasSearching": "Searching network bookshelf...",
+  "nasOpening": "Opening..."
 }

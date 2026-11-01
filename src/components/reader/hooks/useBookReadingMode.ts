@@ -22,7 +22,7 @@ export const useBookReadingMode = ({
   rendererRef,
 }: UseBookReadingModeOptions) => {
   // 外部文件的临时阅读模式（不持久化）
-  const [externalReadingMode, setExternalReadingMode] = useState<ReadingMode>("vertical");
+  const [externalReadingMode, setExternalReadingMode] = useState<ReadingMode>("horizontal");
   
   // 用于追踪是否需要同步到渲染器
   const prevModeRef = useRef<ReadingMode | null>(null);
@@ -39,8 +39,8 @@ export const useBookReadingMode = ({
       return book.reading_mode;
     }
     
-    // 默认使用纵向模式
-    return "vertical";
+    // 默认使用横向模式
+    return "horizontal";
   }, [book?.reading_mode, isExternal, externalReadingMode]);
 
   const readingMode = getEffectiveReadingMode();

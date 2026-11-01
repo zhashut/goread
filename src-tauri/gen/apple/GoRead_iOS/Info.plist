@@ -86,6 +86,8 @@
 	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>用于 WiFi 传书功能：允许同一局域网内的设备（如电脑）连接本应用，向书库上传电子书文件。</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

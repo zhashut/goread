@@ -75,6 +75,12 @@ function getThemeColors(theme: string | undefined) {
   if (theme === 'sepia') {
     return { bg, text: '#5b4636' };
   }
+  if (theme === 'green') {
+    return { bg, text: '#33463a' };
+  }
+  if (theme === 'gray') {
+    return { bg, text: '#424242' };
+  }
   return { bg, text: '#333' };
 }
 

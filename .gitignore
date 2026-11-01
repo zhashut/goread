@@ -30,4 +30,7 @@ build
 
 target
 
+# 本机 crates.io 镜像配置（rsproxy.cn），不入库
+.cargo/
+
 项目概述整合.md

@@ -280,7 +280,7 @@ final class TTSSessionRunner {
   }
 
   private func speakableLength(of text: String) -> Int {
-    text.unicodeScalars.count { !CharacterSet.whitespacesAndNewlines.contains($0) }
+    text.unicodeScalars.filter { !CharacterSet.whitespacesAndNewlines.contains($0) }.count
   }
 
   private func emitRequestMore() {

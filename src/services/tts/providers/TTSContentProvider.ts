@@ -27,6 +27,8 @@ export interface BackendTTSRequest {
   readingMode?: 'horizontal' | 'vertical';
   /** 不参与阅读顺序的章节下标（EPUB3 导航文档等），TTS 需跳过 */
   hiddenSections?: number[];
+  /** TXT 自定义章节识别正则（与阅读侧保持一致的章节划分） */
+  chapterRegex?: string | null;
 }
 
 /** Provider 取片请求 */

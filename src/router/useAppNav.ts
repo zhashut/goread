@@ -1,5 +1,6 @@
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { log, logError } from '../services';
+import { BookshelfTab } from '../types';
 
 export const useAppNav = () => {
   const navigate = useNavigate();
@@ -12,7 +13,7 @@ export const useAppNav = () => {
     
     // 业务跳转
     toBookshelf: (
-      tab: 'recent' | 'all' = 'recent',
+      tab: BookshelfTab = 'recent',
       options?: { replace?: boolean; state?: any; resetStack?: boolean }
     ) => {
       const isAtRoot = location.pathname === '/';
@@ -20,10 +21,8 @@ export const useAppNav = () => {
       const routerIdx = historyState?.idx;
       const { replace, state, resetStack } = options || {};
 
-      // 检查是否是从菜单进入的（原生 pushState 导致 idx 未更新）
-      const locationState = location.state as any;
-      const extraBack = locationState?.fromMenu ? 1 : 0;
-      const effectiveIdx = (typeof routerIdx === 'number' ? routerIdx : 0) + extraBack;
+      // 跳转均为 push 语义，routerIdx 即当前栈深，可精确回退到书架根部
+      const effectiveIdx = (typeof routerIdx === 'number' ? routerIdx : 0);
 
       if (resetStack) {
         if (effectiveIdx > 0) {
@@ -99,12 +98,9 @@ export const useAppNav = () => {
       const { extraDepth = 0 } = options || {};
       const historyState = window.history.state as { idx?: number } | null | undefined;
       const routerIdx = historyState?.idx;
-      
-      // 检查是否是从菜单进入的（原生 pushState 导致 idx 未更新）
-      const locationState = location.state as any;
-      const extraBack = locationState?.fromMenu ? 1 : 0;
-      // 加上额外的目录深度
-      const effectiveIdx = (typeof routerIdx === 'number' ? routerIdx : 0) + extraBack + extraDepth;
+
+      // 跳转均为 push 语义，routerIdx 即当前栈深，加上目录浏览的额外层数
+      const effectiveIdx = (typeof routerIdx === 'number' ? routerIdx : 0) + extraDepth;
       
       if (effectiveIdx > 0) {
         // 监听 popstate 事件，在回退完成后替换 URL 确保正确定位

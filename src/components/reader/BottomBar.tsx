@@ -1,6 +1,19 @@
 import React from "react";
 import { useTranslation } from 'react-i18next';
-import { BOTTOM_DRAWER_RADIUS, READER_FLOAT_BUTTON_EDGE_OFFSET, READER_FONT_CONTROL_TOP, READER_LISTEN_BUTTON_SIZE, READER_LISTEN_ICON_SIZE, READER_THEME_BUTTON_SIZE, READER_THEME_ICON_SIZE } from "../../constants/ui";
+import {
+  READER_FLOAT_BUTTON_EDGE_OFFSET,
+  READER_FONT_CONTROL_TOP,
+  READER_LISTEN_BUTTON_SIZE,
+  READER_LISTEN_ICON_SIZE,
+  READER_THEME_BUTTON_SIZE,
+  READER_THEME_ICON_SIZE,
+} from "../../constants/ui";
+import {
+  getReaderMenuIconChip,
+  getReaderMenuSliderTrack,
+  getReaderMenuText,
+  getReaderPageBackground,
+} from "../../constants/readerTheme";
 import type { ReaderTheme } from "../../services/formats/types";
 import { ThemeSunIcon } from "../covers/ThemeSunIcon";
 import { ThemeMoonIcon } from "../covers/ThemeMoonIcon";
@@ -32,7 +45,7 @@ interface BottomBarProps {
   onIncreaseFontSize?: () => void;
   onDecreaseFontSize?: () => void;
   onSetFontSizeByRatio?: (ratio: number) => void;
-  
+
   onSeekStart: () => void;
   onSeekChange: (val: number) => void;
   onSeekEnd: (val: number) => void;
@@ -44,6 +57,57 @@ interface BottomBarProps {
   onAddBookmark: () => void;
   onOpenMore: () => void;
 }
+
+/** 菜单图标芯片尺寸（圆角方形底，参考主流阅读器样式） */
+const MENU_CHIP_SIZE = 42;
+const MENU_CHIP_RADIUS = 12;
+const MENU_ICON_SIZE = 20;
+/** 激活态芯片底色（与全局强调色一致） */
+const MENU_ACCENT = "#d15158";
+
+/** 目录图标（三条横线） */
+const TocGlyph: React.FC = () => (
+  <svg viewBox="0 0 24 24" width={MENU_ICON_SIZE} height={MENU_ICON_SIZE} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" style={{ display: "block" }}>
+    <path d="M4 6h16M4 12h16M4 18h10" />
+  </svg>
+);
+
+/** 阅读模式图标：横屏双栏 / 竖屏单栏 */
+const ModeGlyph: React.FC<{ horizontal: boolean }> = ({ horizontal }) => (
+  <svg viewBox="0 0 24 24" width={MENU_ICON_SIZE} height={MENU_ICON_SIZE} fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" style={{ display: "block" }}>
+    {horizontal ? (
+      <>
+        <rect x="3.5" y="5" width="7.5" height="14" rx="1.5" />
+        <rect x="13" y="5" width="7.5" height="14" rx="1.5" />
+      </>
+    ) : (
+      <rect x="8" y="4.5" width="8" height="15" rx="1.5" />
+    )}
+  </svg>
+);
+
+/** 自动滚屏/自动翻页图标（向下双箭头） */
+const AutoScrollGlyph: React.FC = () => (
+  <svg viewBox="0 0 24 24" width={MENU_ICON_SIZE} height={MENU_ICON_SIZE} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block" }}>
+    <path d="M6 6l6 6 6-6M6 13l6 6 6-6" />
+  </svg>
+);
+
+/** 书签图标（实心书签形） */
+const BookmarkGlyph: React.FC = () => (
+  <svg viewBox="0 0 24 24" width={MENU_ICON_SIZE} height={MENU_ICON_SIZE} fill="currentColor" style={{ display: "block" }}>
+    <path d="M7 3.5h10a1.5 1.5 0 0 1 1.5 1.5v15.6a.6.6 0 0 1-.95.49L12 16.9l-5.55 4.19a.6.6 0 0 1-.95-.49V5A1.5 1.5 0 0 1 7 3.5z" />
+  </svg>
+);
+
+/** 更多图标（横向三点） */
+const MoreGlyph: React.FC = () => (
+  <svg viewBox="0 0 24 24" width={MENU_ICON_SIZE} height={MENU_ICON_SIZE} fill="currentColor" style={{ display: "block" }}>
+    <circle cx="5" cy="12" r="1.8" />
+    <circle cx="12" cy="12" r="1.8" />
+    <circle cx="19" cy="12" r="1.8" />
+  </svg>
+);
 
 export const BottomBar: React.FC<BottomBarProps> = ({
   visible,
@@ -79,8 +143,61 @@ export const BottomBar: React.FC<BottomBarProps> = ({
   onOpenMore,
 }) => {
   const { t } = useTranslation('reader');
-  
+
   if (!visible) return null;
+
+  // 菜单底色与阅读页同色，前景色随主题明暗（参考主流阅读器样式）
+  const menuText = getReaderMenuText(theme);
+  const chipBg = getReaderMenuIconChip(theme);
+  const sliderTrack = getReaderMenuSliderTrack(theme);
+  const sliderVal = isSeeking && seekPage !== null ? seekPage : currentPage;
+  const atStart = currentPage <= 1;
+  const atEnd = currentPage >= totalPages;
+
+  /** 生成一个「圆角方形芯片 + 下方文字」的菜单按钮 */
+  const renderChipButton = (
+    key: string,
+    label: string,
+    active: boolean,
+    glyph: React.ReactNode,
+    onClick: () => void
+  ) => (
+    <div
+      key={key}
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        gap: "7px",
+      }}
+    >
+      <button
+        onClick={onClick}
+        style={{
+          width: MENU_CHIP_SIZE,
+          height: MENU_CHIP_SIZE,
+          borderRadius: `${MENU_CHIP_RADIUS}px`,
+          border: "none",
+          outline: "none",
+          WebkitAppearance: "none",
+          appearance: "none",
+          backgroundColor: active ? MENU_ACCENT : chipBg,
+          color: "#ffffff",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          cursor: "pointer",
+          padding: 0,
+        }}
+        title={label}
+      >
+        {glyph}
+      </button>
+      <div style={{ fontSize: "clamp(10px, 1.6vw, 12px)", color: active ? MENU_ACCENT : menuText, lineHeight: 1 }}>
+        {label}
+      </div>
+    </div>
+  );
 
   return (
     <div
@@ -99,18 +216,16 @@ export const BottomBar: React.FC<BottomBarProps> = ({
         // 固定到底部
         bottom: 0,
         boxSizing: "border-box",
-        backgroundColor: "rgba(26,26,26,0.92)",
+        backgroundColor: getReaderPageBackground(theme),
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
-        color: "white",
-        borderRadius: `${BOTTOM_DRAWER_RADIUS}px ${BOTTOM_DRAWER_RADIUS}px 0 0`,
-        paddingTop: "14px",
+        color: menuText,
+        paddingTop: "16px",
         paddingLeft: "18px",
         paddingRight: "18px",
-        paddingBottom: "14px",
-        boxShadow: "0 6px 24px rgba(0,0,0,0.35)",
+        paddingBottom: "16px",
         zIndex: 10,
       }}
     >
@@ -188,98 +303,79 @@ export const BottomBar: React.FC<BottomBarProps> = ({
             onSetByRatio={onSetFontSizeByRatio}
           />
         )}
-      {/* 上方进度滑条 + 两端上一章/下一章文案 */}
+      {/* 进度行：上一章 | 滑条 | 下一章（同一行，参考主流阅读器样式） */}
       <div
         style={{
           width: "100%",
           display: "flex",
-          flexDirection: "column",
-          alignItems: "stretch",
+          alignItems: "center",
+          gap: "14px",
         }}
       >
-        <div
+        <span
+          onClick={onPrevChapter}
           style={{
-            display: "flex",
-            justifyContent: "space-between",
-            fontSize: "clamp(10px, 1.6vw, 12px)",
-            color: "#bbb",
-            marginBottom: "8px",
+            cursor: atStart ? "default" : "pointer",
+            opacity: atStart ? 0.4 : 1,
+            fontSize: "clamp(12px, 2vw, 14px)",
+            whiteSpace: "nowrap",
           }}
         >
-          <span
-            onClick={onPrevChapter}
-            style={{
-              cursor: currentPage <= 1 ? "default" : "pointer",
-              opacity: currentPage <= 1 ? 0.5 : 1,
-            }}
-          >
-            {t('prevChapter')}
-          </span>
-          <span
-            onClick={onNextChapter}
-            style={{
-              cursor: currentPage >= totalPages ? "default" : "pointer",
-              opacity: currentPage >= totalPages ? 0.5 : 1,
-            }}
-          >
-            {t('nextChapter')}
-          </span>
-        </div>
-        {(() => {
-          const sliderVal =
-            isSeeking && seekPage !== null ? seekPage : currentPage;
-          const pct = Math.max(
-            0,
-            Math.min(
-              100,
-              Math.round((sliderVal / Math.max(1, totalPages)) * 100)
-            )
-          );
-          const track = `linear-gradient(to right, #d15158 0%, #d15158 ${pct}%, #3a3a3a ${pct}%, #3a3a3a 100%)`;
-          return (
-            <input
-              className="reader-range"
-              type="range"
-              min={1}
-              max={totalPages}
-              value={sliderVal}
-              onMouseDown={(e) => {
-                e.stopPropagation();
-                onSeekStart();
-              }}
-              onTouchStart={(e) => {
-                e.stopPropagation();
-                onSeekStart();
-              }}
-              onInput={(e) => {
-                const v = Number((e.target as HTMLInputElement).value);
-                onSeekChange(v);
-              }}
-              onMouseUp={(e) => {
-                e.stopPropagation();
-                const v = Number((e.target as HTMLInputElement).value);
-                onSeekEnd(v);
-              }}
-              onTouchEnd={(e) => {
-                e.stopPropagation();
-                const v = Number((e.target as HTMLInputElement).value);
-                onSeekEnd(v);
-              }}
-              style={{
-                width: "100%",
-                height: "6px",
-                borderRadius: "6px",
-                background: track,
-                outline: "none",
-              }}
-            />
-          );
-        })()}
+          {t('prevChapter')}
+        </span>
+        <input
+          className="reader-range"
+          type="range"
+          min={1}
+          max={totalPages}
+          value={sliderVal}
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            onSeekStart();
+          }}
+          onTouchStart={(e) => {
+            e.stopPropagation();
+            onSeekStart();
+          }}
+          onInput={(e) => {
+            const v = Number((e.target as HTMLInputElement).value);
+            onSeekChange(v);
+          }}
+          onMouseUp={(e) => {
+            e.stopPropagation();
+            const v = Number((e.target as HTMLInputElement).value);
+            onSeekEnd(v);
+          }}
+          onTouchEnd={(e) => {
+            e.stopPropagation();
+            const v = Number((e.target as HTMLInputElement).value);
+            onSeekEnd(v);
+          }}
+          style={{
+            flex: 1,
+            minWidth: 0,
+            height: "4px",
+            borderRadius: "4px",
+            background: sliderTrack,
+            outline: "none",
+          }}
+        />
+        <span
+          onClick={onNextChapter}
+          style={{
+            cursor: atEnd ? "default" : "pointer",
+            opacity: atEnd ? 0.4 : 1,
+            fontSize: "clamp(12px, 2vw, 14px)",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {t('nextChapter')}
+        </span>
       </div>
-      {/* 下方图标操作区：5等分网格，窄屏也不拥挤 */}
+      {/* 下方图标操作区：圆角方形芯片 + 下方文字，5等分网格，窄屏也不拥挤 */}
       <div
         style={{
-          marginTop: "14px",
+          marginTop: "16px",
           display: "grid",
           gridTemplateColumns: "repeat(5, 1fr)",
           alignItems: "center",
@@ -288,181 +384,23 @@ export const BottomBar: React.FC<BottomBarProps> = ({
           gap: "8px",
         }}
       >
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-          }}
-        >
-          <button
-            onClick={onToggleToc}
-            style={{
-              background: "none",
-              border: "none",
-              boxShadow: "none",
-              borderRadius: 0,
-              outline: "none",
-              WebkitAppearance: "none",
-              appearance: "none",
-              color: tocOverlayOpen ? "#d15158" : "#fff",
-              cursor: "pointer",
-              fontSize: "clamp(16px, 3.2vw, 18px)",
-            }}
-            title={t('toc')}
-          >
-            ≡
-          </button>
-          <div
-            style={{
-              fontSize: "clamp(10px, 1.6vw, 12px)",
-              color: tocOverlayOpen ? "#d15158" : "#ccc",
-              marginTop: "6px",
-            }}
-          >
-            {t('toc')}
-          </div>
-        </div>
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-          }}
-        >
-          <button
-            onClick={onToggleMode}
-            style={{
-              background: "none",
-              border: "none",
-              boxShadow: "none",
-              borderRadius: 0,
-              outline: "none",
-              WebkitAppearance: "none",
-              appearance: "none",
-              color: "#fff",
-              cursor: "pointer",
-              fontSize: "clamp(16px, 3.2vw, 18px)",
-            }}
-            title={t('readingMode')}
-          >
-            {readingMode === "horizontal" ? "▤" : "▮"}
-          </button>
-          <div
-            style={{
-              fontSize: "clamp(10px, 1.6vw, 12px)",
-              color: "#ccc",
-              marginTop: "6px",
-            }}
-          >
-            {t('readingMode')}
-          </div>
-        </div>
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-          }}
-        >
-          <button
-            onClick={onToggleAutoScroll}
-            style={{
-              background: "none",
-              border: "none",
-              boxShadow: "none",
-              borderRadius: 0,
-              outline: "none",
-              WebkitAppearance: "none",
-              appearance: "none",
-              color: autoScroll ? "#d15158" : "#fff",
-              cursor: "pointer",
-              fontSize: "clamp(16px, 3.2vw, 18px)",
-            }}
-            title={readingMode === "horizontal" ? t('autoFlip') : t('autoScroll')}
-          >
-            ☰
-          </button>
-          <div
-            style={{
-              fontSize: "clamp(10px, 1.6vw, 12px)",
-              color: autoScroll ? "#d15158" : "#ccc",
-              marginTop: "6px",
-            }}
-          >
-            {readingMode === "horizontal" ? t('autoFlip') : t('autoScroll')}
-          </div>
-        </div>
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-          }}
-        >
-          <button
-            onClick={onAddBookmark}
-            style={{
-              background: "none",
-              border: "none",
-              boxShadow: "none",
-              borderRadius: 0,
-              outline: "none",
-              WebkitAppearance: "none",
-              appearance: "none",
-              color: "#fff",
-              cursor: "pointer",
-              fontSize: "clamp(16px, 3.2vw, 18px)",
-            }}
-            title={t('bookmark')}
-          >
-            🔖
-          </button>
-          <div
-            style={{
-              fontSize: "clamp(10px, 1.6vw, 12px)",
-              color: "#ccc",
-              marginTop: "6px",
-            }}
-          >
-            {t('bookmark')}
-          </div>
-        </div>
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-          }}
-        >
-          <button
-            onClick={onOpenMore}
-            style={{
-              background: "none",
-              border: "none",
-              boxShadow: "none",
-              borderRadius: 0,
-              outline: "none",
-              WebkitAppearance: "none",
-              appearance: "none",
-              color: "#fff",
-              cursor: "pointer",
-              fontSize: "clamp(16px, 3.2vw, 18px)",
-            }}
-            title={t('more')}
-          >
-            …
-          </button>
-          <div
-            style={{
-              fontSize: "clamp(10px, 1.6vw, 12px)",
-              color: "#ccc",
-              marginTop: "6px",
-            }}
-          >
-            {t('more')}
-          </div>
-        </div>
+        {renderChipButton("toc", t('toc'), tocOverlayOpen, <TocGlyph />, onToggleToc)}
+        {renderChipButton(
+          "mode",
+          t('readingMode'),
+          false,
+          <ModeGlyph horizontal={readingMode === "horizontal"} />,
+          onToggleMode
+        )}
+        {renderChipButton(
+          "auto",
+          readingMode === "horizontal" ? t('autoFlip') : t('autoScroll'),
+          autoScroll,
+          <AutoScrollGlyph />,
+          onToggleAutoScroll
+        )}
+        {renderChipButton("bookmark", t('bookmark'), false, <BookmarkGlyph />, onAddBookmark)}
+        {renderChipButton("more", t('more'), false, <MoreGlyph />, onOpenMore)}
       </div>
     </div>
   );

@@ -122,7 +122,7 @@ class VolumeKeyBridge: NSObject {
                 // 找到内嵌的 UISlider 并挂拦截
                 self.findAndConfigureSlider(in: volumeView)
             } else {
-                logger.error("No key window available to host MPVolumeView")
+                self.logger.error("No key window available to host MPVolumeView")
             }
 
             // 确保摄像头内容不被遮挡时也能收到按键：MPVolumeView 需要参与 hitTest
@@ -153,13 +153,13 @@ class VolumeKeyBridge: NSObject {
                 slider.isUserInteractionEnabled = true
 
                 // 触摸开始：此时 value 尚未改变，用触摸点位置判定方向
-                slider.addTarget(self, action: #selector(sliderTouchDown(_:for:)), for: .touchDown)
+                slider.addTarget(self, action: #selector(self.sliderTouchDown(_:for:)), for: .touchDown)
 
                 // 值变化：作为兜底，如果 touchDown 未判定（例如系统直接改值），可用差值判方向
-                slider.addTarget(self, action: #selector(sliderValueChanged(_:)), for: .valueChanged)
+                slider.addTarget(self, action: #selector(self.sliderValueChanged(_:)), for: .valueChanged)
             } else {
                 // 某些系统版本 slider 延迟生成，稍后重试一次
-                logger.warning("Could not find MPVolumeSlider yet; will retry")
+                self.logger.warning("Could not find MPVolumeSlider yet; will retry")
             }
         }
     }

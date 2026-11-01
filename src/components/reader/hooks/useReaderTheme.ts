@@ -43,7 +43,7 @@ export const useReaderTheme = ({
             : undefined;
 
     const handleChangeBookTheme = useCallback(
-        async (theme: "light" | "dark" | null) => {
+        async (theme: ReaderTheme | null) => {
             if (!book || isExternal) return;
             try {
                 await bookService.updateBookTheme(book.id, theme);

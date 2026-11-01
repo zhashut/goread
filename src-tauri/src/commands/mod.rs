@@ -7,6 +7,7 @@ pub mod import;
 pub mod log;
 pub mod stats;
 pub mod backup;
+pub mod webdav;
 
 // Re-export all commands
 pub use book::*;
@@ -18,3 +19,4 @@ pub use import::*;
 pub use log::*;
 pub use stats::*;
 pub use backup::*;
+pub use webdav::*;

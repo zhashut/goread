@@ -17,6 +17,10 @@ import {
 import { EpubRenderer } from "../../../services/formats/epub/EpubRenderer";
 import { TxtRenderer } from "../../../services/formats/txt/TxtRenderer";
 import { resolveLocalPathFromUri } from "../../../services/resolveLocalPath";
+import { nasOpenRemote } from "../../../services/nasService";
+import { txtPreloader, isTxtFile } from "../../../services/formats/txt/txtPreloader";
+import { loadNasConnections } from "../../../utils/nasConnections";
+import { showGlobalToast } from "../../../utils/globalToast";
 import { useAppNav } from "../../../router/useAppNav";
 import { useReaderState } from "./useReaderState";
 import { useToc } from "./useToc";
@@ -140,9 +144,40 @@ export const useBookLoader = (
                 const targetBook = books.find((b) => b.id === parseInt(params.bookId!));
 
                 if (!targetBook) {
-                    alert(tCommon("bookNotFound"));
+                    showGlobalToast(tCommon("bookNotFound"));
                     nav.toBookshelf();
                     return;
+                }
+
+                // NAS 网络书架书籍：打开前确保本地缓存文件存在
+                // 设置页「清空缓存」仅删缓存文件、书籍记录保留，直接按 file_path 加载会失败；
+                // 此处按「连接 + 远端路径」透明重建缓存（确定性路径与 file_path 一致，
+                // 阅读进度/书签不受影响；缓存命中时该调用秒回，无感知）
+                if (targetBook.source === "nas") {
+                    const conn = loadNasConnections().find(
+                        (c) => c.id === targetBook.source_conn_id
+                    );
+                    if (!conn) {
+                        showGlobalToast(tCommon("nasConnectionMissing"));
+                        nav.toBookshelf();
+                        return;
+                    }
+                    const remotePath = targetBook.source_path || "";
+                    const fileName = remotePath.split("/").filter(Boolean).pop() || "";
+                    try {
+                        const result = await nasOpenRemote(conn, remotePath, fileName);
+                        // 重下载发生后须失效 TXT 渲染缓存：NAS 缓存路径为确定性 hash，
+                        // 新内容写入同一路径，而 TXT bookId 是纯路径哈希（generateTxtBookId），
+                        // 不失效则 txtCacheService 持续命中旧章节内容，直到整页刷新才更新；
+                        // EPUB bookId 含内容指纹（size+mtime+首部哈希），自动失效无需处理
+                        if (!result.was_cached && isTxtFile(result.cache_path)) {
+                            txtPreloader.clear(result.cache_path);
+                        }
+                    } catch (e) {
+                        showGlobalToast(tCommon("nasCacheRestoreFailed", { reason: String(e) }));
+                        nav.toBookshelf();
+                        return;
+                    }
                 }
 
                 setBook(targetBook);
@@ -186,7 +221,7 @@ export const useBookLoader = (
 
                 if (!isFormatSupported(targetBook.file_path)) {
                     const format = getBookFormat(targetBook.file_path);
-                    alert(tCommon("unsupportedFormat", { format: format || "Unknown" }));
+                    showGlobalToast(tCommon("unsupportedFormat", { format: format || "Unknown" }));
                     nav.toBookshelf();
                     return;
                 }
@@ -315,7 +350,7 @@ export const useBookLoader = (
                 });
             } catch (error) {
                 await logError("加载书籍失败", { error: String(error) });
-                alert(tCommon("loadBookFailed"));
+                showGlobalToast(tCommon("loadBookFailed"));
             }
         };
 
@@ -328,7 +363,7 @@ export const useBookLoader = (
 
                 const rawPath = file.path || file.uri;
                 if (!rawPath) {
-                    alert(tCommon("operationFailed"));
+                    showGlobalToast(tCommon("operationFailed"));
                     nav.toBookshelf();
                     return;
                 }
@@ -337,14 +372,14 @@ export const useBookLoader = (
                 try {
                     filePath = await resolveLocalPathFromUri(rawPath);
                 } catch (e) {
-                    alert(tCommon("operationFailed"));
+                    showGlobalToast(tCommon("operationFailed"));
                     nav.toBookshelf();
                     return;
                 }
 
                 if (!isFormatSupported(filePath)) {
                     const format = getBookFormat(filePath);
-                    alert(tCommon("unsupportedFormat", { format: format || "Unknown" }));
+                    showGlobalToast(tCommon("unsupportedFormat", { format: format || "Unknown" }));
                     nav.toBookshelf();
                     return;
                 }
@@ -390,7 +425,7 @@ export const useBookLoader = (
                 });
             } catch (error) {
                 await logError("加载书籍失败 failed", { error: String(error) });
-                alert(tCommon("loadBookFailed"));
+                showGlobalToast(tCommon("loadBookFailed"));
             }
         };
 

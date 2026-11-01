@@ -1,5 +1,8 @@
 {
   "placeholder": "输入书名关键词...",
   "noFiles": "没有文件信息",
-  "totalBooks": "共 {{count}} 本"
+  "totalBooks": "共 {{count}} 本",
+  "nasSection": "网络书架",
+  "nasSearching": "正在搜索网络书架...",
+  "nasOpening": "正在打开..."
 }
