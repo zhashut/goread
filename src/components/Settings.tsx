@@ -836,6 +836,9 @@ export const Settings: React.FC = () => {
                 value={settings.theme || "light"}
                 options={[
                   { value: "light", label: t('theme.light') },
+                  { value: "sepia", label: t('theme.sepia') },
+                  { value: "green", label: t('theme.green') },
+                  { value: "gray", label: t('theme.gray') },
                   { value: "dark", label: t('theme.dark') },
                 ]}
                 onChange={(val) => {

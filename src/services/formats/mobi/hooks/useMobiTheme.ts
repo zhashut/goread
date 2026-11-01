@@ -26,6 +26,16 @@ export function useMobiTheme(): MobiThemeHook {
           background-color: ${bg};
           color: #5b4636;
         `;
+            case 'green':
+                return `
+          background-color: ${bg};
+          color: #33463a;
+        `;
+            case 'gray':
+                return `
+          background-color: ${bg};
+          color: #424242;
+        `;
             case 'light':
             default:
                 return `

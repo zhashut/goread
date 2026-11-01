@@ -469,7 +469,7 @@ pub async fn update_book_theme(id: i64, theme: Option<String>, db: DbState<'_>) 
     let pool = db.lock().await;
 
     if let Some(t) = theme.as_deref() {
-        if t != "light" && t != "dark" {
+        if t != "light" && t != "dark" && t != "sepia" && t != "green" && t != "gray" {
             return Err(Error::Message("Invalid theme".to_string()));
         }
     }

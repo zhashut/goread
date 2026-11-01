@@ -9,6 +9,8 @@ export const READER_PAGE_BACKGROUND: Record<ReaderTheme, string> = {
   light: "#ffffff",
   dark: "#1a1a1a",
   sepia: "#f4ecd8",
+  green: "#c7edcc",
+  gray: "#e3e3e3",
 };
 
 /**
@@ -20,6 +22,8 @@ export const READER_PAPER_SHADOW: Record<ReaderTheme, string> = {
   light: "0 4px 20px rgba(0,0,0,0.18)",
   dark: "0 0 0 1px rgba(255,255,255,0.12)",
   sepia: "0 4px 20px rgba(0,0,0,0.18)",
+  green: "0 4px 20px rgba(0,0,0,0.18)",
+  gray: "0 4px 20px rgba(0,0,0,0.18)",
 };
 
 /**
@@ -29,6 +33,8 @@ export const READER_MENU_TEXT: Record<ReaderTheme, string> = {
   light: "#333333",
   dark: "#d6d6d6",
   sepia: "#3d3427",
+  green: "#33463a",
+  gray: "#424242",
 };
 
 /**
@@ -38,6 +44,8 @@ export const READER_MENU_ICON_CHIP: Record<ReaderTheme, string> = {
   light: "#3a3a3a",
   dark: "#3d3d3d",
   sepia: "#3a3a3a",
+  green: "#3a3a3a",
+  gray: "#3a3a3a",
 };
 
 /**
@@ -47,6 +55,8 @@ export const READER_MENU_SLIDER_TRACK: Record<ReaderTheme, string> = {
   light: "#e9e9e9",
   dark: "#3d3d3d",
   sepia: "#ffffff",
+  green: "#ffffff",
+  gray: "#ffffff",
 };
 
 /**

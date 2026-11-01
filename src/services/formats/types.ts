@@ -30,7 +30,7 @@ export interface TocItem {
 export type RenderQuality = 'thumbnail' | 'standard' | 'high' | 'best';
 
 /** 阅读主题 */
-export type ReaderTheme = 'light' | 'dark' | 'sepia';
+export type ReaderTheme = 'light' | 'dark' | 'sepia' | 'green' | 'gray';
 
 /** 渲染配置 */
 export interface RenderOptions {

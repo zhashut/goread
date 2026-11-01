@@ -44,6 +44,10 @@ export function useEpubTheme(): EpubThemeHook {
       textColor = '#e0e0e0';
     } else if (theme === 'sepia') {
       textColor = '#5b4636';
+    } else if (theme === 'green') {
+      textColor = '#33463a';
+    } else if (theme === 'gray') {
+      textColor = '#424242';
     }
 
     return { bgColor, textColor };

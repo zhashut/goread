@@ -19,7 +19,7 @@ export interface IBook {
   status?: number;        // 阅读状态：0=阅读中，1=已读完
   finished_at?: number | null;   // 完成时间戳
   recent_order?: number;  // 最近阅读排序值，值越大越靠前
-  theme?: 'light' | 'dark' | null;
+  theme?: 'light' | 'dark' | 'sepia' | 'green' | 'gray' | null; // 阅读主题（按书记忆，与 services/formats/types 的 ReaderTheme 对齐）
   font_size?: number | null;
   reading_mode?: 'horizontal' | 'vertical' | null; // 阅读模式：horizontal=横向分页，vertical=纵向滚动
   page_turn_effect?: PageTurnEffect | null; // 翻页动画效果：slide=平移，cover=覆盖，none=无动画（按书记忆，仅横向模式生效）

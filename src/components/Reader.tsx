@@ -480,7 +480,11 @@ export const Reader: React.FC = () => {
   // 翻页边界判定（T31/T32 引擎共用）：
   // TXT 横向章节模式下 currentPage/totalPages 是「章级」序号，用它判页级边界会把
   // 末章内所有栏误判为书末（拖拽/点击/键盘下一页永远回弹）、首章内所有栏误判为书首；
-  // 改为查询渲染器的章内真实边界。其余格式 currentPage 为页级，维持原判定
+  // 改为查询渲染器的章内真实边界。其余格式 currentPage 为页级，维持原判定。
+  // 注意语义差异：hasNextPageInChapter 是「章内」边界，章末返回 false 是正常语义，
+  // 但引擎把 canTurn=false 理解为「书末」直接回弹——因此这里必须补上「还有相邻章节」
+  // 的判定，章末（非末章）放行交给 commitTurn：navigation.nextPage 里
+  // goToNextPageInChapter 返回 false 后自然走 goToPage 跨章（prev 对称走上一章末页）
   const canTurnPage = (direction: "next" | "prev"): boolean => {
     const renderer = rendererRef.current;
     if (
@@ -489,8 +493,10 @@ export const Reader: React.FC = () => {
       renderer.isChapterMode?.()
     ) {
       return direction === "next"
-        ? renderer.hasNextPageInChapter()
-        : renderer.hasPrevPageInChapter();
+        ? renderer.hasNextPageInChapter() ||
+            renderer.getCurrentChapterIndex() < renderer.getChapterCount() - 1
+        : renderer.hasPrevPageInChapter() ||
+            renderer.getCurrentChapterIndex() > 0;
     }
     return direction === "next"
       ? currentPage < totalPages - 0.0001
@@ -1124,6 +1130,8 @@ export const Reader: React.FC = () => {
         readingMode={readingMode}
         pageTurnEffect={pageTurnEffect}
         onSetPageTurnEffect={setPageTurnEffect}
+        theme={effectiveTheme}
+        onChangeTheme={handleChangeBookTheme}
       />
 
       {/* 全局 Toast 提示 */}

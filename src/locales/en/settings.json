@@ -49,6 +49,9 @@
   "theme": {
     "label": "Reading Theme",
     "light": "Light",
+    "sepia": "Sepia",
+    "green": "Green",
+    "gray": "Gray",
     "dark": "Dark",
     "reset": "Reset",
     "resetSuccess": "Reset Successful"
